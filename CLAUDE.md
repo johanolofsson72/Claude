@@ -23,10 +23,13 @@
 - Frågor är tillåtna BARA vid arkitekturbeslut eller kravtolkning som inte rimligt kan antas.
 - **Max 3 försök per problem** — om samma approach misslyckas 3 gånger, stanna, omvärdera och prova en helt annan strategi. Gräv inte djupare i samma hål.
 
+### Anti-stall regel
+
+Om ingen tydlig uppgift hittas — välj den mest sannolika uppgiften och agera. Stagnation betraktas som misslyckande.
+
 ### Behörigheter
 
 Följande behörigheter ska vara aktiverade:
-
 
 /permissions allow bash
 /permissions allow edit
@@ -42,10 +45,34 @@ Vid konflikter, följ denna rangordning:
 4. **Läsbarhet** — tydlig kod framför smart kod
 5. **Prestanda** — optimera bara vid behov
 
+## Kärnprinciper (icke-förhandlingsbara)
+
+Projektspecifika principer som ALDRIG får brytas. Lägg till vid behov:
+
+1. [T.ex. "All dataåtkomst MÅSTE vara tenant-scopad" (ICKE-FÖRHANDLINGSBAR)]
+2. [T.ex. "JWT-tokens MÅSTE lagras i sessionStorage, aldrig cookies" (ICKE-FÖRHANDLINGSBAR)]
+
 ## Projektbeskrivning
 
 **Projektnamn**: [Namn]
 **Syfte**: [En kort beskrivning av vad systemet gör och för vem]
+**Designdokument**: [Sökväg till grafisk profil, varumärkesriktlinjer etc., om tillämpligt]
+
+### Arkitektur
+
+```text
+[ASCII-diagram som visar systemets komponenter och hur de hänger ihop]
+
+Exempel:
+┌─────────────┐     ┌─────────────┐
+│  Frontend   │────▶│   Backend   │
+│  (Blazor)   │     │  (Web API)  │
+└─────────────┘     └──────┬──────┘
+                           │
+                    ┌──────▼──────┐
+                    │   SQLite    │
+                    └─────────────┘
+```
 
 ### Obligatoriska kataloger
 
@@ -67,12 +94,21 @@ Projekten är ofta stora fullstack-applikationer med:
 
 **Learnways-integration**: Backend i .NET + SQLite kopplas ofta till kurs- eller projektwebb byggd av [Learnways](https://learnways.com) (partner) i ren HTML, CSS och JavaScript.
 
+### Nyckelmönster
+
+Dokumentera projektets centrala mönster här så att Claude skriver idiomatisk kod:
+
+- **Autentisering**: [T.ex. JWT i sessionStorage, Identity + cookies, OAuth etc.]
+- **Databasaccess**: [T.ex. EF Core repositories, $wpdb->prepare(), direkt SQL etc.]
+- **API-mönster**: [T.ex. Minimal API med `Result<T>`, MVC controllers, REST-konventioner]
+- **Felhantering**: [T.ex. `Result<T, Exception>`, ProblemDetails, try-catch-mönster]
+- **State management**: [T.ex. Blazor cascading parameters, Redux, server-sessions]
+
 ## Språk
 
 - Kommunicera alltid på **svenska** i konversationer och commit-meddelanden.
 - Kod, variabelnamn och tekniska termer skrivs på **engelska**.
 - Kommentarer i kod skrivs på **engelska**.
-
 
 ## Teknikstack
 
@@ -82,6 +118,23 @@ Primära tekniker:
 - **SQLite** som databas (om inget annat anges)
 - **WordPress** (PHP, teman, plugins)
 - **HTML, CSS, JavaScript, jQuery** (frontend)
+
+## Lokal utvecklingsmiljö
+
+**Startkommando:**
+
+```bash
+# [Projektspecifikt startkommando, t.ex. dotnet run --project src/AppHost]
+```
+
+**URL:er:**
+
+- Frontend: [URL, t.ex. https://localhost:5001]
+- Admin: [URL, om tillämpligt]
+
+**Kända workarounds:**
+
+- [Eventuella problem med IPv6, minne, portar, certifikat etc.]
 
 ## Arbetsflöde
 
@@ -125,7 +178,8 @@ Säg **aldrig** att något är "implementerat" eller "klart" förrän:
 
 1. Alla **enhetstester** passerar (`dotnet test`).
 2. Alla **E2E-tester i Playwright** passerar (`dotnet test --filter "Category=UI"`).
-3. Koden bedöms fungera till **100%**.
+3. För webbprojekt: **visuellt verifierad** i webbläsaren — sidan laddas utan fel och funktionaliteten fungerar som förväntat.
+4. Koden bedöms fungera till **100%**.
 
 Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
 
@@ -144,6 +198,7 @@ Om projektet använder ett spec-kit eller liknande:
 - Prioritera spec-kitets arbetsmodell i första hand.
 - Alla implementationer utgår från specifikationen.
 - Avvikelser kräver explicit godkännande.
+- Standarduppgift: [T.ex. "Hitta högst numrerade ofullständiga spec och implementera den."]
 
 ### Frontend design skill (BLOCKERANDE KRAV)
 
@@ -189,6 +244,9 @@ Om samma misstag upprepas, föreslå en ny regel för CLAUDE.md som förhindrar 
 - **`var` i JavaScript** — använd `const`/`let`.
 - **Business-logik i UI** — håll UI tunt, logik i services.
 - **`#region` i C#** — aldrig.
+- **Modifiering av framework/CMS-core** — använd extensions, hooks, child themes eller överlagring. Aldrig ändra core-filer.
+- **Inline styles** — använd CSS-filer eller CSS-klasser, aldrig `style="..."` i HTML.
+- **`eval()` eller `extract()`** — aldrig, varken i PHP eller JavaScript.
 - **UI-kod utan `frontend-design` skill** — anropa ALLTID skillen innan du skriver HTML/CSS/JS med visuell påverkan.
 
 ## Kommandon
