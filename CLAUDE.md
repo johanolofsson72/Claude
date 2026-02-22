@@ -2,12 +2,12 @@
 
 ## Kritiska regler (LÄS FÖRST)
 
-- **NEVER** gissa på orsaker utan bevis från kodbasen — läs alltid koden först.
-- **NEVER** säg att något är "klart" utan att ALLA tester passerar och koden verifierats.
-- **NEVER** kopiera hela filer — använd Edit-verktyget för kirurgiska ändringar.
-- **NEVER** skriv eller ändra UI-kod (HTML, CSS, JS, design, layout, utseende, färger, typografi) utan att FÖRST anropa `frontend-design`-skillen via Skill-verktyget. Detta är ett BLOCKERANDE KRAV.
+- **ALWAYS** läs koden först — basera ALLA slutsatser på bevis från kodbasen, inte antaganden.
+- **ALWAYS** verifiera med `dotnet build` och `dotnet test` innan du säger att något är "klart".
+- **ALWAYS** använd Edit-verktyget för kirurgiska ändringar — kopiera aldrig hela filer.
+- **ALWAYS** anropa `frontend-design`-skillen via Skill-verktyget INNAN du skriver UI-kod (HTML, CSS, JS, design, layout, utseende). Detta är ett **BLOCKERANDE KRAV**.
+- **ALWAYS** kör genererad text genom `humanizer`-skillen via Skill-verktyget INNAN leverans till människor (dokumentation, commit-meddelanden, PR-beskrivningar, mejl, README). Detta är ett **BLOCKERANDE KRAV**.
 - **ALWAYS** följ befintliga mönster i kodbasen — titta på liknande komponenter först.
-- **ALWAYS** kör `dotnet build` och `dotnet test` efter implementation.
 
 ## Exekveringsläge
 
@@ -27,14 +27,6 @@ Om ingen tydlig uppgift hittas — välj den mest sannolika uppgiften och agera.
 
 För större features: intervjua utvecklaren med `AskUserQuestion` innan implementation. Fråga om teknisk implementation, edge cases och tradeoffs. Skriv sedan en spec innan kodning börjar.
 
-### Behörigheter
-
-```text
-/permissions allow bash
-/permissions allow edit
-/permissions allow mcp
-```
-
 ## Prioritetsordning
 
 1. **Säkerhet** — aldrig kompromissa
@@ -43,21 +35,11 @@ För större features: intervjua utvecklaren med `AskUserQuestion` innan impleme
 4. **Läsbarhet** — tydlig kod framför smart kod
 5. **Prestanda** — optimera bara vid behov
 
-## Kärnprinciper (icke-förhandlingsbara)
-
-Projektspecifika principer som ALDRIG får brytas. Ersätt platshållarna nedan med faktiska regler vid projektstart:
-
-1. <!-- ERSÄTT: t.ex. "All dataåtkomst MÅSTE vara tenant-scopad" (ICKE-FÖRHANDLINGSBAR) -->
-2. <!-- ERSÄTT: t.ex. "JWT-tokens MÅSTE lagras i sessionStorage, aldrig cookies" (ICKE-FÖRHANDLINGSBAR) -->
-
 ## Projektbeskrivning
 
-<!-- ERSÄTT platshållarna nedan vid projektstart -->
-**Projektnamn**: [ERSÄTT med projektnamn]
-**Syfte**: [ERSÄTT med kort beskrivning av vad systemet gör och för vem]
-**Designdokument**: [ERSÄTT med sökväg till grafisk profil, eller ta bort raden]
+Detta är ett **mallrepo för Claude Code-konfiguration** — en återanvändbar uppsättning regler, agents, hooks och skills för .NET/fullstack-projekt. Repot kopieras som utgångspunkt vid nya projektstart.
 
-> Fyll i arkitektur, kataloger, nyckelmönster och lokal dev-miljö enligt @.claude/docs/project-template.md
+> **Vid projektstart:** Fyll i kärnprinciper, arkitektur och dev-miljö i @.claude/docs/project-template.md
 
 ## Språk
 
@@ -74,14 +56,7 @@ Projektspecifika principer som ALDRIG får brytas. Ersätt platshållarna nedan 
 
 ## CI/CD och deployment
 
-Alla projekt driftas på Docker Swarm-klustret live4.se (Azure). Fullständig CI/CD-dokumentation: @.claude/docs/deployment.md
-
-Kort sammanfattning:
-
-- **Kluster**: 1 manager + 3 workers, privat registry `10.2.0.4:5000`
-- **Pipeline**: GitHub Actions → Docker build → SCP till manager → `docker stack deploy`
-- **Storage**: NFS på `/mnt/nfs/[projektnamn]/`
-- **Deploy-trigger**: `workflow_dispatch` med `confirm_deploy: "deploy"`
+Docker Swarm-kluster på Azure (live4.se). För IP-adresser, pipeline, kommandon och checklista, se @.claude/docs/deployment.md
 
 ## Arbetsflöde
 
@@ -122,12 +97,18 @@ Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
 
 - Vid kompaktering: bevara ALLTID modifierade filer, felmeddelanden ordagrant, felsökningssteg och testkommandon.
 - Använd subagenter för utforskning och research — håll huvudkontexten ren.
-- Använd `/clear` mellan orelaterade uppgifter.
+- Använd `/clear` mellan orelaterade uppgifter — blanda aldrig orelaterade uppgifter i samma session.
 - Använd `/compact <fokus>` för kontrollerad komprimering, t.ex. `/compact Fokusera på API-ändringarna`.
+- Bryt ner stora uppgifter i diskreta deluppgifter — begär aldrig 5+ features i ett steg.
+- Efter 2 misslyckade rättningar av samma problem: `/clear` och skriv en bättre prompt från början.
 
 ## Frontend design skill (BLOCKERANDE KRAV)
 
 > **CRITICAL — BLOCKING REQUIREMENT:** Innan du skriver EN ENDA RAD UI-kod MÅSTE du anropa `frontend-design`-skillen via Skill-verktyget. Oavsett omfattning — en knapp, en färg, en margin. Triggerord och detaljer: @.claude/docs/workflows.md
+
+## Humanizer skill (BLOCKERANDE KRAV)
+
+> **CRITICAL — BLOCKING REQUIREMENT:** ALL genererad text som riktas till människor MÅSTE köras genom `humanizer`-skillen via Skill-verktyget innan leverans. Detta gäller 100% av texten — commit-meddelanden, PR-beskrivningar, dokumentation, README, mejl, artiklar, kommentarer. Enda undantaget är kod och tekniska loggar. Detaljer: @.claude/docs/workflows.md
 
 ## Kommandon
 
@@ -145,23 +126,19 @@ dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"  # Enskil
 - **Fail fast** — tydliga felmeddelanden med kontext. Aldrig tysta fallbacks.
 - **DX** — kod ska vara läsbar utan kommentarer. Bra namngivning räcker oftast.
 
-## Skräddarsy för ditt projekt
+## Referensfiler (laddas vid behov)
 
-> **VIKTIGT:** Repository-specifik anpassning ger dubbelt så stor förbättring som generella regler (källa: Arize ML-forskning). Fyll i alla `[platshållare]` i denna fil med projektspecifik information. Ju mer konkret — desto bättre resultat.
+Läs dessa filer NÄR du behöver dem — ladda inte allt i förväg:
 
-## Detaljerade referensfiler
-
-Följande filer innehåller detaljerad information och laddas vid behov:
-
-- Projektmall (arkitektur, kataloger, dev-miljö): @.claude/docs/project-template.md
-- Kodstil, filstruktur, databas och förbjudna impl.: @.claude/docs/conventions.md
-- Säkerhet: @.claude/docs/security.md
-- Git-konventioner: @.claude/docs/git.md
-- Arbetsflöden, hooks, subagenter, plugins, sessions-tips: @.claude/docs/workflows.md
-- Agentmallar (.NET): @.claude/docs/agents-templates.md
-- Skills och plugins-installation: @.claude/docs/skills.md
-- Testkonventioner: @.claude/docs/testing.md
-- CI/CD och deployment: @.claude/docs/deployment.md
+- **Ny projektstart** eller arkitekturfrågor → `.claude/docs/project-template.md`
+- **Kodstil, namngivning, förbjudna mönster** → `.claude/docs/conventions.md`
+- **Säkerhetsfrågor** (SQL injection, XSS, secrets) → `.claude/docs/security.md`
+- **Git commit/branch/PR** → `.claude/docs/git.md`
+- **Hooks, subagenter, plugins, sessions** → `.claude/docs/workflows.md`
+- **Skapa nya agenter** → `.claude/docs/agents-templates.md`
+- **Installera skills/plugins** → `.claude/docs/skills.md`
+- **Tester (xUnit, Playwright)** → `.claude/docs/testing.md`
+- **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
 
 ## Filorganisation
 
@@ -169,7 +146,9 @@ Följande filer innehåller detaljerad information och laddas vid behov:
 - **`.claude/rules/`** — regler som auto-laddas varje session. Flytta hit kritiska regler som alltid ska gälla. Stödjer path-scoping med YAML-frontmatter.
 - **`CLAUDE.local.md`** — personliga projektinställningar som inte committas (auto-gitignored). Lägg t.ex. lokala URL:er och sandbox-inställningar här.
 
-## Övrigt
+## Iterativ förbättring
 
+- Om samma misstag upprepas: föreslå en ny regel för CLAUDE.md eller en hook som förhindrar det.
+- Varje kodgranskningskommentar är en signal att agenten saknade kontext — uppdatera CLAUDE.md.
 - Redigera befintliga filer framför att skapa nya.
 - Håll denna fil fokuserad — om en instruktion kan tas bort utan att Claude gör fel, ta bort den.

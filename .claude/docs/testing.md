@@ -23,8 +23,11 @@
 
 ```bash
 pwsh bin/Debug/net*/playwright.ps1 install
+```
 
-Köra tester
+## Köra tester
+
+```bash
 # Enhetstester
 dotnet test
 
@@ -33,9 +36,12 @@ dotnet test --filter "Category=UI"
 
 # Enskilt test (snabbare feedback)
 dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"
+```
 
-Verifieringsordning
+## Verifieringsordning
+
 Innan något deklareras som "klart":
-dotnet build — inga kompileringsfel
-dotnet test — alla enhetstester passerar
-dotnet test --filter "Category=UI" — alla E2E-tester passerar
+
+1. `dotnet build` — inga kompileringsfel
+2. `dotnet test` — alla enhetstester passerar
+3. `dotnet test --filter "Category=UI"` — alla E2E-tester passerar

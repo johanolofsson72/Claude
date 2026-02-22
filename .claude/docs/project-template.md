@@ -1,13 +1,26 @@
 # Projektmall
 
-Mall för projektspecifika sektioner i CLAUDE.md. Fyll i vid projektstart.
+Mall för projektspecifika sektioner. **VIKTIGT:** Fyll i ALLA sektioner nedan vid projektstart — repo-specifik anpassning ger 2x bättre resultat (källa: Arize ML).
+
+## Kärnprinciper (icke-förhandlingsbara)
+
+Projektspecifika principer som ALDRIG får brytas:
+
+1. [FYLL I: t.ex. "All dataåtkomst MÅSTE vara tenant-scopad"]
+2. [FYLL I: t.ex. "JWT-tokens MÅSTE lagras i sessionStorage, aldrig cookies"]
+
+## Projektbeskrivning
+
+**Projektnamn**: [FYLL I]
+**Syfte**: [FYLL I: kort beskrivning av vad systemet gör och för vem]
+**Designdokument**: [FYLL I: sökväg till grafisk profil, eller ta bort raden]
 
 ## Arkitektur
 
 Beskriv systemets komponenter med ett ASCII-diagram:
 
 ```text
-[ASCII-diagram som visar systemets komponenter och hur de hänger ihop]
+[FYLL I: ASCII-diagram]
 
 Exempel:
 ┌─────────────┐     ┌─────────────┐
@@ -40,25 +53,26 @@ Projekten är ofta stora fullstack-applikationer med frontend, backend, database
 
 Dokumentera projektets centrala mönster så att Claude skriver idiomatisk kod:
 
-- **Autentisering**: [T.ex. JWT i sessionStorage, Identity + cookies, OAuth]
-- **Databasaccess**: [T.ex. EF Core repositories, `$wpdb->prepare()`, direkt SQL]
-- **API-mönster**: [T.ex. Minimal API med `Result<T>`, MVC controllers]
-- **Felhantering**: [T.ex. `Result<T, Exception>`, ProblemDetails]
-- **State management**: [T.ex. Blazor cascading parameters, Redux]
+- **Autentisering**: [FYLL I: t.ex. JWT i sessionStorage, Identity + cookies, OAuth]
+- **Databasaccess**: [FYLL I: t.ex. EF Core repositories, `$wpdb->prepare()`, direkt SQL]
+- **API-mönster**: [FYLL I: t.ex. Minimal API med `Result<T>`, MVC controllers]
+- **Felhantering**: [FYLL I: t.ex. `Result<T, Exception>`, ProblemDetails]
+- **State management**: [FYLL I: t.ex. Blazor cascading parameters, Redux]
+- **Domäntermer**: [FYLL I: affärstermer och akronymer som används i kodbasen]
 
 ## Lokal utvecklingsmiljö
 
 **Startkommando:**
 
 ```bash
-# [Projektspecifikt startkommando, t.ex. dotnet run --project src/AppHost]
+# [FYLL I: t.ex. dotnet run --project src/AppHost]
 ```
 
 **URL:er:**
 
-- Frontend: [URL, t.ex. https://localhost:5001]
-- Admin: [URL, om tillämpligt]
+- Frontend: [FYLL I: t.ex. https://localhost:5001]
+- Admin: [FYLL I: om tillämpligt]
 
 **Kända workarounds:**
 
-- [Eventuella problem med IPv6, minne, portar, certifikat etc.]
+- [FYLL I: eventuella problem med IPv6, minne, portar, certifikat etc.]

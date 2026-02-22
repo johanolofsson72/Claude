@@ -13,11 +13,11 @@
 - File-scoped namespaces (`namespace X;` istället för `namespace X { }`).
 - Primary constructors där det passar (t.ex. services med dependency injection).
 - Expression-bodied members för enkla implementationer.
-- Undvik `#region` — använd aldrig.
+- Strukturera med klasser och metoder — använd aldrig `#region`.
 
 ## JavaScript / jQuery
 
-- Använd `const` och `let`, aldrig `var`.
+- Använd `const` och `let` — aldrig `var`.
 - Camelcase för variabler och funktioner.
 - Föredra moderna DOM-API:er när jQuery inte redan används i filen.
 - Strikt likhet (`===`) alltid.
@@ -27,11 +27,12 @@
 - Semantisk HTML5.
 - BEM-namngivning för CSS-klasser när det passar.
 - Mobile-first responsiv design.
+- Använd CSS-klasser — aldrig inline `style="..."`.
 
 ## WordPress
 
 - Följ [WordPress Coding Standards](https://developer.wordpress.org/coding-standards/).
-- Undvik att modifiera core-filer. Använd child themes och hooks.
+- Använd child themes och hooks — modifiera aldrig core-filer.
 
 ## Allmänna principer
 
@@ -40,6 +41,7 @@
 - Håll metoder korta och fokuserade — en metod gör en sak.
 - Föredra explicit framför implicit.
 - Felmeddelanden ska vara tydliga och handlingsbara.
+- Håll UI tunt — all business-logik i services.
 
 ## Filstruktur
 
@@ -54,11 +56,3 @@
 - Code-first med migrations.
 - Inkludera inte `.db`-filen i git.
 - Seed-data via migrations eller separat seed-metod.
-
-## Förbjudna implementationer
-
-- **`var` i JavaScript** — använd `const`/`let`.
-- **Business-logik i UI** — håll UI tunt, logik i services.
-- **`#region` i C#** — aldrig.
-- **Modifiering av framework/CMS-core** — använd extensions, hooks, child themes eller överlagring.
-- **UI-kod utan `frontend-design` skill** — anropa ALLTID skillen först.

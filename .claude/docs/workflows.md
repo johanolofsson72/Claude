@@ -24,6 +24,31 @@ Om projektet använder ett spec-kit eller liknande:
 2. **FÖRST:** Anropa `Skill`-verktyget med `skill: "frontend-design"`
 3. **SEDAN:** Följ instruktionerna från skillen för implementation
 
+## Humanizer skill — detaljer
+
+**CRITICAL — BLOCKERANDE KRAV:** 100% av all genererad text som riktas till människor MÅSTE köras genom `humanizer`-skillen innan leverans.
+
+**Gäller för:**
+
+- Commit-meddelanden och PR-beskrivningar
+- Dokumentation, README-filer, CHANGELOG
+- Mejl, artiklar, blogginlägg
+- Kommentarer på issues/PRs
+- All löpande text som levereras till användaren
+
+**Gäller INTE för:**
+
+- Kod (variabler, funktioner, klasser)
+- Tekniska loggar och felmeddelanden
+- JSON, YAML, konfigurationsfiler
+- Inline-kommentarer i kod (engelska, tekniska)
+
+**Korrekt ordning:**
+
+1. Generera texten
+2. **FÖRST:** Anropa `Skill`-verktyget med `skill: "humanizer"`
+3. **SEDAN:** Leverera den humaniserade texten
+
 ## Plugins
 
 Plugins buntar skills, agents, hooks, MCP-servrar och LSP-servrar i ett distribuerbart paket. Installeras med `/plugin install`.
@@ -33,25 +58,9 @@ Plugins buntar skills, agents, hooks, MCP-servrar och LSP-servrar i ett distribu
 - **Skill** = en SKILL.md-fil med instruktioner (körs i huvudkontexten)
 - **Plugin** = ett paket som kan innehålla skills + agents + hooks + MCP + LSP
 
-### LSP-plugins (Code Intelligence)
+### LSP-plugins och installation
 
-LSP-plugins ger Claude kodnavigering på ~50ms istället för ~45s textsök. **Installera alltid relevanta LSP-plugins för projektets språk.**
-
-| Språk | Plugin | Binär | Installera binär |
-| --- | --- | --- | --- |
-| **C#** | `csharp-lsp` | `csharp-ls` | `dotnet tool install --global csharp-ls` |
-| **TypeScript** | `typescript-lsp` | `typescript-language-server` | `npm i -g typescript-language-server typescript` |
-| PHP | `php-lsp` | `intelephense` | `npm i -g intelephense` |
-
-**Installation:**
-
-```bash
-# 1. Installera binären först
-dotnet tool install --global csharp-ls
-
-# 2. Sedan plugin
-/plugin install csharp-lsp@claude-plugins-official
-```
+Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installationskommandon.
 
 ### Vanliga plugins
 

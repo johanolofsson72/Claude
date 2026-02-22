@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=\"$CLAUDE_FILE_PATH\"; if [ -n \"$file\" ] && echo \"$file\" | grep -qE '\\.(cs|csproj)$'; then echo 'Reminder: run dotnet build to verify compilation'; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "prompt",
+        "description": "Verify that all generated text for humans has been run through the humanizer skill",
+        "prompt": "Check if the agent generated any text intended for humans (commit messages, PR descriptions, documentation, README, emails, articles, comments). If so, verify that the humanizer skill was invoked. If humanizer was not used for human-facing text, respond NO. If no human-facing text was generated, or humanizer was properly used, respond YES."
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=\"$CLAUDE_BASH_COMMAND\"; if echo \"$cmd\" | grep -qE 'rm\\s+-rf|git\\s+push\\s+--force|git\\s+reset\\s+--hard|git\\s+clean\\s+-f'; then echo 'BLOCK: Destructive command detected. Ask user for confirmation first.' >&2; exit 1; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
