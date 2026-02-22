@@ -1,0 +1,5 @@
+.DS_Store
+*.db
+temp/
+.env
+appsettings.Development.json

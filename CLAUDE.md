@@ -1,0 +1,204 @@
+# CLAUDE.md
+
+## Kritiska regler (LÄS FÖRST)
+
+- **NEVER** gissa på orsaker utan bevis från kodbasen — läs alltid koden först.
+- **NEVER** säg att något är "klart" utan att ALLA tester (enhet + E2E/Playwright) passerar.
+- **NEVER** kopiera hela filer — använd Edit-verktyget för kirurgiska ändringar.
+- **ALWAYS** läs befintliga filer innan du föreslår förändringar.
+- **ALWAYS** kör `dotnet build` och `dotnet test` efter implementation.
+- **ALWAYS** följ befintliga mönster i kodbasen — titta på liknande komponenter först.
+- **ALWAYS** använd `frontend-design`-skillen för ALL UI-relaterad kod (HTML, CSS, JS, design).
+
+## Exekveringsläge
+
+### Autonomt läge (NON-INTERACTIVE)
+
+- Agera direkt utan att vänta på bekräftelse.
+- Fråga INTE om lov att skapa filer, redigera kod eller köra kommandon.
+- Saknad information är inte ett hinder — gör rimliga antaganden och fortsätt.
+- Fel ska hanteras och fixas självständigt.
+- Fortsätt tills uppgiften är helt slutförd.
+- Stagnation är värre än att agera på ofullständig information.
+- Frågor är tillåtna BARA vid arkitekturbeslut eller kravtolkning som inte rimligt kan antas.
+- **Max 3 försök per problem** — om samma approach misslyckas 3 gånger, stanna, omvärdera och prova en helt annan strategi. Gräv inte djupare i samma hål.
+
+### Behörigheter
+
+Följande behörigheter ska vara aktiverade:
+
+
+/permissions allow bash
+/permissions allow edit
+/permissions allow mcp
+
+## Prioritetsordning
+
+Vid konflikter, följ denna rangordning:
+
+1. **Säkerhet** — aldrig kompromissa
+2. **Korrekthet** — koden ska göra rätt sak
+3. **Enkelhet** — minsta möjliga komplexitet
+4. **Läsbarhet** — tydlig kod framför smart kod
+5. **Prestanda** — optimera bara vid behov
+
+## Projektbeskrivning
+
+**Projektnamn**: [Namn]
+**Syfte**: [En kort beskrivning av vad systemet gör och för vem]
+
+### Obligatoriska kataloger
+
+Följande kataloger ska **alltid** skapas i nya projekt:
+
+- `src/` — all källkod
+- `tests/` — alla tester
+- `legacy/` — gamla filer och kod som fasas ut
+- `artifacts/` — build-output, rapporter och genererade filer
+- `temp/` — temporära filer (ska ligga i `.gitignore`)
+
+### Typiska projektprofiler
+
+Projekten är ofta stora fullstack-applikationer med:
+
+- Frontend, backend, databaser, autentisering
+- Domändriven affärslogik (DDD-mönster)
+- .NET backend + SQLite, kopplad till kurs-/projektwebb
+
+**Learnways-integration**: Backend i .NET + SQLite kopplas ofta till kurs- eller projektwebb byggd av [Learnways](https://learnways.com) (partner) i ren HTML, CSS och JavaScript.
+
+## Språk
+
+- Kommunicera alltid på **svenska** i konversationer och commit-meddelanden.
+- Kod, variabelnamn och tekniska termer skrivs på **engelska**.
+- Kommentarer i kod skrivs på **engelska**.
+
+
+## Teknikstack
+
+Primära tekniker:
+
+- **.NET** (Blazor, MVC, Razor Pages, Web API) — senaste stabila versionen
+- **SQLite** som databas (om inget annat anges)
+- **WordPress** (PHP, teman, plugins)
+- **HTML, CSS, JavaScript, jQuery** (frontend)
+
+## Arbetsflöde
+
+### Komplexitetsbedömning
+
+Innan start, klassificera uppgiften:
+
+- **Trivial** (en fil, uppenbar fix) → exekvera direkt
+- **Medel** (2–5 filer, tydligt scope) → kort planering, sedan exekvera
+- **Komplex** (arkitekturpåverkan, oklara krav) → fullständig utforskning och plan först
+
+### Planera → Implementera → Verifiera
+
+1. **Utforska** — läs befintlig kod, förstå mönster och beroenden.
+2. **Planera** — vid medel/komplex: skriv plan innan implementation.
+3. **Implementera** — skriv kod enligt planen. Följ befintliga mönster.
+4. **Verifiera** — kör alla tester, typechecka, bekräfta att allt fungerar.
+
+### Thinking triggers
+
+För komplexa uppgifter, använd utökat resonemang:
+
+- `think` → ~4 000 tokens tankebudget
+- `think hard` → ~10 000 tokens
+- `ultrathink` → ~32 000 tokens (rekommenderas för arkitekturbeslut och svår felsökning)
+
+## Verifiering och grundning
+
+> Att ge Claude sätt att verifiera sitt eget arbete är den enskilt viktigaste åtgärden för kvalitet. — Anthropic Best Practices
+
+- **IMPORTANT:** Läs ALLTID relevanta filer INNAN du svarar om kodbasen. Gissa ALDRIG.
+- Om du är osäker — säg det istället för att gissa.
+- Kör tester efter varje implementation.
+- Vid nya komponenter: titta på befintliga liknande komponenter först och följ mönstret.
+- Typechecka efter kodändringar (`dotnet build`).
+- Kör enskilda tester framför hela sviten för snabbare feedback.
+
+### Definition av "implementerat"
+
+Säg **aldrig** att något är "implementerat" eller "klart" förrän:
+
+1. Alla **enhetstester** passerar (`dotnet test`).
+2. Alla **E2E-tester i Playwright** passerar (`dotnet test --filter "Category=UI"`).
+3. Koden bedöms fungera till **100%**.
+
+Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
+
+## Kontexthantering
+
+- Vid kompaktering: bevara ALLTID listan över modifierade filer, felmeddelanden ordagrant, felsökningssteg som tagits, och alla testkommandon.
+- Använd subagenter för utforskning och research — håll huvudkontexten ren.
+- Använd `/clear` mellan orelaterade uppgifter.
+
+## Interaktionsregler
+
+### Spec-driven arbetsmodell
+
+Om projektet använder ett spec-kit eller liknande:
+
+- Prioritera spec-kitets arbetsmodell i första hand.
+- Alla implementationer utgår från specifikationen.
+- Avvikelser kräver explicit godkännande.
+
+### Frontend design skill
+
+Allt UI-relaterat (HTML, CSS, JS, design) — oavsett omfattning (en knapp, en rubrik, en färgändring) — ska **alltid** hanteras med `frontend-design`-skillen. Ingen UI-ändring utan denna skill.
+
+### Iterativ förbättring
+
+Om samma misstag upprepas, föreslå en ny regel för CLAUDE.md som förhindrar det.
+
+## Säkerhet
+
+- Parametriserade queries alltid — aldrig string concatenation för SQL.
+- Sanera all användarinput (XSS-skydd).
+- HTTPS, CSRF-skydd, CORS-konfiguration.
+- Hemligheter i `appsettings.json` (lokalt) / miljövariabler (produktion) — **aldrig i kod**.
+- Committa inte `.env`, `appsettings.Development.json` eller liknande.
+- Alla API-endpoints kräver autentisering om inget annat anges.
+
+## Förbjudna implementationer
+
+- **String concatenation i SQL** — använd parametriserade queries.
+- **Hemligheter i kod** — inga API-nycklar, lösenord eller tokens.
+- **`var` i JavaScript** — använd `const`/`let`.
+- **Business-logik i UI** — håll UI tunt, logik i services.
+- **`#region` i C#** — aldrig.
+
+## Kommandon
+
+```bash
+dotnet build                           # Bygg projektet
+dotnet test                            # Kör enhetstester
+dotnet run --project src/<ProjektNamn> # Kör applikationen
+dotnet test --filter "Category=UI"     # Playwright E2E-tester
+
+Filstruktur
+Separera concerns: Models, Views, Controllers, Services.
+Delade komponenter i Shared/ eller Components/.
+Statiska assets alltid i assets/ i projektroten.
+I .NET-projekt: wwwroot/ för webbspecifika filer.
+Databas (SQLite)
+Entity Framework Core med SQLite-provider.
+Code-first med migrations.
+Inkludera inte .db-filen i git.
+Seed-data via migrations eller separat seed-metod.
+Principer
+YAGNI — bygg bara det som behövs nu. Tre liknande rader > prematur abstraktion.
+Robusthet — validera indata vid systemgränser. Intern kod behöver inte defensiv validering.
+Fail fast — tydliga felmeddelanden med kontext. Aldrig tysta fallbacks som döljer buggar.
+DX — kod ska vara läsbar utan kommentarer. Bra namngivning räcker oftast.
+Detaljerade referensfiler
+Följande filer innehåller detaljerad information och laddas vid behov:
+Kodstil och konventioner: @.claude/docs/conventions.md
+Git-konventioner: @.claude/docs/git.md
+Skills-installation: @.claude/docs/skills.md
+Testkonventioner: @.claude/docs/testing.md
+Övrigt
+Redigera befintliga filer framför att skapa nya.
+Håll denna fil fokuserad — om en instruktion kan tas bort utan att Claude gör fel, ta bort den.
