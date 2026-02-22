@@ -11,8 +11,8 @@ Steg-för-steg-guide för att använda detta mallrepo i ett nytt eller befintlig
 Kör följande från ditt nya projekts rotkatalog:
 
 ```bash
-# Sökväg till mallrepot (ändra om du lagt det någon annanstans)
-MALL=~/repos/Claude
+# Sökväg till mallrepot
+MALL=/Users/jool/repos/Claude
 
 # Skapa katalogstrukturen
 mkdir -p .claude/docs .claude/agents .claude/rules
@@ -104,7 +104,7 @@ Kopiera sedan in mallfilerna och slå ihop det befintliga innehållet med det ny
 Om du bara vill lägga till det som saknas:
 
 ```bash
-MALL=~/repos/Claude
+MALL=/Users/jool/repos/Claude
 
 # 1. Hooks (om .claude/settings.json saknas)
 cp "$MALL/.claude/settings.json" .claude/settings.json
@@ -129,7 +129,7 @@ cp "$MALL/.claude/docs/"*.md .claude/docs/
 Starta en Claude Code-session i projektet och skriv:
 
 ```
-Uppdatera claude.md med mallfilerna från ~/repos/Claude.
+Uppdatera claude.md med mallfilerna från /Users/jool/repos/Claude.
 Kopiera in hooks, rules, agents och docs.
 Fyll i projektnamn: [DITT PROJEKTNAMN]
 Fyll i syfte: [VAD PROJEKTET GÖR]
