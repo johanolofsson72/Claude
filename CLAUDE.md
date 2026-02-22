@@ -148,8 +148,6 @@ Alla projekt driftas på ett Docker Swarm-kluster på Azure:
 | live4-wkr-01   | 51.12.246.201  | 10.2.0.5  | Worker  |
 | live4-wkr-02   | 51.12.247.158  | 10.2.0.6  | Worker  |
 | live4-wkr-03   | 51.12.247.189  | 10.2.0.7  | Worker  |
-| live4-wkr-04   | 20.240.160.138 | 10.2.0.8  | Worker  |
-| live4-wkr-05   | 20.240.160.144 | 10.2.0.9  | Worker  |
 
 **SSH-åtkomst:**
 
