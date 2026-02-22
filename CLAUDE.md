@@ -8,7 +8,7 @@
 - **ALWAYS** läs befintliga filer innan du föreslår förändringar.
 - **ALWAYS** kör `dotnet build` och `dotnet test` efter implementation.
 - **ALWAYS** följ befintliga mönster i kodbasen — titta på liknande komponenter först.
-- **ALWAYS** använd `frontend-design`-skillen för ALL UI-relaterad kod (HTML, CSS, JS, design).
+- **NEVER** skriv eller ändra UI-kod (HTML, CSS, JS, design, layout, utseende, färger, typografi) utan att FÖRST anropa `frontend-design`-skillen via Skill-verktyget. Detta är ett BLOCKERANDE KRAV — ingen UI-ändring utan skill-anrop.
 
 ## Exekveringsläge
 
@@ -145,9 +145,29 @@ Om projektet använder ett spec-kit eller liknande:
 - Alla implementationer utgår från specifikationen.
 - Avvikelser kräver explicit godkännande.
 
-### Frontend design skill
+### Frontend design skill (BLOCKERANDE KRAV)
 
-Allt UI-relaterat (HTML, CSS, JS, design) — oavsett omfattning (en knapp, en rubrik, en färgändring) — ska **alltid** hanteras med `frontend-design`-skillen. Ingen UI-ändring utan denna skill.
+> **CRITICAL — BLOCKING REQUIREMENT:** Innan du skriver EN ENDA RAD UI-kod (HTML, CSS, JS, layout, design, styling) MÅSTE du anropa `frontend-design`-skillen via Skill-verktyget. Det spelar ingen roll hur liten ändringen är — en knapp, en färg, en rubrik, en margin, en font-storlek — skillen ska ALLTID anropas FÖRST.
+
+**Triggerord som kräver frontend-design skill:**
+
+- Design, utseende, layout, styling, CSS, färg, font, typografi
+- Knapp, formulär, navbar, footer, header, sidebar, modal, kort/card
+- Responsivt, mobil, dark mode, tema, animation
+- "Snyggare", "finare", "modernare", "proffsigare", "bättre utseende"
+- Alla HTML-element med visuell påverkan
+
+**Korrekt ordning:**
+
+1. Användaren frågar om något UI-relaterat
+2. **FÖRST:** Anropa `Skill`-verktyget med `skill: "frontend-design"`
+3. **SEDAN:** Följ instruktionerna från skillen för implementation
+
+**ALDRIG:**
+
+- Skriv UI-kod direkt utan skill-anrop
+- Svara med designförslag utan att först ladda skillen
+- Gör "snabba" CSS-fixar utan skillen — det finns inga undantag
 
 ### Iterativ förbättring
 
@@ -169,6 +189,7 @@ Om samma misstag upprepas, föreslå en ny regel för CLAUDE.md som förhindrar 
 - **`var` i JavaScript** — använd `const`/`let`.
 - **Business-logik i UI** — håll UI tunt, logik i services.
 - **`#region` i C#** — aldrig.
+- **UI-kod utan `frontend-design` skill** — anropa ALLTID skillen innan du skriver HTML/CSS/JS med visuell påverkan.
 
 ## Kommandon
 
