@@ -42,3 +42,22 @@ for skill in "${!SKILL_REPOS[@]}"; do
   fi
 done
 ```
+
+## Rekommenderade plugins
+
+Installera LSP-plugins för kodnavigering (~50ms istället för ~45s textsök). Kör dessa kommandon vid projektstart:
+
+```bash
+# .NET-projekt — installera C# LSP
+dotnet tool install --global csharp-ls 2>/dev/null || true
+claude --print-only 2>/dev/null || /plugin install csharp-lsp@claude-plugins-official 2>/dev/null || true
+
+# Om projektet har TypeScript/JavaScript
+npm i -g typescript-language-server typescript 2>/dev/null || true
+claude --print-only 2>/dev/null || /plugin install typescript-lsp@claude-plugins-official 2>/dev/null || true
+
+# GitHub-integration
+claude --print-only 2>/dev/null || /plugin install github@claude-plugins-official 2>/dev/null || true
+```
+
+Se @.claude/docs/workflows.md för fullständig plugin-dokumentation.

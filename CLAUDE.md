@@ -157,8 +157,9 @@ Följande filer innehåller detaljerad information och laddas vid behov:
 - Kodstil, filstruktur, databas och förbjudna impl.: @.claude/docs/conventions.md
 - Säkerhet: @.claude/docs/security.md
 - Git-konventioner: @.claude/docs/git.md
-- Arbetsflöden, hooks, subagenter, sessions-tips: @.claude/docs/workflows.md
-- Skills-installation: @.claude/docs/skills.md
+- Arbetsflöden, hooks, subagenter, plugins, sessions-tips: @.claude/docs/workflows.md
+- Agentmallar (.NET): @.claude/docs/agents-templates.md
+- Skills och plugins-installation: @.claude/docs/skills.md
 - Testkonventioner: @.claude/docs/testing.md
 - CI/CD och deployment: @.claude/docs/deployment.md
 
