@@ -17,7 +17,7 @@
 - Saknad information är inte ett hinder — gör rimliga antaganden och fortsätt.
 - Fel ska hanteras och fixas självständigt.
 - Frågor är tillåtna BARA vid arkitekturbeslut eller kravtolkning som inte rimligt kan antas.
-- **Max 3 försök per problem** — om samma approach misslyckas 3 gånger, prova en helt annan strategi.
+- **Max 3 försök per problem** — om samma approach misslyckas 3 gånger, kör `/clear` och prova en helt annan strategi med en bättre prompt.
 
 ### Anti-stall regel
 
@@ -94,9 +94,10 @@ Kort sammanfattning:
 ### Planera → Implementera → Verifiera
 
 1. **Utforska** — läs befintlig kod, förstå mönster och beroenden.
-2. **Planera** — vid medel/komplex: skriv plan innan implementation.
-3. **Implementera** — skriv kod enligt planen. Följ befintliga mönster.
+2. **Planera** — vid medel/komplex: använd Plan Mode (Shift+Tab) för att skriva plan innan implementation.
+3. **Implementera** — växla till Normal Mode, skriv kod enligt planen. Följ befintliga mönster.
 4. **Verifiera** — kör alla tester, typechecka, bekräfta att allt fungerar.
+5. **Committa** — commit med beskrivande meddelande enligt @.claude/docs/git.md
 
 ## Verifiering och grundning
 

@@ -101,6 +101,15 @@ Du är en senior säkerhetsingenjör. Granska koden för...
 - `/rename` — ge sessionen beskrivande namn för enkel återfinnbarhet
 - `/compact <instruktioner>` — kontrollerad komprimering med fokusområde, t.ex. `/compact Fokusera på API-ändringarna`
 
+## Auto memory (MEMORY.md)
+
+Claude sparar automatiskt användbara insikter till `~/.claude/projects/<projekt>/memory/MEMORY.md`. De första 200 raderna laddas i varje session.
+
+- Säg "kom ihåg att vi använder X" för att spara specifik information
+- Använd `/memory` för att öppna och redigera minnesfiler i editorn
+- Skapa ämnesfiler (t.ex. `debugging.md`, `api-conventions.md`) för detaljer och länka från MEMORY.md
+- Spara bara verifierade mönster — inte spekulationer eller sessionspecifik kontext
+
 ## Iterativ förbättring
 
 Om samma misstag upprepas, föreslå en ny regel för CLAUDE.md eller en hook som förhindrar det.
