@@ -236,6 +236,35 @@ docker service rollback [projektnamn]_[service]          # Rollback
 docker stack rm [projektnamn]                            # Ta bort stack
 ```
 
+### Nytt projekt — serverförberedelser
+
+När CI/CD sätts upp för ett nytt projekt, informera utvecklaren om att följande måste skapas på servern:
+
+**NFS-kataloger (på manager-noden):**
+
+```bash
+sudo mkdir -p /mnt/nfs/[projektnamn]
+sudo mkdir -p /mnt/nfs/[projektnamn]/seed-data
+sudo mkdir -p /mnt/nfs/[projektnamn]/temp
+sudo mkdir -p /mnt/nfs/[projektnamn]/tenants    # Om multi-tenant
+sudo chmod -R 777 /mnt/nfs/[projektnamn]
+```
+
+**Projektfiler som måste skapas:**
+
+- `deploy/docker-compose-stack-[projektnamn].yml` — Docker Swarm stack-definition
+- `deploy/deploy_[projektnamn].sh` — Deploy-script med image-placeholder-ersättning och email-notifikation
+- `deploy/update-seed-data.sql` — SQL för initial seed-data (om tillämpligt)
+- `.github/workflows/deploy-[projektnamn].yml` — GitHub Actions workflow
+- `src/[Service]/Dockerfile` — Multi-stage Dockerfile per service
+- `.dockerignore` — Exkludera `.git/`, `bin/`, `obj/`, `*.db`, `tests/` etc.
+- `src/[Service]/appsettings.Production.json` — Produktionskonfiguration med `/data/`-sökvägar
+
+**GitHub repo-settings:**
+
+- Lägg till secret `LIVE4_SSH_KEY` (SSH-nyckel för manager-noden)
+- Lägg till secrets för email-notifikationer (`MAILJET_APIKEY`, `MAILJET_SECRET`)
+
 ### Deployment-checklista
 
 1. Alla tester passerar lokalt
