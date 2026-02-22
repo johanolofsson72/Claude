@@ -1,9 +1,3 @@
-
----
-
-## .claude/docs/conventions.md
-
-```markdown
 # Kodstil och konventioner
 
 ## C# / .NET
@@ -46,3 +40,25 @@
 - Håll metoder korta och fokuserade — en metod gör en sak.
 - Föredra explicit framför implicit.
 - Felmeddelanden ska vara tydliga och handlingsbara.
+
+## Filstruktur
+
+- Separera concerns: Models, Views, Controllers, Services.
+- Delade komponenter i `Shared/` eller `Components/`.
+- I .NET-projekt: `wwwroot/` för webbspecifika filer.
+- Statiska assets alltid i `assets/` i projektroten.
+
+## Databas (SQLite)
+
+- Entity Framework Core med SQLite-provider.
+- Code-first med migrations.
+- Inkludera inte `.db`-filen i git.
+- Seed-data via migrations eller separat seed-metod.
+
+## Förbjudna implementationer
+
+- **`var` i JavaScript** — använd `const`/`let`.
+- **Business-logik i UI** — håll UI tunt, logik i services.
+- **`#region` i C#** — aldrig.
+- **Modifiering av framework/CMS-core** — använd extensions, hooks, child themes eller överlagring.
+- **UI-kod utan `frontend-design` skill** — anropa ALLTID skillen först.

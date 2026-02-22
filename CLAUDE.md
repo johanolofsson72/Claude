@@ -54,47 +54,9 @@ Projektspecifika principer som ALDRIG får brytas. Lägg till vid behov:
 
 **Projektnamn**: [Namn]
 **Syfte**: [En kort beskrivning av vad systemet gör och för vem]
-**Designdokument**: [Sökväg till grafisk profil, varumärkesriktlinjer etc., om tillämpligt]
+**Designdokument**: [Sökväg till grafisk profil, om tillämpligt]
 
-### Arkitektur
-
-```text
-[ASCII-diagram som visar systemets komponenter och hur de hänger ihop]
-
-Exempel:
-┌─────────────┐     ┌─────────────┐
-│  Frontend   │────▶│   Backend   │
-│  (Blazor)   │     │  (Web API)  │
-└─────────────┘     └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │   SQLite    │
-                    └─────────────┘
-```
-
-### Obligatoriska kataloger
-
-- `src/` — all källkod
-- `tests/` — alla tester
-- `legacy/` — gamla filer och kod som fasas ut
-- `artifacts/` — build-output, rapporter och genererade filer
-- `temp/` — temporära filer (ska ligga i `.gitignore`)
-
-### Typiska projektprofiler
-
-Projekten är ofta stora fullstack-applikationer med frontend, backend, databaser och autentisering. .NET backend + SQLite, ofta kopplad till kurs-/projektwebb.
-
-**Learnways-integration**: Backend kopplas ofta till webbplats byggd av [Learnways](https://learnways.com) (partner) i ren HTML, CSS och JavaScript.
-
-### Nyckelmönster
-
-Dokumentera projektets centrala mönster så att Claude skriver idiomatisk kod:
-
-- **Autentisering**: [T.ex. JWT i sessionStorage, Identity + cookies, OAuth]
-- **Databasaccess**: [T.ex. EF Core repositories, `$wpdb->prepare()`, direkt SQL]
-- **API-mönster**: [T.ex. Minimal API med `Result<T>`, MVC controllers]
-- **Felhantering**: [T.ex. `Result<T, Exception>`, ProblemDetails]
-- **State management**: [T.ex. Blazor cascading parameters, Redux]
+> Fyll i arkitektur, kataloger, nyckelmönster och lokal dev-miljö enligt @.claude/docs/project-template.md
 
 ## Språk
 
@@ -108,23 +70,6 @@ Dokumentera projektets centrala mönster så att Claude skriver idiomatisk kod:
 - **SQLite** som databas (om inget annat anges)
 - **WordPress** (PHP, teman, plugins)
 - **HTML, CSS, JavaScript, jQuery** (frontend)
-
-## Lokal utvecklingsmiljö
-
-**Startkommando:**
-
-```bash
-# [Projektspecifikt startkommando, t.ex. dotnet run --project src/AppHost]
-```
-
-**URL:er:**
-
-- Frontend: [URL, t.ex. https://localhost:5001]
-- Admin: [URL, om tillämpligt]
-
-**Kända workarounds:**
-
-- [Eventuella problem med IPv6, minne, portar, certifikat etc.]
 
 ## CI/CD och deployment
 
@@ -152,12 +97,6 @@ Kort sammanfattning:
 3. **Implementera** — skriv kod enligt planen. Följ befintliga mönster.
 4. **Verifiera** — kör alla tester, typechecka, bekräfta att allt fungerar.
 
-### Thinking triggers
-
-- `think` → ~4 000 tokens tankebudget
-- `think hard` → ~10 000 tokens
-- `ultrathink` → ~32 000 tokens (rekommenderas för arkitekturbeslut och svår felsökning)
-
 ## Verifiering och grundning
 
 > Att ge Claude sätt att verifiera sitt eget arbete är den enskilt viktigaste åtgärden för kvalitet. — Anthropic Best Practices
@@ -182,78 +121,11 @@ Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
 - Vid kompaktering: bevara ALLTID modifierade filer, felmeddelanden ordagrant, felsökningssteg och testkommandon.
 - Använd subagenter för utforskning och research — håll huvudkontexten ren.
 - Använd `/clear` mellan orelaterade uppgifter.
+- Använd `/compact <fokus>` för kontrollerad komprimering, t.ex. `/compact Fokusera på API-ändringarna`.
 
-### Sessions-hantering
+## Frontend design skill (BLOCKERANDE KRAV)
 
-- `claude --continue` — återuppta senaste sessionen
-- `claude --resume` — välj bland tidigare sessioner
-- `/rewind` eller `Esc+Esc` — gå tillbaka till tidigare checkpoint
-- `/rename` — ge sessionen beskrivande namn för enkel återfinnbarhet
-
-## Interaktionsregler
-
-### Spec-driven arbetsmodell
-
-Om projektet använder ett spec-kit eller liknande:
-
-- Prioritera spec-kitets arbetsmodell i första hand.
-- Alla implementationer utgår från specifikationen.
-- Avvikelser kräver explicit godkännande.
-- Standarduppgift: [T.ex. "Hitta högst numrerade ofullständiga spec och implementera den."]
-
-### Frontend design skill (BLOCKERANDE KRAV)
-
-> **CRITICAL — BLOCKING REQUIREMENT:** Innan du skriver EN ENDA RAD UI-kod (HTML, CSS, JS, layout, design, styling) MÅSTE du anropa `frontend-design`-skillen via Skill-verktyget. Det spelar ingen roll hur liten ändringen är — en knapp, en färg, en rubrik, en margin, en font-storlek — skillen ska ALLTID anropas FÖRST.
-
-**Triggerord som kräver frontend-design skill:**
-
-- Design, utseende, layout, styling, CSS, färg, font, typografi
-- Knapp, formulär, navbar, footer, header, sidebar, modal, kort/card
-- Responsivt, mobil, dark mode, tema, animation
-- "Snyggare", "finare", "modernare", "proffsigare", "bättre utseende"
-
-**Korrekt ordning:**
-
-1. Användaren frågar om något UI-relaterat
-2. **FÖRST:** Anropa `Skill`-verktyget med `skill: "frontend-design"`
-3. **SEDAN:** Följ instruktionerna från skillen för implementation
-
-### Hooks (deterministiska regler)
-
-Överväg Claude Code hooks (`.claude/settings.json`) för regler som MÅSTE efterlevas utan undantag. Till skillnad från CLAUDE.md-instruktioner som är rådgivande är hooks deterministiska och garanterade. Exempel:
-
-- Post-edit hook: kör linter efter varje filändring
-- Pre-commit hook: kör `dotnet build` innan commit
-- Blockerings-hook: förhindra skrivning till skyddade kataloger
-
-### Subagenter
-
-Skapa dedikerade subagenter i `.claude/agents/` för isolerade uppgifter som inte ska fylla huvudkontexten. Subagenter körs i egna kontextfönster och rapporterar tillbaka sammanfattningar.
-
-### Iterativ förbättring
-
-Om samma misstag upprepas, föreslå en ny regel för CLAUDE.md eller en hook som förhindrar det.
-
-## Säkerhet
-
-- Parametriserade queries alltid — aldrig string concatenation för SQL.
-- Sanera all användarinput (XSS-skydd).
-- HTTPS, CSRF-skydd, CORS-konfiguration.
-- Hemligheter i `appsettings.json` (lokalt) / miljövariabler (produktion) — **aldrig i kod**.
-- Committa inte `.env`, `appsettings.Development.json` eller liknande.
-- Alla API-endpoints kräver autentisering om inget annat anges.
-
-## Förbjudna implementationer
-
-- **String concatenation i SQL** — använd parametriserade queries.
-- **Hemligheter i kod** — inga API-nycklar, lösenord eller tokens.
-- **`var` i JavaScript** — använd `const`/`let`.
-- **Business-logik i UI** — håll UI tunt, logik i services.
-- **`#region` i C#** — aldrig.
-- **Modifiering av framework/CMS-core** — använd extensions, hooks, child themes eller överlagring.
-- **Inline styles** — använd CSS-filer eller CSS-klasser, aldrig `style="..."` i HTML.
-- **`eval()` eller `extract()`** — aldrig, varken i PHP eller JavaScript.
-- **UI-kod utan `frontend-design` skill** — anropa ALLTID skillen först.
+> **CRITICAL — BLOCKING REQUIREMENT:** Innan du skriver EN ENDA RAD UI-kod MÅSTE du anropa `frontend-design`-skillen via Skill-verktyget. Oavsett omfattning — en knapp, en färg, en margin. Triggerord och detaljer: @.claude/docs/workflows.md
 
 ## Kommandon
 
@@ -265,31 +137,25 @@ dotnet test --filter "Category=UI"     # Playwright E2E-tester
 dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"  # Enskilt test
 ```
 
-## Filstruktur
-
-- Separera concerns: Models, Views, Controllers, Services.
-- Delade komponenter i `Shared/` eller `Components/`.
-- I .NET-projekt: `wwwroot/` för webbspecifika filer.
-
-## Databas (SQLite)
-
-- Entity Framework Core med SQLite-provider.
-- Code-first med migrations.
-- Inkludera inte `.db`-filen i git.
-- Seed-data via migrations eller separat seed-metod.
-
 ## Principer
 
 - **YAGNI** — bygg bara det som behövs nu. Tre liknande rader > prematur abstraktion.
 - **Fail fast** — tydliga felmeddelanden med kontext. Aldrig tysta fallbacks.
 - **DX** — kod ska vara läsbar utan kommentarer. Bra namngivning räcker oftast.
 
+## Skräddarsy för ditt projekt
+
+> **VIKTIGT:** Repository-specifik anpassning ger dubbelt så stor förbättring som generella regler (källa: Arize ML-forskning). Fyll i alla `[platshållare]` i denna fil med projektspecifik information. Ju mer konkret — desto bättre resultat.
+
 ## Detaljerade referensfiler
 
 Följande filer innehåller detaljerad information och laddas vid behov:
 
-- Kodstil och konventioner: @.claude/docs/conventions.md
+- Projektmall (arkitektur, kataloger, dev-miljö): @.claude/docs/project-template.md
+- Kodstil, filstruktur, databas och förbjudna impl.: @.claude/docs/conventions.md
+- Säkerhet: @.claude/docs/security.md
 - Git-konventioner: @.claude/docs/git.md
+- Arbetsflöden, hooks, subagenter, sessions-tips: @.claude/docs/workflows.md
 - Skills-installation: @.claude/docs/skills.md
 - Testkonventioner: @.claude/docs/testing.md
 - CI/CD och deployment: @.claude/docs/deployment.md
