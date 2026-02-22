@@ -45,16 +45,17 @@ För större features: intervjua utvecklaren med `AskUserQuestion` innan impleme
 
 ## Kärnprinciper (icke-förhandlingsbara)
 
-Projektspecifika principer som ALDRIG får brytas. Lägg till vid behov:
+Projektspecifika principer som ALDRIG får brytas. Ersätt platshållarna nedan med faktiska regler vid projektstart:
 
-1. [T.ex. "All dataåtkomst MÅSTE vara tenant-scopad" (ICKE-FÖRHANDLINGSBAR)]
-2. [T.ex. "JWT-tokens MÅSTE lagras i sessionStorage, aldrig cookies" (ICKE-FÖRHANDLINGSBAR)]
+1. <!-- ERSÄTT: t.ex. "All dataåtkomst MÅSTE vara tenant-scopad" (ICKE-FÖRHANDLINGSBAR) -->
+2. <!-- ERSÄTT: t.ex. "JWT-tokens MÅSTE lagras i sessionStorage, aldrig cookies" (ICKE-FÖRHANDLINGSBAR) -->
 
 ## Projektbeskrivning
 
-**Projektnamn**: [Namn]
-**Syfte**: [En kort beskrivning av vad systemet gör och för vem]
-**Designdokument**: [Sökväg till grafisk profil, om tillämpligt]
+<!-- ERSÄTT platshållarna nedan vid projektstart -->
+**Projektnamn**: [ERSÄTT med projektnamn]
+**Syfte**: [ERSÄTT med kort beskrivning av vad systemet gör och för vem]
+**Designdokument**: [ERSÄTT med sökväg till grafisk profil, eller ta bort raden]
 
 > Fyll i arkitektur, kataloger, nyckelmönster och lokal dev-miljö enligt @.claude/docs/project-template.md
 
@@ -159,6 +160,12 @@ Följande filer innehåller detaljerad information och laddas vid behov:
 - Skills-installation: @.claude/docs/skills.md
 - Testkonventioner: @.claude/docs/testing.md
 - CI/CD och deployment: @.claude/docs/deployment.md
+
+## Filorganisation
+
+- **`.claude/docs/`** — referensmaterial som laddas vid behov via `@`-import (deployment, projektmallar).
+- **`.claude/rules/`** — regler som auto-laddas varje session. Flytta hit kritiska regler som alltid ska gälla. Stödjer path-scoping med YAML-frontmatter.
+- **`CLAUDE.local.md`** — personliga projektinställningar som inte committas (auto-gitignored). Lägg t.ex. lokala URL:er och sandbox-inställningar här.
 
 ## Övrigt
 
