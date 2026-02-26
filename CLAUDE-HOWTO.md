@@ -129,7 +129,7 @@ cp "$MALL/.claude/docs/"*.md .claude/docs/
 Starta en Claude Code-session i projektet och skriv:
 
 ```
-Uppdatera claude.md med mallfilerna från /Users/jool/repos/Claude.
+Uppdatera eller skapa claude.md med mallfilerna från /Users/jool/repos/Claude.
 Kopiera in hooks, rules, agents och docs.
 Fyll i projektnamn: [DITT PROJEKTNAMN]
 Fyll i syfte: [VAD PROJEKTET GÖR]
