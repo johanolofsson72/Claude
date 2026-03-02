@@ -95,7 +95,7 @@ Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
 
 ## Kontexthantering
 
-- Vid kompaktering: bevara ALLTID modifierade filer, felmeddelanden ordagrant, felsökningssteg och testkommandon.
+- Vid kompaktering: bevara ALLTID modifierade filer, felmeddelanden ordagrant, felsökningssteg och testkommandon. Komprimerings-instruktion: `"When compacting, always preserve the full list of modified files and any test commands"`.
 - Använd subagenter för utforskning och research — håll huvudkontexten ren.
 - Använd `/clear` mellan orelaterade uppgifter — blanda aldrig orelaterade uppgifter i samma session.
 - Använd `/compact <fokus>` för kontrollerad komprimering, t.ex. `/compact Fokusera på API-ändringarna`.

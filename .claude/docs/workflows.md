@@ -91,57 +91,146 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 
 Överväg Claude Code hooks (`.claude/settings.json`) för regler som MÅSTE efterlevas utan undantag. Till skillnad från CLAUDE.md-instruktioner som är rådgivande är hooks deterministiska och garanterade.
 
-**Hooktyper:**
+### Hook-events (16 st)
 
 | Hook-event | När det utlöses |
 | --- | --- |
-| `PreToolUse` | Innan ett verktygsanrop — kan blockera |
-| `PostToolUse` | Efter ett verktygsanrop lyckas |
-| `Stop` | När Claude slutar svara |
-| `SessionStart` | När session startar eller återvänder |
-| `SubagentStart/Stop` | När en subagent startas/stoppas |
-| `PreCompact` | Innan kontextkomprimering |
-| `TaskCompleted` | När en uppgift markeras som klar |
+| `SessionStart` | Session startar eller återupptas |
+| `SessionEnd` | Session avslutas. Matcher: `clear`, `logout`, `prompt_input_exit`, `other` |
+| `UserPromptSubmit` | Användaren skickar en prompt — kan blockera eller injicera kontext |
+| `PreToolUse` | Innan ett verktygsanrop — kan blockera eller modifiera input |
+| `PermissionRequest` | Behörighetsdialog visas — kan auto-godkänna eller neka |
+| `PostToolUse` | Efter ett lyckat verktygsanrop |
+| `PostToolUseFailure` | Efter ett misslyckat verktygsanrop — kan ge korrigerande feedback |
+| `Notification` | Notifikationer (`permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`) |
+| `SubagentStart` | En subagent startas |
+| `SubagentStop` | En subagent avslutas |
+| `Stop` | Claude slutar svara — kan tvinga fortsättning |
+| `TeammateIdle` | Agent team-medlem ska gå idle — kan tvinga fortsättning |
+| `TaskCompleted` | En uppgift markeras som klar — kan blockera om kvalitetsvillkor inte uppfylls |
+| `PreCompact` | Innan kontextkomprimering — bra för transkript-backup |
+| `ConfigChange` | Konfigurationsfil ändras under session — kan blockera ändringen |
+| `WorktreeCreate` / `WorktreeRemove` | Worktree skapas eller tas bort |
 
-**Tre typer av hooks:**
+### Fyra typer av hooks
 
-- `command` — kör shell-kommando (standard)
-- `prompt` — envägs-evaluering med Claude (Haiku), returnerar ja/nej
-- `agent` — flervägs-verifiering med verktygsåtkomst (kan läsa filer, köra kommandon)
+- `command` — kör shell-kommando. Tar emot JSON via stdin, returnerar JSON via stdout. Stöder `"async": true` för bakgrundskörning
+- `http` — skickar JSON som HTTP POST till en URL. Konfigureras med `url`, `headers`, `allowedEnvVars`
+- `prompt` — envägs-evaluering med Claude (Haiku), returnerar `{ "ok": true/false, "reason": "..." }`
+- `agent` — flervägs-verifiering med verktygsåtkomst (Read, Grep, Glob), upp till 50 varv
 
-**Vanliga automatiseringar:**
+### Blockering och kontroll
+
+Hooks blockerar via:
+
+- **Command:** exit code `2` = blockera (OBS: `exit 1` blockerar INTE, det är bara ett fel)
+- **Command:** JSON-output med `"permissionDecision": "deny"` = blockera
+- **Prompt/Agent:** `{ "ok": false, "reason": "..." }` = blockera
+- **Permissions.deny** i settings.json = deterministisk blockering utan hook (rekommenderat för fasta regler)
+
+### Async hooks (bakgrundskörning)
+
+Sätt `"async": true` på command-hooks för att köra dem i bakgrunden utan att blockera Claude. Resultatet levereras på nästa konversationstur via `systemMessage`.
+
+```json
+{
+  "matcher": "Edit|Write",
+  "hooks": [{
+    "type": "command",
+    "command": "dotnet build 2>&1 | tail -5",
+    "async": true,
+    "timeout": 60
+  }]
+}
+```
+
+**Begränsningar:** Async hooks kan inte blockera, bara `type: "command"` stöds, och output levereras först vid nästa tur.
+
+### JSON-output från hooks
+
+| Fält | Beskrivning |
+| --- | --- |
+| `systemMessage` | Varningsmeddelande till användaren |
+| `additionalContext` | Extra kontext för Claude |
+| `continue` | `false` = stoppa Claude helt |
+| `stopReason` | Meddelande vid `continue: false` |
+| `suppressOutput` | Dölj stdout från verbose mode |
+| `updatedInput` | Modifiera verktygets input (PreToolUse, PermissionRequest) |
+| `updatedMCPToolOutput` | Ersätt MCP-verktygets output (PostToolUse) |
+
+### Miljövariabler i hooks
+
+| Variabel | Beskrivning |
+| --- | --- |
+| `$CLAUDE_PROJECT_DIR` | Projektets rotkatalog — använd i stället för relativa sökvägar |
+| `$CLAUDE_ENV_FILE` | Sökväg där SessionStart-hooks kan skriva `export`-satser |
+| `$CLAUDE_CODE_REMOTE` | `"true"` i fjärr-/webb-miljöer |
+| `${CLAUDE_PLUGIN_ROOT}` | Pluginens rotkatalog |
+
+### Vanliga automatiseringar
 
 - Post-edit hook: kör linter efter varje filändring
 - Pre-commit hook: kör `dotnet build` innan commit
-- Blockerings-hook: förhindra skrivning till skyddade kataloger
+- Blockerings-hook: `permissions.deny` i settings.json (föredra detta framför hooks)
 - Stop-hook (agent): verifiera att tester passerar innan Claude stannar
+- Async post-edit: kör tester i bakgrunden medan Claude fortsätter arbeta
 
-**Exempel — Stop-hook för testverifiering:**
+### Exempel — Stop-hook för testverifiering
 
 ```json
 {
   "hooks": {
-    "Stop": [{
-      "type": "agent",
-      "description": "Verify tests pass before stopping",
-      "hook": "Kontrollera att dotnet build och dotnet test passerar."
-    }]
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "Kontrollera att dotnet build och dotnet test passerar.",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
-**Exempel — Återinför kontext efter kompaktering:**
+### Exempel — Återinför kontext efter kompaktering
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{
-      "matcher": "compact",
-      "hooks": [{
-        "type": "command",
-        "command": "echo 'Påminnelse: använd dotnet, kör dotnet test innan commit.'"
-      }]
-    }]
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Påminnelse: använd dotnet, kör dotnet test innan commit.\"}'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Exempel — HTTP-hook för Slack-notifikation
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+            "headers": { "Content-Type": "application/json" }
+          }
+        ]
+      }
+    ]
   }
 }
 ```
@@ -158,16 +247,18 @@ Skapa via `/agents`-kommandot eller manuellt som markdown-filer.
 ---
 name: agent-name              # Krävs. Gemener och bindestreck
 description: When to use      # Krävs. Claude använder detta för delegering
-tools: Read, Grep, Glob       # Valfritt. Allowlist för verktyg
+tools: Read, Grep, Glob       # Valfritt. Allowlist för verktyg (Agent(type) begränsar subagenter)
 disallowedTools: Write, Edit  # Valfritt. Denylist
 model: sonnet                 # Valfritt. sonnet|opus|haiku (default: inherit)
-permissionMode: default       # Valfritt. default|acceptEdits|dontAsk|plan
+permissionMode: default       # Valfritt. default|acceptEdits|dontAsk|plan|bypassPermissions
 maxTurns: 20                  # Valfritt. Max antal agentvarv
 memory: project               # Valfritt. user|project|local (bestående minne)
 isolation: worktree           # Valfritt. Kör i isolerad git worktree
 background: false             # Valfritt. true = kör i bakgrunden
 skills:                       # Valfritt. Skills att ladda in i kontexten
   - api-conventions
+mcpServers:                   # Valfritt. MCP-servrar tillgängliga för agenten
+  - server-name
 hooks:                        # Valfritt. Hooks scopade till denna agent
   PostToolUse:
     - matcher: "Edit|Write"
@@ -188,11 +279,12 @@ Systemprompt börjar här. Agenten får BARA detta prompt.
 | `tools` | Allowlist. Utelämnad = ärver alla verktyg |
 | `disallowedTools` | Denylist. Tas bort från ärvda verktyg |
 | `model` | `opus` (mest kapabel), `sonnet` (balans), `haiku` (snabbast/billigast) |
-| `permissionMode` | `acceptEdits` auto-godkänner filändringar, `plan` = bara läsning |
+| `permissionMode` | `acceptEdits` auto-godkänner filändringar, `plan` = bara läsning, `bypassPermissions` = hoppa över alla |
 | `memory` | `user` = alla projekt, `project` = delbart via git, `local` = bara du |
 | `isolation` | `worktree` = isolerad git-kopia, städas automatiskt |
 | `background` | Kör medan du fortsätter arbeta. MCP-verktyg ej tillgängliga |
 | `skills` | Hela skill-innehållet injiceras vid start. Ärvs INTE från föräldern |
+| `mcpServers` | MCP-servrar tillgängliga för agenten. Servernamn eller inline-definition |
 
 ### Placering
 
