@@ -4,6 +4,13 @@ description: Expert .NET code reviewer. Use proactively after code changes to ch
 tools: Read, Grep, Glob, Bash
 model: sonnet
 memory: project
+isolation: worktree
+hooks:
+  PostToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "echo '{\"additionalContext\": \"Focus on .cs file changes only. Ignore generated files and migrations.\"}'"
 ---
 
 You are a senior .NET developer reviewing code changes.

@@ -4,6 +4,7 @@ description: Security-focused code reviewer. Use proactively to scan for vulnera
 tools: Read, Grep, Glob
 model: sonnet
 memory: project
+isolation: worktree
 ---
 
 You are a security specialist reviewing code for vulnerabilities.

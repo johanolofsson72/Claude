@@ -49,13 +49,42 @@ Om projektet använder ett spec-kit eller liknande:
 2. **FÖRST:** Anropa `Skill`-verktyget med `skill: "humanizer"`
 3. **SEDAN:** Leverera den humaniserade texten
 
+## Skills
+
+Skills är instruktionsfiler (SKILL.md) med YAML-frontmatter som ger Claude specialiserade förmågor. Claude Code följer Agent Skills-standarden (agentskills.io).
+
+### Nyckelkoncept
+
+- **`context: fork`** — kör skillen i isolerad subagent, håller huvudkontexten ren
+- **`disable-model-invocation: true`** — bara användaren kan anropa (för deploy, commit, farliga operationer)
+- **`user-invocable: false`** — bakgrundskunskap, gömd från /-menyn
+- **`allowed-tools`** — verktyg utan behörighetsprompt inom skillen
+- **`${CLAUDE_SKILL_DIR}`** — referera filer relativt till skillens mapp
+- **`hooks`** — hooks scopade till skillens livscykel (istället för globala settings.json)
+
+### Skillnad: Skills vs Commands
+
+Slash commands (`.claude/commands/`) och skills (`.claude/skills/`) har slagits ihop sedan v2.1.3. Båda skapar `/slash-commands` och fungerar identiskt. Skills rekommenderas då de stödjer fler funktioner.
+
+### Inbyggda skills (levereras med Claude Code)
+
+| Skill | Beskrivning |
+| --- | --- |
+| `/simplify` | Granskar ändrade filer med 3 parallella agenter (återanvändning, kvalitet, effektivitet) |
+| `/batch <instruktion>` | Orkestrerar storskaliga ändringar parallellt i isolerade git worktrees |
+| `/loop [intervall] <prompt>` | Kör prompt upprepade gånger på ett intervall |
+| `/debug [beskrivning]` | Felsökning av aktuell session |
+| `/claude-api` | Laddar Claude API-referens för ditt projektspråk |
+
+Se `.claude/docs/skills.md` för fullständig skills-referens.
+
 ## Plugins
 
 Plugins buntar skills, agents, hooks, MCP-servrar och LSP-servrar i ett distribuerbart paket. Installeras med `/plugin install`.
 
 **Skillnad mot skills:**
 
-- **Skill** = en SKILL.md-fil med instruktioner (körs i huvudkontexten)
+- **Skill** = en SKILL.md-fil med instruktioner (körs i huvudkontexten eller forkad)
 - **Plugin** = ett paket som kan innehålla skills + agents + hooks + MCP + LSP
 
 ### LSP-plugins och installation
@@ -91,11 +120,11 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 
 Överväg Claude Code hooks (`.claude/settings.json`) för regler som MÅSTE efterlevas utan undantag. Till skillnad från CLAUDE.md-instruktioner som är rådgivande är hooks deterministiska och garanterade.
 
-### Hook-events (16 st)
+### Hook-events (18 st)
 
 | Hook-event | När det utlöses |
 | --- | --- |
-| `SessionStart` | Session startar eller återupptas |
+| `SessionStart` | Session startar eller återupptas. Matcher: `compact`, `resume`, `new` |
 | `SessionEnd` | Session avslutas. Matcher: `clear`, `logout`, `prompt_input_exit`, `other` |
 | `UserPromptSubmit` | Användaren skickar en prompt — kan blockera eller injicera kontext |
 | `PreToolUse` | Innan ett verktygsanrop — kan blockera eller modifiera input |
@@ -108,9 +137,11 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 | `Stop` | Claude slutar svara — kan tvinga fortsättning |
 | `TeammateIdle` | Agent team-medlem ska gå idle — kan tvinga fortsättning |
 | `TaskCompleted` | En uppgift markeras som klar — kan blockera om kvalitetsvillkor inte uppfylls |
-| `PreCompact` | Innan kontextkomprimering — bra för transkript-backup |
+| `PreCompact` | Innan kontextkomprimering — bra för att bevara kritisk kontext |
 | `ConfigChange` | Konfigurationsfil ändras under session — kan blockera ändringen |
-| `WorktreeCreate` / `WorktreeRemove` | Worktree skapas eller tas bort |
+| `InstructionsLoaded` | Instruktioner (CLAUDE.md, skills) laddas — kan injicera extra kontext |
+| `WorktreeCreate` | Git worktree skapas |
+| `WorktreeRemove` | Git worktree tas bort |
 
 ### Fyra typer av hooks
 
@@ -118,6 +149,24 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 - `http` — skickar JSON som HTTP POST till en URL. Konfigureras med `url`, `headers`, `allowedEnvVars`
 - `prompt` — envägs-evaluering med Claude (Haiku), returnerar `{ "ok": true/false, "reason": "..." }`
 - `agent` — flervägs-verifiering med verktygsåtkomst (Read, Grep, Glob), upp till 50 varv
+
+### Hooks i skills och agenter
+
+Sedan v2.1.0 kan hooks definieras direkt i SKILL.md och agent-frontmatter, scopade till komponentens livscykel:
+
+```yaml
+---
+name: my-skill
+hooks:
+  PostToolUse:
+    - matcher: "Edit|Write"
+      hooks:
+        - type: command
+          command: "./scripts/lint.sh"
+---
+```
+
+Fördel: hooks följer skillen/agenten istället för att ligga centralt i settings.json.
 
 ### Blockering och kontroll
 
@@ -162,7 +211,7 @@ Sätt `"async": true` på command-hooks för att köra dem i bakgrunden utan att
 
 | Variabel | Beskrivning |
 | --- | --- |
-| `$CLAUDE_PROJECT_DIR` | Projektets rotkatalog — använd i stället för relativa sökvägar |
+| `$CLAUDE_PROJECT_DIR` | Projektets rotkatalog |
 | `$CLAUDE_ENV_FILE` | Sökväg där SessionStart-hooks kan skriva `export`-satser |
 | `$CLAUDE_CODE_REMOTE` | `"true"` i fjärr-/webb-miljöer |
 | `${CLAUDE_PLUGIN_ROOT}` | Pluginens rotkatalog |
@@ -174,66 +223,7 @@ Sätt `"async": true` på command-hooks för att köra dem i bakgrunden utan att
 - Blockerings-hook: `permissions.deny` i settings.json (föredra detta framför hooks)
 - Stop-hook (agent): verifiera att tester passerar innan Claude stannar
 - Async post-edit: kör tester i bakgrunden medan Claude fortsätter arbeta
-
-### Exempel — Stop-hook för testverifiering
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "agent",
-            "prompt": "Kontrollera att dotnet build och dotnet test passerar.",
-            "timeout": 120
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### Exempel — Återinför kontext efter kompaktering
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo '{\"systemMessage\": \"Påminnelse: använd dotnet, kör dotnet test innan commit.\"}'"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### Exempel — HTTP-hook för Slack-notifikation
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-            "headers": { "Content-Type": "application/json" }
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+- PreCompact-hook: bevara kritisk kontext vid komprimering
 
 ## Subagenter
 
@@ -245,21 +235,21 @@ Skapa via `/agents`-kommandot eller manuellt som markdown-filer.
 
 ```yaml
 ---
-name: agent-name              # Krävs. Gemener och bindestreck
-description: When to use      # Krävs. Claude använder detta för delegering
-tools: Read, Grep, Glob       # Valfritt. Allowlist för verktyg (Agent(type) begränsar subagenter)
+name: agent-name              # Obligatoriskt. Gemener och bindestreck
+description: When to use      # Obligatoriskt. Claude använder detta för delegering
+tools: Read, Grep, Glob       # Valfritt. Allowlist för verktyg
 disallowedTools: Write, Edit  # Valfritt. Denylist
 model: sonnet                 # Valfritt. sonnet|opus|haiku (default: inherit)
 permissionMode: default       # Valfritt. default|acceptEdits|dontAsk|plan|bypassPermissions
 maxTurns: 20                  # Valfritt. Max antal agentvarv
 memory: project               # Valfritt. user|project|local (bestående minne)
-isolation: worktree           # Valfritt. Kör i isolerad git worktree
-background: false             # Valfritt. true = kör i bakgrunden
-skills:                       # Valfritt. Skills att ladda in i kontexten
+isolation: worktree            # Valfritt. Kör i isolerad git worktree
+background: false              # Valfritt. true = kör i bakgrunden (MCP ej tillgängligt)
+skills:                        # Valfritt. Skills att ladda (ärvs INTE från föräldern)
   - api-conventions
-mcpServers:                   # Valfritt. MCP-servrar tillgängliga för agenten
+mcpServers:                    # Valfritt. MCP-servrar tillgängliga för agenten
   - server-name
-hooks:                        # Valfritt. Hooks scopade till denna agent
+hooks:                         # Valfritt. Hooks scopade till denna agent
   PostToolUse:
     - matcher: "Edit|Write"
       hooks:
@@ -281,10 +271,11 @@ Systemprompt börjar här. Agenten får BARA detta prompt.
 | `model` | `opus` (mest kapabel), `sonnet` (balans), `haiku` (snabbast/billigast) |
 | `permissionMode` | `acceptEdits` auto-godkänner filändringar, `plan` = bara läsning, `bypassPermissions` = hoppa över alla |
 | `memory` | `user` = alla projekt, `project` = delbart via git, `local` = bara du |
-| `isolation` | `worktree` = isolerad git-kopia, städas automatiskt |
+| `isolation` | `worktree` = isolerad git-kopia, städas automatiskt om inga ändringar |
 | `background` | Kör medan du fortsätter arbeta. MCP-verktyg ej tillgängliga |
 | `skills` | Hela skill-innehållet injiceras vid start. Ärvs INTE från föräldern |
 | `mcpServers` | MCP-servrar tillgängliga för agenten. Servernamn eller inline-definition |
+| `hooks` | Hooks scopade till agentens livscykel |
 
 ### Placering
 
@@ -295,11 +286,11 @@ Systemprompt börjar här. Agenten får BARA detta prompt.
 
 ### Kopieringsbara agentmallar
 
-Se @.claude/docs/agents-templates.md för färdiga agenter anpassade för .NET/fullstack-projekt:
+Se `.claude/docs/agents-templates.md` för färdiga agenter anpassade för .NET/fullstack-projekt:
 
-- **dotnet-reviewer** — kodgranskning för C#/ASP.NET Core
-- **security-scanner** — säkerhetsskanning (SQL injection, XSS, secrets)
-- **test-runner** — kör och analyserar testresultat
+- **dotnet-reviewer** — kodgranskning med worktree-isolering
+- **security-scanner** — säkerhetsskanning i isolerad worktree
+- **test-runner** — kör tester i bakgrunden
 - **db-agent** — EF Core migrations, schema, queries
 
 ## Agent Teams (experimentellt)
@@ -341,6 +332,7 @@ Flera Claude Code-instanser som arbetar tillsammans med direkt kommunikation och
 - `/rewind` eller `Esc+Esc` — gå tillbaka till tidigare checkpoint
 - `/rename` — ge sessionen beskrivande namn för enkel återfinnbarhet
 - `/compact <instruktioner>` — kontrollerad komprimering med fokusområde, t.ex. `/compact Fokusera på API-ändringarna`
+- `/context` — visa aktuell kontextanvändning och laddade skills
 
 ## Auto memory (MEMORY.md)
 

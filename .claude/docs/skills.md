@@ -1,37 +1,133 @@
 # Skills
 
-Claude ska automatiskt installera och använda skills från `~/.claude/skills/`. Vid sessionsstart, kontrollera att följande skills finns installerade. Om någon saknas, klona repot.
+Skills ger Claude specialiserade förmågor genom SKILL.md-filer med instruktioner och frontmatter. Claude Code följer Agent Skills-standarden (agentskills.io) som stöds av 30+ verktyg.
 
-## Obligatoriska skills (topp 11, sorterade efter popularitet)
+## Hur skills fungerar
 
-| # | Skill | Repo | Stjärnor | Beskrivning |
-| --- | --- | --- | --- | --- |
-| 1 | **anthropics/skills** | `anthropics/skills` | ~73k | Anthropics officiella skills-samling (frontend-design, owasp-security, playwright m.fl.) |
-| 2 | **superpowers** | `obra/superpowers` | ~58k | Strukturerat senior-utvecklar-arbetsflöde med planering, TDD och kodgranskning |
-| 3 | **ui-ux-pro-max-skill** | `nextlevelbuilder/ui-ux-pro-max-skill` | ~33k | AI-driven designintelligens med 57 UI-stilar, 95 färgpaletter, 56 fontpar |
-| 4 | **planning-with-files** | `OthmanAdi/planning-with-files` | ~14k | Manus-liknande planering med persistenta markdown-filer |
-| 5 | **obsidian-skills** | `kepano/obsidian-skills` | ~10k | Officiella agent-skills för Obsidian |
-| 6 | **claude-scientific-skills** | `K-Dense-AI/claude-scientific-skills` | ~9k | 140+ vetenskapliga skills |
-| 7 | **marketingskills** | `coreyhaines31/marketingskills` | ~9k | 26 marketing-skills: CRO, copywriting, SEO, analytics |
-| 8 | **context-engineering** | `muratcankoylan/Agent-Skills-for-Context-Engineering` | ~9k | Context engineering, multi-agent-arkitekturer |
-| 9 | **antfu/skills** | `antfu/skills` | ~4k | Anthony Fu:s kurerade skills med best practices |
-| 10 | **dev-browser** | `SawyerHood/dev-browser` | ~4k | Webbläsarautomation — ger agenten kontroll över Chrome-flikar |
-| 11 | **trailofbits/skills** | `trailofbits/skills` | ~3k | Säkerhetsforsknings-skills: sårbarhetsdetektering, audit-workflows |
+### Progressiv laddning
 
-## Installationskommando
+1. **Metadata** (~100 tokens) — `name` + `description` laddas vid sessionstart för ALLA skills
+2. **Instruktioner** (<5000 tokens rekommenderat) — full SKILL.md laddas vid aktivering
+3. **Resurser** (vid behov) — stödfiler laddas när de refereras
+
+### Anropsmetoder
+
+- **Manuellt:** Användaren skriver `/skill-namn` (slash command)
+- **Automatiskt:** Claude laddar skillen baserat på `description`-matchning
+- **Blockerande:** Skills med `disable-model-invocation: true` kan bara anropas manuellt
+
+## Projektskills (`.claude/skills/`)
+
+Dessa skills levereras med mallrepot:
+
+| Skill | Typ | Beskrivning |
+| --- | --- | --- |
+| `/code-review` | `context: fork` | Kodgranskning med isolerad kontext |
+| `/explore-codebase` | `context: fork` | Djup arkitekturanalys via Explore-agent |
+| `/deploy-checklist` | `disable-model-invocation` | Pre-deploy verifiering (bara manuellt) |
+
+## SKILL.md-struktur
+
+### Obligatoriska fält (Agent Skills-standarden)
+
+```yaml
+---
+name: my-skill          # Gemener, siffror, bindestreck. Max 64 tecken. Matchar mappnamn.
+description: >          # Max 1024 tecken. Beskriv VAD och NÄR. Inkludera trigger-nyckelord.
+  Reviews code for bugs and security issues.
+  Use when asking for code review or after significant changes.
+---
+```
+
+### Valfria fält (Claude Code-tillägg)
+
+```yaml
+---
+argument-hint: "[issue-number]"       # Ledtråd vid autocomplete
+disable-model-invocation: true        # Bara användaren kan anropa (deploy, commit)
+user-invocable: false                 # Göm från /-menyn (bakgrundskunskap)
+allowed-tools: Read, Grep, Glob       # Verktyg utan behörighetsprompt
+model: claude-sonnet-4-20250514           # Åsidosätt modell
+context: fork                         # Kör i isolerad subagent-kontext
+agent: Explore                        # Subagent-typ (Explore, Plan, general-purpose, custom)
+hooks:                                # Hooks scopade till skillens livscykel
+  PostToolUse:
+    - matcher: "Edit"
+      hooks:
+        - type: command
+          command: "./scripts/lint.sh"
+---
+```
+
+### Anropskontroll
+
+| Frontmatter | Användare | Claude | Laddning |
+| --- | --- | --- | --- |
+| (standard) | Ja | Ja | Description alltid, full vid anrop |
+| `disable-model-invocation: true` | Ja | Nej | Description INTE i kontext |
+| `user-invocable: false` | Nej | Ja | Description alltid i kontext |
+
+## Strängsubstitutioner
+
+| Variabel | Beskrivning |
+| --- | --- |
+| `$ARGUMENTS` | Alla argument vid anrop |
+| `$ARGUMENTS[N]` / `$N` | Specifikt argument (0-baserat) |
+| `${CLAUDE_SESSION_ID}` | Aktuellt sessions-ID |
+| `${CLAUDE_SKILL_DIR}` | Mappen som innehåller SKILL.md |
+
+## Dynamisk kontextinjektion
+
+Kör shell-kommandon under preprocessing med `` !`command` ``:
+
+```markdown
+## PR-kontext
+- Diff: !`gh pr diff`
+- Kommentarer: !`gh pr view --comments`
+```
+
+## Katalogstruktur för skills
+
+```text
+my-skill/
+├── SKILL.md           # Obligatorisk — huvudinstruktioner
+├── scripts/           # Körbara hjälpskript
+│   └── helper.py
+├── references/        # Referensmaterial (laddas vid behov)
+│   └── REFERENCE.md
+└── assets/            # Statiska resurser (mallar, scheman)
+    └── template.html
+```
+
+## Placering och prioritet
+
+| Plats | Sökväg | Gäller |
+| --- | --- | --- |
+| Enterprise | Managed settings | Alla i organisationen |
+| Personlig | `~/.claude/skills/<skill>/SKILL.md` | Alla dina projekt |
+| Projekt | `.claude/skills/<skill>/SKILL.md` | Bara detta projekt |
+| Plugin | `<plugin>/skills/<skill>/SKILL.md` | Där pluginen är aktiverad |
+
+Vid namnkonflikter: enterprise > personlig > projekt. Plugin-skills använder namespace (`plugin:skill`).
+
+## Rekommenderade externa skills
+
+Installera till `~/.claude/skills/` för att dela mellan projekt:
+
+| Skill | Repo | Beskrivning |
+| --- | --- | --- |
+| **anthropics/skills** | `anthropics/skills` | Officiell samling (frontend-design, PDF, PPTX, XLSX) |
+| **superpowers** | `obra/superpowers` | Planering, TDD, kodgranskning |
+| **context-engineering** | `muratcankoylan/Agent-Skills-for-Context-Engineering` | Multi-agent-arkitekturer |
+| **trailofbits/skills** | `trailofbits/skills` | Säkerhetsforsknings-skills |
+
+### Installation
 
 ```bash
 declare -A SKILL_REPOS=(
   [anthropics-skills]="anthropics/skills"
   [superpowers]="obra/superpowers"
-  [ui-ux-pro-max-skill]="nextlevelbuilder/ui-ux-pro-max-skill"
-  [planning-with-files]="OthmanAdi/planning-with-files"
-  [obsidian-skills]="kepano/obsidian-skills"
-  [claude-scientific-skills]="K-Dense-AI/claude-scientific-skills"
-  [marketingskills]="coreyhaines31/marketingskills"
   [context-engineering]="muratcankoylan/Agent-Skills-for-Context-Engineering"
-  [antfu-skills]="antfu/skills"
-  [dev-browser]="SawyerHood/dev-browser"
   [trailofbits-skills]="trailofbits/skills"
 )
 
@@ -43,21 +139,24 @@ for skill in "${!SKILL_REPOS[@]}"; do
 done
 ```
 
+## Kända begränsningar
+
+- YAML multiline-indikatorer (`>-`, `|`, `|-`) parsas inte korrekt i skills-indexeraren — använd enrads-strängar för `description`
+- Kontextbudget: skill-beskrivningar använder ~2% av kontextfönstret (fallback: 16 000 tecken)
+- Åsidosätt med `SLASH_COMMAND_TOOL_CHAR_BUDGET` miljövariabel vid behov
+- `/clear` nollställer cachade skills
+
 ## Rekommenderade plugins
 
-Installera LSP-plugins för kodnavigering (~50ms istället för ~45s textsök). Kör dessa kommandon vid projektstart:
+LSP-plugins ger kodnavigering (~50ms istället för ~45s textsök):
 
 ```bash
-# .NET-projekt — installera C# LSP
+# .NET-projekt
 dotnet tool install --global csharp-ls 2>/dev/null || true
-claude --print-only 2>/dev/null || /plugin install csharp-lsp@claude-plugins-official 2>/dev/null || true
 
-# Om projektet har TypeScript/JavaScript
+# TypeScript/JavaScript
 npm i -g typescript-language-server typescript 2>/dev/null || true
-claude --print-only 2>/dev/null || /plugin install typescript-lsp@claude-plugins-official 2>/dev/null || true
 
 # GitHub-integration
-claude --print-only 2>/dev/null || /plugin install github@claude-plugins-official 2>/dev/null || true
+# /plugin install github@claude-plugins-official
 ```
-
-Se @.claude/docs/workflows.md för fullständig plugin-dokumentation.

@@ -43,6 +43,27 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"IMPORTANT: Preserve the full list of modified files, error messages, test commands, and current task context during compaction.\"}'"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Context was compacted. Re-read any files you were working on before continuing.\"}'"
+          }
+        ]
+      }
     ]
   }
 }

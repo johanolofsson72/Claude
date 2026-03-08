@@ -39,7 +39,7 @@ För större features: intervjua utvecklaren med `AskUserQuestion` innan impleme
 
 Detta är ett **mallrepo för Claude Code-konfiguration** — en återanvändbar uppsättning regler, agents, hooks och skills för .NET/fullstack-projekt. Repot kopieras som utgångspunkt vid nya projektstart.
 
-> **Vid projektstart:** Fyll i kärnprinciper, arkitektur och dev-miljö i @.claude/docs/project-template.md
+> **Vid projektstart:** Fyll i kärnprinciper, arkitektur och dev-miljö i `.claude/docs/project-template.md`
 
 ## Språk
 
@@ -56,7 +56,7 @@ Detta är ett **mallrepo för Claude Code-konfiguration** — en återanvändbar
 
 ## CI/CD och deployment
 
-Docker Swarm-kluster på Azure (live4.se). För IP-adresser, pipeline, kommandon och checklista, se @.claude/docs/deployment.md
+Docker Swarm-kluster på Azure (live4.se). För IP-adresser, pipeline, kommandon och checklista, se `.claude/docs/deployment.md`
 
 ## Arbetsflöde
 
@@ -72,7 +72,7 @@ Docker Swarm-kluster på Azure (live4.se). För IP-adresser, pipeline, kommandon
 2. **Planera** — vid medel/komplex: använd Plan Mode (Shift+Tab) för att skriva plan innan implementation.
 3. **Implementera** — växla till Normal Mode, skriv kod enligt planen. Följ befintliga mönster.
 4. **Verifiera** — kör alla tester, typechecka, bekräfta att allt fungerar.
-5. **Committa** — commit med beskrivande meddelande enligt @.claude/docs/git.md
+5. **Committa** — commit på svenska: `<typ>: <beskrivning>` (feat/fix/refactor/test/docs/style/chore). Detaljer i `.claude/docs/git.md`
 
 ## Verifiering och grundning
 
@@ -104,11 +104,12 @@ Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
 
 ## Frontend design skill (BLOCKERANDE KRAV)
 
-> **CRITICAL — BLOCKING REQUIREMENT:** Innan du skriver EN ENDA RAD UI-kod MÅSTE du anropa `frontend-design`-skillen via Skill-verktyget. Oavsett omfattning — en knapp, en färg, en margin. Triggerord och detaljer: @.claude/docs/workflows.md
+> **CRITICAL — BLOCKING REQUIREMENT:** Innan du skriver EN ENDA RAD UI-kod MÅSTE du anropa `frontend-design`-skillen via Skill-verktyget. Oavsett omfattning — en knapp, en färg, en margin.
+> **Triggerord:** design, utseende, layout, styling, CSS, färg, font, knapp, formulär, navbar, modal, responsivt, dark mode, "snyggare", "modernare".
 
 ## Humanizer skill (BLOCKERANDE KRAV)
 
-> **CRITICAL — BLOCKING REQUIREMENT:** ALL genererad text som riktas till människor MÅSTE köras genom `humanizer`-skillen via Skill-verktyget innan leverans. Detta gäller 100% av texten — commit-meddelanden, PR-beskrivningar, dokumentation, README, mejl, artiklar, kommentarer. Enda undantaget är kod och tekniska loggar. Detaljer: @.claude/docs/workflows.md
+> **CRITICAL — BLOCKING REQUIREMENT:** ALL genererad text som riktas till människor MÅSTE köras genom `humanizer`-skillen via Skill-verktyget innan leverans. Gäller: commit-meddelanden, PR-beskrivningar, dokumentation, README, mejl, artiklar. Undantag: kod, tekniska loggar, JSON/YAML.
 
 ## Kommandon
 
@@ -136,15 +137,17 @@ Läs dessa filer NÄR du behöver dem — ladda inte allt i förväg:
 - **Git commit/branch/PR** → `.claude/docs/git.md`
 - **Hooks, subagenter, plugins, sessions** → `.claude/docs/workflows.md`
 - **Skapa nya agenter** → `.claude/docs/agents-templates.md`
-- **Installera skills/plugins** → `.claude/docs/skills.md`
+- **Skills, SKILL.md-format, Agent Skills-standarden** → `.claude/docs/skills.md`
 - **Tester (xUnit, Playwright)** → `.claude/docs/testing.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
 
 ## Filorganisation
 
-- **`.claude/docs/`** — referensmaterial som laddas vid behov via `@`-import (deployment, projektmallar).
-- **`.claude/rules/`** — regler som auto-laddas varje session. Flytta hit kritiska regler som alltid ska gälla. Stödjer path-scoping med YAML-frontmatter.
-- **`CLAUDE.local.md`** — personliga projektinställningar som inte committas (auto-gitignored). Lägg t.ex. lokala URL:er och sandbox-inställningar här.
+- **`.claude/skills/`** — projektskills med SKILL.md (code-review, explore-codebase, deploy-checklist). Följer Agent Skills-standarden (agentskills.io).
+- **`.claude/agents/`** — subagenter (dotnet-reviewer, security-scanner, test-runner, db-agent). Stödjer `isolation: worktree`, `background`, `hooks` i frontmatter.
+- **`.claude/rules/`** — regler som auto-laddas varje session. Stödjer path-scoping med YAML-frontmatter.
+- **`.claude/docs/`** — referensmaterial som laddas vid behov. Referera UTAN `@`-prefix för att undvika auto-expansion.
+- **`CLAUDE.local.md`** — personliga projektinställningar som inte committas (auto-gitignored).
 
 ## Iterativ förbättring
 

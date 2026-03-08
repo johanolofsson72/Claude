@@ -2,6 +2,15 @@
 
 Kopiera relevanta agenter till `.claude/agents/` i ditt projekt. Varje agent körs i ett eget kontextfönster och delegeras automatiskt av Claude baserat på `description`.
 
+## Nya funktioner i agenterna
+
+| Funktion | Agent | Beskrivning |
+| --- | --- | --- |
+| `isolation: worktree` | dotnet-reviewer, security-scanner | Kör i isolerad git-kopia, städas automatiskt |
+| `background: true` | test-runner | Kör tester medan Claude fortsätter arbeta |
+| `skills` | db-agent | Laddar code-review skill för kodkvalitet |
+| `hooks` | dotnet-reviewer | Scopade hooks i agentens frontmatter |
+
 ## dotnet-reviewer
 
 Fil: `.claude/agents/dotnet-reviewer.md`
@@ -13,6 +22,13 @@ description: Expert .NET code reviewer. Use proactively after code changes to ch
 tools: Read, Grep, Glob, Bash
 model: sonnet
 memory: project
+isolation: worktree
+hooks:
+  PostToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "echo '{\"additionalContext\": \"Focus on .cs file changes only. Ignore generated files and migrations.\"}'"
 ---
 
 You are a senior .NET developer reviewing code changes.
@@ -46,6 +62,7 @@ description: Security-focused code reviewer. Use proactively to scan for vulnera
 tools: Read, Grep, Glob
 model: sonnet
 memory: project
+isolation: worktree
 ---
 
 You are a security specialist reviewing code for vulnerabilities.
@@ -84,6 +101,7 @@ name: test-runner
 description: Runs and analyzes test results. Use proactively after code changes to verify tests pass. Handles both xUnit unit tests and Playwright E2E tests.
 tools: Bash, Read, Grep, Glob
 model: haiku
+background: true
 ---
 
 You are a test execution specialist.
@@ -115,6 +133,8 @@ description: Database operations specialist for SQLite and Entity Framework Core
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 memory: project
+skills:
+  - code-review
 ---
 
 You are a database specialist for SQLite with Entity Framework Core.
@@ -127,8 +147,8 @@ Expertise:
 - Index design
 
 Rules:
-- NEVER use string concatenation for SQL
-- NEVER include .db files in git
+- Always use parameterized queries for SQL
+- Do not include .db files in git
 - Always review migration Up() and Down() methods
 - Seed data via migrations or separate seed method
 - Use AsNoTracking() for read-only queries
@@ -153,8 +173,6 @@ mkdir -p .claude/agents
 
 # Kopiera från template-repot (anpassa sökväg)
 for agent in dotnet-reviewer security-scanner test-runner db-agent; do
-  # Extrahera markdown-blocket från agents-templates.md
-  # eller kopiera färdiga filer från template-repots .claude/agents/
   echo "Kopiera $agent.md till .claude/agents/"
 done
 ```
