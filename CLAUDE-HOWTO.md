@@ -124,7 +124,19 @@ cp "$MALL/.claude/docs/"*.md .claude/docs/
 
 Öppna sedan `CLAUDE.md` och lägg till de sektioner som saknas (kopiera från mallen).
 
-### Alternativ C: Be Claude göra det
+### Alternativ C: Använd `/init` som utgångspunkt
+
+Kör `/init` i projektet — Claude genererar en starter-CLAUDE.md baserad på projektets struktur. Komplettera sedan med mallrepots filer:
+
+```bash
+MALL=/Users/jool/repos/Claude
+cp "$MALL/.claude/settings.json" .claude/settings.json
+cp -r "$MALL/.claude/rules/" .claude/rules/
+cp -r "$MALL/.claude/agents/" .claude/agents/
+cp -r "$MALL/.claude/docs/" .claude/docs/
+```
+
+### Alternativ D: Be Claude göra det
 
 Starta en Claude Code-session i projektet och skriv:
 

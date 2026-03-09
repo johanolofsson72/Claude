@@ -1,6 +1,6 @@
 # Skills
 
-Skills ger Claude specialiserade förmågor genom SKILL.md-filer med instruktioner och frontmatter. Claude Code följer Agent Skills-standarden (agentskills.io) som stöds av 30+ verktyg.
+Skills ger Claude specialiserade förmågor genom SKILL.md-filer med instruktioner och frontmatter. Claude Code följer Agent Skills-standarden (agentskills.io) — ekosystemet har vuxit till 349+ skills i 12 kategorier (mars 2026). OpenAI har adopterat samma format för Codex CLI.
 
 ## Hur skills fungerar
 
@@ -111,6 +111,18 @@ my-skill/
 | Plugin | `<plugin>/skills/<skill>/SKILL.md` | Där pluginen är aktiverad |
 
 Vid namnkonflikter: enterprise > personlig > projekt. Plugin-skills använder namespace (`plugin:skill`).
+
+### Automatisk upptäckt i underkataloger
+
+I monorepo-setups upptäcker Claude Code skills från nestade `.claude/skills/`-kataloger automatiskt. Om du redigerar filer i `packages/frontend/` laddas även skills från `packages/frontend/.claude/skills/`.
+
+### Skills från extra kataloger
+
+Skills i `.claude/skills/` från kataloger som lagts till via `--add-dir` laddas automatiskt med live change detection — du kan redigera dem under en session utan omstart.
+
+### Storleksrekommendation
+
+Håll `SKILL.md` under 500 rader. Flytta detaljerat referensmaterial till separata filer i skillens katalog och referera dem från SKILL.md.
 
 ## Rekommenderade externa skills
 

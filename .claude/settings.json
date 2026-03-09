@@ -1,5 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "language": "swedish",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "permissions": {
     "deny": [
       "Bash(rm -rf *)",
@@ -19,9 +24,23 @@
       "Edit(~/.bashrc)",
       "Edit(~/.zshrc)",
       "Edit(~/.ssh/**)"
+    ],
+    "ask": [
+      "Bash(git push *)"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(~/.ssh/|~/.aws/|~/.azure/|~/.git-credentials|~/.docker/config.json|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|NotebookEdit",

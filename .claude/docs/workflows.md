@@ -173,9 +173,10 @@ Fördel: hooks följer skillen/agenten istället för att ligga centralt i setti
 Hooks blockerar via:
 
 - **Command:** exit code `2` = blockera (OBS: `exit 1` blockerar INTE, det är bara ett fel)
-- **Command:** JSON-output med `"permissionDecision": "deny"` = blockera
+- **Command (PreToolUse):** JSON-output med `hookSpecificOutput.permissionDecision: "deny"` = blockera. OBS: top-level `decision`/`reason`-fält är **deprecated** för PreToolUse — använd `hookSpecificOutput` istället
+- **Command (övriga events):** top-level `decision`/`reason` fungerar fortfarande
 - **Prompt/Agent:** `{ "ok": false, "reason": "..." }` = blockera
-- **Permissions.deny** i settings.json = deterministisk blockering utan hook (rekommenderat för fasta regler)
+- **Permissions.deny** i settings.json = deterministisk blockering, men har kända buggar — se `.claude/docs/security.md`
 
 ### Async hooks (bakgrundskörning)
 
@@ -342,6 +343,43 @@ Claude sparar automatiskt användbara insikter till `~/.claude/projects/<projekt
 - Använd `/memory` för att öppna och redigera minnesfiler i editorn
 - Skapa ämnesfiler (t.ex. `debugging.md`, `api-conventions.md`) för detaljer och länka från MEMORY.md
 - Spara bara verifierade mönster — inte spekulationer eller sessionspecifik kontext
+
+## Status line (kontextövervakning)
+
+Visa kontextanvändning i realtid med en custom status line i settings.json:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  }
+}
+```
+
+Anthropic rekommenderar att övervaka kontextanvändning kontinuerligt — prestanda sjunker när kontextfönstret fylls.
+
+## Sandbox (OS-nivå isolering)
+
+Claude Code stödjer inbyggd sandbox med filsystem- och nätverksisolering via settings.json:
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "filesystem": {
+      "allowWrite": ["//tmp/build"],
+      "denyRead": ["~/.aws/credentials"]
+    },
+    "network": {
+      "allowedDomains": ["github.com", "*.npmjs.org"]
+    }
+  }
+}
+```
+
+Alternativt: `/sandbox` i sessionen för att aktivera. Ger liknande autonomi som `--dangerously-skip-permissions` men med säkrare gränser.
 
 ## Iterativ förbättring
 

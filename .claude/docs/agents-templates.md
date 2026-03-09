@@ -10,6 +10,10 @@ Kopiera relevanta agenter till `.claude/agents/` i ditt projekt. Varje agent kö
 | `background: true` | test-runner | Kör tester medan Claude fortsätter arbeta |
 | `skills` | db-agent | Laddar code-review skill för kodkvalitet |
 | `hooks` | dotnet-reviewer | Scopade hooks i agentens frontmatter |
+| `maxTurns` | (alla) | Begränsa antal agentvarv (default: obegränsat) |
+| `permissionMode` | (alla) | `default`, `acceptEdits`, `plan`, `bypassPermissions` |
+| `disallowedTools` | (alla) | Denylist — tas bort från ärvda verktyg |
+| `mcpServers` | (alla) | MCP-servrar tillgängliga för agenten |
 
 ## dotnet-reviewer
 

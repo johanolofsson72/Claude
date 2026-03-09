@@ -137,6 +137,7 @@ $FOCUS_INSTRUCTION
 ## Regler
 
 - Skriv ALL kommunikation på svenska
+- Håll storleken på claude.md så låg som det är möjligt
 - Kod och tekniska termer på engelska
 - Bevara ALLA projektspecifika anpassningar (markerade med # PROJECT-SPECIFIC)
 - Ändra ALDRIG grundstrukturen utan starka skäl

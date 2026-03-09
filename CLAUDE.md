@@ -102,15 +102,6 @@ Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
 - Bryt ner stora uppgifter i diskreta deluppgifter — begär aldrig 5+ features i ett steg.
 - Efter 2 misslyckade rättningar av samma problem: `/clear` och skriv en bättre prompt från början.
 
-## Frontend design skill (BLOCKERANDE KRAV)
-
-> **CRITICAL — BLOCKING REQUIREMENT:** Innan du skriver EN ENDA RAD UI-kod MÅSTE du anropa `frontend-design`-skillen via Skill-verktyget. Oavsett omfattning — en knapp, en färg, en margin.
-> **Triggerord:** design, utseende, layout, styling, CSS, färg, font, knapp, formulär, navbar, modal, responsivt, dark mode, "snyggare", "modernare".
-
-## Humanizer skill (BLOCKERANDE KRAV)
-
-> **CRITICAL — BLOCKING REQUIREMENT:** ALL genererad text som riktas till människor MÅSTE köras genom `humanizer`-skillen via Skill-verktyget innan leverans. Gäller: commit-meddelanden, PR-beskrivningar, dokumentation, README, mejl, artiklar. Undantag: kod, tekniska loggar, JSON/YAML.
-
 ## Kommandon
 
 ```bash
