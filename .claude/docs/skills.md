@@ -25,6 +25,8 @@ Dessa skills levereras med mallrepot:
 | `/code-review` | `context: fork` | Kodgranskning med isolerad kontext |
 | `/explore-codebase` | `context: fork` | Djup arkitekturanalys via Explore-agent |
 | `/deploy-checklist` | `disable-model-invocation` | Pre-deploy verifiering (bara manuellt) |
+| `/update-template` | standard | Söker online efter senaste best practices och uppdaterar mallrepot |
+| `/sync-template` | `disable-model-invocation` | Synkar projektkonfiguration från mallrepot |
 
 ## SKILL.md-struktur
 

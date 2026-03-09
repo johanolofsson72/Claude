@@ -56,7 +56,7 @@ cp "$MALL/.claude/agents/db-agent.md"         .claude/agents/  # EF Core + SQLit
 
 Detta är ett **[PROJEKTNAMN]** — [kort beskrivning av vad systemet gör och för vem].
 
-> **Vid projektstart:** Fyll i kärnprinciper, arkitektur och dev-miljö i @.claude/docs/project-template.md
+> **Vid projektstart:** Fyll i kärnprinciper, arkitektur och dev-miljö i `.claude/docs/project-template.md`
 ```
 
 ### 3. Fyll i projektmallen

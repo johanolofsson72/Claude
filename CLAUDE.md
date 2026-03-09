@@ -143,7 +143,8 @@ Läs dessa filer NÄR du behöver dem — ladda inte allt i förväg:
 
 ## Filorganisation
 
-- **`.claude/skills/`** — projektskills med SKILL.md (code-review, explore-codebase, deploy-checklist). Följer Agent Skills-standarden (agentskills.io).
+- **`scripts/`** — Underhållsscript (`update-template.sh` för att hålla mallrepot uppdaterat, `sync-prompt.md` med prompt för att synka andra projekt).
+- **`.claude/skills/`** — projektskills med SKILL.md (code-review, explore-codebase, deploy-checklist, update-template). Följer Agent Skills-standarden (agentskills.io).
 - **`.claude/agents/`** — subagenter (dotnet-reviewer, security-scanner, test-runner, db-agent). Stödjer `isolation: worktree`, `background`, `hooks` i frontmatter.
 - **`.claude/rules/`** — regler som auto-laddas varje session. Stödjer path-scoping med YAML-frontmatter.
 - **`.claude/docs/`** — referensmaterial som laddas vid behov. Referera UTAN `@`-prefix för att undvika auto-expansion.
