@@ -4,6 +4,7 @@
 
 - **ALWAYS** läs koden först — basera ALLA slutsatser på bevis från kodbasen, inte antaganden.
 - **ALWAYS** verifiera med `dotnet build` och `dotnet test` innan du säger att något är "klart".
+- **ALWAYS** döda projektets egna dotnet-processer INNAN `dotnet build`, `dotnet run` eller `dotnet test` körs. Identifiera delprojekten från `src/`-strukturen och `launchSettings.json` — kör sedan `pkill -f "/absolut/sökväg/till/src/<delprojekt>" || true` per delprojekt med **fullständig absolut sökväg**. Relativa sökvägar som `src/<delprojekt>` är FÖRBJUDNA — de kan döda processer med samma namn i andra projekt på maskinen. Döda ALDRIG alla dotnet-processer globalt.
 - **ALWAYS** använd Edit-verktyget för kirurgiska ändringar — kopiera aldrig hela filer.
 - **ALWAYS** anropa `frontend-design`-skillen via Skill-verktyget INNAN du skriver UI-kod (HTML, CSS, JS, design, layout, utseende). Detta är ett **BLOCKERANDE KRAV**.
 - **ALWAYS** kör genererad text genom `humanizer`-skillen via Skill-verktyget INNAN leverans till människor (dokumentation, commit-meddelanden, PR-beskrivningar, mejl, README). Detta är ett **BLOCKERANDE KRAV**.
@@ -105,6 +106,11 @@ Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
 ## Kommandon
 
 ```bash
+# VIKTIGT: Döda alltid befintliga processer INNAN bygge/körning/test
+ps aux | grep "dotnet run"              # Lista körande processer — identifiera rätt sökvägar
+pkill -f "/absolut/sökväg/till/src/<Delprojekt>" || true  # MÅSTE vara absolut sökväg — relativ sökväg kan döda processer i andra projekt
+pkill -f dcpctrl || true               # Döda Aspire-processer om tillämpligt
+
 dotnet build                           # Bygg projektet
 dotnet test                            # Kör enhetstester
 dotnet run --project src/<ProjektNamn> # Kör applikationen
