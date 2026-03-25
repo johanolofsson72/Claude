@@ -56,9 +56,8 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "description": "Verify that all generated text for humans has been run through the humanizer skill",
-            "prompt": "Check if the agent generated any text intended for humans (commit messages, PR descriptions, documentation, README, emails, articles, comments). If so, verify that the humanizer skill was invoked. If humanizer was not used for human-facing text, respond NO. If no human-facing text was generated, or humanizer was properly used, respond YES."
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"REMINDER: If you generated any human-facing text (commit messages, PR descriptions, docs, README, emails), verify that the humanizer skill was invoked before finishing.\"}'"
           }
         ]
       }

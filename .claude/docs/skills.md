@@ -49,7 +49,7 @@ argument-hint: "[issue-number]"       # Ledtråd vid autocomplete
 disable-model-invocation: true        # Bara användaren kan anropa (deploy, commit)
 user-invocable: false                 # Göm från /-menyn (bakgrundskunskap)
 allowed-tools: Read, Grep, Glob       # Verktyg utan behörighetsprompt
-model: claude-sonnet-4-20250514           # Åsidosätt modell
+model: sonnet                        # Åsidosätt modell (sonnet|opus|haiku)
 context: fork                         # Kör i isolerad subagent-kontext
 agent: Explore                        # Subagent-typ (Explore, Plan, general-purpose, custom)
 hooks:                                # Hooks scopade till skillens livscykel

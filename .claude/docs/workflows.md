@@ -120,7 +120,7 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 
 Överväg Claude Code hooks (`.claude/settings.json`) för regler som MÅSTE efterlevas utan undantag. Till skillnad från CLAUDE.md-instruktioner som är rådgivande är hooks deterministiska och garanterade.
 
-### Hook-events (18 st)
+### Hook-events (20+ st)
 
 | Hook-event | När det utlöses |
 | --- | --- |
@@ -140,6 +140,8 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 | `PreCompact` | Innan kontextkomprimering — bra för att bevara kritisk kontext |
 | `ConfigChange` | Konfigurationsfil ändras under session — kan blockera ändringen |
 | `InstructionsLoaded` | Instruktioner (CLAUDE.md, skills) laddas — kan injicera extra kontext |
+| `CwdChanged` | Arbetskatalogen ändras — reaktiv miljöhantering (t.ex. direnv) |
+| `FileChanged` | En fil ändras — reaktiv övervakning |
 | `WorktreeCreate` | Git worktree skapas |
 | `WorktreeRemove` | Git worktree tas bort |
 
@@ -215,6 +217,7 @@ Sätt `"async": true` på command-hooks för att köra dem i bakgrunden utan att
 | `$CLAUDE_PROJECT_DIR` | Projektets rotkatalog |
 | `$CLAUDE_ENV_FILE` | Sökväg där SessionStart-hooks kan skriva `export`-satser |
 | `$CLAUDE_CODE_REMOTE` | `"true"` i fjärr-/webb-miljöer |
+| `$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Sätts till `1` för att strippa Anthropic/cloud-credentials från subprocess-miljöer |
 | `${CLAUDE_PLUGIN_ROOT}` | Pluginens rotkatalog |
 
 ### Vanliga automatiseringar
@@ -326,14 +329,24 @@ Flera Claude Code-instanser som arbetar tillsammans med direkt kommunikation och
 - `think hard` → ~10 000 tokens
 - `ultrathink` → ~32 000 tokens (rekommenderas för arkitekturbeslut och svår felsökning)
 
+## Modell och output
+
+- Default-modell: Opus 4.6 med 1M tokens kontextfönster (Max/Team/Enterprise)
+- Default max output: 64k tokens, övre gräns 128k tokens (Opus 4.6 och Sonnet 4.6)
+- Fast mode (`/fast`) använder samma Opus 4.6 med snabbare output — byter INTE modell
+
 ## Sessions-hantering
 
 - `claude --continue` — återuppta senaste sessionen
 - `claude --resume` — välj bland tidigare sessioner
+- `claude -p "..." --bare` — scriptade anrop utan hooks, LSP, plugin-sync eller skill-walks
 - `/rewind` eller `Esc+Esc` — gå tillbaka till tidigare checkpoint
 - `/rename` — ge sessionen beskrivande namn för enkel återfinnbarhet
 - `/compact <instruktioner>` — kontrollerad komprimering med fokusområde, t.ex. `/compact Fokusera på API-ändringarna`
 - `/context` — visa aktuell kontextanvändning och laddade skills
+- `/voice` — push-to-talk röstläge (håll mellanslag för att prata)
+- `/hooks` — skrivskyddad visning av alla konfigurerade hooks
+- `--channels` — permission relay som kan vidarebefordra godkännandefrågor till din telefon
 
 ## Auto memory (MEMORY.md)
 
@@ -368,6 +381,7 @@ Claude Code stödjer inbyggd sandbox med filsystem- och nätverksisolering via s
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
+    "failIfUnavailable": true,
     "filesystem": {
       "allowWrite": ["//tmp/build"],
       "denyRead": ["~/.aws/credentials"]
@@ -379,7 +393,8 @@ Claude Code stödjer inbyggd sandbox med filsystem- och nätverksisolering via s
 }
 ```
 
-Alternativt: `/sandbox` i sessionen för att aktivera. Ger liknande autonomi som `--dangerously-skip-permissions` men med säkrare gränser.
+- `failIfUnavailable: true` — avbryt med fel om sandbox inte kan starta, istället för att köra utan sandbox (ny mars 2026)
+- Alternativt: `/sandbox` i sessionen för att aktivera. Ger liknande autonomi som `--dangerously-skip-permissions` men med säkrare gränser.
 
 ## Iterativ förbättring
 

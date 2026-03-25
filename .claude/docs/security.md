@@ -15,3 +15,9 @@
 `permissions.deny` i `.claude/settings.json` har kända buggar (GitHub issues #6699, #6631, #27040) där deny-regler inte alltid upprätthålls. Vår settings.json innehåller därför en **PreToolUse backup-hook** som blockerar åtkomst till känsliga filer (`.ssh`, `.aws`, `.env`, credentials) via `hookSpecificOutput.permissionDecision: "deny"`. Denna hook är tillförlitlig — till skillnad från `permissions.deny`.
 
 Om du lägger till nya deny-regler för säkerhetskritiska filer, skapa alltid en matchande PreToolUse-hook som backup.
+
+**Mars 2026-fix:** En bugg där PreToolUse hooks som returnerade "allow" kunde bypassa deny-regler (inklusive enterprise managed settings) har åtgärdats. Backup-hooken ovan är fortfarande rekommenderad som defense-in-depth.
+
+## Subprocess-credentials
+
+Sätt `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` i din miljö för att automatiskt strippa Anthropic- och cloud-provider-credentials från subprocess-miljöer. Förhindrar att API-nycklar och tokens läcker till barnprocesser.
