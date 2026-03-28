@@ -8,6 +8,7 @@
 - **ALWAYS** anropa `frontend-design`-skillen via Skill-verktyget INNAN du skriver UI-kod (HTML, CSS, JS, design, layout, utseende). Detta är ett **BLOCKERANDE KRAV**.
 - **ALWAYS** kör genererad text genom `humanizer`-skillen via Skill-verktyget INNAN leverans till människor (dokumentation, commit-meddelanden, PR-beskrivningar, mejl, README). Detta är ett **BLOCKERANDE KRAV**.
 - **ALWAYS** följ befintliga mönster i kodbasen — titta på liknande komponenter först.
+- **ALWAYS** avsluta varje spec/feature som involverar UI med **destruktiva browsertester** (Playwright). Tester som bara verifierar happy path räcker INTE. Se `.claude/docs/testing.md` för attackkategorier och minimikrav.
 
 ## Exekveringsläge
 
@@ -89,8 +90,9 @@ Säg **aldrig** att något är "implementerat" eller "klart" förrän:
 
 1. Alla **enhetstester** passerar (`dotnet test`).
 2. Alla **E2E-tester i Playwright** passerar (`dotnet test --filter "Category=UI"`).
-3. För webbprojekt: **visuellt verifierad** i webbläsaren.
-4. Koden bedöms fungera till **100%**.
+3. För UI-features: **destruktiva browsertester** har skrivits och passerar (min 8 st, se `.claude/docs/testing.md`).
+4. För webbprojekt: **visuellt verifierad** i webbläsaren.
+5. Koden bedöms fungera till **100%**.
 
 Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
 
