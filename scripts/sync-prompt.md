@@ -140,4 +140,6 @@ Manuell granskning rekommenderas:
 - Om osäker: rapportera och fråga istället för att ändra
 - Committa INTE automatiskt — låt utvecklaren granska först
 
+Sedan kontrollerar du claude.md så att den inte överstiger 200 rader annars bryt ut avsnitt och lägg i separat fil/filer.
+
 ---
