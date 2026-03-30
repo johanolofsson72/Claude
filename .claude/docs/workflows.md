@@ -120,12 +120,13 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 
 Överväg Claude Code hooks (`.claude/settings.json`) för regler som MÅSTE efterlevas utan undantag. Till skillnad från CLAUDE.md-instruktioner som är rådgivande är hooks deterministiska och garanterade.
 
-### Hook-events (20+ st)
+### Hook-events (25 st)
 
 | Hook-event | När det utlöses |
 | --- | --- |
 | `SessionStart` | Session startar eller återupptas. Matcher: `compact`, `resume`, `new` |
 | `SessionEnd` | Session avslutas. Matcher: `clear`, `logout`, `prompt_input_exit`, `other` |
+| `Setup` | Engångskörning vid första sessionen — bra för installationsskript |
 | `UserPromptSubmit` | Användaren skickar en prompt — kan blockera eller injicera kontext |
 | `PreToolUse` | Innan ett verktygsanrop — kan blockera eller modifiera input |
 | `PermissionRequest` | Behörighetsdialog visas — kan auto-godkänna eller neka |
@@ -135,9 +136,14 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 | `SubagentStart` | En subagent startas |
 | `SubagentStop` | En subagent avslutas |
 | `Stop` | Claude slutar svara — kan tvinga fortsättning |
+| `StopFailure` | Session avslutas p.g.a. API-fel — kan ge korrigerande feedback |
 | `TeammateIdle` | Agent team-medlem ska gå idle — kan tvinga fortsättning |
+| `TaskCreated` | En uppgift skapas (agent teams) — kan validera eller injicera kontext |
 | `TaskCompleted` | En uppgift markeras som klar — kan blockera om kvalitetsvillkor inte uppfylls |
 | `PreCompact` | Innan kontextkomprimering — bra för att bevara kritisk kontext |
+| `PostCompact` | Efter kontextkomprimering — kan injicera kontext som gick förlorad |
+| `Elicitation` | MCP-server begär strukturerad input — kan auto-besvara |
+| `ElicitationResult` | Användaren svarar på MCP-elicitation |
 | `ConfigChange` | Konfigurationsfil ändras under session — kan blockera ändringen |
 | `InstructionsLoaded` | Instruktioner (CLAUDE.md, skills) laddas — kan injicera extra kontext |
 | `CwdChanged` | Arbetskatalogen ändras — reaktiv miljöhantering (t.ex. direnv) |
@@ -147,10 +153,27 @@ Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installat
 
 ### Fyra typer av hooks
 
-- `command` — kör shell-kommando. Tar emot JSON via stdin, returnerar JSON via stdout. Stöder `"async": true` för bakgrundskörning
+- `command` — kör shell-kommando. Tar emot JSON via stdin, returnerar JSON via stdout. Stöder `"async": true` och `"asyncRewake": true` (bakgrund som väcker modellen vid exit code 2)
 - `http` — skickar JSON som HTTP POST till en URL. Konfigureras med `url`, `headers`, `allowedEnvVars`
 - `prompt` — envägs-evaluering med Claude (Haiku), returnerar `{ "ok": true/false, "reason": "..." }`
 - `agent` — flervägs-verifiering med verktygsåtkomst (Read, Grep, Glob), upp till 50 varv
+
+### Filtrera hooks med `if`-fält (nytt v2.1.85)
+
+Använd `if` för att begränsa NÄR en hook triggas, med permission rule-syntax:
+
+```json
+{
+  "matcher": "Bash",
+  "hooks": [{
+    "type": "command",
+    "if": "Bash(git *)",
+    "command": "./scripts/check-git-policy.sh"
+  }]
+}
+```
+
+`if` matchar på verktygets argument — hooken ovan triggas bara för `Bash`-anrop som börjar med `git`. Utan `if` triggas den för ALLA Bash-anrop.
 
 ### Hooks i skills och agenter
 

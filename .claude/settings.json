@@ -50,6 +50,16 @@
             "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(cs|csproj)$'; then echo '{\"systemMessage\": \"Reminder: run dotnet build to verify compilation\"}'; fi"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "A file was just written/edited. Check: if the file path contains spec, tasks, plan, or feature AND is a .md file AND involves UI features, verify it includes destructive browser test scenarios (keywords: destructive, XSS, injection, double-click, race condition, garbage, attack, edge case). If it is a UI spec/task file but LACKS destructive tests, respond with a block decision explaining that min 8 destructive test scenarios from all 6 attack categories in .claude/docs/testing.md must be added. If the file is not a spec/task file or already has destructive tests, approve.",
+            "statusMessage": "Validating spec completeness..."
+          }
+        ]
       }
     ],
     "Stop": [

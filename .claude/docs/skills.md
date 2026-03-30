@@ -35,7 +35,7 @@ Dessa skills levereras med mallrepot:
 ```yaml
 ---
 name: my-skill          # Gemener, siffror, bindestreck. Max 64 tecken. Matchar mappnamn.
-description: >          # Max 1024 tecken. Beskriv VAD och NÄR. Inkludera trigger-nyckelord.
+description: >          # Max 1024 tecken (men håll under 250 för bäst kontexteffektivitet).
   Reviews code for bugs and security issues.
   Use when asking for code review or after significant changes.
 ---
@@ -50,6 +50,9 @@ disable-model-invocation: true        # Bara användaren kan anropa (deploy, com
 user-invocable: false                 # Göm från /-menyn (bakgrundskunskap)
 allowed-tools: Read, Grep, Glob       # Verktyg utan behörighetsprompt
 model: sonnet                        # Åsidosätt modell (sonnet|opus|haiku)
+effort: high                          # Åsidosätt effort level (low|medium|high)
+paths: "**/*.cs, **/*.csproj"         # Glob-mönster — skillen auto-aktiveras bara för matchande filer
+shell: bash                           # Shell för !`command`-block (bash|powershell)
 context: fork                         # Kör i isolerad subagent-kontext
 agent: Explore                        # Subagent-typ (Explore, Plan, general-purpose, custom)
 hooks:                                # Hooks scopade till skillens livscykel
@@ -156,7 +159,7 @@ done
 ## Kända begränsningar
 
 - YAML multiline-indikatorer (`>-`, `|`, `|-`) parsas inte korrekt i skills-indexeraren — använd enrads-strängar för `description`
-- Kontextbudget: skill-beskrivningar använder ~2% av kontextfönstret (fallback: 16 000 tecken)
+- Kontextbudget: skill-beskrivningar capped till 250 tecken i verktygslistan (~1% av kontextfönstret, fallback: 8 000 tecken)
 - Åsidosätt med `SLASH_COMMAND_TOOL_CHAR_BUDGET` miljövariabel vid behov
 - `/clear` nollställer cachade skills
 

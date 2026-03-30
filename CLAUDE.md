@@ -8,7 +8,7 @@
 - **ALWAYS** anropa `frontend-design`-skillen via Skill-verktyget INNAN du skriver UI-kod (HTML, CSS, JS, design, layout, utseende). Detta är ett **BLOCKERANDE KRAV**.
 - **ALWAYS** kör genererad text genom `humanizer`-skillen via Skill-verktyget INNAN leverans till människor (dokumentation, commit-meddelanden, PR-beskrivningar, mejl, README). Detta är ett **BLOCKERANDE KRAV**.
 - **ALWAYS** följ befintliga mönster i kodbasen — titta på liknande komponenter först.
-- **ALWAYS** avsluta varje spec/feature som involverar UI med **destruktiva browsertester** (Playwright). Tester som bara verifierar happy path räcker INTE. Se `.claude/docs/testing.md` för attackkategorier och minimikrav.
+- **ALWAYS** avsluta varje spec/feature som involverar UI med **destruktiva browsertester** (Playwright). Målet är **99% E2E-täckning**. Tester som bara verifierar happy path räcker INTE. INNAN du skriver en spec/task-fil: läs `.claude/docs/spec-testing-checklist.md` och inkludera destruktiva tester som en egen fas i task-filen.
 
 ## Exekveringsläge
 
@@ -45,6 +45,7 @@ Detta är ett **mallrepo för Claude Code-konfiguration** — en återanvändbar
 ## Språk
 
 - Kommunicera alltid på **svenska** i konversationer och commit-meddelanden.
+- **ALWAYS** använd korrekta svenska tecken: **å, ä, ö** (INTE a/o som ersättning). Text utan åäö är oacceptabel.
 - Kod, variabelnamn och tekniska termer skrivs på **engelska**.
 - Kommentarer i kod skrivs på **engelska**.
 
@@ -90,7 +91,7 @@ Säg **aldrig** att något är "implementerat" eller "klart" förrän:
 
 1. Alla **enhetstester** passerar (`dotnet test`).
 2. Alla **E2E-tester i Playwright** passerar (`dotnet test --filter "Category=UI"`).
-3. För UI-features: **destruktiva browsertester** har skrivits och passerar (min 8 st, se `.claude/docs/testing.md`).
+3. För UI-features: **destruktiva browsertester** har skrivits och passerar. Målet är **99% E2E-täckning** — varje spec ska täcka alla relevanta attackkategorier (se `.claude/docs/spec-testing-checklist.md` och `.claude/docs/testing.md`).
 4. För webbprojekt: **visuellt verifierad** i webbläsaren.
 5. Koden bedöms fungera till **100%**.
 
@@ -133,6 +134,7 @@ Läs dessa filer NÄR du behöver dem — ladda inte allt i förväg:
 - **Skapa nya agenter** → `.claude/docs/agents-templates.md`
 - **Skills, SKILL.md-format, Agent Skills-standarden** → `.claude/docs/skills.md`
 - **Tester (xUnit, Playwright)** → `.claude/docs/testing.md`
+- **Spec-testchecklista (destruktiva tester)** → `.claude/docs/spec-testing-checklist.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
 
 ## Filorganisation
