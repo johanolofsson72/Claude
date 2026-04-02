@@ -57,7 +57,7 @@ Compare online findings (step 1) with current structure (step 2). Identify:
 ## Step 4: Apply or report
 
 ### If `--dry-run`:
-Write a detailed report in Swedish with all findings and recommendations. Do NOT modify any files.
+Write a detailed report in English with all findings and recommendations. Do NOT modify any files.
 
 ### If live mode:
 1. Apply each recommended change using Edit tool (surgical changes only)
@@ -67,22 +67,22 @@ Write a detailed report in Swedish with all findings and recommendations. Do NOT
 ## Report format
 
 ```
-## Uppdateringsrapport (datum)
+## Update report (date)
 
-### Nya features
-- [feature]: [beskrivning] → [åtgärd]
+### New features found
+- [feature]: [description] → [action]
 
-### Deprecated/ändrade mönster
-- [mönster]: [vad som ändrats] → [åtgärd]
+### Deprecated/changed patterns
+- [pattern]: [what changed] → [action]
 
-### Genomförda uppdateringar
-1. [fil]: [ändring]
+### Applied updates
+1. [file]: [change]
 
-### Inga ändringar behövs
-- [område]: [anledning]
+### No changes needed
+- [area]: [reason]
 
-### Rekommendationer för nästa gång
-- [förslag]
+### Recommendations for next time
+- [suggestion]
 ```
 
 ## Rules
