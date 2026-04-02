@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "language": "swedish",
+  "language": "english",
   "attribution": {
     "commit": "",
     "pr": ""
@@ -58,16 +58,6 @@
             "type": "prompt",
             "prompt": "A file was just written/edited. Check: if the file path contains spec, tasks, plan, or feature AND is a .md file AND involves UI features, verify it includes destructive browser test scenarios (keywords: destructive, XSS, injection, double-click, race condition, garbage, attack, edge case). If it is a UI spec/task file but LACKS destructive tests, respond with a block decision explaining that min 8 destructive test scenarios from all 6 attack categories in .claude/docs/testing.md must be added. If the file is not a spec/task file or already has destructive tests, approve.",
             "statusMessage": "Validating spec completeness..."
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo '{\"systemMessage\": \"REMINDER: If you generated any human-facing text (commit messages, PR descriptions, docs, README, emails), verify that the humanizer skill was invoked before finishing.\"}'"
           }
         ]
       }

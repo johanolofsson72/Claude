@@ -5,86 +5,99 @@ in the project you want to update.
 
 ---
 
-## Uppdatera projektet med senaste Claude Code-konfigurationen
+## Update project with the latest Claude Code configuration
 
-Mallrepot finns i `/Users/jool/repos/Claude`. Ditt jobb: synka DETTA projekts Claude Code-setup mot mallrepots senaste version.
+The template repo is at `/Users/jool/repos/Claude`. Your job: sync THIS project's Claude Code setup against the template repo's latest version.
 
-### Steg 1: Läs mallrepot
+### Step 1: Read the template repo
 
-Läs följande filer från `/Users/jool/repos/Claude` (alla är viktiga — hoppa inte över några):
+Read the following files from `/Users/jool/repos/Claude` (all are important — do not skip any):
 
-**Konfiguration:**
-- `CLAUDE.md` — huvudkonfiguration med kritiska regler och arbetsflöde
-- `.claude/settings.json` — hooks, permissions, hook-typer (command, prompt, http, agent)
+**Configuration:**
+- `CLAUDE.md` — main configuration with critical rules and workflow
+- `.claude/settings.json` — hooks, permissions, hook types (command, prompt, http, agent)
 
-**Rules (auto-laddas, path-scoped via YAML-frontmatter):**
-- `.claude/rules/dotnet.md` — .NET-kodregler (paths: `**/*.cs`, `**/*.csproj`)
-- `.claude/rules/frontend.md` — frontend-regler
-- `.claude/rules/security.md` — säkerhetsregler för C#
-- `.claude/rules/specs.md` — spec/task-regler med destruktiva testerkrav (paths: `**/spec*.md`, `**/tasks*.md`, etc.)
-- `.claude/rules/wordpress.md` — WordPress-regler
+**Rules (auto-loaded, path-scoped via YAML frontmatter):**
+- `.claude/rules/dotnet.md` — .NET code rules (paths: `**/*.cs`, `**/*.csproj`)
+- `.claude/rules/frontend.md` — frontend rules
+- `.claude/rules/security.md` — security rules for C#
+- `.claude/rules/specs.md` — spec/task rules with destructive test requirements (paths: `**/spec*.md`, `**/tasks*.md`, etc.)
+- `.claude/rules/wordpress.md` — WordPress rules
 
-**Docs (laddas vid behov, refereras från CLAUDE.md):**
-- `.claude/docs/testing.md` — testkonventioner, destruktiva browsertester (6+1 attackkategorier)
-- `.claude/docs/spec-testing-checklist.md` — obligatorisk checklista för destruktiva tester i specs
-- `.claude/docs/conventions.md` — kodstil och namngivning
-- `.claude/docs/security.md` — säkerhetsreferens
-- `.claude/docs/git.md` — commit/branch/PR-konventioner
-- `.claude/docs/workflows.md` — hooks (25 events), skills, subagenter, plugins, agent teams
-- `.claude/docs/skills.md` — SKILL.md-format, frontmatter-fält, rekommenderade skills
-- `.claude/docs/agents-templates.md` — kopieringsbara agentmallar
+**Docs (loaded on demand, referenced from CLAUDE.md):**
+- `.claude/docs/testing.md` — test conventions, destructive browser tests (6+1 attack categories)
+- `.claude/docs/spec-testing-checklist.md` — mandatory checklist for destructive tests in specs
+- `.claude/docs/conventions.md` — code style and naming
+- `.claude/docs/security.md` — security reference
+- `.claude/docs/git.md` — commit/branch/PR conventions
+- `.claude/docs/workflows.md` — hooks (27 events), skills, subagents, plugins, agent teams
+- `.claude/docs/skills.md` — SKILL.md format, frontmatter fields, recommended skills
+- `.claude/docs/agents-templates.md` — copy-paste agent templates
 - `.claude/docs/deployment.md` — Docker Swarm, CI/CD
-- `.claude/docs/project-template.md` — mall för projektstart
+- `.claude/docs/project-template.md` — template for project start
 
-**Agents (subagenter med YAML-frontmatter):**
-- `.claude/agents/dotnet-reviewer.md` — kodgranskning (isolation: worktree)
-- `.claude/agents/security-scanner.md` — säkerhetsskanning (isolation: worktree)
-- `.claude/agents/test-runner.md` — testkörning (background: true)
+**Agents (subagents with YAML frontmatter):**
+- `.claude/agents/dotnet-reviewer.md` — code review (isolation: worktree)
+- `.claude/agents/security-scanner.md` — security scanning (isolation: worktree)
+- `.claude/agents/test-runner.md` — test execution (background: true)
 - `.claude/agents/db-agent.md` — EF Core/SQLite
 
-**Skills (SKILL.md med frontmatter):**
+**Skills (SKILL.md with frontmatter):**
 - `.claude/skills/code-review/SKILL.md`
 - `.claude/skills/explore-codebase/SKILL.md`
 - `.claude/skills/deploy-checklist/SKILL.md`
 
-### Steg 2: Läs detta projekts filer
+### Step 2: Read this project's files
 
-Läs befintlig `CLAUDE.md`, `.claude/settings.json` och alla filer under `.claude/` i DETTA projekt. Notera vad som är projektspecifikt.
+Read existing `CLAUDE.md`, `.claude/settings.json`, and all files under `.claude/` in THIS project. Note what is project-specific.
 
-### Steg 3: Analysera och uppdatera
+### Step 3: Language migration (CRITICAL)
 
-För varje fil i mallen:
+The template has been migrated from Swedish to English. If THIS project still has Swedish content in its Claude Code configuration files:
 
-| Situation | Åtgärd |
+1. **CLAUDE.md** — Translate all Swedish sections to English. Update the Language section to specify English.
+2. **All .claude/docs/*.md** — Translate any Swedish content to English.
+3. **All .claude/rules/*.md** — Translate any Swedish content to English.
+4. **.claude/settings.json** — Change `"language": "swedish"` to `"language": "english"` (or remove the field entirely).
+5. **Commit messages and PR descriptions** — Should now be written in English.
+
+Preserve all project-specific technical content during translation — only the human language changes, not the meaning.
+
+### Step 4: Analyze and update
+
+For each file in the template:
+
+| Situation | Action |
 |-----------|--------|
-| Filen finns INTE i detta projekt | Kopiera från mallen |
-| Filen finns och matchar mallen | Överhoppa |
-| Filen finns men är äldre | Uppdatera till mallens version, bevara `# PROJECT-SPECIFIC`-block |
-| Filen finns med projektspecifikt innehåll | Merge — mallens struktur + projektets anpassningar |
+| File does NOT exist in this project | Copy from template |
+| File exists and matches template | Skip |
+| File exists but is older | Update to template version, preserve `# PROJECT-SPECIFIC` blocks |
+| File exists with project-specific content | Merge — template structure + project customizations |
 
-**CLAUDE.md-merge:**
-- Uppdatera: kritiska regler, exekveringsläge, arbetsflöde, verifiering, kontexthantering, referensfiler
-- Bevara: projektbeskrivning, teknikstack, kommandon, projektspecifika principer
+**CLAUDE.md merge:**
+- Update: critical rules, execution mode, workflow, verification, context management, reference files
+- Preserve: project description, tech stack, commands, project-specific principles
 
-**settings.json-merge:**
-- UNION av hooks — lägg till mallens hooks utan att ta bort projektets egna
-- UNION av permissions.deny — sammanfoga båda listorna
-- Bevara projektspecifika hooks och permissions
-- OBS: mallen använder nya hook-typer som kanske inte finns i projektet:
-  - `type: "prompt"` — LLM-evaluering (för spec-validering)
-  - `type: "agent"` — flervägs-verifiering med verktygsåtkomst
-  - `type: "http"` — webhook-integration
-  - `if`-fältet (v2.1.85) — filtrering med permission rule-syntax
+**settings.json merge:**
+- UNION of hooks — add template hooks without removing project's own
+- UNION of permissions.deny — combine both lists
+- Preserve project-specific hooks and permissions
+- NOTE: the template uses hook types that may not exist in the project:
+  - `type: "prompt"` — LLM evaluation (for spec validation)
+  - `type: "agent"` — multi-turn verification with tool access
+  - `type: "http"` — webhook integration
+  - `if` field (v2.1.85) — filtering with permission rule syntax
+  - `"defer"` permission decision (v2.1.89) — for headless sessions
 
-### Steg 4: Verifiera spec-testning (KRITISKT)
+### Step 5: Verify spec testing (CRITICAL)
 
-Dessa tre komponenter arbetar tillsammans för att säkerställa att destruktiva browsertester inkluderas redan vid spec-skrivning — inte som eftertanke:
+These three components work together to ensure destructive browser tests are included at spec-writing time — not as an afterthought:
 
-1. **`.claude/rules/specs.md`** — path-scoped rule som triggar på spec/task/plan-filer. Kräver att testing.md och checklistan läses INNAN specen skrivs.
+1. **`.claude/rules/specs.md`** — path-scoped rule triggered on spec/task/plan files. Requires testing.md and the checklist to be read BEFORE the spec is written.
 
-2. **`.claude/docs/spec-testing-checklist.md`** — konkret mall med task-struktur per attackkategori. Definierar minimikrav per feature-typ (8-15 tester). Mål: 99% E2E-täckning.
+2. **`.claude/docs/spec-testing-checklist.md`** — concrete template with task structure per attack category. Defines minimum requirements per feature type (8-15 tests). Target: 99% E2E coverage.
 
-3. **PostToolUse prompt-hook i settings.json** — triggar vid Edit/Write på spec-filer och blockerar om destruktiva tester saknas. Kontrollera att denna hook finns:
+3. **PostToolUse prompt-hook in settings.json** — triggers on Edit/Write for spec files and blocks if destructive tests are missing. Verify this hook exists:
    ```json
    {
      "matcher": "Edit|Write",
@@ -96,50 +109,72 @@ Dessa tre komponenter arbetar tillsammans för att säkerställa att destruktiva
    }
    ```
 
-Om NÅGON av dessa tre saknas — kopiera från mallen.
+If ANY of these three are missing — copy from the template.
 
-### Steg 5: Ta bort irrelevant
+### Step 6: Install required skills
 
-- Projektet använder INTE WordPress? → ta bort `.claude/rules/wordpress.md`
-- Projektet använder INTE .NET? → ta bort `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
-- Projektet har INTE UI? → ta bort `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, spec-hooken
-- Behåll ALLTID: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`
+Install the following skill if it is not already present. This skill is critical for destructive browser testing:
 
-### Steg 6: Verifiera
-
-Efter synkronisering:
-- Kör `dotnet build` om projektet är .NET
-- Kontrollera att `settings.json` är giltig JSON (`python3 -m json.tool .claude/settings.json`)
-- Kontrollera att CLAUDE.md inte överstiger ~200 rader (Anthropics rekommendation)
-- Kontrollera att referensfil-sektionen i CLAUDE.md pekar på filer som faktiskt finns
-
-### Steg 7: Rapportera
-
-Skriv en sammanfattning:
-
-```
-Synkad från mallrepo (YYYY-MM-DD):
-- [SKAPAD] filnamn — anledning
-- [UPPDATERAD] filnamn — vad som ändrades
-- [ÖVERHOPPAD] filnamn — varför (redan aktuell / ej relevant)
-- [BORTTAGEN] filnamn — ej relevant för projektets teknikstack
-
-Projektspecifikt bevarat:
-- filnamn — vad som bevarades
-
-Manuell granskning rekommenderas:
-- filnamn — varför
+```bash
+# qa-test skill — destructive/adversarial browser testing with Playwright
+if [ ! -d "$HOME/.claude/skills/qa-test" ]; then
+  git clone https://github.com/adampaulwalker/qa-test.git "$HOME/.claude/skills/qa-test"
+  echo "[INSTALLED] qa-test skill — destructive browser testing (Jinx persona)"
+else
+  echo "[SKIPPED] qa-test skill — already installed"
+fi
 ```
 
-### Regler
+This skill provides two personas:
+- **Quinn** — systematic QA engineer for criteria-based testing
+- **Jinx** — chaos tester that actively tries to break the application (input attacks, interaction attacks, navigation attacks, state attacks, visual/layout attacks)
 
-- Kommunicera på svenska med korrekta **å, ä, ö** — använd ALDRIG a/o som ersättning
-- Kod skrivs på engelska
-- Ändra ALDRIG projektets kärnlogik eller applikationskod
-- Bevara ALLTID projektspecifika anpassningar (markerade med `# PROJECT-SPECIFIC` eller tydligt unika för projektet)
-- Om osäker: rapportera och fråga istället för att ändra
-- Committa INTE automatiskt — låt utvecklaren granska först
+Requires the Playwright MCP server. If the project has UI components, verify Playwright MCP is configured.
 
-Sedan kontrollerar du claude.md så att den inte överstiger 200 rader annars bryt ut avsnitt och lägg i separat fil/filer.
+### Step 7: Remove irrelevant files
+
+- Project does NOT use WordPress? → remove `.claude/rules/wordpress.md`
+- Project does NOT use .NET? → remove `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
+- Project does NOT have UI? → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, spec hook
+- ALWAYS keep: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`
+
+### Step 8: Verify
+
+After syncing:
+- Run `dotnet build` if the project is .NET
+- Verify that `settings.json` is valid JSON (`python3 -m json.tool .claude/settings.json`)
+- Verify that CLAUDE.md does not exceed ~200 lines (Anthropic recommendation)
+- Verify that the reference files section in CLAUDE.md points to files that actually exist
+
+### Step 9: Report
+
+Write a summary:
+
+```
+Synced from template repo (YYYY-MM-DD):
+- [CREATED] filename — reason
+- [UPDATED] filename — what changed
+- [SKIPPED] filename — why (already current / not relevant)
+- [REMOVED] filename — not relevant for project tech stack
+- [TRANSLATED] filename — migrated from Swedish to English
+
+Project-specific preserved:
+- filename — what was preserved
+
+Manual review recommended:
+- filename — why
+```
+
+### Rules
+
+- Communicate in English
+- Code is written in English
+- NEVER change the project's core logic or application code
+- ALWAYS preserve project-specific customizations (marked with `# PROJECT-SPECIFIC` or clearly unique to the project)
+- If unsure: report and ask instead of changing
+- Do NOT commit automatically — let the developer review first
+
+Then check that `CLAUDE.md` does not exceed 200 lines; if it does, split out sections and place them into separate file(s).
+
 
 ---

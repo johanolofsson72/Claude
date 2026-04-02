@@ -4,18 +4,18 @@ paths:
   - "**/*.csproj"
 ---
 
-# .NET-kodregler
+# .NET code rules
 
-- PascalCase för publika medlemmar, camelCase för lokala variabler.
-- Prefix privata fält med `_` (t.ex. `_logger`).
-- Använd `var` bara när typen är uppenbar från höger sida.
-- En klass per fil. Filnamn matchar klassnamn.
+- PascalCase for public members, camelCase for local variables.
+- Prefix private fields with `_` (e.g., `_logger`).
+- Use `var` only when the type is obvious from the right side.
+- One class per file. Filename matches class name.
 - File-scoped namespaces (`namespace X;`).
-- Primary constructors för services med dependency injection.
-- Använd `record` för immutabla datatyper.
-- Använd aldrig `#region` — strukturera med klasser och metoder istället.
-- Håll metoder under 30 rader — bryt ut vid behov.
-- Async/await: undvik async void, propagera CancellationToken.
-- EF Core: undvik N+1 — använd Include/ThenInclude, AsNoTracking() för läsning.
-- Håll `Program.cs` minimal — registrera services och middleware via extension methods (t.ex. `AddApplicationServices()`, `UseApplicationMiddleware()`). Ingen affärslogik i `Program.cs`.
-- Kör ALLTID `pkill -f dcpctrl || true` och `pkill -f "/absolut/sökväg/till/src/<delprojekt>" || true` (ett kommando per delprojekt) INNAN `dotnet build`, `dotnet run` eller `dotnet test`. Använd ALLTID fullständig absolut sökväg — relativa sökvägar som `src/<delprojekt>` är FÖRBJUDNA eftersom de kan matcha och döda processer med samma namn i andra projekt på maskinen. Identifiera delprojekten från `src/`-strukturen och `launchSettings.json` — döda ALDRIG alla dotnet-processer globalt.
+- Primary constructors for services with dependency injection.
+- Use `record` for immutable data types.
+- Never use `#region` — structure with classes and methods instead.
+- Keep methods under 30 lines — extract when needed.
+- Async/await: avoid async void, propagate CancellationToken.
+- EF Core: avoid N+1 — use Include/ThenInclude, AsNoTracking() for reads.
+- Keep `Program.cs` minimal — register services and middleware via extension methods (e.g., `AddApplicationServices()`, `UseApplicationMiddleware()`). No business logic in `Program.cs`.
+- ALWAYS run `pkill -f dcpctrl || true` and `pkill -f "/absolute/path/to/src/<subproject>" || true` (one command per subproject) BEFORE `dotnet build`, `dotnet run`, or `dotnet test`. ALWAYS use full absolute paths — relative paths like `src/<subproject>` are FORBIDDEN because they can match and kill processes with the same name in other projects on the machine. Identify subprojects from the `src/` structure and `launchSettings.json` — NEVER kill all dotnet processes globally.

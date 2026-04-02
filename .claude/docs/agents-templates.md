@@ -1,23 +1,25 @@
-# Agentmallar för .NET/Fullstack-projekt
+# Agent templates for .NET/Fullstack projects
 
-Kopiera relevanta agenter till `.claude/agents/` i ditt projekt. Varje agent körs i ett eget kontextfönster och delegeras automatiskt av Claude baserat på `description`.
+Copy relevant agents to `.claude/agents/` in your project. Each agent runs in its own context window and is automatically delegated by Claude based on `description`.
 
-## Nya funktioner i agenterna
+## Agent features
 
-| Funktion | Agent | Beskrivning |
+| Feature | Agent | Description |
 | --- | --- | --- |
-| `isolation: worktree` | dotnet-reviewer, security-scanner | Kör i isolerad git-kopia, städas automatiskt |
-| `background: true` | test-runner | Kör tester medan Claude fortsätter arbeta |
-| `skills` | db-agent | Laddar code-review skill för kodkvalitet |
-| `hooks` | dotnet-reviewer | Scopade hooks i agentens frontmatter |
-| `maxTurns` | (alla) | Begränsa antal agentvarv (default: obegränsat) |
-| `permissionMode` | (alla) | `default`, `acceptEdits`, `plan`, `bypassPermissions` |
-| `disallowedTools` | (alla) | Denylist — tas bort från ärvda verktyg |
-| `mcpServers` | (alla) | MCP-servrar tillgängliga för agenten |
+| `isolation: worktree` | dotnet-reviewer, security-scanner | Runs in isolated git copy, cleaned up automatically |
+| `background: true` | test-runner | Runs tests while Claude continues working |
+| `skills` | db-agent | Loads code-review skill for code quality |
+| `hooks` | dotnet-reviewer | Scoped hooks in agent frontmatter |
+| `maxTurns` | (all) | Limit number of agent turns (default: unlimited) |
+| `permissionMode` | (all) | `default`, `acceptEdits`, `plan`, `bypassPermissions` |
+| `disallowedTools` | (all) | Denylist — removed from inherited tools |
+| `mcpServers` | (all) | MCP servers available to the agent |
+| `memory` | (all) | Persistent memory: `user`, `project`, or `local` scope |
+| `initialPrompt` | (all) | Auto-submitted as first user turn when running as main session agent |
 
 ## dotnet-reviewer
 
-Fil: `.claude/agents/dotnet-reviewer.md`
+File: `.claude/agents/dotnet-reviewer.md`
 
 ```markdown
 ---
@@ -57,7 +59,7 @@ Report by severity: Critical (must fix) | Warning (should fix) | Suggestion
 
 ## security-scanner
 
-Fil: `.claude/agents/security-scanner.md`
+File: `.claude/agents/security-scanner.md`
 
 ```markdown
 ---
@@ -97,7 +99,7 @@ Report format per finding:
 
 ## test-runner
 
-Fil: `.claude/agents/test-runner.md`
+File: `.claude/agents/test-runner.md`
 
 ```markdown
 ---
@@ -128,7 +130,7 @@ Report format:
 
 ## db-agent
 
-Fil: `.claude/agents/db-agent.md`
+File: `.claude/agents/db-agent.md`
 
 ```markdown
 ---
@@ -167,18 +169,18 @@ Workflow:
 6. Verify: `dotnet build` and `dotnet test`
 ```
 
-## Installationsscript
+## Installation script
 
-Kopiera alla agenter till ett nytt projekt:
+Copy all agents to a new project:
 
 ```bash
-# Skapa agents-katalog och kopiera mallar
+# Create agents directory and copy templates
 mkdir -p .claude/agents
 
-# Kopiera från template-repot (anpassa sökväg)
+# Copy from template repo (adjust path)
 for agent in dotnet-reviewer security-scanner test-runner db-agent; do
-  echo "Kopiera $agent.md till .claude/agents/"
+  echo "Copying $agent.md to .claude/agents/"
 done
 ```
 
-Alternativt, skapa agenterna med `/agents`-kommandot och klistra in innehållet ovan.
+Alternatively, create agents with the `/agents` command and paste the content above.

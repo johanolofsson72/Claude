@@ -1,11 +1,13 @@
 ---
-globs: "**/*.php,**/wp-content/**"
+paths:
+  - "**/*.php"
+  - "wp-content/**"
 ---
 
-# WordPress-regler
+# WordPress rules
 
-- Följ WordPress Coding Standards.
-- Modifiera aldrig core-filer — använd child themes, hooks och filters.
-- Använd `$wpdb->prepare()` för databasfrågor — aldrig rå SQL.
-- Använd aldrig `eval()` eller `extract()`.
-- Escapa all output med `esc_html()`, `esc_attr()`, `esc_url()`.
+- Follow WordPress Coding Standards.
+- Never modify core files — use child themes, hooks, and filters.
+- Use `$wpdb->prepare()` for database queries — never raw SQL.
+- Never use `eval()` or `extract()`.
+- Escape all output with `esc_html()`, `esc_attr()`, `esc_url()`.

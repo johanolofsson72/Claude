@@ -1,166 +1,167 @@
-# Arbetsflöden och verktyg
+# Workflows and tools
 
-## Spec-driven arbetsmodell
+## Spec-driven workflow
 
-Om projektet använder ett spec-kit eller liknande:
+If the project uses a spec kit or similar:
 
-- Prioritera spec-kitets arbetsmodell i första hand.
-- Alla implementationer utgår från specifikationen.
-- Avvikelser kräver explicit godkännande.
-- Standarduppgift: [T.ex. "Hitta högst numrerade ofullständiga spec och implementera den."]
+- Prioritize the spec kit's workflow first.
+- All implementations start from the specification.
+- Deviations require explicit approval.
+- Default task: [E.g., "Find the highest numbered incomplete spec and implement it."]
 
-## Frontend design skill — detaljer
+## Frontend design skill — details
 
-**Triggerord som kräver frontend-design skill:**
+**Trigger words requiring frontend-design skill:**
 
-- Design, utseende, layout, styling, CSS, färg, font, typografi
-- Knapp, formulär, navbar, footer, header, sidebar, modal, kort/card
-- Responsivt, mobil, dark mode, tema, animation
-- "Snyggare", "finare", "modernare", "proffsigare", "bättre utseende"
+- Design, appearance, layout, styling, CSS, color, font, typography
+- Button, form, navbar, footer, header, sidebar, modal, card
+- Responsive, mobile, dark mode, theme, animation
+- "Nicer", "prettier", "more modern", "more professional", "better looking"
 
-**Korrekt ordning:**
+**Correct order:**
 
-1. Användaren frågar om något UI-relaterat
-2. **FÖRST:** Anropa `Skill`-verktyget med `skill: "frontend-design"`
-3. **SEDAN:** Följ instruktionerna från skillen för implementation
+1. User asks about something UI-related
+2. **FIRST:** Invoke the `Skill` tool with `skill: "frontend-design"`
+3. **THEN:** Follow the instructions from the skill for implementation
 
-## Humanizer skill — detaljer
+## Humanizer skill — details
 
-**CRITICAL — BLOCKERANDE KRAV:** 100% av all genererad text som riktas till människor MÅSTE köras genom `humanizer`-skillen innan leverans.
+**CRITICAL — BLOCKING REQUIREMENT:** 100% of all generated text aimed at humans MUST be run through the `humanizer` skill before delivery.
 
-**Gäller för:**
+**Applies to:**
 
-- Commit-meddelanden och PR-beskrivningar
-- Dokumentation, README-filer, CHANGELOG
-- Mejl, artiklar, blogginlägg
-- Kommentarer på issues/PRs
-- All löpande text som levereras till användaren
+- Commit messages and PR descriptions
+- Documentation, README files, CHANGELOG
+- Emails, articles, blog posts
+- Comments on issues/PRs
+- All prose text delivered to the user
 
-**Gäller INTE för:**
+**Does NOT apply to:**
 
-- Kod (variabler, funktioner, klasser)
-- Tekniska loggar och felmeddelanden
-- JSON, YAML, konfigurationsfiler
-- Inline-kommentarer i kod (engelska, tekniska)
+- Code (variables, functions, classes)
+- Technical logs and error messages
+- JSON, YAML, configuration files
+- Inline comments in code (English, technical)
 
-**Korrekt ordning:**
+**Correct order:**
 
-1. Generera texten
-2. **FÖRST:** Anropa `Skill`-verktyget med `skill: "humanizer"`
-3. **SEDAN:** Leverera den humaniserade texten
+1. Generate the text
+2. **FIRST:** Invoke the `Skill` tool with `skill: "humanizer"`
+3. **THEN:** Deliver the humanized text
 
 ## Skills
 
-Skills är instruktionsfiler (SKILL.md) med YAML-frontmatter som ger Claude specialiserade förmågor. Claude Code följer Agent Skills-standarden (agentskills.io).
+Skills are instruction files (SKILL.md) with YAML frontmatter that give Claude specialized capabilities. Claude Code follows the Agent Skills standard (agentskills.io).
 
-### Nyckelkoncept
+### Key concepts
 
-- **`context: fork`** — kör skillen i isolerad subagent, håller huvudkontexten ren
-- **`disable-model-invocation: true`** — bara användaren kan anropa (för deploy, commit, farliga operationer)
-- **`user-invocable: false`** — bakgrundskunskap, gömd från /-menyn
-- **`allowed-tools`** — verktyg utan behörighetsprompt inom skillen
-- **`${CLAUDE_SKILL_DIR}`** — referera filer relativt till skillens mapp
-- **`hooks`** — hooks scopade till skillens livscykel (istället för globala settings.json)
+- **`context: fork`** — run the skill in an isolated subagent, keep the main context clean
+- **`disable-model-invocation: true`** — only the user can invoke (for deploy, commit, dangerous operations)
+- **`user-invocable: false`** — background knowledge, hidden from the / menu
+- **`allowed-tools`** — tools without permission prompt within the skill
+- **`${CLAUDE_SKILL_DIR}`** — reference files relative to the skill's folder
+- **`hooks`** — hooks scoped to the skill's lifecycle (instead of global settings.json)
 
-### Skillnad: Skills vs Commands
+### Difference: Skills vs Commands
 
-Slash commands (`.claude/commands/`) och skills (`.claude/skills/`) har slagits ihop sedan v2.1.3. Båda skapar `/slash-commands` och fungerar identiskt. Skills rekommenderas då de stödjer fler funktioner.
+Slash commands (`.claude/commands/`) and skills (`.claude/skills/`) have been merged since v2.1.3. Both create `/slash-commands` and function identically. Skills are recommended as they support more features.
 
-### Inbyggda skills (levereras med Claude Code)
+### Built-in skills (shipped with Claude Code)
 
-| Skill | Beskrivning |
+| Skill | Description |
 | --- | --- |
-| `/simplify` | Granskar ändrade filer med 3 parallella agenter (återanvändning, kvalitet, effektivitet) |
-| `/batch <instruktion>` | Orkestrerar storskaliga ändringar parallellt i isolerade git worktrees |
-| `/loop [intervall] <prompt>` | Kör prompt upprepade gånger på ett intervall |
-| `/debug [beskrivning]` | Felsökning av aktuell session |
-| `/claude-api` | Laddar Claude API-referens för ditt projektspråk |
+| `/simplify` | Reviews changed files with 3 parallel agents (reuse, quality, efficiency) |
+| `/batch <instruction>` | Orchestrates large-scale changes in parallel in isolated git worktrees |
+| `/loop [interval] <prompt>` | Runs a prompt repeatedly on an interval |
+| `/debug [description]` | Debug the current session |
+| `/claude-api` | Loads Claude API reference for your project language |
 
-Se `.claude/docs/skills.md` för fullständig skills-referens.
+See `.claude/docs/skills.md` for full skills reference.
 
 ## Plugins
 
-Plugins buntar skills, agents, hooks, MCP-servrar och LSP-servrar i ett distribuerbart paket. Installeras med `/plugin install`.
+Plugins bundle skills, agents, hooks, MCP servers, and LSP servers in a distributable package. Installed with `/plugin install`.
 
-**Skillnad mot skills:**
+**Difference from skills:**
 
-- **Skill** = en SKILL.md-fil med instruktioner (körs i huvudkontexten eller forkad)
-- **Plugin** = ett paket som kan innehålla skills + agents + hooks + MCP + LSP
+- **Skill** = a SKILL.md file with instructions (runs in main context or forked)
+- **Plugin** = a package that can contain skills + agents + hooks + MCP + LSP
 
-### LSP-plugins och installation
+### LSP plugins and installation
 
-Se `.claude/docs/skills.md` för LSP-plugins (C#, TypeScript, PHP) och installationskommandon.
+See `.claude/docs/skills.md` for LSP plugins (C#, TypeScript, PHP) and installation commands.
 
-### Vanliga plugins
+### Common plugins
 
 ```bash
-# Projekthantering
+# Project management
 /plugin install github@claude-plugins-official
 
-# Övriga användbara
-/plugin install sentry@claude-plugins-official     # Felspårning
-/plugin install slack@claude-plugins-official       # Kommunikation
+# Other useful plugins
+/plugin install sentry@claude-plugins-official     # Error tracking
+/plugin install slack@claude-plugins-official       # Communication
 ```
 
-### Pluginscopes
+### Plugin scopes
 
-| Scope | Fil | Gäller |
+| Scope | File | Applies to |
 | --- | --- | --- |
-| `user` (default) | `~/.claude/settings.json` | Alla dina projekt |
-| `project` | `.claude/settings.json` | Alla i teamet (via git) |
-| `local` | `.claude/settings.local.json` | Bara du, i detta repo |
+| `user` (default) | `~/.claude/settings.json` | All your projects |
+| `project` | `.claude/settings.json` | Everyone on the team (via git) |
+| `local` | `.claude/settings.local.json` | Only you, in this repo |
 
 ```bash
-/plugin install <namn>@<marknadsplats> --scope project  # Delat med teamet
-/plugin disable <namn>@<marknadsplats>                   # Avaktivera
-/plugin update <namn>@<marknadsplats>                    # Uppdatera
+/plugin install <name>@<marketplace> --scope project  # Shared with team
+/plugin disable <name>@<marketplace>                   # Disable
+/plugin update <name>@<marketplace>                    # Update
 ```
 
-## Hooks (deterministiska regler)
+## Hooks (deterministic rules)
 
-Överväg Claude Code hooks (`.claude/settings.json`) för regler som MÅSTE efterlevas utan undantag. Till skillnad från CLAUDE.md-instruktioner som är rådgivande är hooks deterministiska och garanterade.
+Consider Claude Code hooks (`.claude/settings.json`) for rules that MUST be followed without exception. Unlike CLAUDE.md instructions which are advisory, hooks are deterministic and guaranteed.
 
-### Hook-events (25 st)
+### Hook events (27)
 
-| Hook-event | När det utlöses |
+| Hook event | When triggered |
 | --- | --- |
-| `SessionStart` | Session startar eller återupptas. Matcher: `compact`, `resume`, `new` |
-| `SessionEnd` | Session avslutas. Matcher: `clear`, `logout`, `prompt_input_exit`, `other` |
-| `Setup` | Engångskörning vid första sessionen — bra för installationsskript |
-| `UserPromptSubmit` | Användaren skickar en prompt — kan blockera eller injicera kontext |
-| `PreToolUse` | Innan ett verktygsanrop — kan blockera eller modifiera input |
-| `PermissionRequest` | Behörighetsdialog visas — kan auto-godkänna eller neka |
-| `PostToolUse` | Efter ett lyckat verktygsanrop |
-| `PostToolUseFailure` | Efter ett misslyckat verktygsanrop — kan ge korrigerande feedback |
-| `Notification` | Notifikationer (`permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`) |
-| `SubagentStart` | En subagent startas |
-| `SubagentStop` | En subagent avslutas |
-| `Stop` | Claude slutar svara — kan tvinga fortsättning |
-| `StopFailure` | Session avslutas p.g.a. API-fel — kan ge korrigerande feedback |
-| `TeammateIdle` | Agent team-medlem ska gå idle — kan tvinga fortsättning |
-| `TaskCreated` | En uppgift skapas (agent teams) — kan validera eller injicera kontext |
-| `TaskCompleted` | En uppgift markeras som klar — kan blockera om kvalitetsvillkor inte uppfylls |
-| `PreCompact` | Innan kontextkomprimering — bra för att bevara kritisk kontext |
-| `PostCompact` | Efter kontextkomprimering — kan injicera kontext som gick förlorad |
-| `Elicitation` | MCP-server begär strukturerad input — kan auto-besvara |
-| `ElicitationResult` | Användaren svarar på MCP-elicitation |
-| `ConfigChange` | Konfigurationsfil ändras under session — kan blockera ändringen |
-| `InstructionsLoaded` | Instruktioner (CLAUDE.md, skills) laddas — kan injicera extra kontext |
-| `CwdChanged` | Arbetskatalogen ändras — reaktiv miljöhantering (t.ex. direnv) |
-| `FileChanged` | En fil ändras — reaktiv övervakning |
-| `WorktreeCreate` | Git worktree skapas |
-| `WorktreeRemove` | Git worktree tas bort |
+| `SessionStart` | Session starts or resumes. Matcher: `compact`, `resume`, `new` |
+| `SessionEnd` | Session ends. Matcher: `clear`, `logout`, `prompt_input_exit`, `other` |
+| `Setup` | One-time run on first session — good for installation scripts |
+| `UserPromptSubmit` | User submits a prompt — can block or inject context |
+| `PreToolUse` | Before a tool call — can block or modify input |
+| `PermissionRequest` | Permission dialog shown — can auto-approve or deny |
+| `PermissionDenied` | After auto mode classifier denials — return `{retry: true}` to retry |
+| `PostToolUse` | After a successful tool call |
+| `PostToolUseFailure` | After a failed tool call — can provide corrective feedback |
+| `Notification` | Notifications (`permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`) |
+| `SubagentStart` | A subagent starts |
+| `SubagentStop` | A subagent stops |
+| `Stop` | Claude stops responding — can force continuation |
+| `StopFailure` | Session ends due to API error — can provide corrective feedback |
+| `TeammateIdle` | Agent team member about to go idle — can force continuation |
+| `TaskCreated` | A task is created (agent teams) — can validate or inject context |
+| `TaskCompleted` | A task is marked done — can block if quality conditions not met |
+| `PreCompact` | Before context compaction — good for preserving critical context |
+| `PostCompact` | After context compaction — can inject context that was lost |
+| `Elicitation` | MCP server requests structured input — can auto-answer |
+| `ElicitationResult` | User answers MCP elicitation |
+| `ConfigChange` | Configuration file changes during session — can block the change |
+| `InstructionsLoaded` | Instructions (CLAUDE.md, skills) loaded — can inject extra context |
+| `CwdChanged` | Working directory changes — reactive environment management (e.g., direnv) |
+| `FileChanged` | A file changes on disk — reactive monitoring |
+| `WorktreeCreate` | Git worktree created |
+| `WorktreeRemove` | Git worktree removed |
 
-### Fyra typer av hooks
+### Four types of hooks
 
-- `command` — kör shell-kommando. Tar emot JSON via stdin, returnerar JSON via stdout. Stöder `"async": true` och `"asyncRewake": true` (bakgrund som väcker modellen vid exit code 2)
-- `http` — skickar JSON som HTTP POST till en URL. Konfigureras med `url`, `headers`, `allowedEnvVars`
-- `prompt` — envägs-evaluering med Claude (Haiku), returnerar `{ "ok": true/false, "reason": "..." }`
-- `agent` — flervägs-verifiering med verktygsåtkomst (Read, Grep, Glob), upp till 50 varv
+- `command` — runs a shell command. Receives JSON via stdin, returns JSON via stdout. Supports `"async": true` and `"asyncRewake": true` (background that wakes the model on exit code 2)
+- `http` — sends JSON as HTTP POST to a URL. Configured with `url`, `headers`, `allowedEnvVars`
+- `prompt` — single-turn evaluation with Claude (Haiku), returns `{ "ok": true/false, "reason": "..." }`
+- `agent` — multi-turn verification with tool access (Read, Grep, Glob), up to 50 turns
 
-### Filtrera hooks med `if`-fält (nytt v2.1.85)
+### Filter hooks with `if` field (v2.1.85)
 
-Använd `if` för att begränsa NÄR en hook triggas, med permission rule-syntax:
+Use `if` to restrict WHEN a hook triggers, with permission rule syntax:
 
 ```json
 {
@@ -173,11 +174,15 @@ Använd `if` för att begränsa NÄR en hook triggas, med permission rule-syntax
 }
 ```
 
-`if` matchar på verktygets argument — hooken ovan triggas bara för `Bash`-anrop som börjar med `git`. Utan `if` triggas den för ALLA Bash-anrop.
+`if` matches on the tool's arguments — the hook above only triggers for `Bash` calls starting with `git`. Without `if`, it triggers for ALL Bash calls.
 
-### Hooks i skills och agenter
+### Defer permission decision (v2.1.89)
 
-Sedan v2.1.0 kan hooks definieras direkt i SKILL.md och agent-frontmatter, scopade till komponentens livscykel:
+For headless sessions (`claude -p`), PreToolUse hooks can return `permissionDecision: "defer"` to pause the session. Resume later with `-p --resume` to have the hook re-evaluate.
+
+### Hooks in skills and agents
+
+Since v2.1.0, hooks can be defined directly in SKILL.md and agent frontmatter, scoped to the component's lifecycle:
 
 ```yaml
 ---
@@ -191,21 +196,21 @@ hooks:
 ---
 ```
 
-Fördel: hooks följer skillen/agenten istället för att ligga centralt i settings.json.
+Benefit: hooks follow the skill/agent instead of being centralized in settings.json.
 
-### Blockering och kontroll
+### Blocking and control
 
-Hooks blockerar via:
+Hooks block via:
 
-- **Command:** exit code `2` = blockera (OBS: `exit 1` blockerar INTE, det är bara ett fel)
-- **Command (PreToolUse):** JSON-output med `hookSpecificOutput.permissionDecision: "deny"` = blockera. OBS: top-level `decision`/`reason`-fält är **deprecated** för PreToolUse — använd `hookSpecificOutput` istället
-- **Command (övriga events):** top-level `decision`/`reason` fungerar fortfarande
-- **Prompt/Agent:** `{ "ok": false, "reason": "..." }` = blockera
-- **Permissions.deny** i settings.json = deterministisk blockering, men har kända buggar — se `.claude/docs/security.md`
+- **Command:** exit code `2` = block (NOTE: `exit 1` does NOT block, it's just an error)
+- **Command (PreToolUse):** JSON output with `hookSpecificOutput.permissionDecision: "deny"` = block. NOTE: top-level `decision`/`reason` fields are **deprecated** for PreToolUse — use `hookSpecificOutput` instead
+- **Command (other events):** top-level `decision`/`reason` still works
+- **Prompt/Agent:** `{ "ok": false, "reason": "..." }` = block
+- **Permissions.deny** in settings.json = deterministic blocking, but has known bugs — see `.claude/docs/security.md`
 
-### Async hooks (bakgrundskörning)
+### Async hooks (background execution)
 
-Sätt `"async": true` på command-hooks för att köra dem i bakgrunden utan att blockera Claude. Resultatet levereras på nästa konversationstur via `systemMessage`.
+Set `"async": true` on command hooks to run them in the background without blocking Claude. The result is delivered on the next conversation turn via `systemMessage`.
 
 ```json
 {
@@ -219,64 +224,65 @@ Sätt `"async": true` på command-hooks för att köra dem i bakgrunden utan att
 }
 ```
 
-**Begränsningar:** Async hooks kan inte blockera, bara `type: "command"` stöds, och output levereras först vid nästa tur.
+**Limitations:** Async hooks cannot block, only `type: "command"` is supported, and output is delivered on the next turn.
 
-### JSON-output från hooks
+### JSON output from hooks
 
-| Fält | Beskrivning |
+| Field | Description |
 | --- | --- |
-| `systemMessage` | Varningsmeddelande till användaren |
-| `additionalContext` | Extra kontext för Claude |
-| `continue` | `false` = stoppa Claude helt |
-| `stopReason` | Meddelande vid `continue: false` |
-| `suppressOutput` | Dölj stdout från verbose mode |
-| `updatedInput` | Modifiera verktygets input (PreToolUse, PermissionRequest) |
-| `updatedMCPToolOutput` | Ersätt MCP-verktygets output (PostToolUse) |
+| `systemMessage` | Warning message to the user |
+| `additionalContext` | Extra context for Claude |
+| `continue` | `false` = stop Claude entirely |
+| `stopReason` | Message when `continue: false` |
+| `suppressOutput` | Hide stdout from verbose mode |
+| `updatedInput` | Modify the tool's input (PreToolUse, PermissionRequest) |
+| `updatedMCPToolOutput` | Replace MCP tool output (PostToolUse) |
 
-### Miljövariabler i hooks
+### Environment variables in hooks
 
-| Variabel | Beskrivning |
+| Variable | Description |
 | --- | --- |
-| `$CLAUDE_PROJECT_DIR` | Projektets rotkatalog |
-| `$CLAUDE_ENV_FILE` | Sökväg där SessionStart-hooks kan skriva `export`-satser |
-| `$CLAUDE_CODE_REMOTE` | `"true"` i fjärr-/webb-miljöer |
-| `$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Sätts till `1` för att strippa Anthropic/cloud-credentials från subprocess-miljöer |
-| `${CLAUDE_PLUGIN_ROOT}` | Pluginens rotkatalog |
+| `$CLAUDE_PROJECT_DIR` | Project root directory |
+| `$CLAUDE_ENV_FILE` | Path where SessionStart hooks can write `export` statements |
+| `$CLAUDE_CODE_REMOTE` | `"true"` in remote/web environments |
+| `$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set to `1` to strip Anthropic/cloud credentials from subprocess environments |
+| `${CLAUDE_PLUGIN_ROOT}` | Plugin root directory |
 
-### Vanliga automatiseringar
+### Common automations
 
-- Post-edit hook: kör linter efter varje filändring
-- Pre-commit hook: kör `dotnet build` innan commit
-- Blockerings-hook: `permissions.deny` i settings.json (föredra detta framför hooks)
-- Stop-hook (agent): verifiera att tester passerar innan Claude stannar
-- Async post-edit: kör tester i bakgrunden medan Claude fortsätter arbeta
-- PreCompact-hook: bevara kritisk kontext vid komprimering
+- Post-edit hook: run linter after every file change
+- Pre-commit hook: run `dotnet build` before commit
+- Blocking hook: `permissions.deny` in settings.json (prefer this over hooks)
+- Stop hook (agent): verify tests pass before Claude stops
+- Async post-edit: run tests in the background while Claude continues working
+- PreCompact hook: preserve critical context during compaction
 
-## Subagenter
+## Subagents
 
-Skapa dedikerade subagenter i `.claude/agents/` för isolerade uppgifter som inte ska fylla huvudkontexten. Subagenter körs i egna kontextfönster och rapporterar tillbaka sammanfattningar.
+Create dedicated subagents in `.claude/agents/` for isolated tasks that should not fill the main context. Subagents run in their own context windows and report back summaries.
 
-Skapa via `/agents`-kommandot eller manuellt som markdown-filer.
+Create via the `/agents` command or manually as markdown files.
 
-### YAML-frontmatter — komplett referens
+### YAML frontmatter — complete reference
 
 ```yaml
 ---
-name: agent-name              # Obligatoriskt. Gemener och bindestreck
-description: When to use      # Obligatoriskt. Claude använder detta för delegering
-tools: Read, Grep, Glob       # Valfritt. Allowlist för verktyg
-disallowedTools: Write, Edit  # Valfritt. Denylist
-model: sonnet                 # Valfritt. sonnet|opus|haiku (default: inherit)
-permissionMode: default       # Valfritt. default|acceptEdits|dontAsk|plan|bypassPermissions
-maxTurns: 20                  # Valfritt. Max antal agentvarv
-memory: project               # Valfritt. user|project|local (bestående minne)
-isolation: worktree            # Valfritt. Kör i isolerad git worktree
-background: false              # Valfritt. true = kör i bakgrunden (MCP ej tillgängligt)
-skills:                        # Valfritt. Skills att ladda (ärvs INTE från föräldern)
+name: agent-name              # Required. Lowercase and hyphens
+description: When to use      # Required. Claude uses this for delegation
+tools: Read, Grep, Glob       # Optional. Allowlist for tools
+disallowedTools: Write, Edit  # Optional. Denylist
+model: sonnet                 # Optional. sonnet|opus|haiku (default: inherit)
+permissionMode: default       # Optional. default|acceptEdits|dontAsk|plan|bypassPermissions
+maxTurns: 20                  # Optional. Max number of agent turns
+memory: project               # Optional. user|project|local (persistent memory)
+isolation: worktree            # Optional. Run in isolated git worktree
+background: false              # Optional. true = run in background (MCP not available)
+initialPrompt: "start here"   # Optional. Auto-submitted as first user turn
+skills:                        # Optional. Skills to load (NOT inherited from parent)
   - api-conventions
-mcpServers:                    # Valfritt. MCP-servrar tillgängliga för agenten
+mcpServers:                    # Optional. MCP servers available to the agent
   - server-name
-hooks:                         # Valfritt. Hooks scopade till denna agent
+hooks:                         # Optional. Hooks scoped to this agent
   PostToolUse:
     - matcher: "Edit|Write"
       hooks:
@@ -284,47 +290,48 @@ hooks:                         # Valfritt. Hooks scopade till denna agent
           command: "./scripts/lint.sh"
 ---
 
-Systemprompt börjar här. Agenten får BARA detta prompt.
+System prompt starts here. The agent receives ONLY this prompt.
 ```
 
-### Fältbeskrivningar
+### Field descriptions
 
-| Fält | Beskrivning |
+| Field | Description |
 | --- | --- |
-| `name` | Unikt ID, gemener och bindestreck |
-| `description` | **Kritiskt** — Claude delegerar baserat på detta. Inkludera "Use proactively" för automatisk användning |
-| `tools` | Allowlist. Utelämnad = ärver alla verktyg |
-| `disallowedTools` | Denylist. Tas bort från ärvda verktyg |
-| `model` | `opus` (mest kapabel), `sonnet` (balans), `haiku` (snabbast/billigast) |
-| `permissionMode` | `acceptEdits` auto-godkänner filändringar, `plan` = bara läsning, `bypassPermissions` = hoppa över alla |
-| `memory` | `user` = alla projekt, `project` = delbart via git, `local` = bara du |
-| `isolation` | `worktree` = isolerad git-kopia, städas automatiskt om inga ändringar |
-| `background` | Kör medan du fortsätter arbeta. MCP-verktyg ej tillgängliga |
-| `skills` | Hela skill-innehållet injiceras vid start. Ärvs INTE från föräldern |
-| `mcpServers` | MCP-servrar tillgängliga för agenten. Servernamn eller inline-definition |
-| `hooks` | Hooks scopade till agentens livscykel |
+| `name` | Unique ID, lowercase and hyphens |
+| `description` | **Critical** — Claude delegates based on this. Include "Use proactively" for automatic use |
+| `tools` | Allowlist. Omitted = inherits all tools |
+| `disallowedTools` | Denylist. Removed from inherited tools |
+| `model` | `opus` (most capable), `sonnet` (balance), `haiku` (fastest/cheapest) |
+| `permissionMode` | `acceptEdits` auto-approves file changes, `plan` = read-only, `bypassPermissions` = skip all |
+| `memory` | `user` = all projects, `project` = shareable via git, `local` = only you |
+| `isolation` | `worktree` = isolated git copy, cleaned up automatically if no changes |
+| `background` | Run while you continue working. MCP tools not available |
+| `initialPrompt` | Auto-submitted as first user turn when running as main session agent via `--agent` |
+| `skills` | Full skill content injected at start. NOT inherited from parent |
+| `mcpServers` | MCP servers available to the agent. Server name or inline definition |
+| `hooks` | Hooks scoped to the agent's lifecycle |
 
-### Placering
+### Placement
 
-| Plats | Scope |
+| Location | Scope |
 | --- | --- |
-| `.claude/agents/` | Projektspecifik (delas via git) |
-| `~/.claude/agents/` | Personlig (alla projekt) |
+| `.claude/agents/` | Project-specific (shared via git) |
+| `~/.claude/agents/` | Personal (all projects) |
 
-### Kopieringsbara agentmallar
+### Copy-paste agent templates
 
-Se `.claude/docs/agents-templates.md` för färdiga agenter anpassade för .NET/fullstack-projekt:
+See `.claude/docs/agents-templates.md` for ready-made agents for .NET/fullstack projects:
 
-- **dotnet-reviewer** — kodgranskning med worktree-isolering
-- **security-scanner** — säkerhetsskanning i isolerad worktree
-- **test-runner** — kör tester i bakgrunden
+- **dotnet-reviewer** — code review with worktree isolation
+- **security-scanner** — security scanning in isolated worktree
+- **test-runner** — run tests in the background
 - **db-agent** — EF Core migrations, schema, queries
 
-## Agent Teams (experimentellt)
+## Agent Teams (experimental)
 
-Flera Claude Code-instanser som arbetar tillsammans med direkt kommunikation och delad uppgiftslista. En session är teamledare, övriga är medlemmar.
+Multiple Claude Code instances working together with direct communication and a shared task list. One session is team leader, the rest are members.
 
-**Aktivera:**
+**Enable:**
 
 ```json
 {
@@ -334,55 +341,56 @@ Flera Claude Code-instanser som arbetar tillsammans med direkt kommunikation och
 }
 ```
 
-**Skillnad mot subagenter:**
+**Difference from subagents:**
 
-- Subagenter rapporterar bara tillbaka resultat
-- Team-medlemmar kommunicerar direkt med varandra och koordinerar självständigt
+- Subagents only report back results
+- Team members communicate directly with each other and coordinate independently
 
-**Bäst för:** Komplexa uppgifter med flera parallella spår (frontend + backend + tester).
+**Best for:** Complex tasks with multiple parallel tracks (frontend + backend + tests).
 
-## Parallella sessioner
+## Parallel sessions
 
-- **Writer/Reviewer**: En session implementerar, en annan granskar
-- **Fan-out**: `for file in $(cat files.txt); do claude -p "Migrera $file" --allowedTools "Edit"; done`
+- **Writer/Reviewer**: One session implements, another reviews
+- **Fan-out**: `for file in $(cat files.txt); do claude -p "Migrate $file" --allowedTools "Edit"; done`
 
 ## Thinking triggers
 
-- `think` → ~4 000 tokens tankebudget
-- `think hard` → ~10 000 tokens
-- `ultrathink` → ~32 000 tokens (rekommenderas för arkitekturbeslut och svår felsökning)
+- `think` → ~4,000 tokens thinking budget
+- `think hard` → ~10,000 tokens
+- `ultrathink` → ~32,000 tokens (recommended for architecture decisions and difficult debugging)
 
-## Modell och output
+## Model and output
 
-- Default-modell: Opus 4.6 med 1M tokens kontextfönster (Max/Team/Enterprise)
-- Default max output: 64k tokens, övre gräns 128k tokens (Opus 4.6 och Sonnet 4.6)
-- Fast mode (`/fast`) använder samma Opus 4.6 med snabbare output — byter INTE modell
+- Default model: Opus 4.6 with 1M token context window (Max/Team/Enterprise)
+- Default max output: 64k tokens, upper limit 128k tokens (Opus 4.6 and Sonnet 4.6)
+- Fast mode (`/fast`) uses the same Opus 4.6 with faster output — does NOT switch model
 
-## Sessions-hantering
+## Session management
 
-- `claude --continue` — återuppta senaste sessionen
-- `claude --resume` — välj bland tidigare sessioner
-- `claude -p "..." --bare` — scriptade anrop utan hooks, LSP, plugin-sync eller skill-walks
-- `/rewind` eller `Esc+Esc` — gå tillbaka till tidigare checkpoint
-- `/rename` — ge sessionen beskrivande namn för enkel återfinnbarhet
-- `/compact <instruktioner>` — kontrollerad komprimering med fokusområde, t.ex. `/compact Fokusera på API-ändringarna`
-- `/context` — visa aktuell kontextanvändning och laddade skills
-- `/voice` — push-to-talk röstläge (håll mellanslag för att prata)
-- `/hooks` — skrivskyddad visning av alla konfigurerade hooks
-- `--channels` — permission relay som kan vidarebefordra godkännandefrågor till din telefon
+- `claude --continue` — resume the latest session
+- `claude --resume` — choose from previous sessions
+- `claude -p "..." --bare` — scripted calls without hooks, LSP, plugin sync, or skill walks
+- `/rewind` or `Esc+Esc` — go back to an earlier checkpoint
+- `/rename` — give the session a descriptive name for easy retrieval
+- `/compact <instructions>` — controlled compaction with focus area, e.g., `/compact Focus on the API changes`
+- `/context` — show current context usage and loaded skills
+- `/voice` — push-to-talk voice mode (hold spacebar to talk)
+- `/hooks` — read-only view of all configured hooks
+- `/btw` — side questions in a dismissible overlay without entering conversation history
+- `--channels` — permission relay that can forward approval prompts to your phone
 
 ## Auto memory (MEMORY.md)
 
-Claude sparar automatiskt användbara insikter till `~/.claude/projects/<projekt>/memory/MEMORY.md`. De första 200 raderna laddas i varje session.
+Claude automatically saves useful insights to `~/.claude/projects/<project>/memory/MEMORY.md`. The first 200 lines are loaded in every session.
 
-- Säg "kom ihåg att vi använder X" för att spara specifik information
-- Använd `/memory` för att öppna och redigera minnesfiler i editorn
-- Skapa ämnesfiler (t.ex. `debugging.md`, `api-conventions.md`) för detaljer och länka från MEMORY.md
-- Spara bara verifierade mönster — inte spekulationer eller sessionspecifik kontext
+- Say "remember that we use X" to save specific information
+- Use `/memory` to open and edit memory files in the editor
+- Create topic files (e.g., `debugging.md`, `api-conventions.md`) for details and link from MEMORY.md
+- Only save verified patterns — not speculation or session-specific context
 
-## Status line (kontextövervakning)
+## Status line (context monitoring)
 
-Visa kontextanvändning i realtid med en custom status line i settings.json:
+Show context usage in real-time with a custom status line in settings.json:
 
 ```json
 {
@@ -393,11 +401,11 @@ Visa kontextanvändning i realtid med en custom status line i settings.json:
 }
 ```
 
-Anthropic rekommenderar att övervaka kontextanvändning kontinuerligt — prestanda sjunker när kontextfönstret fylls.
+Anthropic recommends monitoring context usage continuously — performance degrades as the context window fills up.
 
-## Sandbox (OS-nivå isolering)
+## Sandbox (OS-level isolation)
 
-Claude Code stödjer inbyggd sandbox med filsystem- och nätverksisolering via settings.json:
+Claude Code supports built-in sandbox with filesystem and network isolation via settings.json:
 
 ```json
 {
@@ -416,9 +424,13 @@ Claude Code stödjer inbyggd sandbox med filsystem- och nätverksisolering via s
 }
 ```
 
-- `failIfUnavailable: true` — avbryt med fel om sandbox inte kan starta, istället för att köra utan sandbox (ny mars 2026)
-- Alternativt: `/sandbox` i sessionen för att aktivera. Ger liknande autonomi som `--dangerously-skip-permissions` men med säkrare gränser.
+- `failIfUnavailable: true` — abort with error if sandbox cannot start, instead of running unsandboxed (new March 2026)
+- Alternatively: `/sandbox` in session to activate. Provides similar autonomy to `--dangerously-skip-permissions` but with safer boundaries.
 
-## Iterativ förbättring
+## Managed settings (organizational policies)
 
-Om samma misstag upprepas, föreslå en ny regel för CLAUDE.md eller en hook som förhindrar det.
+Use `managed-settings.d/` drop-in directory for separate teams to deploy independent policy fragments that merge alphabetically. Each team can maintain their own settings file without conflicts.
+
+## Iterative improvement
+
+If the same mistake repeats, suggest a new rule for CLAUDE.md or a hook that prevents it.

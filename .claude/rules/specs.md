@@ -8,41 +8,41 @@ paths:
   - "**/specs/**"
 ---
 
-# Spec- och task-regler (destruktiva browsertester)
+# Spec and task rules (destructive browser tests)
 
-## INNAN du skriver en spec eller task-fil som involverar UI
+## BEFORE writing a spec or task file involving UI
 
-1. **Läs `.claude/docs/testing.md`** — specifikt sektionen "Destruktiva browsertester (OBLIGATORISKT)".
-2. **Läs `.claude/docs/spec-testing-checklist.md`** — checklistan för vilka attackkategorier som MÅSTE finnas.
+1. **Read `.claude/docs/testing.md`** — specifically the "Destructive browser tests (MANDATORY)" section.
+2. **Read `.claude/docs/spec-testing-checklist.md`** — the checklist for which attack categories MUST be present.
 
-## Krav på varje spec/task-fil med UI-komponenter
+## Requirements for every spec/task file with UI components
 
-Varje spec som involverar UI **MÅSTE** inkludera en dedikerad fas/sektion för destruktiva browsertester med:
+Every spec involving UI **MUST** include a dedicated phase/section for destructive browser tests with:
 
-- **Minst 8 destruktiva testscenarier** — dessa ska aktivt försöka knäcka applikationen
-- **Alla 6 attackkategorier** ska vara representerade (om relevanta):
-  1. Ogiltig input (skräp, XSS, SQL injection, emoji, extremlängd)
-  2. Fel ordning (dubbelklick, browser back, URL-hopp, refresh mitt i flöde)
-  3. Hoppa över steg (direkt URL, API utan UI, DOM-manipulation)
-  4. Gränsvärden (maxlängd, tomma listor, ogiltiga datum)
-  5. Timing/race conditions (klick innan laddning, snabb dubbelsubmit)
-  6. Tillgänglighet (tab-ordning, Enter, Escape)
+- **At least 8 destructive test scenarios** — these should actively try to break the application
+- **All 6 attack categories** should be represented (if relevant):
+  1. Invalid input (garbage, XSS, SQL injection, emoji, extreme length)
+  2. Wrong order (double-click, browser back, URL jumping, refresh mid-flow)
+  3. Skip steps (direct URL, API without UI, DOM manipulation)
+  4. Boundary values (max length, empty lists, invalid dates)
+  5. Timing/race conditions (click before load, rapid double submit)
+  6. Accessibility (tab order, Enter, Escape)
 
-- Om features involverar **offline/sync**: lägg till ytterligare destruktiva scenarion:
-  - Browser stängs mitt i autosave/sync
-  - Nätverket dör mitt i operation
-  - Conflict mellan sessioner/enheter
-  - Token-förfall under offline
-  - Retry efter error-state
+- If features involve **offline/sync**: add additional destructive scenarios:
+  - Browser closes mid-autosave/sync
+  - Network drops mid-operation
+  - Conflict between sessions/devices
+  - Token expiry during offline
+  - Retry after error state
 
-## Validering
+## Validation
 
-Innan en spec/task-fil anses komplett, kontrollera:
+Before a spec/task file is considered complete, verify:
 
-- [ ] Finns en explicit "Destructive Browser Tests"-fas/sektion?
-- [ ] Finns minst 8 destruktiva testscenarier?
-- [ ] Täcker scenarierna alla 6 attackkategorier?
-- [ ] Om offline/sync: finns ytterligare edge case-tester?
-- [ ] Har varje testscenario ett tydligt task-ID och beskrivning?
+- [ ] Is there an explicit "Destructive Browser Tests" phase/section?
+- [ ] Are there at least 8 destructive test scenarios?
+- [ ] Do the scenarios cover all 6 attack categories?
+- [ ] If offline/sync: are there additional edge case tests?
+- [ ] Does every test scenario have a clear task ID and description?
 
-Om någon av dessa saknas — **specen är INTE komplett**. Lägg till innan du går vidare.
+If any of these are missing — **the spec is NOT complete**. Add them before proceeding.

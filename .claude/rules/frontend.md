@@ -1,12 +1,19 @@
 ---
-globs: "**/*.html,**/*.css,**/*.js,**/*.jsx,**/*.tsx,**/*.razor,**/*.cshtml"
+paths:
+  - "**/*.html"
+  - "**/*.css"
+  - "**/*.js"
+  - "**/*.jsx"
+  - "**/*.tsx"
+  - "**/*.razor"
+  - "**/*.cshtml"
 ---
 
-# Frontend-regler
+# Frontend rules
 
-- Anropa ALLTID `frontend-design`-skillen via Skill-verktyget INNAN du skriver UI-kod.
-- Använd `const`/`let` i JavaScript — aldrig `var`.
-- Använd strikt likhet (`===`) i JavaScript.
-- Semantisk HTML5 — välj rätt element (nav, article, section, aside).
-- Använd CSS-klasser eller CSS-filer — aldrig inline `style="..."`.
-- Mobile-first responsiv design.
+- ALWAYS invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code.
+- Use `const`/`let` in JavaScript — never `var`.
+- Use strict equality (`===`) in JavaScript.
+- Semantic HTML5 — choose the right element (nav, article, section, aside).
+- Use CSS classes or CSS files — never inline `style="..."`.
+- Mobile-first responsive design.

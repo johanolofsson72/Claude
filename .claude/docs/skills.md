@@ -1,61 +1,61 @@
 # Skills
 
-Skills ger Claude specialiserade förmågor genom SKILL.md-filer med instruktioner och frontmatter. Claude Code följer Agent Skills-standarden (agentskills.io) — ekosystemet har vuxit till 349+ skills i 12 kategorier (mars 2026). OpenAI har adopterat samma format för Codex CLI.
+Skills give Claude specialized capabilities through SKILL.md files with instructions and frontmatter. Claude Code follows the Agent Skills standard (agentskills.io) — the ecosystem has grown to 349+ skills in 12 categories (March 2026). OpenAI has adopted the same format for Codex CLI.
 
-## Hur skills fungerar
+## How skills work
 
-### Progressiv laddning
+### Progressive loading
 
-1. **Metadata** (~100 tokens) — `name` + `description` laddas vid sessionstart för ALLA skills
-2. **Instruktioner** (<5000 tokens rekommenderat) — full SKILL.md laddas vid aktivering
-3. **Resurser** (vid behov) — stödfiler laddas när de refereras
+1. **Metadata** (~100 tokens) — `name` + `description` loaded at session start for ALL skills
+2. **Instructions** (<5000 tokens recommended) — full SKILL.md loaded on activation
+3. **Resources** (on demand) — support files loaded when referenced
 
-### Anropsmetoder
+### Invocation methods
 
-- **Manuellt:** Användaren skriver `/skill-namn` (slash command)
-- **Automatiskt:** Claude laddar skillen baserat på `description`-matchning
-- **Blockerande:** Skills med `disable-model-invocation: true` kan bara anropas manuellt
+- **Manual:** User types `/skill-name` (slash command)
+- **Automatic:** Claude loads the skill based on `description` matching
+- **Blocking:** Skills with `disable-model-invocation: true` can only be invoked manually
 
-## Projektskills (`.claude/skills/`)
+## Project skills (`.claude/skills/`)
 
-Dessa skills levereras med mallrepot:
+These skills ship with the template repo:
 
-| Skill | Typ | Beskrivning |
+| Skill | Type | Description |
 | --- | --- | --- |
-| `/code-review` | `context: fork` | Kodgranskning med isolerad kontext |
-| `/explore-codebase` | `context: fork` | Djup arkitekturanalys via Explore-agent |
-| `/deploy-checklist` | `disable-model-invocation` | Pre-deploy verifiering (bara manuellt) |
-| `/update-template` | standard | Söker online efter senaste best practices och uppdaterar mallrepot |
-| `/sync-template` | `disable-model-invocation` | Synkar projektkonfiguration från mallrepot |
+| `/code-review` | `context: fork` | Code review with isolated context |
+| `/explore-codebase` | `context: fork` | Deep architecture analysis via Explore agent |
+| `/deploy-checklist` | `disable-model-invocation` | Pre-deploy verification (manual only) |
+| `/update-template` | standard | Searches online for latest best practices and updates the template repo |
+| `/sync-template` | `disable-model-invocation` | Syncs project configuration from template repo |
 
-## SKILL.md-struktur
+## SKILL.md structure
 
-### Obligatoriska fält (Agent Skills-standarden)
+### Required fields (Agent Skills standard)
 
 ```yaml
 ---
-name: my-skill          # Gemener, siffror, bindestreck. Max 64 tecken. Matchar mappnamn.
-description: >          # Max 1024 tecken (men håll under 250 för bäst kontexteffektivitet).
+name: my-skill          # Lowercase, digits, hyphens. Max 64 characters. Matches folder name.
+description: >          # Max 1024 characters (but keep under 250 for best context efficiency).
   Reviews code for bugs and security issues.
   Use when asking for code review or after significant changes.
 ---
 ```
 
-### Valfria fält (Claude Code-tillägg)
+### Optional fields (Claude Code extensions)
 
 ```yaml
 ---
-argument-hint: "[issue-number]"       # Ledtråd vid autocomplete
-disable-model-invocation: true        # Bara användaren kan anropa (deploy, commit)
-user-invocable: false                 # Göm från /-menyn (bakgrundskunskap)
-allowed-tools: Read, Grep, Glob       # Verktyg utan behörighetsprompt
-model: sonnet                        # Åsidosätt modell (sonnet|opus|haiku)
-effort: high                          # Åsidosätt effort level (low|medium|high)
-paths: "**/*.cs, **/*.csproj"         # Glob-mönster — skillen auto-aktiveras bara för matchande filer
-shell: bash                           # Shell för !`command`-block (bash|powershell)
-context: fork                         # Kör i isolerad subagent-kontext
-agent: Explore                        # Subagent-typ (Explore, Plan, general-purpose, custom)
-hooks:                                # Hooks scopade till skillens livscykel
+argument-hint: "[issue-number]"       # Hint at autocomplete
+disable-model-invocation: true        # Only the user can invoke (deploy, commit)
+user-invocable: false                 # Hide from / menu (background knowledge)
+allowed-tools: Read, Grep, Glob       # Tools without permission prompt
+model: sonnet                        # Override model (sonnet|opus|haiku)
+effort: high                          # Override effort level (low|medium|high)
+paths: "**/*.cs, **/*.csproj"         # Glob patterns — skill auto-activates only for matching files
+shell: bash                           # Shell for !`command` blocks (bash|powershell)
+context: fork                         # Run in isolated subagent context
+agent: Explore                        # Subagent type (Explore, Plan, general-purpose, custom)
+hooks:                                # Hooks scoped to skill lifecycle
   PostToolUse:
     - matcher: "Edit"
       hooks:
@@ -64,79 +64,79 @@ hooks:                                # Hooks scopade till skillens livscykel
 ---
 ```
 
-### Anropskontroll
+### Invocation control
 
-| Frontmatter | Användare | Claude | Laddning |
+| Frontmatter | User | Claude | Loading |
 | --- | --- | --- | --- |
-| (standard) | Ja | Ja | Description alltid, full vid anrop |
-| `disable-model-invocation: true` | Ja | Nej | Description INTE i kontext |
-| `user-invocable: false` | Nej | Ja | Description alltid i kontext |
+| (default) | Yes | Yes | Description always, full on invocation |
+| `disable-model-invocation: true` | Yes | No | Description NOT in context |
+| `user-invocable: false` | No | Yes | Description always in context |
 
-## Strängsubstitutioner
+## String substitutions
 
-| Variabel | Beskrivning |
+| Variable | Description |
 | --- | --- |
-| `$ARGUMENTS` | Alla argument vid anrop |
-| `$ARGUMENTS[N]` / `$N` | Specifikt argument (0-baserat) |
-| `${CLAUDE_SESSION_ID}` | Aktuellt sessions-ID |
-| `${CLAUDE_SKILL_DIR}` | Mappen som innehåller SKILL.md |
+| `$ARGUMENTS` | All arguments at invocation |
+| `$ARGUMENTS[N]` / `$N` | Specific argument (0-based) |
+| `${CLAUDE_SESSION_ID}` | Current session ID |
+| `${CLAUDE_SKILL_DIR}` | Folder containing SKILL.md |
 
-## Dynamisk kontextinjektion
+## Dynamic context injection
 
-Kör shell-kommandon under preprocessing med `` !`command` ``:
+Run shell commands during preprocessing with `` !`command` ``:
 
 ```markdown
-## PR-kontext
+## PR context
 - Diff: !`gh pr diff`
-- Kommentarer: !`gh pr view --comments`
+- Comments: !`gh pr view --comments`
 ```
 
-## Katalogstruktur för skills
+## Directory structure for skills
 
 ```text
 my-skill/
-├── SKILL.md           # Obligatorisk — huvudinstruktioner
-├── scripts/           # Körbara hjälpskript
+├── SKILL.md           # Required — main instructions
+├── scripts/           # Executable helper scripts
 │   └── helper.py
-├── references/        # Referensmaterial (laddas vid behov)
+├── references/        # Reference material (loaded on demand)
 │   └── REFERENCE.md
-└── assets/            # Statiska resurser (mallar, scheman)
+└── assets/            # Static resources (templates, schemas)
     └── template.html
 ```
 
-## Placering och prioritet
+## Placement and priority
 
-| Plats | Sökväg | Gäller |
+| Location | Path | Applies to |
 | --- | --- | --- |
-| Enterprise | Managed settings | Alla i organisationen |
-| Personlig | `~/.claude/skills/<skill>/SKILL.md` | Alla dina projekt |
-| Projekt | `.claude/skills/<skill>/SKILL.md` | Bara detta projekt |
-| Plugin | `<plugin>/skills/<skill>/SKILL.md` | Där pluginen är aktiverad |
+| Enterprise | Managed settings | Everyone in the organization |
+| Personal | `~/.claude/skills/<skill>/SKILL.md` | All your projects |
+| Project | `.claude/skills/<skill>/SKILL.md` | Only this project |
+| Plugin | `<plugin>/skills/<skill>/SKILL.md` | Where the plugin is enabled |
 
-Vid namnkonflikter: enterprise > personlig > projekt. Plugin-skills använder namespace (`plugin:skill`).
+On name conflicts: enterprise > personal > project. Plugin skills use namespace (`plugin:skill`).
 
-### Automatisk upptäckt i underkataloger
+### Automatic discovery in subdirectories
 
-I monorepo-setups upptäcker Claude Code skills från nestade `.claude/skills/`-kataloger automatiskt. Om du redigerar filer i `packages/frontend/` laddas även skills från `packages/frontend/.claude/skills/`.
+In monorepo setups, Claude Code discovers skills from nested `.claude/skills/` directories automatically. If you edit files in `packages/frontend/`, skills from `packages/frontend/.claude/skills/` are also loaded.
 
-### Skills från extra kataloger
+### Skills from extra directories
 
-Skills i `.claude/skills/` från kataloger som lagts till via `--add-dir` laddas automatiskt med live change detection — du kan redigera dem under en session utan omstart.
+Skills in `.claude/skills/` from directories added via `--add-dir` are loaded automatically with live change detection — you can edit them during a session without restarting.
 
-### Storleksrekommendation
+### Size recommendation
 
-Håll `SKILL.md` under 500 rader. Flytta detaljerat referensmaterial till separata filer i skillens katalog och referera dem från SKILL.md.
+Keep `SKILL.md` under 500 lines. Move detailed reference material to separate files in the skill's directory and reference them from SKILL.md.
 
-## Rekommenderade externa skills
+## Recommended external skills
 
-Installera till `~/.claude/skills/` för att dela mellan projekt:
+Install to `~/.claude/skills/` to share across projects:
 
-| Skill | Repo | Beskrivning |
+| Skill | Repo | Description |
 | --- | --- | --- |
-| **anthropics/skills** | `anthropics/skills` | Officiell samling (frontend-design, PDF, PPTX, XLSX) |
-| **superpowers** | `obra/superpowers` | Planering, TDD, kodgranskning |
-| **context-engineering** | `muratcankoylan/Agent-Skills-for-Context-Engineering` | Multi-agent-arkitekturer |
-| **trailofbits/skills** | `trailofbits/skills` | Säkerhetsforsknings-skills |
+| **anthropics/skills** | `anthropics/skills` | Official collection (frontend-design, PDF, PPTX, XLSX) |
+| **superpowers** | `obra/superpowers` | Planning, TDD, code review |
+| **context-engineering** | `muratcankoylan/Agent-Skills-for-Context-Engineering` | Multi-agent architectures |
+| **trailofbits/skills** | `trailofbits/skills` | Security research skills |
 
 ### Installation
 
@@ -150,30 +150,30 @@ declare -A SKILL_REPOS=(
 
 for skill in "${!SKILL_REPOS[@]}"; do
   if [ ! -d "$HOME/.claude/skills/$skill" ]; then
-    echo "Installerar skill: $skill"
+    echo "Installing skill: $skill"
     git clone "https://github.com/${SKILL_REPOS[$skill]}.git" "$HOME/.claude/skills/$skill"
   fi
 done
 ```
 
-## Kända begränsningar
+## Known limitations
 
-- YAML multiline-indikatorer (`>-`, `|`, `|-`) parsas inte korrekt i skills-indexeraren — använd enrads-strängar för `description`
-- Kontextbudget: skill-beskrivningar capped till 250 tecken i verktygslistan (~1% av kontextfönstret, fallback: 8 000 tecken)
-- Åsidosätt med `SLASH_COMMAND_TOOL_CHAR_BUDGET` miljövariabel vid behov
-- `/clear` nollställer cachade skills
+- YAML multiline indicators (`>-`, `|`, `|-`) are not parsed correctly in the skills indexer — use single-line strings for `description`
+- Context budget: skill descriptions capped at 250 characters in the tool list (~1% of context window, fallback: 8,000 characters)
+- Override with `SLASH_COMMAND_TOOL_CHAR_BUDGET` environment variable if needed
+- `/clear` resets cached skills
 
-## Rekommenderade plugins
+## Recommended plugins
 
-LSP-plugins ger kodnavigering (~50ms istället för ~45s textsök):
+LSP plugins provide code navigation (~50ms instead of ~45s text search):
 
 ```bash
-# .NET-projekt
+# .NET projects
 dotnet tool install --global csharp-ls 2>/dev/null || true
 
 # TypeScript/JavaScript
 npm i -g typescript-language-server typescript 2>/dev/null || true
 
-# GitHub-integration
+# GitHub integration
 # /plugin install github@claude-plugins-official
 ```

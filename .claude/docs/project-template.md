@@ -1,28 +1,28 @@
-# Projektmall
+# Project template
 
-Mall för projektspecifika sektioner. **VIKTIGT:** Fyll i ALLA sektioner nedan vid projektstart — repo-specifik anpassning ger 2x bättre resultat (källa: Arize ML).
+Template for project-specific sections. **IMPORTANT:** Fill in ALL sections below at project start — repo-specific customization yields 2x better results (source: Arize ML).
 
-## Kärnprinciper (icke-förhandlingsbara)
+## Core principles (non-negotiable)
 
-Projektspecifika principer som ALDRIG får brytas:
+Project-specific principles that must NEVER be broken:
 
-1. [FYLL I: t.ex. "All dataåtkomst MÅSTE vara tenant-scopad"]
-2. [FYLL I: t.ex. "JWT-tokens MÅSTE lagras i sessionStorage, aldrig cookies"]
+1. [FILL IN: e.g., "All data access MUST be tenant-scoped"]
+2. [FILL IN: e.g., "JWT tokens MUST be stored in sessionStorage, never cookies"]
 
-## Projektbeskrivning
+## Project description
 
-**Projektnamn**: [FYLL I]
-**Syfte**: [FYLL I: kort beskrivning av vad systemet gör och för vem]
-**Designdokument**: [FYLL I: sökväg till grafisk profil, eller ta bort raden]
+**Project name**: [FILL IN]
+**Purpose**: [FILL IN: short description of what the system does and for whom]
+**Design document**: [FILL IN: path to visual design guide, or remove this line]
 
-## Arkitektur
+## Architecture
 
-Beskriv systemets komponenter med ett ASCII-diagram:
+Describe the system components with an ASCII diagram:
 
 ```text
-[FYLL I: ASCII-diagram]
+[FILL IN: ASCII diagram]
 
-Exempel:
+Example:
 ┌─────────────┐     ┌─────────────┐
 │  Frontend   │────▶│   Backend   │
 │  (Blazor)   │     │  (Web API)  │
@@ -33,46 +33,46 @@ Exempel:
                     └─────────────┘
 ```
 
-## Obligatoriska kataloger
+## Mandatory directories
 
-Följande kataloger ska **alltid** skapas i nya projekt:
+The following directories should **always** be created in new projects:
 
-- `src/` — all källkod
-- `tests/` — alla tester
-- `legacy/` — gamla filer och kod som fasas ut
-- `artifacts/` — build-output, rapporter och genererade filer
-- `temp/` — temporära filer (ska ligga i `.gitignore`)
+- `src/` — all source code
+- `tests/` — all tests
+- `legacy/` — old files and code being phased out
+- `artifacts/` — build output, reports, and generated files
+- `temp/` — temporary files (should be in `.gitignore`)
 
-## Typiska projektprofiler
+## Typical project profiles
 
-Projekten är ofta stora fullstack-applikationer med frontend, backend, databaser och autentisering. .NET backend + SQLite, ofta kopplad till kurs-/projektwebb.
+Projects are often large fullstack applications with frontend, backend, databases, and authentication. .NET backend + SQLite, often connected to course/project websites.
 
-**Learnways-integration**: Backend kopplas ofta till webbplats byggd av [Learnways](https://learnways.com) (partner) i ren HTML, CSS och JavaScript.
+**Learnways integration**: Backend is often connected to a website built by [Learnways](https://learnways.com) (partner) in plain HTML, CSS, and JavaScript.
 
-## Nyckelmönster
+## Key patterns
 
-Dokumentera projektets centrala mönster så att Claude skriver idiomatisk kod:
+Document the project's central patterns so Claude writes idiomatic code:
 
-- **Autentisering**: [FYLL I: t.ex. JWT i sessionStorage, Identity + cookies, OAuth]
-- **Databasaccess**: [FYLL I: t.ex. EF Core repositories, `$wpdb->prepare()`, direkt SQL]
-- **API-mönster**: [FYLL I: t.ex. Minimal API med `Result<T>`, MVC controllers]
-- **Felhantering**: [FYLL I: t.ex. `Result<T, Exception>`, ProblemDetails]
-- **State management**: [FYLL I: t.ex. Blazor cascading parameters, Redux]
-- **Domäntermer**: [FYLL I: affärstermer och akronymer som används i kodbasen]
+- **Authentication**: [FILL IN: e.g., JWT in sessionStorage, Identity + cookies, OAuth]
+- **Database access**: [FILL IN: e.g., EF Core repositories, `$wpdb->prepare()`, direct SQL]
+- **API patterns**: [FILL IN: e.g., Minimal API with `Result<T>`, MVC controllers]
+- **Error handling**: [FILL IN: e.g., `Result<T, Exception>`, ProblemDetails]
+- **State management**: [FILL IN: e.g., Blazor cascading parameters, Redux]
+- **Domain terms**: [FILL IN: business terms and acronyms used in the codebase]
 
-## Lokal utvecklingsmiljö
+## Local development environment
 
-**Startkommando:**
+**Start command:**
 
 ```bash
-# [FYLL I: t.ex. dotnet run --project src/AppHost]
+# [FILL IN: e.g., dotnet run --project src/AppHost]
 ```
 
-**URL:er:**
+**URLs:**
 
-- Frontend: [FYLL I: t.ex. https://localhost:5001]
-- Admin: [FYLL I: om tillämpligt]
+- Frontend: [FILL IN: e.g., https://localhost:5001]
+- Admin: [FILL IN: if applicable]
 
-**Kända workarounds:**
+**Known workarounds:**
 
-- [FYLL I: eventuella problem med IPv6, minne, portar, certifikat etc.]
+- [FILL IN: any issues with IPv6, memory, ports, certificates, etc.]

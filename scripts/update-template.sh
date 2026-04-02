@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# update-template.sh — Analyserar senaste Claude Code best practices online
-# och uppdaterar mallrepots struktur (.claude/, CLAUDE.md, etc.)
+# update-template.sh — Analyzes latest Claude Code best practices online
+# and updates the template repo structure (.claude/, CLAUDE.md, etc.)
 #
-# Användning:
-#   ./scripts/update-template.sh              # Fullständig uppdatering
-#   ./scripts/update-template.sh --dry-run    # Bara rapport, inga ändringar
-#   ./scripts/update-template.sh --focus hooks # Fokusera på ett område
+# Usage:
+#   ./scripts/update-template.sh              # Full update
+#   ./scripts/update-template.sh --dry-run    # Report only, no changes
+#   ./scripts/update-template.sh --focus hooks # Focus on a specific area
 #
-# Kräver: claude CLI (Claude Code) installerat
+# Requires: claude CLI (Claude Code) installed
 
 set -euo pipefail
 
@@ -16,78 +16,78 @@ DRY_RUN=false
 FOCUS=""
 DATE=$(date +%Y-%m-%d)
 
-# Parsning av argument
+# Argument parsing
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --focus)   FOCUS="$2"; shift 2 ;;
     --help|-h)
-      echo "Användning: $0 [--dry-run] [--focus <område>]"
+      echo "Usage: $0 [--dry-run] [--focus <area>]"
       echo ""
-      echo "Områden: hooks, skills, agents, rules, docs, settings, claude-md"
+      echo "Areas: hooks, skills, agents, rules, docs, settings, claude-md"
       echo ""
-      echo "Exempel:"
-      echo "  $0                    # Full uppdatering"
-      echo "  $0 --dry-run          # Bara rapport"
-      echo "  $0 --focus skills     # Bara skills-relaterat"
+      echo "Examples:"
+      echo "  $0                    # Full update"
+      echo "  $0 --dry-run          # Report only"
+      echo "  $0 --focus skills     # Skills-related only"
       exit 0
       ;;
-    *) echo "Okänt argument: $1"; exit 1 ;;
+    *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
 
-# Validera att claude CLI finns
+# Validate that claude CLI exists
 if ! command -v claude &>/dev/null; then
-  echo "Fel: 'claude' CLI hittades inte. Installera Claude Code först."
-  echo "  npm install -g @anthropic-ai/claude-code"
+  echo "Error: 'claude' CLI not found. Install Claude Code first."
+  echo "  curl -fsSL https://claude.ai/install.sh | bash"
   exit 1
 fi
 
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  Claude Code Template Updater                       ║"
-echo "║  Datum: $DATE                                  ║"
-echo "║  Läge: $([ "$DRY_RUN" = true ] && echo 'DRY RUN (inga ändringar)' || echo 'LIVE (uppdaterar filer)')           ║"
+echo "║  Date: $DATE                                   ║"
+echo "║  Mode: $([ "$DRY_RUN" = true ] && echo 'DRY RUN (no changes)       ' || echo 'LIVE (updating files)       ')║"
 [ -n "$FOCUS" ] && \
-echo "║  Fokus: $(printf '%-44s' "$FOCUS")║"
+echo "║  Focus: $(printf '%-44s' "$FOCUS")║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
-# Bygg fokusfilter
+# Build focus filter
 FOCUS_INSTRUCTION=""
 if [ -n "$FOCUS" ]; then
-  FOCUS_INSTRUCTION="Fokusera ENBART på området: $FOCUS. Ignorera andra områden."
+  FOCUS_INSTRUCTION="Focus ONLY on the area: $FOCUS. Ignore other areas."
 fi
 
-# Bygg dry-run-instruktion
+# Build dry-run instruction
 MODE_INSTRUCTION=""
 if [ "$DRY_RUN" = true ]; then
-  MODE_INSTRUCTION="VIKTIGT: Detta är en DRY RUN. Gör INGA ändringar i filer. Skriv BARA en rapport med rekommendationer."
+  MODE_INSTRUCTION="IMPORTANT: This is a DRY RUN. Do NOT change any files. ONLY write a report with recommendations."
 else
-  MODE_INSTRUCTION="Genomför alla rekommenderade ändringar direkt i filerna. Skapa en git commit efteråt med meddelandet 'chore: Uppdatera mallrepo med senaste Claude Code best practices ($DATE)'."
+  MODE_INSTRUCTION="Apply all recommended changes directly to the files. Create a git commit afterwards with the message 'chore: Update template repo with latest Claude Code best practices ($DATE)'."
 fi
 
-# Huvudprompt som skickas till Claude
+# Main prompt sent to Claude
 PROMPT=$(cat <<'PROMPT_EOF'
-Du är en expert på Claude Code-konfiguration. Din uppgift är att analysera de senaste nyheterna, riktlinjerna och best practices för Claude Code och sedan uppdatera detta mallrepo.
+You are an expert on Claude Code configuration. Your task is to analyze the latest news, guidelines, and best practices for Claude Code and then update this template repo.
 
-## Steg 1: Research (OBLIGATORISKT)
+## Step 1: Research (MANDATORY)
 
-Sök online efter ALLT av följande. Använd WebSearch-verktyget för varje sökning:
+Search online for ALL of the following. Use the WebSearch tool for each search:
 
-1. **Claude Code changelog & release notes** — Sök: "Claude Code changelog 2026", "Claude Code release notes latest"
-2. **CLAUDE.md best practices** — Sök: "CLAUDE.md best practices 2026", "claude code configuration guide"
-3. **Agent Skills standard** — Sök: "agentskills.io", "claude code skills SKILL.md"
-4. **Claude Code hooks** — Sök: "claude code hooks PostToolUse PreToolUse 2026"
-5. **Claude Code nya features** — Sök: "claude code new features 2026", "anthropic claude code update"
-6. **Context engineering** — Sök: "context engineering claude code", "claude code context management best practices"
-7. **Claude Code settings.json schema** — Sök: "claude code settings.json schema permissions"
-8. **Community best practices** — Sök: "claude code CLAUDE.md examples github", "claude code configuration template"
+1. **Claude Code changelog & release notes** — Search: "Claude Code changelog 2026", "Claude Code release notes latest"
+2. **CLAUDE.md best practices** — Search: "CLAUDE.md best practices 2026", "claude code configuration guide"
+3. **Agent Skills standard** — Search: "agentskills.io", "claude code skills SKILL.md"
+4. **Claude Code hooks** — Search: "claude code hooks PostToolUse PreToolUse 2026"
+5. **Claude Code new features** — Search: "claude code new features 2026", "anthropic claude code update"
+6. **Context engineering** — Search: "context engineering claude code", "claude code context management best practices"
+7. **Claude Code settings.json schema** — Search: "claude code settings.json schema permissions"
+8. **Community best practices** — Search: "claude code CLAUDE.md examples github", "claude code configuration template"
 
-Samla ALL relevant information innan du går vidare.
+Collect ALL relevant information before proceeding.
 
-## Steg 2: Analysera nuvarande struktur
+## Step 2: Analyze current structure
 
-Läs följande filer i detta repo:
+Read the following files in this repo:
 - CLAUDE.md
 - .claude/settings.json
 - .claude/docs/skills.md
@@ -97,65 +97,65 @@ Läs följande filer i detta repo:
 - .claude/agents/*.md
 - .claude/skills/*/SKILL.md
 
-## Steg 3: Identifiera gap
+## Step 3: Identify gaps
 
-Jämför det du hittade online (steg 1) med nuvarande struktur (steg 2). Identifiera:
+Compare what you found online (step 1) with the current structure (step 2). Identify:
 
-1. **Nya features** som borde användas men saknas
-2. **Deprecated patterns** som borde tas bort eller ersättas
-3. **Förbättrade mönster** som borde uppdateras
-4. **Nya hooks/settings** som borde läggas till
-5. **Nya skill-typer** som borde skapas
-6. **Säkerhetsförbättringar** som saknas
-7. **Prestanda/kontext-optimeringar** som kan göras
+1. **New features** that should be used but are missing
+2. **Deprecated patterns** that should be removed or replaced
+3. **Improved patterns** that should be updated
+4. **New hooks/settings** that should be added
+5. **New skill types** that should be created
+6. **Security improvements** that are missing
+7. **Performance/context optimizations** that can be made
 
-## Steg 4: Rapport och åtgärder
+## Step 4: Report and actions
 
-Skriv en tydlig rapport i följande format:
+Write a clear report in the following format:
 
 ```
-## Uppdateringsrapport ($DATE)
+## Update report ($DATE)
 
-### Nya features hittade
-- [feature]: [beskrivning] → [åtgärd]
+### New features found
+- [feature]: [description] → [action]
 
-### Deprecated/ändrade mönster
-- [mönster]: [vad som ändrats] → [åtgärd]
+### Deprecated/changed patterns
+- [pattern]: [what changed] → [action]
 
-### Rekommenderade uppdateringar
-1. [fil]: [ändring]
-2. [fil]: [ändring]
+### Recommended updates
+1. [file]: [change]
+2. [file]: [change]
 
-### Inga ändringar behövs
-- [område]: [anledning]
+### No changes needed
+- [area]: [reason]
 ```
 
 $MODE_INSTRUCTION
 
 $FOCUS_INSTRUCTION
 
-## Regler
+## Rules
 
-- Skriv ALL kommunikation på svenska
-- Håll storleken på claude.md så låg som det är möjligt
-- Kod och tekniska termer på engelska
-- Bevara ALLA projektspecifika anpassningar (markerade med # PROJECT-SPECIFIC)
-- Ändra ALDRIG grundstrukturen utan starka skäl
-- Prioritera: Säkerhet > Korrekthet > Enkelhet
-- Om du är osäker, rapportera istället för att ändra
-- Kör humanizer-skillen på ALL genererad text som riktas till människor
+- Write ALL communication in English
+- Keep the size of CLAUDE.md as small as possible
+- Code and technical terms in English
+- Preserve ALL project-specific customizations (marked with # PROJECT-SPECIFIC)
+- NEVER change the fundamental structure without strong reasons
+- Priority: Security > Correctness > Simplicity
+- If unsure, report instead of changing
+- Run the humanizer skill on ALL generated text aimed at humans
 PROMPT_EOF
 )
 
-# Ersätt variabler i prompten
+# Replace variables in the prompt
 PROMPT="${PROMPT//\$MODE_INSTRUCTION/$MODE_INSTRUCTION}"
 PROMPT="${PROMPT//\$FOCUS_INSTRUCTION/$FOCUS_INSTRUCTION}"
 PROMPT="${PROMPT//\$DATE/$DATE}"
 
-echo "Startar Claude Code-analys..."
+echo "Starting Claude Code analysis..."
 echo ""
 
-# Kör Claude Code med prompten
+# Run Claude Code with the prompt
 cd "$REPO_ROOT"
 claude -p "$PROMPT" --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Edit,Write,Bash,Skill,Agent" 2>&1 | tee "/tmp/claude-template-update-${DATE}.log"
 
@@ -164,13 +164,13 @@ EXIT_CODE=${PIPESTATUS[0]}
 echo ""
 echo "════════════════════════════════════════════════════════"
 if [ $EXIT_CODE -eq 0 ]; then
-  echo "Klar! Logg sparad: /tmp/claude-template-update-${DATE}.log"
+  echo "Done! Log saved: /tmp/claude-template-update-${DATE}.log"
   if [ "$DRY_RUN" = false ]; then
     echo ""
-    echo "Granska ändringarna:"
+    echo "Review the changes:"
     echo "  cd $REPO_ROOT && git diff"
   fi
 else
-  echo "Fel uppstod (exit code: $EXIT_CODE)"
-  echo "Se loggen: /tmp/claude-template-update-${DATE}.log"
+  echo "Error occurred (exit code: $EXIT_CODE)"
+  echo "See log: /tmp/claude-template-update-${DATE}.log"
 fi

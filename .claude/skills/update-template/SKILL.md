@@ -87,7 +87,7 @@ Write a detailed report in Swedish with all findings and recommendations. Do NOT
 
 ## Rules
 
-- Communicate in Swedish, code in English
+- Communicate in English, code in English
 - Preserve ALL project-specific customizations (marked with # PROJECT-SPECIFIC)
 - NEVER change the fundamental structure without strong justification
 - Priority: Security > Correctness > Simplicity

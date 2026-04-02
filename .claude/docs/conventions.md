@@ -1,58 +1,58 @@
-# Kodstil och konventioner
+# Code style and conventions
 
 ## C# / .NET
 
-- Följ officiella [C# Coding Conventions](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions).
-- PascalCase för publika medlemmar, metoder och klasser.
-- camelCase för lokala variabler och privata fält.
-- Prefix privata fält med `_` (t.ex. `_logger`).
-- Använd `var` när typen är uppenbar från höger sida.
-- En klass per fil. Filnamn matchar klassnamn.
-- Använd `nullable reference types` (enable i .csproj).
-- Föredra `record` för immutabla datatyper.
-- File-scoped namespaces (`namespace X;` istället för `namespace X { }`).
-- Primary constructors där det passar (t.ex. services med dependency injection).
-- Expression-bodied members för enkla implementationer.
-- Strukturera med klasser och metoder — använd aldrig `#region`.
+- Follow official [C# Coding Conventions](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions).
+- PascalCase for public members, methods, and classes.
+- camelCase for local variables and private fields.
+- Prefix private fields with `_` (e.g., `_logger`).
+- Use `var` when the type is obvious from the right side.
+- One class per file. Filename matches class name.
+- Use `nullable reference types` (enable in .csproj).
+- Prefer `record` for immutable data types.
+- File-scoped namespaces (`namespace X;` instead of `namespace X { }`).
+- Primary constructors where appropriate (e.g., services with dependency injection).
+- Expression-bodied members for simple implementations.
+- Structure with classes and methods — never use `#region`.
 
 ## JavaScript / jQuery
 
-- Använd `const` och `let` — aldrig `var`.
-- Camelcase för variabler och funktioner.
-- Föredra moderna DOM-API:er när jQuery inte redan används i filen.
-- Strikt likhet (`===`) alltid.
+- Use `const` and `let` — never `var`.
+- camelCase for variables and functions.
+- Prefer modern DOM APIs when jQuery is not already used in the file.
+- Strict equality (`===`) always.
 
 ## HTML / CSS
 
-- Semantisk HTML5.
-- BEM-namngivning för CSS-klasser när det passar.
-- Mobile-first responsiv design.
-- Använd CSS-klasser — aldrig inline `style="..."`.
+- Semantic HTML5.
+- BEM naming for CSS classes where appropriate.
+- Mobile-first responsive design.
+- Use CSS classes — never inline `style="..."`.
 
 ## WordPress
 
-- Följ [WordPress Coding Standards](https://developer.wordpress.org/coding-standards/).
-- Använd child themes och hooks — modifiera aldrig core-filer.
+- Follow [WordPress Coding Standards](https://developer.wordpress.org/coding-standards/).
+- Use child themes and hooks — never modify core files.
 
-## Allmänna principer
+## General principles
 
-- Kod ska vara läsbar utan kommentarer — bra namngivning räcker oftast.
-- Lägg bara till kommentarer där logiken inte är uppenbar.
-- Håll metoder korta och fokuserade — en metod gör en sak.
-- Föredra explicit framför implicit.
-- Felmeddelanden ska vara tydliga och handlingsbara.
-- Håll UI tunt — all business-logik i services.
+- Code should be readable without comments — good naming is usually enough.
+- Only add comments where the logic is not obvious.
+- Keep methods short and focused — one method does one thing.
+- Prefer explicit over implicit.
+- Error messages should be clear and actionable.
+- Keep UI thin — all business logic in services.
 
-## Filstruktur
+## File structure
 
-- Separera concerns: Models, Views, Controllers, Services.
-- Delade komponenter i `Shared/` eller `Components/`.
-- I .NET-projekt: `wwwroot/` för webbspecifika filer.
-- Statiska assets alltid i `assets/` i projektroten.
+- Separate concerns: Models, Views, Controllers, Services.
+- Shared components in `Shared/` or `Components/`.
+- In .NET projects: `wwwroot/` for web-specific files.
+- Static assets always in `assets/` in the project root.
 
-## Databas (SQLite)
+## Database (SQLite)
 
-- Entity Framework Core med SQLite-provider.
-- Code-first med migrations.
-- Inkludera inte `.db`-filen i git.
-- Seed-data via migrations eller separat seed-metod.
+- Entity Framework Core with SQLite provider.
+- Code-first with migrations.
+- Do not include `.db` files in git.
+- Seed data via migrations or separate seed method.

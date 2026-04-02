@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Reviews code changes for bugs, security issues, performance problems, and adherence to project conventions. Use when the user asks for code review, PR review, or after significant code changes. Trigger words include review, granska, check code, PR.
+description: Reviews code changes for bugs, security issues, performance problems, and adherence to project conventions. Use when the user asks for code review, PR review, or after significant code changes. Trigger words include review, check code, PR.
 context: fork
 agent: general-purpose
 allowed-tools: Read, Grep, Glob, Bash

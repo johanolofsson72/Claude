@@ -1,211 +1,211 @@
-# Kom igång med Claude Code-konfigurationen
+# Getting started with the Claude Code configuration
 
-Steg-för-steg-guide för att använda detta mallrepo i ett nytt eller befintligt projekt.
+Step-by-step guide for using this template repo in a new or existing project.
 
 ---
 
-## Nytt projekt
+## New project
 
-### 1. Kopiera alla konfigurationsfiler
+### 1. Copy all configuration files
 
-Kör följande från ditt nya projekts rotkatalog:
+Run the following from your new project's root directory:
 
 ```bash
-# Sökväg till mallrepot
-MALL=/Users/jool/repos/Claude
+# Path to the template repo
+TEMPLATE=/Users/jool/repos/Claude
 
-# Skapa katalogstrukturen
+# Create directory structure
 mkdir -p .claude/docs .claude/agents .claude/rules
 
-# Kopiera huvudfilen
-cp "$MALL/CLAUDE.md" ./CLAUDE.md
+# Copy main file
+cp "$TEMPLATE/CLAUDE.md" ./CLAUDE.md
 
-# Kopiera referensfiler
-cp "$MALL/.claude/docs/conventions.md"      .claude/docs/
-cp "$MALL/.claude/docs/deployment.md"       .claude/docs/
-cp "$MALL/.claude/docs/git.md"              .claude/docs/
-cp "$MALL/.claude/docs/project-template.md" .claude/docs/
-cp "$MALL/.claude/docs/security.md"         .claude/docs/
-cp "$MALL/.claude/docs/skills.md"           .claude/docs/
-cp "$MALL/.claude/docs/testing.md"          .claude/docs/
-cp "$MALL/.claude/docs/workflows.md"        .claude/docs/
-cp "$MALL/.claude/docs/agents-templates.md" .claude/docs/
+# Copy reference files
+cp "$TEMPLATE/.claude/docs/conventions.md"      .claude/docs/
+cp "$TEMPLATE/.claude/docs/deployment.md"       .claude/docs/
+cp "$TEMPLATE/.claude/docs/git.md"              .claude/docs/
+cp "$TEMPLATE/.claude/docs/project-template.md" .claude/docs/
+cp "$TEMPLATE/.claude/docs/security.md"         .claude/docs/
+cp "$TEMPLATE/.claude/docs/skills.md"           .claude/docs/
+cp "$TEMPLATE/.claude/docs/testing.md"          .claude/docs/
+cp "$TEMPLATE/.claude/docs/workflows.md"        .claude/docs/
+cp "$TEMPLATE/.claude/docs/agents-templates.md" .claude/docs/
 
-# Kopiera hooks
-cp "$MALL/.claude/settings.json" .claude/settings.json
+# Copy hooks
+cp "$TEMPLATE/.claude/settings.json" .claude/settings.json
 
-# Kopiera path-scoped regler (välj de som är relevanta)
-cp "$MALL/.claude/rules/security.md"  .claude/rules/    # Alltid
-cp "$MALL/.claude/rules/dotnet.md"    .claude/rules/    # .NET-projekt
-cp "$MALL/.claude/rules/frontend.md"  .claude/rules/    # Frontend
-cp "$MALL/.claude/rules/wordpress.md" .claude/rules/    # WordPress (ta bort om ej aktuellt)
+# Copy path-scoped rules (pick the relevant ones)
+cp "$TEMPLATE/.claude/rules/security.md"  .claude/rules/    # Always
+cp "$TEMPLATE/.claude/rules/dotnet.md"    .claude/rules/    # .NET projects
+cp "$TEMPLATE/.claude/rules/frontend.md"  .claude/rules/    # Frontend
+cp "$TEMPLATE/.claude/rules/wordpress.md" .claude/rules/    # WordPress (remove if not needed)
 
-# Kopiera agenter (välj de som är relevanta)
-cp "$MALL/.claude/agents/dotnet-reviewer.md"  .claude/agents/  # .NET
-cp "$MALL/.claude/agents/security-scanner.md" .claude/agents/  # Alltid
-cp "$MALL/.claude/agents/test-runner.md"      .claude/agents/  # Alltid
-cp "$MALL/.claude/agents/db-agent.md"         .claude/agents/  # EF Core + SQLite
+# Copy agents (pick the relevant ones)
+cp "$TEMPLATE/.claude/agents/dotnet-reviewer.md"  .claude/agents/  # .NET
+cp "$TEMPLATE/.claude/agents/security-scanner.md" .claude/agents/  # Always
+cp "$TEMPLATE/.claude/agents/test-runner.md"      .claude/agents/  # Always
+cp "$TEMPLATE/.claude/agents/db-agent.md"         .claude/agents/  # EF Core + SQLite
 ```
 
-### 2. Fyll i projektspecifik information
+### 2. Fill in project-specific information
 
-Öppna `CLAUDE.md` och uppdatera **Projektbeskrivning**-sektionen:
+Open `CLAUDE.md` and update the **Project description** section:
 
 ```markdown
-## Projektbeskrivning
+## Project description
 
-Detta är ett **[PROJEKTNAMN]** — [kort beskrivning av vad systemet gör och för vem].
+This is a **[PROJECT NAME]** — [short description of what the system does and for whom].
 
-> **Vid projektstart:** Fyll i kärnprinciper, arkitektur och dev-miljö i `.claude/docs/project-template.md`
+> **On project start:** Fill in core principles, architecture, and dev environment in `.claude/docs/project-template.md`
 ```
 
-### 3. Fyll i projektmallen
+### 3. Fill in the project template
 
-Öppna `.claude/docs/project-template.md` och fyll i ALLA sektioner markerade med `[FYLL I]`:
+Open `.claude/docs/project-template.md` and fill in ALL sections marked with `[FILL IN]`:
 
-- **Kärnprinciper** — regler som ALDRIG får brytas (t.ex. "All data MÅSTE vara tenant-scopad")
-- **Projektnamn och syfte** — en rad som orienterar Claude
-- **Arkitektur** — ASCII-diagram över systemets komponenter
-- **Nyckelmönster** — autentisering, databasaccess, API-mönster, felhantering, state management, domäntermer
-- **Startkommando** — t.ex. `dotnet run --project src/AppHost`
-- **URL:er** — t.ex. `https://localhost:5001`
-- **Kända workarounds** — IPv6-problem, certifikat, etc.
+- **Core principles** — rules that must NEVER be broken (e.g., "All data MUST be tenant-scoped")
+- **Project name and purpose** — one line to orient Claude
+- **Architecture** — ASCII diagram of system components
+- **Key patterns** — authentication, database access, API patterns, error handling, state management, domain terms
+- **Start command** — e.g., `dotnet run --project src/AppHost`
+- **URLs** — e.g., `https://localhost:5001`
+- **Known workarounds** — IPv6 issues, certificates, etc.
 
-### 4. Ta bort det som inte är relevant
+### 4. Remove what is not relevant
 
-- Inte WordPress? → Ta bort `.claude/rules/wordpress.md`
-- Inte .NET? → Ta bort `.claude/rules/dotnet.md` och `.claude/agents/dotnet-reviewer.md`
-- Inte EF Core/SQLite? → Ta bort `.claude/agents/db-agent.md`
-- Annan deploy-miljö? → Uppdatera `.claude/docs/deployment.md` med era egna uppgifter
+- Not WordPress? → Remove `.claude/rules/wordpress.md`
+- Not .NET? → Remove `.claude/rules/dotnet.md` and `.claude/agents/dotnet-reviewer.md`
+- Not EF Core/SQLite? → Remove `.claude/agents/db-agent.md`
+- Different deploy environment? → Update `.claude/docs/deployment.md` with your own details
 
-### 5. Committa
+### 5. Commit
 
 ```bash
 git add CLAUDE.md .claude/
-git commit -m "feat: Lägg till Claude Code-konfiguration"
+git commit -m "feat: Add Claude Code configuration"
 ```
 
 ---
 
-## Befintligt projekt
+## Existing project
 
-### Alternativ A: Kopiera in allt (rekommenderat)
+### Option A: Copy everything (recommended)
 
-Samma steg som för nytt projekt ovan. Om projektet redan har en `CLAUDE.md`, gör en backup först:
+Same steps as for new project above. If the project already has a `CLAUDE.md`, make a backup first:
 
 ```bash
 cp CLAUDE.md CLAUDE.md.backup
 ```
 
-Kopiera sedan in mallfilerna och slå ihop det befintliga innehållet med det nya.
+Then copy the template files and merge the existing content with the new.
 
-### Alternativ B: Uppdatera stegvis
+### Option B: Incremental update
 
-Om du bara vill lägga till det som saknas:
+If you only want to add what is missing:
 
 ```bash
-MALL=/Users/jool/repos/Claude
+TEMPLATE=/Users/jool/repos/Claude
 
-# 1. Hooks (om .claude/settings.json saknas)
-cp "$MALL/.claude/settings.json" .claude/settings.json
+# 1. Hooks (if .claude/settings.json is missing)
+cp "$TEMPLATE/.claude/settings.json" .claude/settings.json
 
-# 2. Path-scoped regler (om .claude/rules/ saknas)
+# 2. Path-scoped rules (if .claude/rules/ is missing)
 mkdir -p .claude/rules
-cp "$MALL/.claude/rules/"*.md .claude/rules/
+cp "$TEMPLATE/.claude/rules/"*.md .claude/rules/
 
-# 3. Agenter (om .claude/agents/ saknas)
+# 3. Agents (if .claude/agents/ is missing)
 mkdir -p .claude/agents
-cp "$MALL/.claude/agents/"*.md .claude/agents/
+cp "$TEMPLATE/.claude/agents/"*.md .claude/agents/
 
-# 4. Referensfiler (om .claude/docs/ saknas)
+# 4. Reference files (if .claude/docs/ is missing)
 mkdir -p .claude/docs
-cp "$MALL/.claude/docs/"*.md .claude/docs/
+cp "$TEMPLATE/.claude/docs/"*.md .claude/docs/
 ```
 
-Öppna sedan `CLAUDE.md` och lägg till de sektioner som saknas (kopiera från mallen).
+Then open `CLAUDE.md` and add the missing sections (copy from the template).
 
-### Alternativ C: Använd `/init` som utgångspunkt
+### Option C: Use `/init` as starting point
 
-Kör `/init` i projektet — Claude genererar en starter-CLAUDE.md baserad på projektets struktur. Komplettera sedan med mallrepots filer:
+Run `/init` in the project — Claude generates a starter CLAUDE.md based on the project structure. Then supplement with the template repo's files:
 
 ```bash
-MALL=/Users/jool/repos/Claude
-cp "$MALL/.claude/settings.json" .claude/settings.json
-cp -r "$MALL/.claude/rules/" .claude/rules/
-cp -r "$MALL/.claude/agents/" .claude/agents/
-cp -r "$MALL/.claude/docs/" .claude/docs/
+TEMPLATE=/Users/jool/repos/Claude
+cp "$TEMPLATE/.claude/settings.json" .claude/settings.json
+cp -r "$TEMPLATE/.claude/rules/" .claude/rules/
+cp -r "$TEMPLATE/.claude/agents/" .claude/agents/
+cp -r "$TEMPLATE/.claude/docs/" .claude/docs/
 ```
 
-### Alternativ D: Be Claude göra det
+### Option D: Let Claude do it
 
-Starta en Claude Code-session i projektet och skriv:
+Start a Claude Code session in the project and type:
 
 ```
-Uppdatera eller skapa claude.md med mallfilerna från /Users/jool/repos/Claude.
-Kopiera in hooks, rules, agents och docs.
-Fyll i projektnamn: [DITT PROJEKTNAMN]
-Fyll i syfte: [VAD PROJEKTET GÖR]
-Ta bort det som inte är relevant för detta projekt.
+Update or create CLAUDE.md with the template files from /Users/jool/repos/Claude.
+Copy hooks, rules, agents, and docs.
+Fill in project name: [YOUR PROJECT NAME]
+Fill in purpose: [WHAT THE PROJECT DOES]
+Remove what is not relevant for this project.
 ```
 
 ---
 
-## Checklista efter installation
+## Post-installation checklist
 
-- [ ] `CLAUDE.md` — Projektbeskrivning ifylld
-- [ ] `.claude/docs/project-template.md` — Alla `[FYLL I]`-platshållare ifyllda
-- [ ] `.claude/settings.json` — Hooks konfigurerade
-- [ ] `.claude/rules/` — Bara relevanta regler (ta bort oanvända)
-- [ ] `.claude/agents/` — Bara relevanta agenter
-- [ ] `.claude/docs/deployment.md` — Uppdaterad med projektets deploy-info
-- [ ] `.gitignore` — Innehåller `CLAUDE.local.md` och `temp/`
-- [ ] Skills installerade — Kör installationsscriptet från `.claude/docs/skills.md`
+- [ ] `CLAUDE.md` — Project description filled in
+- [ ] `.claude/docs/project-template.md` — All `[FILL IN]` placeholders filled
+- [ ] `.claude/settings.json` — Hooks configured
+- [ ] `.claude/rules/` — Only relevant rules (remove unused)
+- [ ] `.claude/agents/` — Only relevant agents
+- [ ] `.claude/docs/deployment.md` — Updated with project deploy info
+- [ ] `.gitignore` — Contains `CLAUDE.local.md` and `temp/`
+- [ ] Skills installed — Run the installation script from `.claude/docs/skills.md`
 
 ---
 
-## Filöversikt
+## File overview
 
 ```
-ditt-projekt/
-├── CLAUDE.md                          ← Huvudfil (155 rader, laddas alltid)
-├── CLAUDE.local.md                    ← Personligt, gitignored (skapa vid behov)
+your-project/
+├── CLAUDE.md                          ← Main file (~155 lines, always loaded)
+├── CLAUDE.local.md                    ← Personal, gitignored (create as needed)
 ├── .claude/
-│   ├── settings.json                  ← Hooks (deterministiska regler)
-│   ├── docs/                          ← Referensfiler (laddas vid behov)
-│   │   ├── project-template.md        ← Projektspecifik info (FYLL I!)
-│   │   ├── conventions.md             ← Kodstil
-│   │   ├── security.md                ← Säkerhetsregler
-│   │   ├── git.md                     ← Git-konventioner
-│   │   ├── testing.md                 ← Testkonventioner
-│   │   ├── deployment.md              ← CI/CD och deploy
-│   │   ├── workflows.md               ← Hooks, subagenter, plugins
-│   │   ├── agents-templates.md        ← Agentmallar (referens)
-│   │   └── skills.md                  ← Skills och plugins
-│   ├── rules/                         ← Auto-laddas, path-scoped
+│   ├── settings.json                  ← Hooks (deterministic rules)
+│   ├── docs/                          ← Reference files (loaded on demand)
+│   │   ├── project-template.md        ← Project-specific info (FILL IN!)
+│   │   ├── conventions.md             ← Code style
+│   │   ├── security.md                ← Security rules
+│   │   ├── git.md                     ← Git conventions
+│   │   ├── testing.md                 ← Testing conventions
+│   │   ├── deployment.md              ← CI/CD and deploy
+│   │   ├── workflows.md               ← Hooks, subagents, plugins
+│   │   ├── agents-templates.md        ← Agent templates (reference)
+│   │   └── skills.md                  ← Skills and plugins
+│   ├── rules/                         ← Auto-loaded, path-scoped
 │   │   ├── security.md                ← *.cs, *.cshtml, *.razor
 │   │   ├── dotnet.md                  ← *.cs, *.csproj
 │   │   ├── frontend.md                ← *.html, *.css, *.js, *.tsx
 │   │   └── wordpress.md               ← *.php, wp-content/**
-│   └── agents/                        ← Subagenter
-│       ├── dotnet-reviewer.md         ← Kodgranskning (sonnet)
-│       ├── security-scanner.md        ← Säkerhetsskanning (sonnet)
-│       ├── test-runner.md             ← Testkörning (haiku)
-│       └── db-agent.md                ← Databasoperationer (inherit)
+│   └── agents/                        ← Subagents
+│       ├── dotnet-reviewer.md         ← Code review (sonnet)
+│       ├── security-scanner.md        ← Security scanning (sonnet)
+│       ├── test-runner.md             ← Test execution (haiku)
+│       └── db-agent.md                ← Database operations (inherit)
 ```
 
 ---
 
-## Vanliga frågor
+## FAQ
 
-**Måste jag fylla i alla platshållare?**
-Ja. Repo-specifik anpassning ger 2x bättre resultat enligt Arize ML-forskning. Ju mer konkret information Claude har om ditt projekt, desto bättre kod produceras.
+**Do I need to fill in all placeholders?**
+Yes. Repo-specific customization yields 2x better results according to Arize ML research. The more concrete information Claude has about your project, the better the code produced.
 
-**Kan jag ta bort filer jag inte behöver?**
-Absolut. Ta bort allt som inte är relevant. En WordPress-regel i ett rent .NET-projekt tar bara plats utan att bidra.
+**Can I remove files I don't need?**
+Absolutely. Remove anything that is not relevant. A WordPress rule in a pure .NET project just takes up space without contributing.
 
-**Ska .claude/settings.json committas?**
-Ja, den delas med teamet. Personliga inställningar läggs i `.claude/settings.local.json` (gitignored).
+**Should .claude/settings.json be committed?**
+Yes, it is shared with the team. Personal settings go in `.claude/settings.local.json` (gitignored).
 
-**Vad är skillnaden mellan rules/ och docs/?**
-- `rules/` auto-laddas varje session med hög prioritet, filtrerat på vilka filer du arbetar med
-- `docs/` laddas bara när Claude bedömer att de behövs (eller du refererar dem med `@`)
+**What is the difference between rules/ and docs/?**
+- `rules/` is auto-loaded every session with high priority, filtered by which files you are working with
+- `docs/` is loaded only when Claude determines they are needed (or you reference them with `@`)

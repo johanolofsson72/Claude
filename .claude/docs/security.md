@@ -1,23 +1,23 @@
-# Säkerhet
+# Security
 
-## Grundregler
+## Fundamental rules
 
-- Använd ALLTID parametriserade queries — aldrig string concatenation för SQL.
-- Sanera all användarinput (XSS-skydd).
-- Konfigurera HTTPS, CSRF-skydd och CORS korrekt.
-- Lagra hemligheter i `appsettings.json` (lokalt) eller miljövariabler (produktion) — aldrig i kod.
-- Committa aldrig `.env`, `appsettings.Development.json` eller liknande.
-- Alla API-endpoints kräver autentisering om inget annat anges.
-- Använd aldrig `eval()` eller `extract()` — varken i PHP eller JavaScript.
+- ALWAYS use parameterized queries — never string concatenation for SQL.
+- Sanitize all user input (XSS protection).
+- Configure HTTPS, CSRF protection, and CORS correctly.
+- Store secrets in `appsettings.json` (local) or environment variables (production) — never in code.
+- Never commit `.env`, `appsettings.Development.json`, or similar.
+- All API endpoints require authentication unless otherwise specified.
+- Never use `eval()` or `extract()` — neither in PHP nor JavaScript.
 
-## Claude Code permissions.deny — känd bugg
+## Claude Code permissions.deny — known bug
 
-`permissions.deny` i `.claude/settings.json` har kända buggar (GitHub issues #6699, #6631, #27040) där deny-regler inte alltid upprätthålls. Vår settings.json innehåller därför en **PreToolUse backup-hook** som blockerar åtkomst till känsliga filer (`.ssh`, `.aws`, `.env`, credentials) via `hookSpecificOutput.permissionDecision: "deny"`. Denna hook är tillförlitlig — till skillnad från `permissions.deny`.
+`permissions.deny` in `.claude/settings.json` has known bugs (GitHub issues #6699, #6631, #27040) where deny rules are not always enforced. Our settings.json therefore contains a **PreToolUse backup hook** that blocks access to sensitive files (`.ssh`, `.aws`, `.env`, credentials) via `hookSpecificOutput.permissionDecision: "deny"`. This hook is reliable — unlike `permissions.deny`.
 
-Om du lägger till nya deny-regler för säkerhetskritiska filer, skapa alltid en matchande PreToolUse-hook som backup.
+If you add new deny rules for security-critical files, always create a matching PreToolUse hook as backup.
 
-**Mars 2026-fix:** En bugg där PreToolUse hooks som returnerade "allow" kunde bypassa deny-regler (inklusive enterprise managed settings) har åtgärdats. Backup-hooken ovan är fortfarande rekommenderad som defense-in-depth.
+**March 2026 fix:** A bug where PreToolUse hooks returning "allow" could bypass deny rules (including enterprise managed settings) has been fixed. The backup hook above is still recommended as defense-in-depth.
 
-## Subprocess-credentials
+## Subprocess credentials
 
-Sätt `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` i din miljö för att automatiskt strippa Anthropic- och cloud-provider-credentials från subprocess-miljöer. Förhindrar att API-nycklar och tokens läcker till barnprocesser.
+Set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in your environment to automatically strip Anthropic and cloud provider credentials from subprocess environments. Prevents API keys and tokens from leaking to child processes.

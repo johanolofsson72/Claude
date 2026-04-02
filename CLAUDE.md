@@ -1,154 +1,153 @@
 # CLAUDE.md
 
-## Kritiska regler (LÄS FÖRST)
+## Critical rules (READ FIRST)
 
-- **ALWAYS** läs koden först — basera ALLA slutsatser på bevis från kodbasen, inte antaganden.
-- **ALWAYS** verifiera med `dotnet build` och `dotnet test` innan du säger att något är "klart".
-- **ALWAYS** använd Edit-verktyget för kirurgiska ändringar — kopiera aldrig hela filer.
-- **ALWAYS** anropa `frontend-design`-skillen via Skill-verktyget INNAN du skriver UI-kod (HTML, CSS, JS, design, layout, utseende). Detta är ett **BLOCKERANDE KRAV**.
-- **ALWAYS** kör genererad text genom `humanizer`-skillen via Skill-verktyget INNAN leverans till människor (dokumentation, commit-meddelanden, PR-beskrivningar, mejl, README). Detta är ett **BLOCKERANDE KRAV**.
-- **ALWAYS** följ befintliga mönster i kodbasen — titta på liknande komponenter först.
-- **ALWAYS** avsluta varje spec/feature som involverar UI med **destruktiva browsertester** (Playwright). Målet är **99% E2E-täckning**. Tester som bara verifierar happy path räcker INTE. INNAN du skriver en spec/task-fil: läs `.claude/docs/spec-testing-checklist.md` och inkludera destruktiva tester som en egen fas i task-filen.
+- **ALWAYS** read the code first — base ALL conclusions on evidence from the codebase, not assumptions.
+- **ALWAYS** verify with `dotnet build` and `dotnet test` before claiming anything is "done".
+- **ALWAYS** use the Edit tool for surgical changes — never copy entire files.
+- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
+- **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
+- **ALWAYS** follow existing patterns in the codebase — look at similar components first.
+- **ALWAYS** end every spec/feature involving UI with **destructive browser tests** (Playwright). Target is **99% E2E coverage**. Tests that only verify happy path are NOT enough. BEFORE writing a spec/task file: read `.claude/docs/spec-testing-checklist.md` and include destructive tests as a dedicated phase.
 
-## Exekveringsläge
+## Execution mode
 
-### Autonomt läge (NON-INTERACTIVE)
+### Autonomous mode (NON-INTERACTIVE)
 
-- Agera direkt utan att vänta på bekräftelse.
-- Saknad information är inte ett hinder — gör rimliga antaganden och fortsätt.
-- Fel ska hanteras och fixas självständigt.
-- Frågor är tillåtna BARA vid arkitekturbeslut eller kravtolkning som inte rimligt kan antas.
-- **Max 3 försök per problem** — om samma approach misslyckas 3 gånger, kör `/clear` och prova en helt annan strategi med en bättre prompt.
+- Act immediately without waiting for confirmation.
+- Missing information is not a blocker — make reasonable assumptions and continue.
+- Errors should be handled and fixed independently.
+- Questions are allowed ONLY for architecture decisions or requirement interpretations that cannot reasonably be assumed.
+- **Max 3 attempts per problem** — if the same approach fails 3 times, run `/clear` and try a completely different strategy with a better prompt.
 
-### Anti-stall regel
+### Anti-stall rule
 
-Om ingen tydlig uppgift hittas — välj den mest sannolika uppgiften och agera. Stagnation betraktas som misslyckande.
+If no clear task is found — pick the most likely task and act. Stagnation is treated as failure.
 
-### Interview-mönstret
+### Interview pattern
 
-För större features: intervjua utvecklaren med `AskUserQuestion` innan implementation. Fråga om teknisk implementation, edge cases och tradeoffs. Skriv sedan en spec innan kodning börjar.
+For larger features: interview the developer with `AskUserQuestion` before implementation. Ask about technical implementation, edge cases, and tradeoffs. Then write a spec before coding begins.
 
-## Prioritetsordning
+## Priority order
 
-1. **Säkerhet** — aldrig kompromissa
-2. **Korrekthet** — koden ska göra rätt sak
-3. **Enkelhet** — minsta möjliga komplexitet
-4. **Läsbarhet** — tydlig kod framför smart kod
-5. **Prestanda** — optimera bara vid behov
+1. **Security** — never compromise
+2. **Correctness** — the code must do the right thing
+3. **Simplicity** — minimum necessary complexity
+4. **Readability** — clear code over clever code
+5. **Performance** — optimize only when needed
 
-## Projektbeskrivning
+## Project description
 
-Detta är ett **mallrepo för Claude Code-konfiguration** — en återanvändbar uppsättning regler, agents, hooks och skills för .NET/fullstack-projekt. Repot kopieras som utgångspunkt vid nya projektstart.
+This is a **template repo for Claude Code configuration** — a reusable set of rules, agents, hooks, and skills for .NET/fullstack projects. The repo is copied as a starting point for new projects.
 
-> **Vid projektstart:** Fyll i kärnprinciper, arkitektur och dev-miljö i `.claude/docs/project-template.md`
+> **On project start:** Fill in core principles, architecture, and dev environment in `.claude/docs/project-template.md`
 
-## Språk
+## Language
 
-- Kommunicera alltid på **svenska** i konversationer och commit-meddelanden.
-- **ALWAYS** använd korrekta svenska tecken: **å, ä, ö** (INTE a/o som ersättning). Text utan åäö är oacceptabel.
-- Kod, variabelnamn och tekniska termer skrivs på **engelska**.
-- Kommentarer i kod skrivs på **engelska**.
+- Communicate in **English** in conversations, commit messages, and documentation.
+- Code, variable names, and technical terms are written in **English**.
+- Comments in code are written in **English**.
 
-## Teknikstack
+## Tech stack
 
-- **.NET** (Web API, Blazor, MVC, Razor Pages) — senaste stabila versionen
-- **React** (förstahandsval för frontend i nya projekt) — byggs till wwwroot i .NET-projektet för en enda Docker-image
-- **SQLite** som databas (om inget annat anges)
-- **WordPress** (PHP, teman, plugins)
-- **HTML, CSS, JavaScript, jQuery** (äldre projekt/enklare sidor)
+- **.NET** (Web API, Blazor, MVC, Razor Pages) — latest stable version
+- **React** (first choice for frontend in new projects) — built to wwwroot in the .NET project for a single Docker image
+- **SQLite** as database (unless otherwise specified)
+- **WordPress** (PHP, themes, plugins)
+- **HTML, CSS, JavaScript, jQuery** (legacy projects / simpler pages)
 
-## CI/CD och deployment
+## CI/CD and deployment
 
-Docker Swarm-kluster på Azure (live4.se). För IP-adresser, pipeline, kommandon och checklista, se `.claude/docs/deployment.md`
+Docker Swarm cluster on Azure (live4.se). For IP addresses, pipeline, commands, and checklist, see `.claude/docs/deployment.md`
 
-## Arbetsflöde
+## Workflow
 
-### Komplexitetsbedömning
+### Complexity assessment
 
-- **Trivial** (en fil, uppenbar fix) → exekvera direkt
-- **Medel** (2–5 filer, tydligt scope) → kort planering, sedan exekvera
-- **Komplex** (arkitekturpåverkan, oklara krav) → fullständig utforskning och plan först
+- **Trivial** (one file, obvious fix) → execute immediately
+- **Medium** (2-5 files, clear scope) → brief planning, then execute
+- **Complex** (architecture impact, unclear requirements) → full exploration and plan first
 
-### Planera → Implementera → Verifiera
+### Plan → Implement → Verify
 
-1. **Utforska** — läs befintlig kod, förstå mönster och beroenden.
-2. **Planera** — vid medel/komplex: använd Plan Mode (Shift+Tab) för att skriva plan innan implementation.
-3. **Implementera** — växla till Normal Mode, skriv kod enligt planen. Följ befintliga mönster.
-4. **Verifiera** — kör alla tester, typechecka, bekräfta att allt fungerar.
-5. **Committa** — commit på svenska: `<typ>: <beskrivning>` (feat/fix/refactor/test/docs/style/chore). Detaljer i `.claude/docs/git.md`
+1. **Explore** — read existing code, understand patterns and dependencies.
+2. **Plan** — for medium/complex: use Plan Mode (Shift+Tab) to write a plan before implementation.
+3. **Implement** — switch to Normal Mode, write code according to the plan. Follow existing patterns.
+4. **Verify** — run all tests, typecheck, confirm everything works.
+5. **Commit** — commit in English: `<type>: <description>` (feat/fix/refactor/test/docs/style/chore). Details in `.claude/docs/git.md`
 
-## Verifiering och grundning
+## Verification and grounding
 
-> Att ge Claude sätt att verifiera sitt eget arbete är den enskilt viktigaste åtgärden för kvalitet. — Anthropic Best Practices
+> Giving Claude ways to verify its own work is the single most important measure for quality. — Anthropic Best Practices
 
-- **IMPORTANT:** Läs ALLTID relevanta filer INNAN du svarar om kodbasen. Gissa ALDRIG.
-- Kör tester efter varje implementation.
-- Kör enskilda tester framför hela sviten för snabbare feedback.
+- **IMPORTANT:** ALWAYS read relevant files BEFORE answering about the codebase. NEVER guess.
+- Run tests after every implementation.
+- Run individual tests over the full suite for faster feedback.
 
-### Definition av "implementerat"
+### Definition of "implemented"
 
-Säg **aldrig** att något är "implementerat" eller "klart" förrän:
+NEVER say something is "implemented" or "done" until:
 
-1. Alla **enhetstester** passerar (`dotnet test`).
-2. Alla **E2E-tester i Playwright** passerar (`dotnet test --filter "Category=UI"`).
-3. För UI-features: **destruktiva browsertester** har skrivits och passerar. Målet är **99% E2E-täckning** — varje spec ska täcka alla relevanta attackkategorier (se `.claude/docs/spec-testing-checklist.md` och `.claude/docs/testing.md`).
-4. För webbprojekt: **visuellt verifierad** i webbläsaren.
-5. Koden bedöms fungera till **100%**.
+1. All **unit tests** pass (`dotnet test`).
+2. All **E2E tests in Playwright** pass (`dotnet test --filter "Category=UI"`).
+3. For UI features: **destructive browser tests** have been written and pass. Target is **99% E2E coverage** — every spec should cover all relevant attack categories (see `.claude/docs/spec-testing-checklist.md` and `.claude/docs/testing.md`).
+4. For web projects: **visually verified** in the browser.
+5. The code is assessed as **100% functional**.
 
-Om tester inte kan köras (saknad infrastruktur), informera tydligt om detta.
+If tests cannot be run (missing infrastructure), clearly inform about this.
 
-## Kontexthantering
+## Context management
 
-- Vid kompaktering: bevara ALLTID modifierade filer, felmeddelanden ordagrant, felsökningssteg och testkommandon. Komprimerings-instruktion: `"When compacting, always preserve the full list of modified files and any test commands"`.
-- Använd subagenter för utforskning och research — håll huvudkontexten ren.
-- Använd `/clear` mellan orelaterade uppgifter — blanda aldrig orelaterade uppgifter i samma session.
-- Använd `/compact <fokus>` för kontrollerad komprimering, t.ex. `/compact Fokusera på API-ändringarna`.
-- Bryt ner stora uppgifter i diskreta deluppgifter — begär aldrig 5+ features i ett steg.
-- Efter 2 misslyckade rättningar av samma problem: `/clear` och skriv en bättre prompt från början.
+- During compaction: ALWAYS preserve modified files, error messages verbatim, debugging steps, and test commands. Compaction instruction: `"When compacting, always preserve the full list of modified files and any test commands"`.
+- Use subagents for exploration and research — keep the main context clean.
+- Use `/clear` between unrelated tasks — never mix unrelated tasks in the same session.
+- Use `/compact <focus>` for controlled compaction, e.g., `/compact Focus on the API changes`.
+- Break down large tasks into discrete subtasks — never request 5+ features in one step.
+- After 2 failed fixes of the same problem: `/clear` and write a better prompt from scratch.
 
-## Kommandon
+## Commands
 
 ```bash
-dotnet build                           # Bygg projektet
-dotnet test                            # Kör enhetstester
-dotnet run --project src/<ProjektNamn> # Kör applikationen
-dotnet test --filter "Category=UI"     # Playwright E2E-tester
-dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"  # Enskilt test
+dotnet build                           # Build the project
+dotnet test                            # Run unit tests
+dotnet run --project src/<ProjectName> # Run the application
+dotnet test --filter "Category=UI"     # Playwright E2E tests
+dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"  # Single test
 ```
 
-## Principer
+## Principles
 
-- **YAGNI** — bygg bara det som behövs nu. Tre liknande rader > prematur abstraktion.
-- **Fail fast** — tydliga felmeddelanden med kontext. Aldrig tysta fallbacks.
-- **DX** — kod ska vara läsbar utan kommentarer. Bra namngivning räcker oftast.
+- **YAGNI** — only build what is needed now. Three similar lines > premature abstraction.
+- **Fail fast** — clear error messages with context. Never silent fallbacks.
+- **DX** — code should be readable without comments. Good naming is usually enough.
 
-## Referensfiler (laddas vid behov)
+## Reference files (loaded on demand)
 
-Läs dessa filer NÄR du behöver dem — ladda inte allt i förväg:
+Read these files WHEN you need them — do not load everything upfront:
 
-- **Ny projektstart** eller arkitekturfrågor → `.claude/docs/project-template.md`
-- **Kodstil, namngivning, förbjudna mönster** → `.claude/docs/conventions.md`
-- **Säkerhetsfrågor** (SQL injection, XSS, secrets) → `.claude/docs/security.md`
+- **New project start** or architecture questions → `.claude/docs/project-template.md`
+- **Code style, naming, forbidden patterns** → `.claude/docs/conventions.md`
+- **Security questions** (SQL injection, XSS, secrets) → `.claude/docs/security.md`
 - **Git commit/branch/PR** → `.claude/docs/git.md`
-- **Hooks, subagenter, plugins, sessions** → `.claude/docs/workflows.md`
-- **Skapa nya agenter** → `.claude/docs/agents-templates.md`
-- **Skills, SKILL.md-format, Agent Skills-standarden** → `.claude/docs/skills.md`
-- **Tester (xUnit, Playwright)** → `.claude/docs/testing.md`
-- **Spec-testchecklista (destruktiva tester)** → `.claude/docs/spec-testing-checklist.md`
+- **Hooks, subagents, plugins, sessions** → `.claude/docs/workflows.md`
+- **Creating new agents** → `.claude/docs/agents-templates.md`
+- **Skills, SKILL.md format, Agent Skills standard** → `.claude/docs/skills.md`
+- **Tests (xUnit, Playwright)** → `.claude/docs/testing.md`
+- **Spec testing checklist (destructive tests)** → `.claude/docs/spec-testing-checklist.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
 
-## Filorganisation
+## File organization
 
-- **`scripts/`** — Underhållsscript (`update-template.sh` för att hålla mallrepot uppdaterat, `sync-prompt.md` med prompt för att synka andra projekt).
-- **`.claude/skills/`** — projektskills med SKILL.md (code-review, explore-codebase, deploy-checklist, update-template). Följer Agent Skills-standarden (agentskills.io).
-- **`.claude/agents/`** — subagenter (dotnet-reviewer, security-scanner, test-runner, db-agent). Stödjer `isolation: worktree`, `background`, `hooks` i frontmatter.
-- **`.claude/rules/`** — regler som auto-laddas varje session. Stödjer path-scoping med YAML-frontmatter.
-- **`.claude/docs/`** — referensmaterial som laddas vid behov. Referera UTAN `@`-prefix för att undvika auto-expansion.
-- **`CLAUDE.local.md`** — personliga projektinställningar som inte committas (auto-gitignored).
+- **`scripts/`** — Maintenance scripts (`update-template.sh` to keep the template repo updated, `sync-prompt.md` with prompt for syncing other projects).
+- **`.claude/skills/`** — Project skills with SKILL.md (code-review, explore-codebase, deploy-checklist, update-template). Follows the Agent Skills standard (agentskills.io).
+- **`.claude/agents/`** — Subagents (dotnet-reviewer, security-scanner, test-runner, db-agent). Supports `isolation: worktree`, `background`, `hooks` in frontmatter.
+- **`.claude/rules/`** — Rules auto-loaded every session. Supports path-scoping with YAML frontmatter.
+- **`.claude/docs/`** — Reference material loaded on demand. Reference WITHOUT `@` prefix to avoid auto-expansion.
+- **`CLAUDE.local.md`** — Personal project settings not committed (auto-gitignored).
 
-## Iterativ förbättring
+## Iterative improvement
 
-- Om samma misstag upprepas: föreslå en ny regel för CLAUDE.md eller en hook som förhindrar det.
-- Varje kodgranskningskommentar är en signal att agenten saknade kontext — uppdatera CLAUDE.md.
-- Redigera befintliga filer framför att skapa nya.
-- Håll denna fil fokuserad — om en instruktion kan tas bort utan att Claude gör fel, ta bort den.
+- If the same mistake repeats: suggest a new rule for CLAUDE.md or a hook that prevents it.
+- Every code review comment is a signal that the agent lacked context — update CLAUDE.md.
+- Edit existing files over creating new ones.
+- Keep this file focused — if an instruction can be removed without Claude making errors, remove it.

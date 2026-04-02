@@ -1,6 +1,6 @@
 ---
 name: deploy-checklist
-description: Pre-deployment verification checklist for Docker Swarm deployments to Azure. Use before deploying to production. Trigger words include deploy, driftsätt, release, produktion, go live.
+description: Pre-deployment verification checklist for Docker Swarm deployments to Azure. Use before deploying to production. Trigger words include deploy, release, production, go live.
 disable-model-invocation: true
 allowed-tools: Bash, Read, Grep, Glob
 ---

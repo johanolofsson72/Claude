@@ -1,11 +1,14 @@
 ---
-globs: "**/*.cs,**/*.cshtml,**/*.razor"
+paths:
+  - "**/*.cs"
+  - "**/*.cshtml"
+  - "**/*.razor"
 ---
 
-# Säkerhetsregler för C#-kod
+# Security rules for C# code
 
-- Använd ALLTID parametriserade queries — aldrig string concatenation för SQL.
-- Validera all användarinput vid API-gränser.
-- Exponera aldrig stack traces i produktion — använd ProblemDetails.
-- Kontrollera att alla API-endpoints har [Authorize] eller explicit [AllowAnonymous].
-- Lagra aldrig hemligheter i kod — använd appsettings.json (lokalt) eller miljövariabler (produktion).
+- ALWAYS use parameterized queries — never string concatenation for SQL.
+- Validate all user input at API boundaries.
+- Never expose stack traces in production — use ProblemDetails.
+- Verify that all API endpoints have [Authorize] or explicit [AllowAnonymous].
+- Never store secrets in code — use appsettings.json (local) or environment variables (production).
