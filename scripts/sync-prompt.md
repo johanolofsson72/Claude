@@ -113,23 +113,53 @@ If ANY of these three are missing — copy from the template.
 
 ### Step 6: Install required skills
 
-Install the following skill if it is not already present. This skill is critical for destructive browser testing:
+Install the following external skills to `~/.claude/skills/` if not already present. These are shared across all projects.
 
 ```bash
-# qa-test skill — destructive/adversarial browser testing with Playwright
+# anthropics/skills — Official Anthropic collection (includes frontend-design, PDF, PPTX, XLSX)
+# CRITICAL: frontend-design is a BLOCKING REQUIREMENT in CLAUDE.md
+if [ ! -d "$HOME/.claude/skills/anthropics-skills" ]; then
+  git clone https://github.com/anthropics/skills.git "$HOME/.claude/skills/anthropics-skills"
+  echo "[INSTALLED] anthropics/skills — official collection (frontend-design, PDF, PPTX, XLSX)"
+else
+  echo "[SKIPPED] anthropics/skills — already installed"
+fi
+
+# obra/superpowers — Planning, TDD, code review
+if [ ! -d "$HOME/.claude/skills/superpowers" ]; then
+  git clone https://github.com/obra/superpowers.git "$HOME/.claude/skills/superpowers"
+  echo "[INSTALLED] obra/superpowers — planning, TDD, code review"
+else
+  echo "[SKIPPED] obra/superpowers — already installed"
+fi
+
+# trailofbits/skills — Security research skills from Trail of Bits
+if [ ! -d "$HOME/.claude/skills/trailofbits-skills" ]; then
+  git clone https://github.com/trailofbits/skills.git "$HOME/.claude/skills/trailofbits-skills"
+  echo "[INSTALLED] trailofbits/skills — security research"
+else
+  echo "[SKIPPED] trailofbits/skills — already installed"
+fi
+
+# adampaulwalker/qa-test — Destructive/adversarial browser testing with Playwright
 if [ ! -d "$HOME/.claude/skills/qa-test" ]; then
   git clone https://github.com/adampaulwalker/qa-test.git "$HOME/.claude/skills/qa-test"
-  echo "[INSTALLED] qa-test skill — destructive browser testing (Jinx persona)"
+  echo "[INSTALLED] qa-test — destructive browser testing (Jinx persona)"
 else
-  echo "[SKIPPED] qa-test skill — already installed"
+  echo "[SKIPPED] qa-test — already installed"
 fi
 ```
 
-This skill provides two personas:
-- **Quinn** — systematic QA engineer for criteria-based testing
-- **Jinx** — chaos tester that actively tries to break the application (input attacks, interaction attacks, navigation attacks, state attacks, visual/layout attacks)
+**What each skill provides:**
 
-Requires the Playwright MCP server. If the project has UI components, verify Playwright MCP is configured.
+| Skill | Key capabilities |
+|---|---|
+| **anthropics/skills** | `frontend-design` (blocking requirement), PDF/PPTX/XLSX generation |
+| **superpowers** | TDD workflow, implementation planning, thorough code review |
+| **trailofbits/skills** | OWASP security analysis, vulnerability research, secure code patterns |
+| **qa-test** | Destructive browser testing — Quinn (systematic QA) + Jinx (chaos tester) |
+
+The qa-test skill requires the Playwright MCP server. If the project has UI components, verify Playwright MCP is configured.
 
 ### Step 7: Remove irrelevant files
 

@@ -135,17 +135,19 @@ Install to `~/.claude/skills/` to share across projects:
 | --- | --- | --- |
 | **anthropics/skills** | `anthropics/skills` | Official collection (frontend-design, PDF, PPTX, XLSX) |
 | **superpowers** | `obra/superpowers` | Planning, TDD, code review |
-| **context-engineering** | `muratcankoylan/Agent-Skills-for-Context-Engineering` | Multi-agent architectures |
 | **trailofbits/skills** | `trailofbits/skills` | Security research skills |
+| **qa-test** | `adampaulwalker/qa-test` | Destructive/adversarial browser testing (Jinx persona) |
 
 ### Installation
+
+These are auto-installed by the sync prompt (`scripts/sync-prompt.md`). To install manually:
 
 ```bash
 declare -A SKILL_REPOS=(
   [anthropics-skills]="anthropics/skills"
   [superpowers]="obra/superpowers"
-  [context-engineering]="muratcankoylan/Agent-Skills-for-Context-Engineering"
   [trailofbits-skills]="trailofbits/skills"
+  [qa-test]="adampaulwalker/qa-test"
 )
 
 for skill in "${!SKILL_REPOS[@]}"; do
