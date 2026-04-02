@@ -148,18 +148,45 @@ if [ ! -d "$HOME/.claude/skills/qa-test" ]; then
 else
   echo "[SKIPPED] qa-test — already installed"
 fi
+
+# dotnet/skills — Official Microsoft .NET skills (ASP.NET Core, EF Core, Blazor)
+if [ ! -d "$HOME/.claude/skills/dotnet-skills" ]; then
+  git clone https://github.com/dotnet/skills.git "$HOME/.claude/skills/dotnet-skills"
+  echo "[INSTALLED] dotnet/skills — official .NET patterns and best practices"
+else
+  echo "[SKIPPED] dotnet/skills — already installed"
+fi
+
+# vercel-labs/skills — React performance rules and web design guidelines
+if [ ! -d "$HOME/.claude/skills/vercel-skills" ]; then
+  git clone https://github.com/vercel-labs/skills.git "$HOME/.claude/skills/vercel-skills"
+  echo "[INSTALLED] vercel-labs/skills — React performance (45 rules), web design"
+else
+  echo "[SKIPPED] vercel-labs/skills — already installed"
+fi
+
+# lackeyjb/playwright-skill — Deep Playwright knowledge (POM, patterns, CI/CD)
+if [ ! -d "$HOME/.claude/skills/playwright-skill" ]; then
+  git clone https://github.com/lackeyjb/playwright-skill.git "$HOME/.claude/skills/playwright-skill"
+  echo "[INSTALLED] playwright-skill — Playwright patterns, POM, test generation"
+else
+  echo "[SKIPPED] playwright-skill — already installed"
+fi
 ```
 
 **What each skill provides:**
 
-| Skill | Key capabilities |
-|---|---|
-| **anthropics/skills** | `frontend-design` (blocking requirement), PDF/PPTX/XLSX generation |
-| **superpowers** | TDD workflow, implementation planning, thorough code review |
-| **trailofbits/skills** | OWASP security analysis, vulnerability research, secure code patterns |
-| **qa-test** | Destructive browser testing — Quinn (systematic QA) + Jinx (chaos tester) |
+| Skill | Source | Key capabilities |
+|---|---|---|
+| **anthropics/skills** | Anthropic (official) | `frontend-design` (blocking requirement), PDF/PPTX/XLSX generation |
+| **superpowers** | obra | TDD workflow, implementation planning, thorough code review |
+| **trailofbits/skills** | Trail of Bits | OWASP security analysis, vulnerability research, secure code patterns |
+| **qa-test** | Community | Destructive browser testing — Quinn (systematic QA) + Jinx (chaos tester) |
+| **dotnet/skills** | Microsoft (official) | ASP.NET Core, EF Core, Blazor patterns, project scaffolding |
+| **vercel-labs/skills** | Vercel (official) | React performance rules (45 rules ranked by impact), web design |
+| **playwright-skill** | Community (2k+ stars) | Deep Playwright knowledge, Page Object Model, CI/CD patterns |
 
-The qa-test skill requires the Playwright MCP server. If the project has UI components, verify Playwright MCP is configured.
+The qa-test and playwright-skill require the Playwright MCP server. If the project has UI components, verify Playwright MCP is configured.
 
 ### Step 7: Remove irrelevant files
 

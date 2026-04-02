@@ -131,12 +131,15 @@ Keep `SKILL.md` under 500 lines. Move detailed reference material to separate fi
 
 Install to `~/.claude/skills/` to share across projects:
 
-| Skill | Repo | Description |
+| Skill | Source | Description |
 | --- | --- | --- |
-| **anthropics/skills** | `anthropics/skills` | Official collection (frontend-design, PDF, PPTX, XLSX) |
-| **superpowers** | `obra/superpowers` | Planning, TDD, code review |
-| **trailofbits/skills** | `trailofbits/skills` | Security research skills |
-| **qa-test** | `adampaulwalker/qa-test` | Destructive/adversarial browser testing (Jinx persona) |
+| **anthropics/skills** | Anthropic (official) | Frontend-design (blocking req), PDF, PPTX, XLSX |
+| **superpowers** | obra | Planning, TDD, code review |
+| **trailofbits/skills** | Trail of Bits | Security research, vulnerability detection |
+| **qa-test** | Community | Destructive browser testing (Jinx persona) |
+| **dotnet/skills** | Microsoft (official) | ASP.NET Core, EF Core, Blazor patterns |
+| **vercel-labs/skills** | Vercel (official) | React performance (45 rules), web design |
+| **playwright-skill** | Community (2k+ stars) | Playwright POM, patterns, CI/CD |
 
 ### Installation
 
@@ -148,6 +151,9 @@ declare -A SKILL_REPOS=(
   [superpowers]="obra/superpowers"
   [trailofbits-skills]="trailofbits/skills"
   [qa-test]="adampaulwalker/qa-test"
+  [dotnet-skills]="dotnet/skills"
+  [vercel-skills]="vercel-labs/skills"
+  [playwright-skill]="lackeyjb/playwright-skill"
 )
 
 for skill in "${!SKILL_REPOS[@]}"; do

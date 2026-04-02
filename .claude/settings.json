@@ -1,6 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "language": "english",
   "attribution": {
     "commit": "",
     "pr": ""
@@ -27,9 +26,23 @@
     ],
     "ask": [
       "Bash(git push *)"
+    ],
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   },
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE '(speckit|specify|spec.specify|spec.implement)'; then echo '{\"additionalContext\": \"IMPORTANT: Every spec/task involving UI MUST include a dedicated Destructive Browser Tests phase with min 8 scenarios covering all 6 attack categories (invalid input, wrong order, skip steps, boundary values, timing/race conditions, accessibility). Read .claude/docs/spec-testing-checklist.md BEFORE writing the spec. Target: 99% E2E coverage. This is non-negotiable.\"}'; fi"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Read|Edit|Write",
@@ -83,5 +96,6 @@
         ]
       }
     ]
-  }
+  },
+  "language": "english"
 }
