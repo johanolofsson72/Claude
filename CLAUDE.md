@@ -24,6 +24,10 @@
 
 If no clear task is found — pick the most likely task and act. Stagnation is treated as failure.
 
+### Hook recovery rule
+
+When a hook stops continuation or provides feedback: acknowledge the feedback, handle it (fix the issue OR explain why it's not applicable), and **continue working autonomously**. Never stop and wait silently after hook feedback — that is treated as stalling.
+
 ### Interview pattern
 
 For larger features: interview the developer with `AskUserQuestion` before implementation. Ask about technical implementation, edge cases, and tradeoffs. Then write a spec before coding begins.
