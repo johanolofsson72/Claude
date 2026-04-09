@@ -48,6 +48,7 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/skills/explore-codebase/SKILL.md`
 - `.claude/skills/deploy-checklist/SKILL.md`
 - `.claude/skills/tla/SKILL.md` — TLA+ formal verification (auto-triggered after browser tests)
+- `.claude/skills/allium/SKILL.md` — Allium spec language skill (/allium:elicit, /allium:distill)
 
 **Scripts:**
 
