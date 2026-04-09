@@ -23,6 +23,7 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/rules/security.md` — security rules for C#
 - `.claude/rules/specs.md` — spec/task rules with destructive test requirements (paths: `**/spec*.md`, `**/tasks*.md`, etc.)
 - `.claude/rules/wordpress.md` — WordPress rules
+- `.claude/rules/allium.md` — Allium spec language rules (paths: `**/*.allium`)
 
 **Docs (loaded on demand, referenced from CLAUDE.md):**
 - `.claude/docs/testing.md` — test conventions, destructive browser tests (6+1 attack categories)
@@ -46,6 +47,12 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/skills/code-review/SKILL.md`
 - `.claude/skills/explore-codebase/SKILL.md`
 - `.claude/skills/deploy-checklist/SKILL.md`
+- `.claude/skills/tla/SKILL.md` — TLA+ formal verification (auto-triggered after browser tests)
+
+**Scripts:**
+
+- `scripts/tla-hook.sh` — PostToolUse hook script for TLA+ auto-trigger
+- `scripts/allium-hook.sh` — PostToolUse hook that blocks if spec lacks .allium companion
 
 ### Step 2: Read this project's files
 
@@ -110,6 +117,35 @@ These three components work together to ensure destructive browser tests are inc
    ```
 
 If ANY of these three are missing — copy from the template.
+
+### Step 5b: Verify Allium + TLA+ verification pipeline
+
+The template includes a full spec-to-verification pipeline:
+
+```text
+Spec (markdown) → /allium:elicit → .allium → Implementation →
+Browser tests (destructive) → /tla (distill + drift + invariants) → Done
+```
+
+**Files to sync:**
+
+1. **`.claude/skills/tla/SKILL.md`** — formal verification skill with Allium drift detection
+2. **`.claude/rules/allium.md`** — prescriptive Allium rules (triggers on spec AND .allium files)
+3. **`.claude/rules/specs.md`** — updated with Allium pre-implementation + TLA+ post-implementation steps
+4. **`scripts/tla-hook.sh`** — PostToolUse hook that detects browser/E2E test files
+5. **PostToolUse hook in settings.json** — triggers `scripts/tla-hook.sh` on Edit/Write of test files
+6. **UserPromptSubmit hook in settings.json** — updated to include Allium + TLA+ instructions on speckit keywords
+
+If any are missing — copy from template.
+
+**Optional: Install Allium CLI** for automatic `.allium` file validation:
+
+```bash
+# Homebrew
+brew tap juxt/allium && brew install allium
+# Or Cargo
+cargo install allium-cli
+```
 
 ### Step 6: Install required skills
 
@@ -192,7 +228,7 @@ The qa-test and playwright-skill require the Playwright MCP server. If the proje
 
 - Project does NOT use WordPress? → remove `.claude/rules/wordpress.md`
 - Project does NOT use .NET? → remove `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
-- Project does NOT have UI? → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, spec hook
+- Project does NOT have UI? → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook
 - ALWAYS keep: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`
 
 ### Step 8: Verify

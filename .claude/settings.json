@@ -5,6 +5,14 @@
     "pr": ""
   },
   "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Edit(/.claude/skills/tla/**)",
+      "Bash(chmod +x /Users/jool/repos/Claude/scripts/tla-hook.sh)",
+      "Bash(chmod +x /Users/jool/repos/Claude/scripts/allium-hook.sh)",
+      "Read(//Users/jool/repos/**)"
+    ],
     "deny": [
       "Bash(rm -rf *)",
       "Bash(rm -fr *)",
@@ -27,9 +35,8 @@
     "ask": [
       "Bash(git push *)"
     ],
-    "allow": [
-      "Bash(git add:*)",
-      "Bash(git commit:*)"
+    "additionalDirectories": [
+      "/Users/jool/repos/Claude/.claude/skills"
     ]
   },
   "hooks": {
@@ -38,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE '(speckit|specify|spec.specify|spec.implement)'; then echo '{\"additionalContext\": \"IMPORTANT: Every spec/task involving UI MUST include a dedicated Destructive Browser Tests phase with min 8 scenarios covering all 6 attack categories (invalid input, wrong order, skip steps, boundary values, timing/race conditions, accessibility). Read .claude/docs/spec-testing-checklist.md BEFORE writing the spec. Target: 99% E2E coverage. This is non-negotiable.\"}'; fi"
+            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE '(speckit|specify|spec.specify|spec.implement)'; then echo '{\"additionalContext\": \"MANDATORY PIPELINE: (1) Write spec with destructive browser tests (min 8 scenarios, 6 attack categories). Read .claude/docs/spec-testing-checklist.md FIRST. (2) IMMEDIATELY after spec is written: run /allium:elicit to produce a .allium file in the same directory. This is NOT optional — a spec without .allium is incomplete. Do NOT proceed to implementation without it. (3) AFTER implementation + browser tests: run /tla which auto-runs /allium:distill for drift detection + formal verification.\"}'; fi"
           }
         ]
       }
@@ -71,6 +78,26 @@
             "type": "prompt",
             "prompt": "A file was just written/edited. Check: if the file path contains spec, tasks, plan, or feature AND is a .md file AND involves UI features, verify it includes destructive browser test scenarios (keywords: destructive, XSS, injection, double-click, race condition, garbage, attack, edge case). If it is a UI spec/task file but LACKS destructive tests, respond with a systemMessage reminding that min 8 destructive test scenarios from all 6 attack categories in .claude/docs/spec-testing-checklist.md should be added. Do NOT block — always approve and use systemMessage for the reminder. If the file is not a spec/task file or already has destructive tests, approve silently.",
             "statusMessage": "Validating spec completeness..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/tla-hook.sh",
+            "statusMessage": "Checking for TLA+ verification..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/allium-hook.sh",
+            "statusMessage": "Checking for Allium specification..."
           }
         ]
       }

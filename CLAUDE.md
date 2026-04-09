@@ -95,8 +95,9 @@ NEVER say something is "implemented" or "done" until:
 1. All **unit tests** pass (`dotnet test`).
 2. All **E2E tests in Playwright** pass (`dotnet test --filter "Category=UI"`).
 3. For UI features: **destructive browser tests** have been written and pass. Target is **99% E2E coverage** — every spec should cover all relevant attack categories (see `.claude/docs/spec-testing-checklist.md` and `.claude/docs/testing.md`).
-4. For web projects: **visually verified** in the browser.
-5. The code is assessed as **100% functional**.
+4. For UI features: **TLA+ formal verification** has been run (`/tla`) — checks for race conditions, state machine gaps, and missing invariants. This step is auto-triggered after browser tests are written.
+5. For web projects: **visually verified** in the browser.
+6. The code is assessed as **100% functional**.
 
 If tests cannot be run (missing infrastructure), clearly inform about this.
 
@@ -143,7 +144,7 @@ Read these files WHEN you need them — do not load everything upfront:
 ## File organization
 
 - **`scripts/`** — Maintenance scripts (`update-template.sh` to keep the template repo updated, `sync-prompt.md` with prompt for syncing other projects).
-- **`.claude/skills/`** — Project skills with SKILL.md (code-review, explore-codebase, deploy-checklist, update-template). Follows the Agent Skills standard (agentskills.io).
+- **`.claude/skills/`** — Project skills with SKILL.md (code-review, explore-codebase, deploy-checklist, tla, update-template). Follows the Agent Skills standard (agentskills.io).
 - **`.claude/agents/`** — Subagents (dotnet-reviewer, security-scanner, test-runner, db-agent). Supports `isolation: worktree`, `background`, `hooks` in frontmatter.
 - **`.claude/rules/`** — Rules auto-loaded every session. Supports path-scoping with YAML frontmatter.
 - **`.claude/docs/`** — Reference material loaded on demand. Reference WITHOUT `@` prefix to avoid auto-expansion.
