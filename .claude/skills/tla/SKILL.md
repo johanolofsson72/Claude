@@ -174,16 +174,29 @@ Report in this format:
 - Missing retry logic for transient failures
 - Timeout handling gaps
 
-## If TLC is available
+## TLC model checker (auto-install)
 
-Check if TLC model checker is installed:
+Check if TLC is available. If not, install it automatically — do NOT fall back to reasoning-based verification without trying to install first.
+
 ```bash
-which tlc 2>/dev/null || java -cp tla2tools.jar tlc2.TLC --help 2>/dev/null
+# Check if TLC is available
+if ! command -v tlc &>/dev/null && ! java -cp tla2tools.jar tlc2.TLC --help &>/dev/null 2>&1; then
+  echo "TLC not found — installing via Homebrew..."
+  if command -v brew &>/dev/null; then
+    brew install --quiet tlaplus
+  else
+    echo "Homebrew not available — downloading TLA+ tools JAR..."
+    curl -fsSL -o /tmp/tla2tools.jar https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
+    echo "Downloaded to /tmp/tla2tools.jar — use: java -jar /tmp/tla2tools.jar tlc2.TLC"
+  fi
+fi
 ```
 
-If available, write the TLA+ spec to a temp file and run:
+Once available, write the TLA+ spec to a temp file and run:
 ```bash
 tlc -workers auto -deadlock FeatureName.tla
+# Or if using the JAR:
+java -jar /tmp/tla2tools.jar tlc2.TLC -workers auto -deadlock FeatureName.tla
 ```
 
 Report the results including states explored and any counterexamples found.

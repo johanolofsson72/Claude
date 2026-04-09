@@ -224,6 +224,27 @@ fi
 
 The qa-test and playwright-skill require the Playwright MCP server. If the project has UI components, verify Playwright MCP is configured.
 
+### Step 6b: Install TLC model checker (required for /tla)
+
+The TLA+ skill auto-installs TLC if missing, but verify it's available on the machine:
+
+```bash
+# Check if TLC is already available
+if command -v tlc &>/dev/null; then
+  echo "[SKIPPED] TLC model checker — already installed ($(which tlc))"
+elif command -v brew &>/dev/null; then
+  echo "[INSTALLING] TLC model checker via Homebrew..."
+  brew install --quiet tlaplus
+  echo "[INSTALLED] TLC model checker (tlaplus)"
+else
+  echo "[INSTALLING] TLC model checker via JAR download..."
+  curl -fsSL -o /usr/local/lib/tla2tools.jar https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
+  echo "[INSTALLED] TLC model checker (JAR at /usr/local/lib/tla2tools.jar)"
+fi
+```
+
+Without TLC, the /tla skill falls back to reasoning-based verification (LLM-only, no mathematical proof). With TLC, it runs actual model checking.
+
 ### Step 7: Remove irrelevant files
 
 - Project does NOT use WordPress? → remove `.claude/rules/wordpress.md`
