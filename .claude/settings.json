@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE '(speckit|specify|spec.specify|spec.implement)'; then echo '{\"additionalContext\": \"MANDATORY PIPELINE: (1) Write spec with destructive browser tests (min 8 scenarios, 6 attack categories). Read .claude/docs/spec-testing-checklist.md FIRST. (2) IMMEDIATELY after spec is written: run /allium:elicit to produce a .allium file in the same directory. This is NOT optional — a spec without .allium is incomplete. Do NOT proceed to implementation without it. (3) AFTER implementation + browser tests: run /tla which auto-runs /allium:distill for drift detection + formal verification.\"}'; fi"
+            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE '(speckit|specify|spec.specify|spec.implement)'; then echo '{\"additionalContext\": \"MANDATORY PIPELINE — execute each step automatically, never ask: (1) Write spec with destructive browser tests (min 8 scenarios, 6 attack categories). Read .claude/docs/spec-testing-checklist.md FIRST. (2) IMMEDIATELY after spec is written: run /allium:elicit to produce a .allium file. This applies to ALL spec types (feature, fix, hardening, refactoring, TLA+-generated). Do NOT ask the user — just run it. Asking is a bug. (3) AFTER implementation + browser tests: run /tla (auto-runs /allium:distill for drift detection). Again, do NOT ask — just run it.\"}'; fi"
           }
         ]
       }

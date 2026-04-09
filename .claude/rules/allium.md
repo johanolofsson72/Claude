@@ -22,11 +22,13 @@ Allium is the preferred specification language for this project. It sits between
 5. /tla (runs /allium:distill first) → drift detection + formal verification
 ```
 
-## When writing specs (AUTOMATIC — not optional)
+## When writing specs (AUTOMATIC — not optional, never ask)
 
 IMMEDIATELY after a spec is written, run `/allium:elicit` to produce a formal `.allium` specification. This is enforced by a PostToolUse hook that checks for `.allium` files when spec files are saved. Do NOT proceed to implementation without it.
 
 The `.allium` file MUST be saved in the same directory as the spec file.
+
+**NO EXCEPTIONS.** Every spec type gets an `.allium` file — feature specs, fix specs, hardening specs, refactoring specs, TLA+-generated specs, security specs. Even if the spec was generated from TLA+ findings. Even if there are no new features. Even if it seems unnecessary. Do NOT ask the user whether to run `/allium:elicit` — just run it automatically. Asking is treated as a bug.
 
 This step:
 - Forces precision on entities, rules, and triggers

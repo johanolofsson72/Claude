@@ -19,12 +19,14 @@ When a spec is being written (speckit, specify, or manual), follow this exact se
 2. **Read `.claude/docs/spec-testing-checklist.md`** — attack categories checklist.
 3. Write the spec with destructive browser tests included.
 
-### Phase B: Sharpen with Allium (BLOCKING — do not skip)
+### Phase B: Sharpen with Allium (BLOCKING — do not skip, do not ask)
 4. **Run `/allium:elicit`** on the spec to produce a formal `.allium` specification.
    - Allium refuses vague requirements and forces precision on entities, rules, and triggers.
    - The `.allium` file MUST be saved alongside the spec (same directory).
    - This creates the baseline for drift detection after implementation.
 5. **A spec without a corresponding `.allium` file is NOT complete.** Do not proceed to implementation.
+
+**NO EXCEPTIONS.** This applies to ALL spec types: feature specs, fix specs, hardening specs, refactoring specs, TLA+-generated specs, security specs. The spec type does not matter. If it is a spec, it gets an `.allium` file. Do not ask the user whether to run it — just run it.
 
 ## Requirements for every spec/task file with UI components
 
