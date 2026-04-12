@@ -28,9 +28,15 @@ When a spec is being written (speckit, specify, or manual), follow this exact se
 
 **NO EXCEPTIONS.** This applies to ALL spec types: feature specs, fix specs, hardening specs, refactoring specs, TLA+-generated specs, security specs. The spec type does not matter. If it is a spec, it gets an `.allium` file. Do not ask the user whether to run it — just run it.
 
-## Requirements for every spec/task file with UI components
+## Requirements for every spec/task file with INTERACTIVE UI
 
-Every spec involving UI **MUST** include a dedicated phase/section for destructive browser tests with:
+Every spec involving **interactive UI** MUST include a dedicated phase/section for destructive browser tests.
+
+**Interactive UI means:** forms, user input fields, buttons that mutate state, multi-step flows, authentication, file uploads, modals with user actions, search/filter, drag-and-drop, real-time updates.
+
+**NOT interactive UI (skip destructive tests):** static pages, landing pages, content display, styling/CSS changes, i18n/translations, layout adjustments, read-only dashboards without filters, error pages, marketing pages.
+
+When destructive tests apply, include:
 
 - **At least 8 destructive test scenarios** — these should actively try to break the application
 - **All 6 attack categories** should be represented (if relevant):

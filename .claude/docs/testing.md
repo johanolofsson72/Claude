@@ -57,7 +57,9 @@ dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"
 
 ## Destructive browser tests (MANDATORY)
 
-Every spec/feature involving UI **MUST** end with destructive Playwright tests. These tests should actively try to break the application, not just confirm that it works.
+Every spec/feature involving **interactive UI** MUST end with destructive Playwright tests. These tests should actively try to break the application, not just confirm that it works.
+
+**Interactive UI** = forms, user input, buttons that mutate state, multi-step flows, authentication, file uploads, modals with user actions, search/filter, drag-and-drop, real-time updates. Static pages, landing pages, content display, styling/CSS, i18n/translations, layout changes, and read-only dashboards do NOT require destructive tests.
 
 ### Attack categories — every UI spec should cover ALL relevant categories
 

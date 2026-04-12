@@ -1,6 +1,6 @@
 # Spec Testing Checklist — Destructive Browser Tests
 
-This checklist MUST be completed for every spec/feature that involves UI. Read `.claude/docs/testing.md` for full details on each attack category.
+This checklist MUST be completed for every spec/feature that involves **interactive UI** (forms, user input, state-mutating buttons, multi-step flows, authentication, file uploads, search/filter). Does NOT apply to static pages, landing pages, content display, styling/CSS, i18n/translations, or read-only dashboards. Read `.claude/docs/testing.md` for full details on each attack category.
 
 ## When to use
 
