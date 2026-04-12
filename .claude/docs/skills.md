@@ -22,11 +22,13 @@ These skills ship with the template repo:
 
 | Skill | Type | Description |
 | --- | --- | --- |
+| `/allium` | standard | Allium spec language — elicit formal specs, distill specs from code |
 | `/code-review` | `context: fork` | Code review with isolated context |
+| `/deploy-checklist` | `disable-model-invocation` | Pre-deploy verification with stress testing (manual only) |
 | `/explore-codebase` | `context: fork` | Deep architecture analysis via Explore agent |
-| `/deploy-checklist` | `disable-model-invocation` | Pre-deploy verification (manual only) |
-| `/update-template` | standard | Searches online for latest best practices and updates the template repo |
 | `/sync-template` | `disable-model-invocation` | Syncs project configuration from template repo |
+| `/tla` | standard | TLA+ formal verification — invariants, state machines, race conditions |
+| `/update-template` | standard | Searches online for latest best practices and updates the template repo |
 
 ## SKILL.md structure
 

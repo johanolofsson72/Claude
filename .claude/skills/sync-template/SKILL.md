@@ -30,6 +30,10 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `code-review/SKILL.md`
 - `explore-codebase/SKILL.md`
 - `deploy-checklist/SKILL.md`
+- `tla/SKILL.md`
+- `allium/SKILL.md`
+- `update-template/SKILL.md`
+- `sync-template/SKILL.md`
 
 **Agents (`.claude/agents/`):**
 - `dotnet-reviewer.md`
@@ -44,6 +48,8 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `frontend.md`
 - `security.md`
 - `wordpress.md`
+- `allium.md`
+- `specs.md`
 
 **Docs (`.claude/docs/`):**
 - `skills.md`
@@ -54,7 +60,13 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `security.md`
 - `testing.md`
 - `deployment.md`
+- `stress-testing.md`
+- `spec-testing-checklist.md`
 - `project-template.md`
+
+**Scripts:**
+- `scripts/tla-hook.sh`
+- `scripts/allium-hook.sh`
 
 ### 2. Compare and merge
 

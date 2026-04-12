@@ -1,6 +1,6 @@
 ---
 name: explore-codebase
-description: Deep exploration and analysis of codebase architecture, patterns, dependencies, and structure. Use when the user asks to understand the codebase, map architecture, find patterns, or needs orientation in an unfamiliar project. Trigger words include explore, architecture, how does this work, map codebase.
+description: Deep codebase exploration — architecture, patterns, dependencies. Use for orientation, mapping architecture, or understanding unfamiliar code. Triggers: explore, architecture, how does this work, map codebase.
 context: fork
 agent: Explore
 ---

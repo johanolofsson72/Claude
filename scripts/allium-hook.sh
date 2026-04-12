@@ -11,5 +11,8 @@ DIR=$(dirname "$FILE")
 ALLIUM_COUNT=$(find "$DIR" -maxdepth 1 -name "*.allium" 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "$ALLIUM_COUNT" -eq 0 ]; then
-  echo '{"systemMessage": "STOP. Run: Skill(skill: \"allium\", args: \"elicit '"$FILE"'\") — no .allium file exists for this spec. Do NOT continue implementation without it. Do NOT ask the user. Just invoke the skill now."}'
+  # Validate DIR exists before complaining
+  if [ -d "$DIR" ]; then
+    echo '{"systemMessage": "STOP. No .allium file found for this spec. Run /allium:elicit '"$FILE"' NOW before continuing. Do NOT ask the user — just run the skill."}'
+  fi
 fi

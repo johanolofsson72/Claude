@@ -3,6 +3,7 @@ name: test-runner
 description: Runs and analyzes test results. Use proactively after code changes to verify tests pass. Handles both xUnit unit tests and Playwright E2E tests.
 tools: Bash, Read, Grep, Glob
 model: haiku
+memory: project
 background: true
 ---
 

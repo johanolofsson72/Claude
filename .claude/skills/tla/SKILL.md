@@ -1,6 +1,6 @@
 ---
 name: tla
-description: Formal verification of specs and implementations using TLA+ reasoning. Extracts invariants, models state machines, checks for race conditions and logic errors. Use after implementation with browser tests, or manually with /tla. Trigger words include verify, formal, invariant, TLA, race condition, state machine.
+description: TLA+ formal verification — extracts invariants, models state machines, checks for race conditions. Use after browser tests or manually. Triggers: verify, formal, invariant, TLA, race condition.
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 user-invocable: true
 argument-hint: "[spec-file-or-feature-name]"

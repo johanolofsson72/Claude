@@ -8,13 +8,7 @@
     "allow": [
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Edit(/.claude/skills/tla/**)",
-      "Bash(chmod +x /Users/jool/repos/Claude/scripts/tla-hook.sh)",
-      "Bash(chmod +x /Users/jool/repos/Claude/scripts/allium-hook.sh)",
-      "Read(//Users/jool/repos/**)",
-      "Edit(/.claude/skills/allium/**)",
-      "Bash(git -C /Users/jool/repos/Claude status)",
-      "Edit(/.claude/skills/deploy-checklist/**)"
+      "Edit(/.claude/skills/**)"
     ],
     "deny": [
       "Bash(rm -rf *)",
@@ -38,9 +32,7 @@
     "ask": [
       "Bash(git push *)"
     ],
-    "additionalDirectories": [
-      "/Users/jool/repos/Claude/.claude/skills"
-    ]
+    "additionalDirectories": []
   },
   "hooks": {
     "UserPromptSubmit": [
@@ -59,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(~/.ssh/|~/.aws/|~/.azure/|~/.git-credentials|~/.docker/config.json|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
+            "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
           }
         ]
       }

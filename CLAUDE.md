@@ -145,7 +145,7 @@ Read these files WHEN you need them — do not load everything upfront:
 ## File organization
 
 - **`scripts/`** — Maintenance scripts (`update-template.sh` to keep the template repo updated, `sync-prompt.md` with prompt for syncing other projects).
-- **`.claude/skills/`** — Project skills with SKILL.md (code-review, explore-codebase, deploy-checklist, tla, update-template). Follows the Agent Skills standard (agentskills.io).
+- **`.claude/skills/`** — Project skills with SKILL.md (allium, code-review, deploy-checklist, explore-codebase, sync-template, tla, update-template). Follows the Agent Skills standard (agentskills.io).
 - **`.claude/agents/`** — Subagents (dotnet-reviewer, security-scanner, test-runner, db-agent). Supports `isolation: worktree`, `background`, `hooks` in frontmatter.
 - **`.claude/rules/`** — Rules auto-loaded every session. Supports path-scoping with YAML frontmatter.
 - **`.claude/docs/`** — Reference material loaded on demand. Reference WITHOUT `@` prefix to avoid auto-expansion.

@@ -46,8 +46,6 @@ After browser tests are written, `/tla` automatically runs `/allium:distill` to 
 | `/allium:elicit` | Before implementation | Build formal spec through conversation |
 | `/allium:distill` | After implementation | Extract spec from code (used by `/tla`) |
 | `/allium` | Any time | Examine project, offer elicit or distill |
-| **Tend** | During spec work | Grows and shapes specifications |
-| **Propagate** | After spec | Generates tests from .allium specs |
 
 ## Validation
 
