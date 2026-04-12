@@ -28,6 +28,8 @@ GitHub Actions (workflow_dispatch with confirmation)
          │
     Build & Test (.NET)
          │
+    Stress Test (API + Frontend) ← MANDATORY, blocks deploy on failure
+         │
     Docker Build (multi-stage: sdk → aspnet runtime)
          │
     Save images as TAR → SCP to manager (port 7222)
@@ -128,9 +130,10 @@ sudo chmod -R 777 /mnt/nfs/[projectname]
 ## Deployment checklist
 
 1. All tests pass locally
-2. Code is pushed to the correct branch
-3. Workflow triggered manually with `confirm_deploy: "deploy"`
-4. Verify that images were built and pushed to registry
-5. Check Docker Swarm services: `docker stack services [projectname]`
-6. Verify email notification (Mailjet)
-7. Test the application via its public URL
+2. **Stress tests pass** — both API and frontend (see `.claude/docs/stress-testing.md`)
+3. Code is pushed to the correct branch
+4. Workflow triggered manually with `confirm_deploy: "deploy"`
+5. Verify that images were built and pushed to registry
+6. Check Docker Swarm services: `docker stack services [projectname]`
+7. Verify email notification (Mailjet)
+8. Test the application via its public URL

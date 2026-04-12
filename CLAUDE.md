@@ -140,6 +140,7 @@ Read these files WHEN you need them — do not load everything upfront:
 - **Tests (xUnit, Playwright)** → `.claude/docs/testing.md`
 - **Spec testing checklist (destructive tests)** → `.claude/docs/spec-testing-checklist.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
+- **Stress testing (pre-deploy)** → `.claude/docs/stress-testing.md`
 
 ## File organization
 

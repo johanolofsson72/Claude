@@ -35,6 +35,7 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/docs/skills.md` — SKILL.md format, frontmatter fields, recommended skills
 - `.claude/docs/agents-templates.md` — copy-paste agent templates
 - `.claude/docs/deployment.md` — Docker Swarm, CI/CD
+- `.claude/docs/stress-testing.md` — mandatory pre-deploy stress testing (k6, Lighthouse)
 - `.claude/docs/project-template.md` — template for project start
 
 **Agents (subagents with YAML frontmatter):**

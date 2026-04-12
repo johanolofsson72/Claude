@@ -11,7 +11,10 @@
       "Edit(/.claude/skills/tla/**)",
       "Bash(chmod +x /Users/jool/repos/Claude/scripts/tla-hook.sh)",
       "Bash(chmod +x /Users/jool/repos/Claude/scripts/allium-hook.sh)",
-      "Read(//Users/jool/repos/**)"
+      "Read(//Users/jool/repos/**)",
+      "Edit(/.claude/skills/allium/**)",
+      "Bash(git -C /Users/jool/repos/Claude status)",
+      "Edit(/.claude/skills/deploy-checklist/**)"
     ],
     "deny": [
       "Bash(rm -rf *)",
