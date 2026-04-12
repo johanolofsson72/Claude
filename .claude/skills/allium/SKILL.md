@@ -35,6 +35,43 @@ Use `$ARGUMENTS` to determine the sub-command and target. If no argument, look a
 6. **Write the `.allium` file** in the same directory as the spec
 7. **Validate** — run `allium check <file>` if the CLI is installed
 
+### VALID TOP-LEVEL KEYWORDS (ONLY these — anything else is WRONG)
+
+```
+-- allium: 3          (REQUIRED first line)
+--                    (comments)
+enum                  (named union type)
+entity                (domain object with identity)
+external entity       (entity defined elsewhere)
+value                 (value object, no identity)
+config                (configuration constants)
+rule                  (business operation: when/requires/ensures)
+invariant             (global constraint, must ALWAYS hold)
+actor                 (user role)
+surface               (UI/API exposure)
+deferred              (future work placeholder)
+open question         (unresolved design decision)
+```
+
+**NOTHING ELSE is a valid top-level keyword.** Not `trigger`, not `contract`, not `action`, not `event`, not `handler`, not `workflow`, not `process`. If you're tempted to write a keyword not in this list — it goes inside a `rule` block as `when:/requires:/ensures:`.
+
+### INVALID SYNTAX — do NOT use (Claude hallucinates these regularly)
+
+| Wrong | Correct |
+|---|---|
+| `trigger OnEvent { ... }` | `rule Name { when: Event(...) ensures: ... }` |
+| `contract Name { ... }` | `rule Name { when: ... requires: ... ensures: ... }` |
+| `action Name { ... }` | `rule Name { when: ... ensures: ... }` |
+| `forall x in Type:` | `for x in Collection where condition:` |
+| `REQUIRE:` / `ENSURE:` (uppercase) | `requires:` / `ensures:` (lowercase) |
+| `PRESERVE:` / `RETURNS:` | Not valid — express as `ensures:` postconditions |
+| `NOT exists x WHERE ...` | `not exists x` or negate in `requires:` |
+| `UUID → Entity.id` | `field: Entity` or `items: Type with field = this` |
+| `UNIQUE(field1, field2)` | Express as `invariant` |
+| No version marker | `-- allium: 3` MUST be line 1 |
+| `enum { Val1, Val2 }` (comma-separated) | `enum Name { val1 \| val2 }` (pipe-separated, lowercase values) |
+| `type: draft \| active` in enum | Inline unions go on entity fields, not in standalone types |
+
 ### Allium v3 language syntax
 
 IMPORTANT: Always start files with the version marker `-- allium: 3` on the first line.
@@ -43,27 +80,16 @@ IMPORTANT: Always start files with the version marker `-- allium: 3` on the firs
 -- allium: 3
 
 -- Comments use double-dash
--- ============================================================
--- ENUMS
--- ============================================================
 
 enum Priority { low | medium | high | critical }
-
--- ============================================================
--- ENTITIES
--- ============================================================
 
 entity Order {
     customer: Customer
     total: Decimal
-    status: pending | confirmed | shipped | delivered | cancelled  -- inline union type
-    tracking_number: String when status = shipped | delivered      -- state-dependent field (only exists in these states)
-    shipped_at: Timestamp when status = shipped | delivered
-    cancelled_at: Timestamp when status = cancelled
-    cancelled_by: String? when status = cancelled                  -- optional (nullable) with ?
-    notes: String?
+    status: pending | confirmed | shipped | delivered | cancelled  -- inline union
+    tracking_number: String when status = shipped | delivered      -- state-dependent
+    notes: String?                                                 -- optional with ?
 
-    -- Transition graph: defines valid state changes
     transitions status {
         pending -> confirmed
         confirmed -> shipped
@@ -73,55 +99,23 @@ entity Order {
         terminal: delivered, cancelled
     }
 
-    -- Relationships
-    items: OrderItem with order = this                  -- reverse relationship (has-many)
-    active_items: items where status = active           -- filtered view
-    item_names: items where status = active -> name     -- projected view
-
-    -- Computed fields
-    is_complete: status = delivered
+    items: OrderItem with order = this       -- has-many relationship
+    active_items: items where status = active -- filtered view
+    is_complete: status = delivered           -- computed field
     item_count: items.count
 
-    -- Inline invariant
     invariant NonNegativeTotal { this.total >= 0 }
 }
 
--- External entities are defined elsewhere (not owned by this spec)
-external entity Customer {
-    email: String
-    name: String
-}
+external entity Customer { email: String; name: String }
+value Address { street: String; city: String; postcode: String }
+config { max_retries: Integer = 3 }
 
--- Value objects (no identity, compared by value)
-value Address {
-    street: String
-    city: String
-    postcode: String
-}
-
--- ============================================================
--- CONFIG
--- ============================================================
-
-config {
-    max_retries: Integer = 3
-    cancellation_window: Duration = 48.hours
-}
-
--- ============================================================
--- RULES (business operations / state transitions)
--- ============================================================
-
--- Rules define WHAT happens, not HOW. They have:
---   when:     what triggers this rule (event or condition)
---   requires: preconditions that must be true
---   ensures:  postconditions / effects
-
+-- Rules: when (trigger), requires (precondition), ensures (postcondition)
 rule ConfirmOrder {
     when: ConfirmOrder(order)
     requires: order.status = pending
-    ensures:
-        order.status = confirmed
+    ensures: order.status = confirmed
 }
 
 rule ShipOrder {
@@ -139,7 +133,6 @@ rule CancelOrder {
     ensures:
         order.status = cancelled
         order.cancelled_at = now
-        order.cancelled_by = order.customer.name
 }
 
 -- Reactive rule: triggers on state transition
@@ -148,31 +141,24 @@ rule NotifyOnShipment {
     ensures: Email.created(to: order.customer.email, template: order_shipped)
 }
 
--- Alternative reactive trigger: "becomes" (equivalent to transitions_to)
-rule ArchiveDelivered {
-    when: order: Order.status becomes delivered
-    ensures: AuditLog.created(action: delivered, order: order)
-}
-
 -- Rule with if/else
 rule ProcessCancellation {
     when: Cancel(order, reason)
     requires: order.status != delivered
     ensures:
         order.status = cancelled
-        order.cancelled_at = now
         if reason = customer_request:
             order.cancelled_by = order.customer.name
 }
 
--- Rule with for-block (iteration)
+-- Rule with iteration
 rule BulkConfirm {
     when: BulkConfirm(batch)
     for order in batch.orders where order.status = pending:
         ensures: order.status = confirmed
 }
 
--- Rule with let bindings and arithmetic
+-- Rule with let bindings
 rule ComputeMetrics {
     when: MetricsRequested(doc)
     ensures:
@@ -181,56 +167,28 @@ rule ComputeMetrics {
         MetricsComputed(document: doc, average: avg)
 }
 
--- Rule with collection operations
+-- Rule with collection ops and null safety
 rule ValidateItems {
     when: Validate(order)
     requires: order.items.all(i => i.quantity > 0)
-    requires: order.items.any(i => i.status = active)
     ensures: ValidationPassed()
 }
-
--- Rule with null handling
-rule SafeAccess {
-    when: Process(item)
-    ensures:
-        let val = item.optional?.field ?? "default"
-        let check = exists item.optional
-        Processed(value: val)
-}
-
--- ============================================================
--- INVARIANTS (must ALWAYS hold, checked globally)
--- ============================================================
 
 invariant AllDeliveredHaveTracking {
     for order in Orders where status = delivered:
         order.tracking_number != null
 }
 
--- ============================================================
--- SURFACES (UI / API exposure)
--- ============================================================
-
-actor Admin {
-    identified_by: Customer where role = admin
-}
+actor Admin { identified_by: Customer where role = admin }
 
 surface OrderDashboard {
     facing viewer: Admin
     context order: Order where customer = viewer
     provides: CancelOrder(order) when order.status in {pending, confirmed}
-    provides: ShipOrder(order, tracking) when order.status = confirmed
-    exposes:
-        order.status
-        order.tracking_number
+    exposes: order.status, order.tracking_number
 }
 
--- ============================================================
--- DEFERRED & OPEN QUESTIONS
--- ============================================================
-
 deferred Order.fraud_check
-
 open question "How should partial shipments work?"
 ```
 
@@ -241,32 +199,17 @@ open question "How should partial shipments work?"
 3. **Types** — `String`, `Integer`, `Decimal`, `Timestamp`, `Duration`, `Boolean`, `Set<T>`
 4. **Optional fields** — append `?` to type: `notes: String?`
 5. **State-dependent fields** — `field: Type when status = state1 | state2`
-6. **Inline union types** — `status: draft | active | archived` (no enum declaration needed)
-7. **Named enums** — `enum Name { value1 | value2 }` or `enum Name { value1 \n value2 }`
+6. **Inline union types** — `status: draft | active | archived` (lowercase values, pipe-separated)
+7. **Named enums** — `enum Name { value1 | value2 }`
 8. **Backtick literals** — for values with special chars: `` `no-cache` | `pt-BR` ``
 9. **Transition graphs** — `transitions field { state1 -> state2; terminal: final_states }`
-10. **Rules** — `when:` (trigger), `requires:` (precondition), `ensures:` (postcondition)
+10. **Rules** — `when:` (event), `requires:` (precondition), `ensures:` (postcondition)
 11. **Reactive triggers** — `when: entity: Type.field transitions_to value` or `becomes`
-12. **Iteration** — `for x in Collection where condition:` (block or expression level)
-13. **Let bindings** — `let name = expression`
+12. **Iteration** — `for x in Collection where condition:` inside rules or invariants
+13. **Let bindings** — `let name = expression` inside ensures blocks
 14. **Collection ops** — `.count`, `.sum(x => expr)`, `.all(x => expr)`, `.any(x => expr)`
 15. **Null safety** — `?.` optional chaining, `??` null coalescing, `exists`, `not exists`
 16. **Entity creation** — `Type.created(field: value, ...)` in ensures clauses
-17. **External entities** — `external entity Name { ... }` for entities defined elsewhere
-18. **Value objects** — `value Name { ... }` for identity-less objects
-19. **Surfaces** — `surface Name { facing:, context:, provides:, exposes: }`
-20. **Deferred specs** — `deferred Entity.capability` for future work
-21. **Open questions** — `open question "text"` for unresolved design decisions
-
-### What NOT to write (common mistakes)
-
-- ~~`forall x in Type:`~~ → use `for x in Collection where condition:` or invariant blocks
-- ~~`trigger OnEvent { REQUIRE: ... }`~~ → use `rule Name { when: ... requires: ... ensures: ... }`
-- ~~`PRESERVE:`, `RETURNS:`~~ → not valid Allium keywords
-- ~~`NOT exists x WHERE ...`~~ → use `not exists x` or negate in requires clause
-- ~~`UUID → Entity.id`~~ → use relationship: `field: Entity` or `items: Type with field = this`
-- ~~`UNIQUE(field1, field2)`~~ → express as invariant
-- ~~No version marker~~ → ALWAYS include `-- allium: 3` as the first line
 
 ### Quality requirements for elicitation
 

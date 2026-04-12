@@ -21,7 +21,7 @@ When a spec is being written (speckit, specify, or manual), follow this exact se
 
 ### Phase B: Sharpen with Allium (BLOCKING — do not skip, do not ask)
 4. **Run `/allium:elicit`** on the spec to produce a formal `.allium` specification.
-   - Allium refuses vague requirements and forces precision on entities, rules, and triggers.
+   - Allium refuses vague requirements and forces precision on entities, rules, and invariants.
    - The `.allium` file MUST be saved alongside the spec (same directory).
    - This creates the baseline for drift detection after implementation.
 5. **A spec without a corresponding `.allium` file is NOT complete.** Do not proceed to implementation.

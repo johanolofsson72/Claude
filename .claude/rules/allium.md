@@ -31,7 +31,7 @@ The `.allium` file MUST be saved in the same directory as the spec file.
 **NO EXCEPTIONS.** Every spec type gets an `.allium` file — feature specs, fix specs, hardening specs, refactoring specs, TLA+-generated specs, security specs. Even if the spec was generated from TLA+ findings. Even if there are no new features. Even if it seems unnecessary. Do NOT ask the user whether to run `/allium:elicit` — just run it automatically. Asking is treated as a bug.
 
 This step:
-- Forces precision on entities, rules, and triggers
+- Forces precision on entities, rules, and invariants
 - Refuses vague or ambiguous requirements
 - Creates the baseline that `/tla` will compare against after implementation
 

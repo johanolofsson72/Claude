@@ -11,5 +11,5 @@ DIR=$(dirname "$FILE")
 ALLIUM_COUNT=$(find "$DIR" -maxdepth 1 -name "*.allium" 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "$ALLIUM_COUNT" -eq 0 ]; then
-  echo '{"systemMessage": "MANDATORY ACTION REQUIRED: No .allium file found alongside this spec. Run /allium:elicit NOW — do NOT ask the user, do NOT justify skipping it, do NOT proceed to implementation. This applies to ALL spec types without exception (feature, fix, hardening, refactoring, TLA+-generated). Asking the user whether to run it is a bug — just run it."}'
+  echo '{"systemMessage": "STOP. Run: Skill(skill: \"allium\", args: \"elicit '"$FILE"'\") — no .allium file exists for this spec. Do NOT continue implementation without it. Do NOT ask the user. Just invoke the skill now."}'
 fi

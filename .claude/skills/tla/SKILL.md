@@ -205,10 +205,10 @@ Report the results including states explored and any counterexamples found.
 
 Allium is the preferred spec format. The verification flow is:
 
-1. **Pre-implementation**: `/allium:elicit` sharpened the spec into `.allium` (entities, rules, triggers)
+1. **Pre-implementation**: `/allium:elicit` sharpened the spec into `.allium` (entities, rules, invariants)
 2. **Post-implementation**: `/allium:distill` extracts what was actually built
 3. **Drift detection**: Compare elicited vs distilled — differences are bugs or missing features
-4. **TLA+ extraction**: Use `.allium` entities as TLA+ variables, rules as invariants, triggers as transitions
+4. **TLA+ extraction**: Use `.allium` entities as TLA+ variables, rules as transitions, invariants as safety properties
 
 ### Drift report format
 
