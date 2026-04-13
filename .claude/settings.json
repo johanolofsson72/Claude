@@ -8,7 +8,9 @@
     "allow": [
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Edit(/.claude/skills/**)"
+      "Edit(/.claude/skills/**)",
+      "Edit(/.claude/skills/tla/**)",
+      "Edit(/.claude/skills/sync-template/**)"
     ],
     "deny": [
       "Bash(rm -rf *)",
@@ -71,8 +73,18 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "A file was just written/edited. Check: if the file path contains spec, tasks, plan, or feature AND is a .md file, determine if it involves INTERACTIVE UI — meaning forms, user input fields, buttons that mutate state, multi-step flows, authentication, file uploads, search/filter, or drag-and-drop. Static pages, landing pages, content display, styling/CSS, i18n/translations, layout changes, and read-only dashboards do NOT count as interactive UI. If the spec involves interactive UI but LACKS destructive test scenarios (keywords: destructive, XSS, injection, double-click, race condition, garbage, attack, edge case), respond with a systemMessage reminding that min 8 destructive test scenarios from all 6 attack categories in .claude/docs/spec-testing-checklist.md should be added. Do NOT block — always approve and use systemMessage for the reminder. If the file is not a spec/task file, has no interactive UI, or already has destructive tests, approve silently.",
+            "prompt": "A file was just written/edited. Check: if the file path contains spec, tasks, plan, or feature AND is a .md file, determine if it involves INTERACTIVE UI — meaning forms, user input fields, buttons that mutate state, multi-step flows, authentication, file uploads, search/filter, or drag-and-drop. Static pages, landing pages, content display, styling/CSS, i18n/translations, layout changes, and read-only dashboards do NOT count as interactive UI. If the spec involves interactive UI, check TWO things: (1) Does it have a FUNCTIONAL COVERAGE section listing ALL implemented functions with one test per function? (2) Does it have DESTRUCTIVE test scenarios? If EITHER is missing, respond with a systemMessage. For missing functional coverage: remind that EVERY implemented function needs a test — listing 3 functions when 12 were built is not acceptable. For missing destructive tests: remind about the 8+ scenarios from 6 attack categories. Do NOT block — always approve and use systemMessage for the reminder.",
             "statusMessage": "Validating spec completeness..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/test-coverage-hook.sh",
+            "statusMessage": "Checking functional test coverage..."
           }
         ]
       },
@@ -93,6 +105,25 @@
             "type": "command",
             "command": "bash scripts/allium-hook.sh",
             "statusMessage": "Checking for Allium specification..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat | jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$INPUT\" | grep -qiE '(tlc|tla2tools|tlc2\\.TLC)'; then bash scripts/tlc-cleanup.sh 2>/dev/null; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/tlc-cleanup.sh 2>/dev/null; true"
           }
         ]
       }

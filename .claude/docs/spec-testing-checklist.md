@@ -11,7 +11,26 @@ This checklist MUST be completed for every spec/feature that involves **interact
 
 ## Mandatory structure in task files
 
-Every task file with UI features MUST include a dedicated phase for destructive browser tests. Use this template:
+Every task file with UI features MUST include TWO dedicated test phases: functional coverage FIRST, then destructive tests. The #1 failure mode is testing 3 out of 12 features and calling it done.
+
+### Phase N-1: Functional Coverage Tests (BEFORE destructive tests)
+
+```markdown
+## Phase N-1: Functional Coverage Tests
+
+### Functional inventory (list ALL implemented functions)
+- [ ] T0XX: [Function 1] — e.g., Search by keyword updates results live
+- [ ] T0XX: [Function 2] — e.g., Filter by category narrows displayed items
+- [ ] T0XX: [Function 3] — e.g., Sort by column header toggles asc/desc
+- [ ] T0XX: [Function 4] — e.g., Pagination navigates between result pages
+- [ ] T0XX: [Function 5] — e.g., Breadcrumbs reflect path and are clickable
+- [ ] T0XX: [Function 6] — e.g., Detail view opens on item click
+- [ ] T0XX: [Function N] — ... (continue until ALL functions are listed)
+
+Every function above MUST have at least one browser test that verifies it works end-to-end. If you implemented 12 functions, you need at least 12 functional tests. No exceptions.
+```
+
+### Phase N: Destructive Browser Tests
 
 ```markdown
 ## Phase N: Destructive Browser Tests
@@ -75,8 +94,12 @@ If the spec involves offline functionality, service workers, or data synchroniza
 
 A spec is NOT complete unless:
 
-1. A dedicated "Destructive Browser Tests" phase exists
-2. Each test has a unique task ID (T0XX)
-3. Minimum test count met per feature type
-4. All relevant categories covered
-5. Tests describe what they verify, not just what they do
+1. A "Functional Coverage Tests" phase exists with an inventory of ALL implemented functions
+2. Every function in the inventory has at least one browser test
+3. A dedicated "Destructive Browser Tests" phase exists AFTER functional coverage
+4. Each test has a unique task ID (T0XX)
+5. Minimum destructive test count met per feature type
+6. All relevant attack categories covered
+7. Tests describe what they verify, not just what they do
+
+**The functional coverage check is the most important item.** A spec with 8 destructive tests but only 3 out of 12 functions tested is NOT complete.

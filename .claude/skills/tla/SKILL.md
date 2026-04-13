@@ -192,12 +192,46 @@ if ! command -v tlc &>/dev/null && ! java -cp tla2tools.jar tlc2.TLC --help &>/d
 fi
 ```
 
-Once available, write the TLA+ spec to a temp file and run:
+### CRITICAL: Process lifecycle rules
+
+TLC and Java processes MUST be managed with a strict lifecycle. Runaway TLC processes will pin all CPU cores and overheat the machine.
+
+1. **Always use `timeout 300`** (5 minutes max) — no TLC run should ever exceed this
+2. **Always use `-Xmx1g`** for JAR-based execution — caps heap at 1 GB
+3. **Always run cleanup after execution** — see "Process cleanup" section below
+4. **Never run TLC in the background** without explicit cleanup
+5. **If TLC hangs or times out** — kill it immediately, do NOT retry without reducing the state space
+
+Once available, write the TLA+ spec to a temp file and run with **mandatory timeout and memory limits**:
+
 ```bash
-tlc -workers auto -deadlock FeatureName.tla
-# Or if using the JAR:
-java -jar /tmp/tla2tools.jar tlc2.TLC -workers auto -deadlock FeatureName.tla
+# MANDATORY: Always use timeout (5 min max) and memory cap (1GB max)
+# TLC with -workers auto will consume ALL cores — the timeout prevents runaway processes
+
+# Option 1: Homebrew-installed TLC
+timeout 300 tlc -workers auto -deadlock FeatureName.tla
+
+# Option 2: JAR-based (with memory cap)
+timeout 300 java -Xmx1g -jar /tmp/tla2tools.jar tlc2.TLC -workers auto -deadlock FeatureName.tla
 ```
+
+### Process cleanup (MANDATORY — this is law)
+
+After TLC finishes (success, failure, OR timeout), **always verify no TLC/Java processes are left running**:
+
+```bash
+# Kill any lingering TLC processes after execution
+pkill -f "tla2tools" 2>/dev/null
+pkill -f "tlc2.TLC" 2>/dev/null
+
+# Verify nothing is left
+if pgrep -f "tla2tools|tlc2.TLC" >/dev/null 2>&1; then
+  echo "WARNING: TLC processes still running — force killing"
+  pkill -9 -f "tla2tools|tlc2.TLC" 2>/dev/null
+fi
+```
+
+This cleanup MUST run every time, even if TLC completed successfully. Java processes spawned with `-workers auto` can leave child threads alive.
 
 Report the results including states explored and any counterexamples found.
 

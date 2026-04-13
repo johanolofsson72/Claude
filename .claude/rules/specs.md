@@ -36,7 +36,15 @@ Every spec involving **interactive UI** MUST include a dedicated phase/section f
 
 **NOT interactive UI (skip destructive tests):** static pages, landing pages, content display, styling/CSS changes, i18n/translations, layout adjustments, read-only dashboards without filters, error pages, marketing pages.
 
-When destructive tests apply, include:
+When browser tests apply, include TWO phases:
+
+### Functional coverage (PHASE 1 — before destructive tests)
+
+- **List EVERY implemented function** in a functional inventory
+- **At least 1 browser test per function** — if you built 12 functions, write 12 functional tests
+- Testing 3 out of 12 functions is the #1 failure mode — this is NOT acceptable
+
+### Destructive tests (PHASE 2 — after functional coverage)
 
 - **At least 8 destructive test scenarios** — these should actively try to break the application
 - **All 6 attack categories** should be represented (if relevant):
@@ -58,7 +66,9 @@ When destructive tests apply, include:
 
 Before a spec/task file is considered complete, verify:
 
-- [ ] Is there an explicit "Destructive Browser Tests" phase/section?
+- [ ] Is there a "Functional Coverage Tests" phase listing ALL implemented functions?
+- [ ] Does every function in the inventory have at least one browser test?
+- [ ] Is there a "Destructive Browser Tests" phase AFTER functional coverage?
 - [ ] Are there at least 8 destructive test scenarios?
 - [ ] Do the scenarios cover all 6 attack categories?
 - [ ] If offline/sync: are there additional edge case tests?

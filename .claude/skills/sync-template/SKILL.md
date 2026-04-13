@@ -50,6 +50,7 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `wordpress.md`
 - `allium.md`
 - `specs.md`
+- `tests.md`
 
 **Docs (`.claude/docs/`):**
 - `skills.md`

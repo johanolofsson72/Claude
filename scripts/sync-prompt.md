@@ -22,12 +22,13 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/rules/frontend.md` — frontend rules
 - `.claude/rules/security.md` — security rules for C#
 - `.claude/rules/specs.md` — spec/task rules with destructive test requirements (paths: `**/spec*.md`, `**/tasks*.md`, etc.)
+- `.claude/rules/tests.md` — browser test rules requiring functional coverage inventory (paths: `**/*Test*.cs`, `**/*test*.ts`, etc.)
 - `.claude/rules/wordpress.md` — WordPress rules
 - `.claude/rules/allium.md` — Allium spec language rules (paths: `**/*.allium`)
 
 **Docs (loaded on demand, referenced from CLAUDE.md):**
-- `.claude/docs/testing.md` — test conventions, destructive browser tests (6+1 attack categories)
-- `.claude/docs/spec-testing-checklist.md` — mandatory checklist for destructive tests in specs
+- `.claude/docs/testing.md` — test conventions, functional coverage + destructive browser tests (6+1 attack categories)
+- `.claude/docs/spec-testing-checklist.md` — mandatory checklist: functional coverage inventory + destructive tests in specs
 - `.claude/docs/conventions.md` — code style and naming
 - `.claude/docs/security.md` — security reference
 - `.claude/docs/git.md` — commit/branch/PR conventions
@@ -55,6 +56,8 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 
 - `scripts/tla-hook.sh` — PostToolUse hook script for TLA+ auto-trigger
 - `scripts/allium-hook.sh` — PostToolUse hook that blocks if spec lacks .allium companion
+- `scripts/tlc-cleanup.sh` — TLC process cleanup (kills orphaned Java/TLC processes after execution)
+- `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
 
 ### Step 2: Read this project's files
 

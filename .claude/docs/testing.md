@@ -55,11 +55,46 @@ dotnet test --filter "Category=UI"
 dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"
 ```
 
+## Functional coverage (MANDATORY — before destructive tests)
+
+Before writing any destructive tests, you MUST first ensure **every implemented function has at least one browser test**. This is the #1 failure mode: Claude writes tests for 3 out of 12 features and calls it done.
+
+### Step 1: Create a functional inventory
+
+List EVERY user-facing function that was implemented or changed. Put this as a comment block at the top of the test file:
+
+```csharp
+// ===== FUNCTIONAL COVERAGE INVENTORY =====
+// Every function listed here MUST have at least one browser test.
+//
+// 1. Search — user can search by keyword, results update live
+// 2. Filter by category — dropdown filters results  
+// 3. Pagination — navigate between pages
+// 4. Sort by column — clicking header sorts asc/desc
+// 5. Detail view — clicking item opens detail panel
+// 6. Edit inline — double-click to edit in place
+// 7. Breadcrumbs — reflect current path, clickable
+// ... (list ALL functions, not just the "main" ones)
+// =============================================
+```
+
+### Step 2: Write one test per function (MINIMUM)
+
+Each inventory item needs at least one test that verifies the function **actually works end-to-end** with realistic data. Not a smoke test. Not "page loads". A test that proves the feature does what it should.
+
+### Step 3: Verify coverage
+
+Count inventory items. Count functional tests. If tests < items, you are NOT done. Move to destructive tests only after 100% functional coverage.
+
+**What counts as a function:** Any user-visible behavior — UI interactions, navigation, data operations (CRUD, filter, sort, search, paginate, export), state changes (loading, error, empty, success), responsive behavior.
+
 ## Destructive browser tests (MANDATORY)
 
-Every spec/feature involving **interactive UI** MUST end with destructive Playwright tests. These tests should actively try to break the application, not just confirm that it works.
+Every spec/feature involving **interactive UI** MUST include destructive Playwright tests AFTER functional coverage is complete. These tests should actively try to break the application.
 
 **Interactive UI** = forms, user input, buttons that mutate state, multi-step flows, authentication, file uploads, modals with user actions, search/filter, drag-and-drop, real-time updates. Static pages, landing pages, content display, styling/CSS, i18n/translations, layout changes, and read-only dashboards do NOT require destructive tests.
+
+Destructive tests without functional coverage are worthless — you're stress-testing a building where half the rooms were never inspected.
 
 ### Attack categories — every UI spec should cover ALL relevant categories
 
@@ -125,13 +160,14 @@ UserProfile_WithUnicodeEmoji_DisplaysCorrectly
 
 Every spec involving UI should have tests in this order:
 
-1. **Happy path** (1-2 tests) — confirm the basic flow works
-2. **Invalid input** (3-5 tests) — garbage, empty fields, extreme values
-3. **Wrong order** (2-3 tests) — double-click, back button, URL jumping
-4. **Boundary values** (2-3 tests) — max length, edge cases
-5. **Security** (1-2 tests) — XSS, injection, unauthorized access
+1. **Functional inventory** — list ALL implemented functions in a comment block
+2. **Functional tests** (1 per function, MINIMUM) — verify each function works end-to-end
+3. **Invalid input** (3-5 tests) — garbage, empty fields, extreme values
+4. **Wrong order** (2-3 tests) — double-click, back button, URL jumping
+5. **Boundary values** (2-3 tests) — max length, edge cases
+6. **Security** (1-2 tests) — XSS, injection, unauthorized access
 
-Minimum **8 destructive tests** per spec. If a feature has forms, multi-step flows, or authentication — more.
+Minimum **1 functional test per implemented function** + **8 destructive tests** per spec. If a feature has forms, multi-step flows, or authentication — more destructive tests.
 
 ## Verification order
 

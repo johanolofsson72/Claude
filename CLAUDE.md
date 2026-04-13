@@ -8,7 +8,7 @@
 - **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** follow existing patterns in the codebase — look at similar components first.
-- **ALWAYS** end every spec/feature involving UI with **destructive browser tests** (Playwright). Target is **99% E2E coverage**. Tests that only verify happy path are NOT enough. BEFORE writing a spec/task file: read `.claude/docs/spec-testing-checklist.md` and include destructive tests as a dedicated phase.
+- **ALWAYS** test **100% of implemented functions** in browser tests (Playwright). If you built 12 functions, write at least 12 functional tests — one per function. Then add 8+ destructive tests. Testing 3 out of 12 features is NOT acceptable. BEFORE writing tests: create a functional inventory listing EVERY implemented function, then write tests for ALL of them. Read `.claude/docs/testing.md` and `.claude/docs/spec-testing-checklist.md`.
 
 ## Execution mode
 
@@ -94,7 +94,7 @@ NEVER say something is "implemented" or "done" until:
 
 1. All **unit tests** pass (`dotnet test`).
 2. All **E2E tests in Playwright** pass (`dotnet test --filter "Category=UI"`).
-3. For UI features: **destructive browser tests** have been written and pass. Target is **99% E2E coverage** — every spec should cover all relevant attack categories (see `.claude/docs/spec-testing-checklist.md` and `.claude/docs/testing.md`).
+3. For UI features: **functional coverage tests** exist for EVERY implemented function (1 test per function minimum), PLUS **destructive tests** (8+ scenarios across all 6 attack categories). If you built 10 functions but only tested 4, you are NOT done.
 4. For UI features: **TLA+ formal verification** has been run (`/tla`) — checks for race conditions, state machine gaps, and missing invariants. This step is auto-triggered after browser tests are written.
 5. For web projects: **visually verified** in the browser.
 6. The code is assessed as **100% functional**.
