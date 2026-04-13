@@ -215,6 +215,26 @@ else
 fi
 ```
 
+**npm-based skills (installed via CLI):**
+
+```bash
+# ui-ux-pro-max — Design intelligence (67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stacks)
+if ! uipro --version &>/dev/null 2>&1; then
+  npm install -g uipro-cli
+  echo "[INSTALLED] uipro-cli — UI/UX Pro Max CLI"
+else
+  echo "[SKIPPED] uipro-cli — already installed"
+fi
+
+# Initialize in the project if not already present
+if [ ! -d ".claude/skills/ui-ux-pro-max" ]; then
+  uipro init --ai claude
+  echo "[INSTALLED] ui-ux-pro-max skill — design intelligence for Claude Code"
+else
+  echo "[SKIPPED] ui-ux-pro-max — already initialized in project"
+fi
+```
+
 **What each skill provides:**
 
 | Skill | Source | Key capabilities |
@@ -226,6 +246,7 @@ fi
 | **dotnet/skills** | Microsoft (official) | ASP.NET Core, EF Core, Blazor patterns, project scaffolding |
 | **vercel-labs/skills** | Vercel (official) | React performance rules (45 rules ranked by impact), web design |
 | **playwright-skill** | Community (2k+ stars) | Deep Playwright knowledge, Page Object Model, CI/CD patterns |
+| **ui-ux-pro-max** | Community (npm: uipro-cli) | 67 UI styles, 96 palettes, 57 font pairings, 25 chart types, 13 stacks |
 
 The qa-test and playwright-skill require the Playwright MCP server. If the project has UI components, verify Playwright MCP is configured.
 
