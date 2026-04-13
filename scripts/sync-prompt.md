@@ -271,12 +271,28 @@ fi
 
 Without TLC, the /tla skill falls back to reasoning-based verification (LLM-only, no mathematical proof). With TLC, it runs actual model checking.
 
-### Step 7: Remove irrelevant files
+### Step 7: Ask about tech stack, then remove irrelevant files
 
-- Project does NOT use WordPress? → remove `.claude/rules/wordpress.md`
-- Project does NOT use .NET? → remove `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
-- Project does NOT have UI? → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook
-- ALWAYS keep: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`
+**IMPORTANT: Do NOT guess the tech stack from files alone.** A new project may not have any source files yet. ALWAYS ask the developer before removing anything.
+
+Use `AskUserQuestion` to confirm:
+
+> Which of the following does this project use (or will use)?
+>
+> - .NET (C#, ASP.NET Core, Blazor, EF Core)
+> - WordPress (PHP, themes, plugins)
+> - React / frontend with UI
+> - SQLite / database
+>
+> List all that apply, or say "all" to keep everything.
+
+Then, based on the developer's answer:
+
+- Developer says NO to WordPress → remove `.claude/rules/wordpress.md`
+- Developer says NO to .NET → remove `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
+- Developer says NO to UI → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook
+- ALWAYS keep regardless of answer: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`
+- When in doubt, **keep the file** — extra rules cost nothing, missing rules cost bugs
 
 ### Step 8: Verify
 
