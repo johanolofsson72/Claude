@@ -338,15 +338,33 @@ After syncing:
 
 ### Step 8b: Record sync version (MANDATORY)
 
-Write the template SHA fetched in Step 0 to `.claude/.sync-version` so the next sync can detect what changed:
+Write the template SHA fetched in Step 0 to `.claude/.sync-version`, ensure it's not gitignored, and stage it so the developer's next commit includes it. Without this, team members re-sync from scratch on every fresh clone.
 
 ```bash
 mkdir -p .claude
 echo "$TEMPLATE_SHA" > .claude/.sync-version
 echo "[VERSIONED] Recorded template SHA: $TEMPLATE_SHA"
+
+# Ensure .claude/.sync-version is NOT gitignored. Strip any matching patterns.
+if [ -f .gitignore ]; then
+  # Match exact paths and common accidental catches
+  for PATTERN in '.claude/.sync-version' '.sync-version' '.claude/\.sync-version'; do
+    if grep -qxF "$PATTERN" .gitignore 2>/dev/null; then
+      grep -vxF "$PATTERN" .gitignore > .gitignore.tmp && mv .gitignore.tmp .gitignore
+      echo "[UNIGNORED] Removed '$PATTERN' from .gitignore"
+    fi
+  done
+  # Warn if .claude/ itself is ignored — that's a bigger problem the developer must resolve
+  if git check-ignore -q .claude/.sync-version 2>/dev/null; then
+    echo "[WARN] .claude/.sync-version is still ignored (likely via '.claude/' rule). Add '!.claude/.sync-version' as a negation to .gitignore, OR commit the file with 'git add -f'."
+  fi
+fi
+
+# Stage the sync-version file so the developer's review commit includes it
+git add -f .claude/.sync-version 2>/dev/null && echo "[STAGED] .claude/.sync-version ready to commit"
 ```
 
-Also ensure `.claude/.sync-version` is committed (not gitignored) — it's per-project state that belongs in version control so team members don't re-sync the same changes.
+**Why this matters:** `.sync-version` is per-project cache state. If it's gitignored or left unstaged, a teammate who clones the repo fresh has no record of the last sync SHA, and their next `/project-update` will do a full 100% sync instead of the incremental path. Committing it is the only way the cache survives across machines.
 
 ### Step 9: Report
 
