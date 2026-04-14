@@ -9,6 +9,40 @@ in the project you want to update.
 
 The template repo is at `/Users/jool/repos/Claude`. Your job: sync THIS project's Claude Code setup against the template repo's latest version.
 
+### Step 0: Version check (MANDATORY — saves tokens)
+
+Before reading anything, check if this project is already up to date.
+
+```bash
+TEMPLATE_SHA=$(curl -sL https://api.github.com/repos/johanolofsson72/Claude/commits/main | jq -r '.sha // empty')
+LAST_SHA=$(cat .claude/.sync-version 2>/dev/null)
+
+if [ -z "$TEMPLATE_SHA" ]; then
+  echo "[WARN] Could not fetch template SHA — falling back to full sync"
+elif [ "$TEMPLATE_SHA" = "$LAST_SHA" ]; then
+  echo "[UP TO DATE] Already synced with template @ $TEMPLATE_SHA"
+  # Nothing changed since last sync — exit early unless user passed --force
+  # (If they say "force resync" or "full resync", ignore this and continue)
+  exit 0
+elif [ -n "$LAST_SHA" ]; then
+  echo "[INCREMENTAL SYNC] $LAST_SHA → $TEMPLATE_SHA"
+  CHANGED=$(curl -sL "https://api.github.com/repos/johanolofsson72/Claude/compare/${LAST_SHA}...${TEMPLATE_SHA}" | jq -r '.files[]?.filename // empty')
+  echo "Changed files since last sync:"
+  echo "$CHANGED"
+else
+  echo "[FIRST SYNC] No .sync-version found — performing full sync"
+fi
+```
+
+**Decision logic:**
+
+- **SHAs equal** → project is up to date. Report "already current" and stop. Do NOT read template files.
+- **LAST_SHA exists, SHAs differ** → **incremental mode**. Read ONLY files in `$CHANGED`, skip steps that involve files not in that list. Still run Step 7 (tech stack confirmation) and Step 8 (verify) unconditionally.
+- **No LAST_SHA** → **full sync**. Read all template files per Step 1 below.
+- **Force override** → if the user prompt contains "force", "full resync", or "--force", ignore `.sync-version` and do a full sync regardless.
+
+**CRITICAL:** Only read files from the template that you actually need. In incremental mode, skipping 28 unchanged files saves ~80-90% of the tokens.
+
 ### Step 1: Read the template repo
 
 Read the following files from `/Users/jool/repos/Claude` (all are important — do not skip any):
@@ -301,6 +335,18 @@ After syncing:
 - Verify that `settings.json` is valid JSON (`python3 -m json.tool .claude/settings.json`)
 - Verify that CLAUDE.md does not exceed ~200 lines (Anthropic recommendation)
 - Verify that the reference files section in CLAUDE.md points to files that actually exist
+
+### Step 8b: Record sync version (MANDATORY)
+
+Write the template SHA fetched in Step 0 to `.claude/.sync-version` so the next sync can detect what changed:
+
+```bash
+mkdir -p .claude
+echo "$TEMPLATE_SHA" > .claude/.sync-version
+echo "[VERSIONED] Recorded template SHA: $TEMPLATE_SHA"
+```
+
+Also ensure `.claude/.sync-version` is committed (not gitignored) — it's per-project state that belongs in version control so team members don't re-sync the same changes.
 
 ### Step 9: Report
 
