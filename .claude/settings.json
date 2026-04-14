@@ -109,6 +109,16 @@
         ]
       },
       {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/after-specify-hook.sh",
+            "statusMessage": "after_specify: auto-commit check..."
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
