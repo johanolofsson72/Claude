@@ -10,7 +10,9 @@
       "Bash(git commit:*)",
       "Edit(/.claude/skills/**)",
       "Edit(/.claude/skills/tla/**)",
-      "Edit(/.claude/skills/sync-template/**)"
+      "Edit(/.claude/skills/sync-template/**)",
+      "Bash(mkdir -p /Users/jool/repos/Claude/.claude/validation)",
+      "Bash(echo \".claude/validation/\")"
     ],
     "deny": [
       "Bash(rm -rf *)",
@@ -54,6 +56,15 @@
           {
             "type": "command",
             "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/ui-design-hook.sh"
           }
         ]
       }
@@ -144,6 +155,11 @@
           {
             "type": "command",
             "command": "bash scripts/tlc-cleanup.sh 2>/dev/null; true"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/stop-validation-hook.sh",
+            "statusMessage": "Validating spec + design compliance before stop..."
           }
         ]
       }
