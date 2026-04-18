@@ -21,9 +21,8 @@ if [ -z "$TEMPLATE_SHA" ]; then
   echo "[WARN] Could not fetch template SHA — falling back to full sync"
 elif [ "$TEMPLATE_SHA" = "$LAST_SHA" ]; then
   echo "[UP TO DATE] Already synced with template @ $TEMPLATE_SHA"
-  # Nothing changed since last sync — exit early unless user passed --force
-  # (If they say "force resync" or "full resync", ignore this and continue)
-  exit 0
+  # Nothing changed since last sync — skip Steps 1-8, but STILL run Step 9 (CLAUDE.md slim check).
+  # (If the user says "force resync" or "full resync", ignore this and continue with a full sync.)
 elif [ -n "$LAST_SHA" ]; then
   echo "[INCREMENTAL SYNC] $LAST_SHA → $TEMPLATE_SHA"
   CHANGED=$(curl -sL "https://api.github.com/repos/johanolofsson72/Claude/compare/${LAST_SHA}...${TEMPLATE_SHA}" | jq -r '.files[]?.filename // empty')
@@ -36,8 +35,8 @@ fi
 
 **Decision logic:**
 
-- **SHAs equal** → project is up to date. Report "already current" and stop. Do NOT read template files.
-- **LAST_SHA exists, SHAs differ** → **incremental mode**. Read ONLY files in `$CHANGED`, skip steps that involve files not in that list. Still run Step 7 (tech stack confirmation) and Step 8 (verify) unconditionally.
+- **SHAs equal** → project is up to date. Report "already current", skip Steps 1-8, then **jump to Step 9** (CLAUDE.md slim check always runs). Do NOT read template files.
+- **LAST_SHA exists, SHAs differ** → **incremental mode**. Read ONLY files in `$CHANGED`, skip steps that involve files not in that list. Still run Step 7 (tech stack confirmation), Step 8 (verify), and Step 9 (slim check) unconditionally.
 - **No LAST_SHA** → **full sync**. Read all template files per Step 1 below.
 - **Force override** → if the user prompt contains "force", "full resync", or "--force", ignore `.sync-version` and do a full sync regardless.
 
@@ -333,7 +332,6 @@ Then, based on the developer's answer:
 After syncing:
 - Run `dotnet build` if the project is .NET
 - Verify that `settings.json` is valid JSON (`python3 -m json.tool .claude/settings.json`)
-- Verify that CLAUDE.md does not exceed ~200 lines (Anthropic recommendation)
 - Verify that the reference files section in CLAUDE.md points to files that actually exist
 
 ### Step 8b: Record sync version (MANDATORY)
@@ -366,7 +364,33 @@ git add -f .claude/.sync-version 2>/dev/null && echo "[STAGED] .claude/.sync-ver
 
 **Why this matters:** `.sync-version` is per-project cache state. If it's gitignored or left unstaged, a teammate who clones the repo fresh has no record of the last sync SHA, and their next `/project-update` will do a full 100% sync instead of the incremental path. Committing it is the only way the cache survives across machines.
 
-### Step 9: Report
+### Step 9: Slim CLAUDE.md (ALWAYS RUNS — regardless of sync mode)
+
+**This step runs unconditionally — even when Step 0 reports "[UP TO DATE]" and even when the user forces a full resync.** The goal is to keep `CLAUDE.md` as lean as possible on every run, since drift accumulates over time.
+
+```bash
+LINES=$(wc -l < CLAUDE.md | tr -d ' ')
+echo "[SLIM CHECK] CLAUDE.md is $LINES lines (Anthropic recommends <= 200)"
+```
+
+If `CLAUDE.md` exceeds **200 lines**:
+
+1. Identify the sections that can be moved out without losing critical in-session context. Good candidates:
+   - Detailed conventions → `.claude/docs/conventions.md`
+   - Security rules → `.claude/docs/security.md`
+   - Git workflows → `.claude/docs/git.md`
+   - Testing details → `.claude/docs/testing.md`
+   - Deployment / CI/CD → `.claude/docs/deployment.md`
+   - Project-specific long sections → a new file under `.claude/docs/`
+2. Replace the moved section in `CLAUDE.md` with a one-line pointer in the "Reference files (loaded on demand)" section (no `@`-prefix — those auto-expand and defeat the purpose).
+3. Verify `CLAUDE.md` is now ≤ 200 lines with `wc -l`.
+4. Report what was moved where in the Step 10 summary.
+
+**Keep in `CLAUDE.md` regardless of length:** Critical rules, execution mode, priority order, workflow overview, and the reference-files pointer section. These must stay in-session because they govern every action.
+
+If `CLAUDE.md` is already ≤ 200 lines, report `[SLIM CHECK] OK` and move on.
+
+### Step 10: Report
 
 Write a summary:
 
@@ -393,8 +417,6 @@ Manual review recommended:
 - ALWAYS preserve project-specific customizations (marked with `# PROJECT-SPECIFIC` or clearly unique to the project)
 - If unsure: report and ask instead of changing
 - Do NOT commit automatically — let the developer review first
-
-Then check that `CLAUDE.md` does not exceed 200 lines; if it does, split out sections and place them into separate file(s).
-
+- **Step 9 (slim CLAUDE.md check) runs ALWAYS** — including when the project is reported as up-to-date in Step 0
 
 ---
