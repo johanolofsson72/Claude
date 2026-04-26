@@ -118,9 +118,19 @@ COVERAGE MATRIX:
 | Safe2: No stale data overwrite | - | NO | RACE CONDITION |
 ```
 
-### Step 5: Report findings
+### Step 5: Report findings (BLOCKING — read `.claude/rules/validation-followup.md`)
 
-Report in this format:
+The report is the deliverable. Producing it and moving on is not allowed. After writing the report, the same response MUST:
+
+1. **List every finding individually** — drift items, every `GAP-N` entry, every "MISSING TEST" row in the coverage matrix, every TLC counterexample, every "consider implementation change" recommendation, every TLC error or deadlock. One numbered line per finding, citing source (file path, rule name, state trace).
+2. **Call `AskUserQuestion` with one question per finding** — batched in a single tool call. Each question offers `Fix now`, `Defer (track in spec)`, `Dismiss (with reason)`, plus a bespoke option where relevant (e.g. `Add the missing test`, `Update spec instead of code`, `Reduce model state space and re-run`). Frame the language so `Fix now` is the default-feeling option.
+3. **If there are zero findings** — say verbatim: "TLA+ verification complete. Zero gaps, zero drift, zero counterexamples, zero missing tests." If you cannot say that and mean it, you have findings — go back to step 1.
+
+Forbidden: "looks good overall" summaries, silently fixing easy items while ignoring hard ones, skipping the coverage-matrix gap rows because "the test would be hard to write", treating counterexamples as theoretical, asking a single vague "want me to address the gaps?" question, or continuing to the next task with findings undecided.
+
+This rule applies whether `/tla` was invoked manually, automatically after browser tests, or as part of a larger workflow. The trigger does not change the obligation.
+
+### Report format
 
 ```
 ## TLA+ Verification Report

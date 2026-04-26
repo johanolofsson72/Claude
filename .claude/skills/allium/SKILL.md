@@ -262,6 +262,18 @@ Behavioral drift:
 
 Each drift item is either a bug (code wrong) or a spec update (spec was incomplete) — flag both, let the developer decide.
 
+## Findings handoff (BLOCKING — read `.claude/rules/validation-followup.md`)
+
+Allium runs produce findings. Findings are the deliverable, not background reading. After ANY Allium run (elicit, distill, or no-arg invocation) the very next response MUST:
+
+1. **List every finding individually** — drift items, `open question` entries, `-- AMBIGUITY:` comments, `deferred` markers, "spec too vague to formalize" notes, validation errors from `allium check`. One numbered line per finding, citing source path and Allium construct.
+2. **Call `AskUserQuestion` with one question per finding** — batched in a single tool call. Each question offers `Fix now`, `Defer (track in spec)`, `Dismiss (with reason)`, plus a bespoke option where relevant (e.g. `Update spec instead of code` for drift items). Frame the language so `Fix now` is the default-feeling option.
+3. **If there are zero findings** — say verbatim: "Allium run complete. Zero drift, zero open questions, zero ambiguities." If you cannot say that and mean it, you have findings — go back to step 1.
+
+Forbidden: "looks good overall" summaries, silently fixing easy items while ignoring hard ones, asking a single vague "want me to address the issues?" question, or continuing to the next task with findings undecided.
+
+This rule applies whether the skill was invoked manually (`/allium`, `/allium:elicit`, `/allium:distill`) or automatically (post-spec hook, `/tla` step 0, feature workflow). The trigger does not change the obligation.
+
 ## Validation
 
 After writing any `.allium` file, attempt validation:
