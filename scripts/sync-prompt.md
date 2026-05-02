@@ -58,6 +58,8 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/rules/tests.md` — browser test rules requiring functional coverage inventory (paths: `**/*Test*.cs`, `**/*test*.ts`, etc.)
 - `.claude/rules/wordpress.md` — WordPress rules
 - `.claude/rules/allium.md` — Allium spec language rules (paths: `**/*.allium`)
+- `.claude/rules/continuous-execution.md` — forbids phase-splitting stalls ("should I continue with phase 2?"); execute multi-phase plans in one uninterrupted run
+- `.claude/rules/project-workflow.md` — gates PR suggestions behind a one-time `AskUserQuestion` (solo vs team + PRs yes/no/sometimes); answer is saved to project memory and silently suppresses PR nagging on solo projects
 
 **Docs (loaded on demand, referenced from CLAUDE.md):**
 - `.claude/docs/testing.md` — test conventions, functional coverage + destructive browser tests (6+1 attack categories)
@@ -91,6 +93,7 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `scripts/allium-hook.sh` — PostToolUse hook that blocks if spec lacks .allium companion
 - `scripts/tlc-cleanup.sh` — TLC process cleanup (kills orphaned Java/TLC processes after execution)
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
+- `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
 
 ### Step 2: Read this project's files
 
@@ -324,7 +327,7 @@ Then, based on the developer's answer:
 - Developer says NO to WordPress → remove `.claude/rules/wordpress.md`
 - Developer says NO to .NET → remove `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
 - Developer says NO to UI → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook
-- ALWAYS keep regardless of answer: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`
+- ALWAYS keep regardless of answer: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`, `continuous-execution.md`, `project-workflow.md`, `continuous-execution-hook.sh`
 - When in doubt, **keep the file** — extra rules cost nothing, missing rules cost bugs
 
 ### Step 8: Verify

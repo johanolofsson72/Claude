@@ -12,7 +12,8 @@
       "Edit(/.claude/skills/tla/**)",
       "Edit(/.claude/skills/sync-template/**)",
       "Bash(mkdir -p /Users/jool/repos/Claude/.claude/validation)",
-      "Bash(echo \".claude/validation/\")"
+      "Bash(echo \".claude/validation/\")",
+      "Edit(/.claude/skills/allium/**)"
     ],
     "deny": [
       "Bash(rm -rf *)",
@@ -155,6 +156,11 @@
           {
             "type": "command",
             "command": "bash scripts/tlc-cleanup.sh 2>/dev/null; true"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/continuous-execution-hook.sh",
+            "statusMessage": "Checking for phase-splitting anti-pattern..."
           },
           {
             "type": "command",
