@@ -45,7 +45,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE '(speckit|specify|spec.specify|spec.implement)'; then echo '{\"additionalContext\": \"MANDATORY PIPELINE — execute each step automatically, never ask: (1) Write spec with destructive browser tests (min 8 scenarios, 6 attack categories). Read .claude/docs/spec-testing-checklist.md FIRST. (2) IMMEDIATELY after spec is written: run /allium:elicit to produce a .allium file. This applies to ALL spec types (feature, fix, hardening, refactoring, TLA+-generated). Do NOT ask the user — just run it. Asking is a bug. (3) AFTER implementation + browser tests: run /tla (auto-runs /allium:distill for drift detection). Again, do NOT ask — just run it.\"}'; fi"
+            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE '(speckit[.:_-](specify|plan|tasks|implement)|spec[.:_-](specify|plan|tasks|implement)|/specify\\b)'; then echo '{\"additionalContext\": \"MANDATORY PIPELINE — execute each step automatically, never ask: (1) Write spec with destructive browser tests (min 8 scenarios, 6 attack categories). Read .claude/docs/spec-testing-checklist.md FIRST. (2) IMMEDIATELY after spec is written: run /allium:elicit to produce a .allium file. This applies to ALL spec types (feature, fix, hardening, refactoring, TLA+-generated). Do NOT ask the user — just run it. Asking is a bug. (3) AFTER implementation + browser tests: run /tla (auto-runs /allium:distill for drift detection). Again, do NOT ask — just run it.\"}'; fi"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE 'speckit[.:_-](analyz|analys)'; then echo '{\"additionalContext\": \"SPECKIT ANALYZE — special handling. This command is a READ-ONLY consistency check across spec/plan/tasks; do NOT trigger the spec→Allium→TLA+ pipeline for it. After producing the analysis report and the Next Actions block, end your message with this exact final line on its own paragraph, verbatim: \\\"Reply **suggest & apply for all** to apply remediation for every finding above, or name specific finding IDs (e.g. A1, A3) to fix only those.\\\" Phrasing it this way biases the Claude Code prompt-suggestion engine to surface \\\"suggest & apply for all\\\" as the editable ghost-text default. If the user'\\''s next message is exactly \\\"suggest & apply for all\\\" (case-insensitive, ignoring leading/trailing whitespace and punctuation), apply concrete remediation edits for ALL findings in the report without further prompting — this overrides the analyze.md Step 8 default of asking before applying.\"}'; fi"
           }
         ]
       }
