@@ -18,8 +18,9 @@ ssh -i ~/ubuntu/ubuntu ubuntu@51.12.246.54     # Manager (port 22 or 7222)
 ```
 
 **Private Docker Registry:** `10.2.0.4:5000`
-**NFS mount:** `/mnt/nfs/` (shared storage across all nodes)
+**NFS mount:** `/mnt/nfs/` (shared storage across all nodes — for static seed data, build artifacts, compose files, and read-only assets ONLY. **Never** for SQLite, Redis with persistence, or any write workload — see `.claude/docs/spot-architecture.md` and `.claude/rules/sqlite.md`.)
 **Reverse proxy:** Nginx Proxy Manager (external overlay network `nginx_npm_network`)
+**Worker fleet:** Workers are Azure Spot VMs and can be evicted with ~30 seconds notice. Stateful services MUST pin to a non-spot worker labeled `tier=stateful` — see `.claude/docs/spot-architecture.md`.
 
 ## Pipeline architecture
 
@@ -72,19 +73,31 @@ GitHub Actions (workflow_dispatch with confirmation)
 **Production environment (in appsettings.Production.json):**
 
 - `ASPNETCORE_ENVIRONMENT=Production`
-- `ConnectionStrings` point to `/data/` (mounted via NFS)
+- `ConnectionStrings` point to `/data/` — mounted as a **local bind on the reserved (non-spot) `tier=stateful` node**, NOT NFS. SQLite write workloads on NFS corrupt during rolling restart and spot eviction. See `.claude/docs/spot-architecture.md`.
 
-## NFS structure per project
+## Storage layout per project
+
+**Shared NFS (`/mnt/nfs/[projectname]/`)** — read-only or build-time only:
 
 ```text
 /mnt/nfs/[projectname]/
-├── app.db (+ shm, wal)          # Main database
-├── tenants/                     # Per-tenant databases (if applicable)
-│   └── {tenantId}/tenant.db
-├── seed-data/                   # Initial seed data
-├── temp/                        # Staging for Docker images
+├── seed-data/                   # Initial seed data (read-only at runtime)
+├── temp/                        # Staging for Docker images during deploy
 └── docker-compose-stack-*.yml   # Resolved compose file
 ```
+
+**Local bind on the reserved (non-spot) `tier=stateful` node (`/var/lib/[projectname]/`)** — runtime DBs:
+
+```text
+/var/lib/[projectname]/
+├── db/
+│   ├── app.db (+ shm, wal)      # Main database — local disk, not NFS
+│   └── tenants/                 # Per-tenant databases (if applicable)
+│       └── {tenantId}/tenant.db
+└── files/                       # User uploads, cached files
+```
+
+The split exists because SQLite's WAL mode requires `mmap`'d shared memory which network filesystems do not provide consistently. Putting `app.db` on NFS is what causes the `SQLITE_IOERR (10)` corruption stories during rolling restarts.
 
 ## Docker Swarm commands
 
@@ -102,14 +115,29 @@ docker stack rm [projectname]                            # Remove stack
 
 When CI/CD is set up for a new project, inform the developer that the following must be created on the server:
 
-**NFS directories (on the manager node):**
+**NFS directories (on the manager node) — read-only / build-time only:**
 
 ```bash
 sudo mkdir -p /mnt/nfs/[projectname]
 sudo mkdir -p /mnt/nfs/[projectname]/seed-data
 sudo mkdir -p /mnt/nfs/[projectname]/temp
-sudo mkdir -p /mnt/nfs/[projectname]/tenants    # If multi-tenant
 sudo chmod -R 777 /mnt/nfs/[projectname]
+```
+
+**Local DB directory on the reserved (non-spot) `tier=stateful` worker — for SQLite and other write workloads:**
+
+```bash
+# SSH into the reserved worker (the one labeled tier=stateful, spot=false)
+sudo mkdir -p /var/lib/[projectname]/db
+sudo mkdir -p /var/lib/[projectname]/db/tenants    # If multi-tenant
+sudo mkdir -p /var/lib/[projectname]/files
+sudo chown -R 1000:1000 /var/lib/[projectname]    # Match the container user
+```
+
+If no node is yet labeled `tier=stateful`, label one before continuing:
+
+```bash
+docker node update --label-add tier=stateful --label-add spot=false live4-wkr-01
 ```
 
 **Project files that must be created:**

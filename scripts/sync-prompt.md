@@ -60,6 +60,8 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/rules/allium.md` — Allium spec language rules (paths: `**/*.allium`)
 - `.claude/rules/continuous-execution.md` — forbids phase-splitting stalls ("should I continue with phase 2?"); execute multi-phase plans in one uninterrupted run
 - `.claude/rules/project-workflow.md` — gates PR suggestions behind a one-time `AskUserQuestion` (solo vs team + PRs yes/no/sometimes); answer is saved to project memory and silently suppresses PR nagging on solo projects
+- `.claude/rules/sqlite.md` — SQLite pragmas, lifecycle (WAL checkpoint on shutdown), volume rules (no NFS/SMB/blobfuse for write workloads), retry strategy (paths: `**/appsettings*.json`, `**/docker-compose*.yml`, `**/Program.cs`, `**/*Db*.cs`, `**/*Sqlite*.cs`)
+- `.claude/rules/spot-resilience.md` — required components for services on Azure spot workers: eviction watcher (IMDS scheduled events), graceful drain, idempotent writes, outbox pattern, healthcheck split (paths: `**/Program.cs`, `**/docker-compose*.yml`, controllers/endpoints/services/workers)
 
 **Docs (loaded on demand, referenced from CLAUDE.md):**
 - `.claude/docs/testing.md` — test conventions, functional coverage + destructive browser tests (6+1 attack categories)
@@ -70,7 +72,8 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/docs/workflows.md` — hooks (27 events), skills, subagents, plugins, agent teams
 - `.claude/docs/skills.md` — SKILL.md format, frontmatter fields, recommended skills
 - `.claude/docs/agents-templates.md` — copy-paste agent templates
-- `.claude/docs/deployment.md` — Docker Swarm, CI/CD
+- `.claude/docs/deployment.md` — Docker Swarm, CI/CD (now includes the local-disk vs NFS split for stateful workloads)
+- `.claude/docs/spot-architecture.md` — three reference architectures for stateful services on Azure spot workers (reserved DB node, LiteFS, managed Postgres) with full compose templates, volume matrix, healthcheck split, and migration path
 - `.claude/docs/stress-testing.md` — mandatory pre-deploy stress testing (k6, Lighthouse)
 - `.claude/docs/project-template.md` — template for project start
 
@@ -327,8 +330,27 @@ Then, based on the developer's answer:
 - Developer says NO to WordPress → remove `.claude/rules/wordpress.md`
 - Developer says NO to .NET → remove `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
 - Developer says NO to UI → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook
+- Developer says NO to SQLite → remove `.claude/rules/sqlite.md`
+- Developer says NO to live4 cluster deployment / Azure spot → remove `.claude/rules/spot-resilience.md` and `.claude/docs/spot-architecture.md`
 - ALWAYS keep regardless of answer: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`, `continuous-execution.md`, `project-workflow.md`, `continuous-execution-hook.sh`
 - When in doubt, **keep the file** — extra rules cost nothing, missing rules cost bugs
+
+### Step 7b: Audit for SQLite-on-NFS (if .NET + SQLite project)
+
+If the project uses SQLite AND deploys to the live4 cluster, scan for the corruption pattern fixed in this template version:
+
+```bash
+# Find any compose file that mounts NFS for a service that writes SQLite
+grep -RIn --include='docker-compose*.yml' '/mnt/nfs/' . 2>/dev/null | grep -i 'app\.db\|database\|/data'
+
+# Find connection strings that point inside /mnt/nfs
+grep -RIn --include='appsettings*.json' '/mnt/nfs/' . 2>/dev/null
+
+# Find services without placement constraints that write SQLite
+grep -RIL --include='docker-compose*.yml' 'placement' . 2>/dev/null
+```
+
+If matches are found, **flag for manual review** in Step 10. The fix is to migrate to a local bind on a reserved (non-spot) node — see `.claude/docs/spot-architecture.md` "Migration path for existing projects". Do NOT auto-rewrite compose files; the migration involves SSH'ing to the cluster, copying the DB to the new path, and labeling a node as `tier=stateful`. That is a developer decision, not a sync action.
 
 ### Step 8: Verify
 
