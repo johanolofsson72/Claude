@@ -1,6 +1,6 @@
 ---
 name: project-wizard
-description: "Project inception wizard (50 questions across 9 categories) that creates CLAUDE.md, speckit constitution, design system, and project brief. Use when starting a new project, brainstorming an app idea, or bootstrapping a new repo. Trigger words: new project, project idea, start project, inception, bootstrap project."
+description: "Inception wizard (50 questions, 9 categories) creating CLAUDE.md, speckit constitution, design system, and project brief. Use when starting a new project, brainstorming an idea, or bootstrapping a repo. Triggers: new project, inception, bootstrap."
 argument-hint: "[brief project idea description]"
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Bash, AskUserQuestion, Glob, Grep

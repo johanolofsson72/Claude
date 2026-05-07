@@ -1,6 +1,6 @@
 ---
 name: ui-ux-pro-max
-description: "UI/UX design intelligence. 67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stacks (React, Next.js, Vue, Svelte, SwiftUI, React Native, Flutter, Tailwind, shadcn/ui). Actions: plan, build, create, design, implement, review, fix, improve, optimize, enhance, refactor, check UI/UX code. Projects: website, landing page, dashboard, admin panel, e-commerce, SaaS, portfolio, blog, mobile app, .html, .tsx, .vue, .svelte. Elements: button, modal, navbar, sidebar, card, table, form, chart. Styles: glassmorphism, claymorphism, minimalism, brutalism, neumorphism, bento grid, dark mode, responsive, skeuomorphism, flat design. Topics: color palette, accessibility, animation, layout, typography, font pairing, spacing, hover, shadow, gradient. Integrations: shadcn/ui MCP for component search and examples."
+description: "UI/UX design system: 67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stacks (React/Vue/Svelte/SwiftUI/Flutter/Tailwind/shadcn). Use for designing, building, reviewing UI — pages, components, color, typography, layout, accessibility."
 ---
 # UI/UX Pro Max - Design Intelligence
 
@@ -109,6 +109,16 @@ brew install python3
 **Ubuntu/Debian:**
 ```bash
 sudo apt update && sudo apt install python3
+```
+
+**Fedora/RHEL:**
+```bash
+sudo dnf install python3
+```
+
+**Arch:**
+```bash
+sudo pacman -S python
 ```
 
 **Windows:**
