@@ -2,7 +2,21 @@
 
 Auto-detected hook layer that pushes low-stakes work to a local model when one is reachable. When Ollama is offline or disabled, every hook becomes a silent no-op and Claude works as before.
 
-## What gets offloaded
+## Default-wired hooks (token-savers only)
+
+The template ships with **only the hooks that demonstrably reduce Anthropic token consumption** wired into `settings.json`:
+
+| Hook | Saves tokens by |
+|------|----------------|
+| `local-llm-classify-hook.sh` | Tagging the prompt so Claude can skip heavy skills (Allium / TLA+) on simple work |
+| `local-llm-orientation-hook.sh` | Replacing the SessionStart `git log` / `status` / `diff` discovery roundtrip |
+| `local-llm-commit-draft-hook.sh` | Pre-drafting the commit message to a file so Claude refines instead of regenerating |
+| `local-llm-pr-draft-hook.sh` | Pre-drafting the PR title + Summary + Test plan to a file |
+| `local-llm-changelog-hook.sh` | Pre-drafting `CHANGELOG.md` entries grouped by Conventional type |
+
+The remaining hook scripts in `scripts/local-llm-*-hook.sh` are **quality gates** — they catch bugs by injecting advisory context. They cost tokens, they don't save them. Wire them into `settings.json` per project when the bug-catching value is worth the per-fire context overhead, but do not enable them by default.
+
+## What can be offloaded (full catalog)
 
 | Hook | Trigger | What the local LLM does |
 |------|---------|------------------------|
@@ -62,6 +76,14 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 | `LOCAL_LLM_ORIENTATION_DISABLE` | unset | Set to `1` to skip the SessionStart "where you left off" orientation. Useful for ephemeral sessions where the orientation overhead outweighs the value. |
 | `LOCAL_LLM_PR_SPLIT_MIN_LINES` | `500` | Minimum changed-line count before the PR splitter offers split suggestions on `git push -u origin`. |
 | `LOCAL_LLM_TODO_MIN_COUNT` | `3` | Minimum TODO/FIXME/HACK marker count in a single file before the TODO catalog fires. |
+| `LOCAL_LLM_TELEMETRY_LOG` | `~/.claude/local-llm-fire.log` | Tab-separated per-fire log: `timestamp \t hook \t exit_code \t duration_s \t prompt_bytes`. |
+| `LOCAL_LLM_TELEMETRY_DISABLE` | unset | Set to `1` to skip writing the telemetry row. |
+
+## Telemetry and ROI
+
+Every offload funnels through `local-llm-call.sh`, which appends one tab-separated row per attempt to `${LOCAL_LLM_TELEMETRY_LOG}`. The hook name is auto-derived from the parent process, so individual hooks need no changes.
+
+Run `scripts/local-llm-stats.sh` to see fires / success-rate / avg latency / wasted-on-timeouts time per hook. Use `--since 1d` (or `1h`, or an ISO date) to narrow the window. Hooks that fire often but rarely return useful output are candidates for tighter triggers or removal.
 
 ## Setup
 
