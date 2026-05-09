@@ -235,11 +235,12 @@ The template auto-detects a local Ollama daemon and offloads work that genuinely
 2. **`scripts/local-llm-call.sh`** — generic `/api/generate` caller. Auto-detects project root for per-project telemetry logs, writes a tracer line on every entry, captures write errors to a sibling `.errors` file
 3. **`scripts/local-llm-stats.sh`** — per-hook ROI reporter. `--all` aggregates across `~/repos/*` and `~/Projects/*`
 4. **`scripts/sync-local-llm-hooks.py`** — deterministic settings.json hook-merge helper invoked below
-5. **Glob: every `scripts/local-llm-*-hook.sh`** — copy each matching file from the template. Files in the project but no longer in the template should be removed (template owns the script set)
+5. **`scripts/verify-local-llm-hooks.sh`** — cross-check that the project's wired set matches the template after the merge
+6. **Glob: every `scripts/local-llm-*-hook.sh`** — copy each matching file from the template. Files in the project but no longer in the template should be removed (template owns the script set)
 6. **`.claude/docs/local-llm.md`** — env var reference, setup, telemetry, failure modes
 7. **`.gitignore`** — see "Gitignore additions" below
 
-After copying scripts, run `chmod +x scripts/local-llm-*.sh scripts/sync-local-llm-hooks.py`.
+After copying scripts, run `chmod +x scripts/local-llm-*.sh scripts/sync-local-llm-hooks.py scripts/verify-local-llm-hooks.sh`.
 
 **Wire the hooks deterministically** (this is what previously failed under prose-only "merge" rules):
 
@@ -250,6 +251,14 @@ python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/setting
 The script strips every `bash scripts/local-llm-*-hook.sh` entry from the project's `.claude/settings.json` and reinstalls the template's exact set. Non-local-LLM hook entries (project-specific or other template hooks like `tla-hook.sh`, `ui-design-hook.sh`) are preserved verbatim. Idempotent. Capture its stdout for the Step 10 report.
 
 **Do NOT additively merge local-LLM hook entries by hand.** Prose merge rules conflict with "preserve project-specific customizations" and the result is stale wiring that the project keeps forever. The script is the deterministic source of truth; let it do the work.
+
+**Cross-check the trim** (catches the trim's own bugs — e.g. a regex that does not match digits letting `n1-query` slip through):
+
+```bash
+bash scripts/verify-local-llm-hooks.sh /Users/jool/repos/Claude/.claude/settings.json
+```
+
+Three checks run: (1) the wired set matches the template's exactly, (2) every wired hook has its script file on disk, (3) the count matches the template. Exit non-zero on any failure. **If this fails, the sync is broken — fix it before reporting success in Step 10.** Capture the stdout for the Step 10 report.
 
 **Currently wired by default (13 token-saver hooks):**
 
