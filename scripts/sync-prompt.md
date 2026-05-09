@@ -225,83 +225,49 @@ cargo install allium-cli
 
 ### Step 5c: Verify local-LLM offload stack
 
-The template auto-detects a local Ollama daemon and offloads low-stakes work to it (prompt classification, Bash output TLDRs, commit-message drafts, humanizer pre-checks). When Ollama is not running on the developer's machine, every hook becomes a silent no-op — the stack is safe to ship to projects regardless of whether each developer runs Ollama locally.
+The template auto-detects a local Ollama daemon and offloads work that genuinely reduces Anthropic token consumption (artifact drafts, routing hints, GitHub-context digests). When Ollama is not running on the developer's machine, every hook becomes a silent no-op — the stack is safe to ship to projects regardless of whether each developer runs Ollama locally.
 
-**Files to sync:**
+**Policy:** the template ships ~38 local-LLM hook scripts on disk but only 13 are wired by default — the ones that demonstrably save tokens (artifact producers + routing hints + GitHub-context digests). The remaining ~25 scripts are quality gates that ADD context for bug-catching; they cost tokens, they do not save them. Wire them per-project only when the bug-catching value justifies the per-fire context cost.
 
-1. **`scripts/local-llm-detect.sh`** — sourced helper that pings Ollama and exports `LOCAL_LLM_AVAILABLE`
-2. **`scripts/local-llm-call.sh`** — generic `/api/generate` caller
-3. **`scripts/local-llm-classify-hook.sh`** — UserPromptSubmit complexity classifier
-4. **`scripts/local-llm-bash-tldr-hook.sh`** — PostToolUse Bash output summarizer (fires above 4000 chars)
-5. **`scripts/local-llm-commit-draft-hook.sh`** — PostToolUse `git add` commit-draft generator
-6. **`scripts/local-llm-humanize-hook.sh`** — PostToolUse Edit/Write AI-tell detector for human-facing markdown
-7. **`scripts/local-llm-stacktrace-hook.sh`** — PostToolUse Bash stack-trace distiller (ERROR / LOCATION / CAUSE)
-8. **`scripts/local-llm-pr-draft-hook.sh`** — PostToolUse `git push -u origin` PR description generator
-9. **`scripts/local-llm-spec-criteria-hook.sh`** — PostToolUse Edit/Write speckit spec testability checker
-10. **`scripts/local-llm-changelog-hook.sh`** — PostToolUse Edit/Write `CHANGELOG.md` keep-a-changelog drafter
-11. **`scripts/local-llm-orientation-hook.sh`** — SessionStart "where you left off" project orientation
-12. **`scripts/local-llm-tlc-translate-hook.sh`** — PostToolUse Bash TLC counterexample → plain English
-13. **`scripts/local-llm-migration-safety-hook.sh`** — PostToolUse Edit/Write DB migration safety scanner
-14. **`scripts/local-llm-test-gap-hook.sh`** — PostToolUse Edit/Write source-file test coverage gap detector
-15. **`scripts/local-llm-async-audit-hook.sh`** — PostToolUse Edit/Write `*.cs` async/await anti-pattern scanner
-16. **`scripts/local-llm-auth-check-hook.sh`** — PostToolUse Edit/Write controller endpoint auth-attribute audit
-17. **`scripts/local-llm-linq-perf-hook.sh`** — PostToolUse Edit/Write `*.cs` LINQ inefficiency detector
-18. **`scripts/local-llm-test-name-hook.sh`** — PostToolUse Edit/Write vague-test-name detector
-19. **`scripts/local-llm-test-assertion-hook.sh`** — PostToolUse Edit/Write tests-without-assertions detector
-20. **`scripts/local-llm-test-realism-hook.sh`** — PostToolUse Edit/Write placeholder-test-data detector
-21. **`scripts/local-llm-task-traceability-hook.sh`** — PostToolUse Edit/Write tasks.md ↔ spec.md traceability
-22. **`scripts/local-llm-allium-drift-rank-hook.sh`** — PostToolUse Bash Allium drift severity ranker
-23. **`scripts/local-llm-allium-openq-hook.sh`** — PostToolUse Edit/Write `*.allium` open-question extractor
-24. **`scripts/local-llm-dockerfile-review-hook.sh`** — PostToolUse Edit/Write Dockerfile safety/hygiene reviewer
-25. **`scripts/local-llm-branch-name-hook.sh`** — PostToolUse Bash branch-name lazy-detector with suggestions
-26. **`scripts/local-llm-pr-splitter-hook.sh`** — PostToolUse Bash large-PR split suggester
-27. **`scripts/local-llm-react-deps-hook.sh`** — PostToolUse Edit/Write React hook deps array audit
-28. **`scripts/local-llm-n1-query-hook.sh`** — PostToolUse Edit/Write N+1 query detector for .cs
-29. **`scripts/local-llm-secret-scan-hook.sh`** — PostToolUse Edit/Write secret-leak scanner with LLM false-positive filter
-30. **`scripts/local-llm-todo-catalog-hook.sh`** — PostToolUse Edit/Write TODO/FIXME accumulation catalog
-31. **`scripts/local-llm-spec-scope-hook.sh`** — PostToolUse Edit/Write spec.md scope-creep detector
-32. **`scripts/local-llm-plan-feasibility-hook.sh`** — PostToolUse Edit/Write plan.md feasibility reviewer
-33. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
-34. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the draft caches do not leak into the repo
+**Files to sync** (use `Glob` against the template root for the hook scripts so this list does not need hand-editing as new hooks land):
 
-**Hook entries to merge into `.claude/settings.json`** (UNION as usual — do not remove existing project hooks):
+1. **`scripts/local-llm-detect.sh`** — sourced helper, pings Ollama and exports `LOCAL_LLM_AVAILABLE`
+2. **`scripts/local-llm-call.sh`** — generic `/api/generate` caller. Auto-detects project root for per-project telemetry logs, writes a tracer line on every entry, captures write errors to a sibling `.errors` file
+3. **`scripts/local-llm-stats.sh`** — per-hook ROI reporter. `--all` aggregates across `~/repos/*` and `~/Projects/*`
+4. **`scripts/sync-local-llm-hooks.py`** — deterministic settings.json hook-merge helper invoked below
+5. **Glob: every `scripts/local-llm-*-hook.sh`** — copy each matching file from the template. Files in the project but no longer in the template should be removed (template owns the script set)
+6. **`.claude/docs/local-llm.md`** — env var reference, setup, telemetry, failure modes
+7. **`.gitignore`** — see "Gitignore additions" below
 
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "bash scripts/local-llm-classify-hook.sh" }] }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "bash scripts/local-llm-bash-tldr-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-commit-draft-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-stacktrace-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-pr-draft-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-tlc-translate-hook.sh" }
-        ]
-      },
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          { "type": "command", "command": "bash scripts/local-llm-humanize-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-spec-criteria-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-changelog-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-migration-safety-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-test-gap-hook.sh" }
-        ]
-      }
-    ],
-    "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "bash scripts/local-llm-orientation-hook.sh" }] }
-    ]
-  }
-}
+After copying scripts, run `chmod +x scripts/local-llm-*.sh scripts/sync-local-llm-hooks.py`.
+
+**Wire the hooks deterministically** (this is what previously failed under prose-only "merge" rules):
+
+```bash
+python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/settings.json
 ```
 
-After copying the scripts, run `chmod +x scripts/local-llm-*.sh` so the hooks are executable.
+The script strips every `bash scripts/local-llm-*-hook.sh` entry from the project's `.claude/settings.json` and reinstalls the template's exact set. Non-local-LLM hook entries (project-specific or other template hooks like `tla-hook.sh`, `ui-design-hook.sh`) are preserved verbatim. Idempotent. Capture its stdout for the Step 10 report.
+
+**Do NOT additively merge local-LLM hook entries by hand.** Prose merge rules conflict with "preserve project-specific customizations" and the result is stale wiring that the project keeps forever. The script is the deterministic source of truth; let it do the work.
+
+**Currently wired by default (13 token-saver hooks):**
+
+| Event | Hook | Why it saves tokens |
+|-------|------|---------------------|
+| UserPromptSubmit | `classify` | Routing hint lets Claude skip heavy skills (Allium / TLA+) on simple work |
+| SessionStart | `orientation` | Replaces the SessionStart `git log` / `status` / `diff` discovery roundtrip |
+| PostToolUse Bash (`git add`) | `commit-draft` | Pre-drafts commit message to a file; Claude refines instead of regenerating |
+| PostToolUse Bash (`git push -u`) | `pr-draft` | Pre-drafts PR title + Summary + Test plan |
+| PostToolUse Bash (`gh run view`) | `gh-run-view` | Digests CI run output (often 5000+ lines) into per-job failure summary |
+| PostToolUse Bash (`gh pr view`) | `gh-pr-view` | Digests PR description + decisions + open threads |
+| PostToolUse Bash (`gh issue view`) | `gh-issue-view` | Digests issue body + comment thread |
+| PostToolUse Edit/Write `CHANGELOG.md` | `changelog` | Pre-drafts keep-a-changelog entries from `git log` |
+| PostToolUse Edit/Write `specs/*/spec.md` | `tasks-draft` | Pre-drafts initial `tasks.md` so `/tasks` refines instead of generates |
+| PostToolUse Edit/Write `specs/*/spec.md` | `plan-draft` | Pre-drafts initial `plan.md` so `/plan` refines instead of generates |
+| PostToolUse Edit/Write fresh `README.md` | `readme-skeleton` | Drafts standard sections from repo signals |
+| PostToolUse Edit/Write fresh `.gitignore` | `gitignore-skeleton` | Drafts language-appropriate ignores from detected stacks |
+| PostToolUse Edit/Write `.env*` | `dotenv-example` | Drafts `.env.example` from env-var references grepped out of code |
 
 **Per-developer setup** (each developer who wants the offload to actually fire):
 
@@ -321,10 +287,34 @@ If a developer skips this, every local-llm-* hook detects the missing daemon in 
 | `LOCAL_LLM_MODEL` | `llama3` | Model tag — Ollama auto-resolves untagged to `:latest` |
 | `LOCAL_LLM_TIMEOUT` | `15` | Generation timeout (seconds) |
 | `LOCAL_LLM_CLASSIFY_TIMEOUT` | `4` | Tighter timeout for the prompt-path classifier |
-| `LOCAL_LLM_TLDR_MIN_CHARS` | `4000` | Minimum Bash output size before TLDR fires |
+| `LOCAL_LLM_COMMIT_DIFF_BYTES` | `10000` | Diff cap for commit-draft (raise if you commit huge diffs) |
+| `LOCAL_LLM_COMMIT_DRAFT_TIMEOUT` | `20` | Per-hook timeout for commit-draft (overrides the global) |
+| `LOCAL_LLM_TELEMETRY_LOG` | `<repo>/.claude/local-llm-fire.log` | Per-project log path; auto-detected from `git rev-parse --show-toplevel` |
+| `LOCAL_LLM_TRACE_LOG` | `<repo>/.claude/local-llm-trace.log` | Per-project entry-tracer log |
+| `LOCAL_LLM_TELEMETRY_DISABLE` | unset | Set to `1` to skip telemetry rows |
 | `LOCAL_LLM_DISABLE` | unset | Set to `1` to force-disable every offload hook |
 
-If any of the 8 files in this section are missing — copy from the template. If the four hook entries are missing from `settings.json` — merge them in.
+**Gitignore additions** (ensure all of these are present):
+
+```
+.claude/.local-llm-*
+.claude/local-llm-*.log
+.claude/local-llm-*.log.errors
+```
+
+The first pattern hides the draft artifacts that hooks write (`.local-llm-commit-draft.md`, `.local-llm-pr-context.md`, etc.). The second hides per-project telemetry logs. The third hides telemetry write-error logs.
+
+**Verification** (run in the project root after sync):
+
+```bash
+# Should be 13 (the wired token-saver set)
+grep -c 'local-llm-.*-hook.sh' .claude/settings.json
+
+# Should produce no output (no stale quality gates wired)
+grep -E 'bash-tldr|stacktrace|allium-drift|test-(name|assertion|realism|gap)|async-audit|auth-check|linq-perf|n1-query|react-deps|secret-scan|todo-catalog|dockerfile-review|migration-safety|spec-(criteria|scope)|plan-feasibility|task-traceability|allium-openq|branch-name|pr-splitter|tlc-translate|humanize' .claude/settings.json
+```
+
+If either check fails: re-run `python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/settings.json` from the project root.
 
 ### Step 6: Install required skills
 
