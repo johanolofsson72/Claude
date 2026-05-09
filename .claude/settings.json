@@ -152,6 +152,26 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-changelog-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-tasks-draft-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-plan-draft-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-readme-skeleton-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-gitignore-skeleton-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-dotenv-example-hook.sh"
           }
         ]
       },
@@ -174,6 +194,18 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-pr-draft-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-gh-run-view-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-gh-pr-view-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-gh-issue-view-hook.sh"
           }
         ]
       },

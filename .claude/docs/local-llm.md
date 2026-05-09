@@ -4,15 +4,45 @@ Auto-detected hook layer that pushes low-stakes work to a local model when one i
 
 ## Default-wired hooks (token-savers only)
 
-The template ships with **only the hooks that demonstrably reduce Anthropic token consumption** wired into `settings.json`:
+The template ships with **only the hooks that demonstrably reduce Anthropic token consumption** wired into `settings.json`. They follow the artifact pattern: produce a digest or scaffold to a file Claude rereads cheaply on follow-up turns instead of regenerating or re-ingesting the underlying tool output.
+
+**Routing and orientation:**
 
 | Hook | Saves tokens by |
 |------|----------------|
 | `local-llm-classify-hook.sh` | Tagging the prompt so Claude can skip heavy skills (Allium / TLA+) on simple work |
 | `local-llm-orientation-hook.sh` | Replacing the SessionStart `git log` / `status` / `diff` discovery roundtrip |
+
+**Git workflow drafts:**
+
+| Hook | Saves tokens by |
+|------|----------------|
 | `local-llm-commit-draft-hook.sh` | Pre-drafting the commit message to a file so Claude refines instead of regenerating |
 | `local-llm-pr-draft-hook.sh` | Pre-drafting the PR title + Summary + Test plan to a file |
 | `local-llm-changelog-hook.sh` | Pre-drafting `CHANGELOG.md` entries grouped by Conventional type |
+
+**GitHub context digests** (cached per call, reread on follow-up turns):
+
+| Hook | Saves tokens by |
+|------|----------------|
+| `local-llm-gh-run-view-hook.sh` | Digesting `gh run view` CI output (typically 5000+ lines) into a per-job failure summary |
+| `local-llm-gh-pr-view-hook.sh` | Digesting `gh pr view` into PR meta + decisions + open threads |
+| `local-llm-gh-issue-view-hook.sh` | Digesting `gh issue view` into problem + discussion + decisions + next |
+
+**Speckit feature pipeline:**
+
+| Hook | Saves tokens by |
+|------|----------------|
+| `local-llm-tasks-draft-hook.sh` | Drafting initial `tasks.md` from a written `spec.md` so `/tasks` refines instead of generating |
+| `local-llm-plan-draft-hook.sh` | Drafting initial `plan.md` from a written `spec.md` so `/plan` refines instead of generating |
+
+**Project-init scaffolds:**
+
+| Hook | Saves tokens by |
+|------|----------------|
+| `local-llm-readme-skeleton-hook.sh` | Scaffolding a brand-new `README.md` from detected repo signals |
+| `local-llm-gitignore-skeleton-hook.sh` | Scaffolding a brand-new `.gitignore` from detected repo stacks |
+| `local-llm-dotenv-example-hook.sh` | Scaffolding `.env.example` from env-var references grepped out of the codebase |
 
 The remaining hook scripts in `scripts/local-llm-*-hook.sh` are **quality gates** — they catch bugs by injecting advisory context. They cost tokens, they don't save them. Wire them into `settings.json` per project when the bug-catching value is worth the per-fire context overhead, but do not enable them by default.
 
