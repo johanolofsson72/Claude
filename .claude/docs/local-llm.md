@@ -10,6 +10,10 @@ Auto-detected hook layer that pushes low-stakes work to a local model when one i
 | `local-llm-bash-tldr-hook.sh` | `PostToolUse` on `Bash`, output > 4000 chars | Three-line TLDR (WHAT / KEY / VERDICT) appended as additional context. |
 | `local-llm-commit-draft-hook.sh` | `PostToolUse` on `Bash` matching `git add` | Generates a Conventional Commit draft from staged diff. Saved to `.claude/.local-llm-commit-draft.md`. |
 | `local-llm-humanize-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.md`, `README*`, `CHANGELOG*`, `CONTRIBUTING*` | Scans for AI-tells (em-dash overuse, inflated vocab, rule of three, hollow openers). Reports issues; does not modify the file. |
+| `local-llm-stacktrace-hook.sh` | `PostToolUse` on `Bash`, output > 2000 chars and contains error/exception keywords | Extracts ERROR / LOCATION / CAUSE from stack traces — three lines giving the error type, first user-code frame, and likely root cause. |
+| `local-llm-pr-draft-hook.sh` | `PostToolUse` on `Bash` matching `git push -u origin <branch>` | Reads the diff between branch and main, drafts PR title + Summary + Test plan. Saved to `.claude/.local-llm-pr-draft.md`. |
+| `local-llm-spec-criteria-hook.sh` | `PostToolUse` on `Edit`/`Write` for `specs/<id>/spec.md` and `.specify/specs/<id>/spec.md` | Scans Acceptance Criteria for vague/untestable language ("works well", "is fast"), suggests measurable replacements. |
+| `local-llm-changelog-hook.sh` | `PostToolUse` on `Edit`/`Write` for `CHANGELOG.md` | Reads commits since last tag, groups by Conventional type, drafts entries in keep-a-changelog format to `.claude/.local-llm-changelog-draft.md`. |
 
 The humanize hook excludes Claude-internal markdown (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `.claude/docs/`, `.specify/`) so it only fires on human-facing copy.
 
@@ -32,6 +36,7 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 | `LOCAL_LLM_DISABLE` | unset | Set to `1` to force-disable every offload hook. |
 | `LOCAL_LLM_CLASSIFY_TIMEOUT` | `4` | Tighter timeout for the `UserPromptSubmit` classifier so the prompt path stays snappy. |
 | `LOCAL_LLM_TLDR_MIN_CHARS` | `4000` | Minimum Bash output size before the TLDR hook fires. |
+| `LOCAL_LLM_STACKTRACE_MIN_CHARS` | `2000` | Minimum Bash output size before the stack-trace distiller fires. |
 
 ## Setup
 

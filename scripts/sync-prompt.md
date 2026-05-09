@@ -103,6 +103,10 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `scripts/local-llm-bash-tldr-hook.sh` — PostToolUse hook on `Bash`. When stdout+stderr exceeds `LOCAL_LLM_TLDR_MIN_CHARS` (default 4000), generates a 3-line WHAT/KEY/VERDICT summary and injects it as `additionalContext` alongside the raw output.
 - `scripts/local-llm-commit-draft-hook.sh` — PostToolUse hook on `Bash` matching `git add`. Reads the staged diff, drafts a Conventional Commit message via local LLM, writes it to `.claude/.local-llm-commit-draft.md`, and surfaces the path as `additionalContext`. The draft path is gitignored.
 - `scripts/local-llm-humanize-hook.sh` — PostToolUse hook on `Edit`/`Write` for `*.md` / `README*` / `CHANGELOG*` / `CONTRIBUTING*`. Excludes Claude-internal docs (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `.claude/docs/`, `.specify/`). Reports AI-tells (em-dash overuse, inflated vocab, rule of three, hollow openers) as `additionalContext`. Read-only: never modifies the file.
+- `scripts/local-llm-stacktrace-hook.sh` — PostToolUse hook on `Bash`. When output >2000 chars contains error/exception/traceback keywords, extracts three lines: ERROR (type and message), LOCATION (first user-code frame), CAUSE (one-line hypothesis). Complementary to bash-tldr.
+- `scripts/local-llm-pr-draft-hook.sh` — PostToolUse hook on `Bash` matching `git push -u origin <branch>`. Reads the branch diff against main/master, drafts PR title + Summary + Test plan to `.claude/.local-llm-pr-draft.md`. Used when the assistant subsequently calls `gh pr create`.
+- `scripts/local-llm-spec-criteria-hook.sh` — PostToolUse hook on `Edit`/`Write` for speckit spec files (`specs/<id>/spec.md` and `.specify/specs/<id>/spec.md`). Scans Acceptance Criteria for vague language ("works well", "is fast"), suggests measurable replacements. Catches loose criteria before `/allium:elicit` runs.
+- `scripts/local-llm-changelog-hook.sh` — PostToolUse hook on `Edit`/`Write` for `CHANGELOG.md`. Reads `git log` since the last tag, groups by Conventional Commit type, drafts keep-a-changelog format entries to `.claude/.local-llm-changelog-draft.md`.
 
 ### Step 2: Read this project's files
 
@@ -209,8 +213,12 @@ The template auto-detects a local Ollama daemon and offloads low-stakes work to 
 4. **`scripts/local-llm-bash-tldr-hook.sh`** — PostToolUse Bash output summarizer (fires above 4000 chars)
 5. **`scripts/local-llm-commit-draft-hook.sh`** — PostToolUse `git add` commit-draft generator
 6. **`scripts/local-llm-humanize-hook.sh`** — PostToolUse Edit/Write AI-tell detector for human-facing markdown
-7. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
-8. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the commit-draft cache does not leak into the repo
+7. **`scripts/local-llm-stacktrace-hook.sh`** — PostToolUse Bash stack-trace distiller (ERROR / LOCATION / CAUSE)
+8. **`scripts/local-llm-pr-draft-hook.sh`** — PostToolUse `git push -u origin` PR description generator
+9. **`scripts/local-llm-spec-criteria-hook.sh`** — PostToolUse Edit/Write speckit spec testability checker
+10. **`scripts/local-llm-changelog-hook.sh`** — PostToolUse Edit/Write `CHANGELOG.md` keep-a-changelog drafter
+11. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
+12. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the draft caches do not leak into the repo
 
 **Hook entries to merge into `.claude/settings.json`** (UNION as usual — do not remove existing project hooks):
 
@@ -225,13 +233,17 @@ The template auto-detects a local Ollama daemon and offloads low-stakes work to 
         "matcher": "Bash",
         "hooks": [
           { "type": "command", "command": "bash scripts/local-llm-bash-tldr-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-commit-draft-hook.sh" }
+          { "type": "command", "command": "bash scripts/local-llm-commit-draft-hook.sh" },
+          { "type": "command", "command": "bash scripts/local-llm-stacktrace-hook.sh" },
+          { "type": "command", "command": "bash scripts/local-llm-pr-draft-hook.sh" }
         ]
       },
       {
         "matcher": "Edit|Write",
         "hooks": [
-          { "type": "command", "command": "bash scripts/local-llm-humanize-hook.sh" }
+          { "type": "command", "command": "bash scripts/local-llm-humanize-hook.sh" },
+          { "type": "command", "command": "bash scripts/local-llm-spec-criteria-hook.sh" },
+          { "type": "command", "command": "bash scripts/local-llm-changelog-hook.sh" }
         ]
       }
     ]

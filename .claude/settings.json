@@ -152,6 +152,14 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-humanize-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-spec-criteria-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-changelog-hook.sh"
           }
         ]
       },
@@ -174,6 +182,14 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-commit-draft-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-stacktrace-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-pr-draft-hook.sh"
           }
         ]
       },
