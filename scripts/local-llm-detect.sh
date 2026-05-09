@@ -11,7 +11,7 @@
 #   LOCAL_LLM_DETECT_TIMEOUT  seconds for the reachability ping, default 1
 #   LOCAL_LLM_DISABLE    set to 1 to force-disable the offload hooks
 
-LOCAL_LLM_HOST="${OLLAMA_HOST:-http://localhost:11434}"
+LOCAL_LLM_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
 LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-llama3}"
 LOCAL_LLM_TIMEOUT="${LOCAL_LLM_TIMEOUT:-15}"
 LOCAL_LLM_DETECT_TIMEOUT="${LOCAL_LLM_DETECT_TIMEOUT:-1}"

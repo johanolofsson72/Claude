@@ -25,7 +25,7 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama base URL. |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama base URL. Defaults to IPv4 loopback explicitly to avoid Happy-Eyeballs routing to a different ollama instance when both IPv4 and IPv6 listeners exist on port 11434. |
 | `LOCAL_LLM_MODEL` | `llama3` | Model tag for `ollama pull`. Untagged resolves to whatever `llama3:latest` points to on the host (8B by default). |
 | `LOCAL_LLM_TIMEOUT` | `15` | Generation timeout in seconds. |
 | `LOCAL_LLM_DETECT_TIMEOUT` | `1` | Reachability ping timeout. |
@@ -38,7 +38,7 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 1. Install Ollama: `brew install ollama` (or your platform equivalent).
 2. Pull the model: `ollama pull llama3` (or set `LOCAL_LLM_MODEL` to whatever you have, e.g. `qwen2.5:7b`).
 3. Start the daemon: `ollama serve` (or just run it once; it stays warm in the background).
-4. Verify: `curl -s http://localhost:11434/api/tags | jq '.models[].name'`.
+4. Verify: `curl -s http://127.0.0.1:11434/api/tags | jq '.models[].name'`.
 
 That is the entire setup. Hooks pick up Ollama on the next prompt.
 

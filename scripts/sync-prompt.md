@@ -97,7 +97,7 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `scripts/tlc-cleanup.sh` — TLC process cleanup (kills orphaned Java/TLC processes after execution)
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
-- `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://localhost:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama.
+- `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama. Default uses 127.0.0.1 explicitly to avoid Happy-Eyeballs routing to the wrong ollama instance when both IPv4 and IPv6 listeners exist on port 11434.
 - `scripts/local-llm-call.sh` — Generic non-streaming `/api/generate` caller. Reads system prompt as `$1`, user prompt from stdin, num_predict as optional `$2`. Prints model output or exits non-zero on offline/timeout/missing-model.
 - `scripts/local-llm-classify-hook.sh` — UserPromptSubmit hook. Tags the incoming prompt as TRIVIAL / MEDIUM / COMPLEX via local LLM and injects the hint as `additionalContext`. Skips prompts ≤20 chars. Honors `LOCAL_LLM_CLASSIFY_TIMEOUT` (default 4s) so the prompt path stays snappy.
 - `scripts/local-llm-bash-tldr-hook.sh` — PostToolUse hook on `Bash`. When stdout+stderr exceeds `LOCAL_LLM_TLDR_MIN_CHARS` (default 4000), generates a 3-line WHAT/KEY/VERDICT summary and injects it as `additionalContext` alongside the raw output.
@@ -255,7 +255,7 @@ If a developer skips this, every local-llm-* hook detects the missing daemon in 
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama base URL |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama base URL (IPv4 loopback by default to avoid Happy-Eyeballs surprises) |
 | `LOCAL_LLM_MODEL` | `llama3` | Model tag — Ollama auto-resolves untagged to `:latest` |
 | `LOCAL_LLM_TIMEOUT` | `15` | Generation timeout (seconds) |
 | `LOCAL_LLM_CLASSIFY_TIMEOUT` | `4` | Tighter timeout for the prompt-path classifier |
