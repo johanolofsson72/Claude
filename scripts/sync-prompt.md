@@ -97,6 +97,12 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `scripts/tlc-cleanup.sh` — TLC process cleanup (kills orphaned Java/TLC processes after execution)
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
+- `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://localhost:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama.
+- `scripts/local-llm-call.sh` — Generic non-streaming `/api/generate` caller. Reads system prompt as `$1`, user prompt from stdin, num_predict as optional `$2`. Prints model output or exits non-zero on offline/timeout/missing-model.
+- `scripts/local-llm-classify-hook.sh` — UserPromptSubmit hook. Tags the incoming prompt as TRIVIAL / MEDIUM / COMPLEX via local LLM and injects the hint as `additionalContext`. Skips prompts ≤20 chars. Honors `LOCAL_LLM_CLASSIFY_TIMEOUT` (default 4s) so the prompt path stays snappy.
+- `scripts/local-llm-bash-tldr-hook.sh` — PostToolUse hook on `Bash`. When stdout+stderr exceeds `LOCAL_LLM_TLDR_MIN_CHARS` (default 4000), generates a 3-line WHAT/KEY/VERDICT summary and injects it as `additionalContext` alongside the raw output.
+- `scripts/local-llm-commit-draft-hook.sh` — PostToolUse hook on `Bash` matching `git add`. Reads the staged diff, drafts a Conventional Commit message via local LLM, writes it to `.claude/.local-llm-commit-draft.md`, and surfaces the path as `additionalContext`. The draft path is gitignored.
+- `scripts/local-llm-humanize-hook.sh` — PostToolUse hook on `Edit`/`Write` for `*.md` / `README*` / `CHANGELOG*` / `CONTRIBUTING*`. Excludes Claude-internal docs (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `.claude/docs/`, `.specify/`). Reports AI-tells (em-dash overuse, inflated vocab, rule of three, hollow openers) as `additionalContext`. Read-only: never modifies the file.
 
 ### Step 2: Read this project's files
 
@@ -190,6 +196,73 @@ brew tap juxt/allium && brew install allium
 # Or Cargo
 cargo install allium-cli
 ```
+
+### Step 5c: Verify local-LLM offload stack
+
+The template auto-detects a local Ollama daemon and offloads low-stakes work to it (prompt classification, Bash output TLDRs, commit-message drafts, humanizer pre-checks). When Ollama is not running on the developer's machine, every hook becomes a silent no-op — the stack is safe to ship to projects regardless of whether each developer runs Ollama locally.
+
+**Files to sync:**
+
+1. **`scripts/local-llm-detect.sh`** — sourced helper that pings Ollama and exports `LOCAL_LLM_AVAILABLE`
+2. **`scripts/local-llm-call.sh`** — generic `/api/generate` caller
+3. **`scripts/local-llm-classify-hook.sh`** — UserPromptSubmit complexity classifier
+4. **`scripts/local-llm-bash-tldr-hook.sh`** — PostToolUse Bash output summarizer (fires above 4000 chars)
+5. **`scripts/local-llm-commit-draft-hook.sh`** — PostToolUse `git add` commit-draft generator
+6. **`scripts/local-llm-humanize-hook.sh`** — PostToolUse Edit/Write AI-tell detector for human-facing markdown
+7. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
+8. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the commit-draft cache does not leak into the repo
+
+**Hook entries to merge into `.claude/settings.json`** (UNION as usual — do not remove existing project hooks):
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "bash scripts/local-llm-classify-hook.sh" }] }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash scripts/local-llm-bash-tldr-hook.sh" },
+          { "type": "command", "command": "bash scripts/local-llm-commit-draft-hook.sh" }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "bash scripts/local-llm-humanize-hook.sh" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+After copying the scripts, run `chmod +x scripts/local-llm-*.sh` so the hooks are executable.
+
+**Per-developer setup** (each developer who wants the offload to actually fire):
+
+```bash
+brew install ollama          # or platform equivalent (apt/dnf/pacman)
+ollama pull llama3           # 8B by default; resolves to llama3:latest
+ollama serve &               # daemon stays warm in background
+```
+
+If a developer skips this, every local-llm-* hook detects the missing daemon in 1s and exits silently. Nothing breaks; they simply do not get the offload benefit.
+
+**Per-project tuning** (optional, in shell profile or `.envrc`):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama base URL |
+| `LOCAL_LLM_MODEL` | `llama3` | Model tag — Ollama auto-resolves untagged to `:latest` |
+| `LOCAL_LLM_TIMEOUT` | `15` | Generation timeout (seconds) |
+| `LOCAL_LLM_CLASSIFY_TIMEOUT` | `4` | Tighter timeout for the prompt-path classifier |
+| `LOCAL_LLM_TLDR_MIN_CHARS` | `4000` | Minimum Bash output size before TLDR fires |
+| `LOCAL_LLM_DISABLE` | unset | Set to `1` to force-disable every offload hook |
+
+If any of the 8 files in this section are missing — copy from the template. If the four hook entries are missing from `settings.json` — merge them in.
 
 ### Step 6: Install required skills
 
