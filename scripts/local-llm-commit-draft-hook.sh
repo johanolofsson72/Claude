@@ -20,7 +20,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 DIFF_STAT=$(git -C "$REPO_ROOT" diff --cached --stat 2>/dev/null)
 [ -n "$DIFF_STAT" ] || exit 0
 
-DIFF_FULL=$(git -C "$REPO_ROOT" diff --cached 2>/dev/null | head -c 6000)
+DIFF_FULL=$(git -C "$REPO_ROOT" diff --cached 2>/dev/null | head -c 24000)
 
 SYSTEM='Draft a Conventional Commit message for the staged diff.
 Format:
