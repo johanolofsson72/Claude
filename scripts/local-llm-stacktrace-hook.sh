@@ -20,15 +20,19 @@ COMBINED="${STDOUT}
 ${STDERR}"
 
 LEN=${#COMBINED}
-THRESHOLD="${LOCAL_LLM_STACKTRACE_MIN_CHARS:-2000}"
+THRESHOLD="${LOCAL_LLM_STACKTRACE_MIN_CHARS:-3000}"
 [ "$LEN" -gt "$THRESHOLD" ] || exit 0
 
 # Cheap pre-filter: only fire if output looks like it has an error / stack trace.
 echo "$COMBINED" | grep -qiE '(exception|error|panic:|fatal:|traceback|^[[:space:]]+at[[:space:]]+.+:[0-9]+|FAIL[!:]|System\.[A-Za-z]+Exception|Microsoft\.[A-Za-z.]+Exception)' || exit 0
 
-# Sample head + tail to capture both the failing command intent and the deepest stack frames.
-HEAD=$(printf '%s' "$COMBINED" | head -c 3000)
-TAIL=$(printf '%s' "$COMBINED" | tail -c 5000)
+# Cap input to keep the call under the 15s curl timeout. Asymmetric on
+# purpose: head captures the failing command intent, tail keeps the
+# deepest (and most useful) stack frames.
+HEAD_CAP="${LOCAL_LLM_STACKTRACE_HEAD_CHARS:-1500}"
+TAIL_CAP="${LOCAL_LLM_STACKTRACE_TAIL_CHARS:-2500}"
+HEAD=$(printf '%s' "$COMBINED" | head -c "$HEAD_CAP")
+TAIL=$(printf '%s' "$COMBINED" | tail -c "$TAIL_CAP")
 PAYLOAD=$(printf '== HEAD ==\n%s\n\n== TAIL ==\n%s\n' "$HEAD" "$TAIL")
 
 SYSTEM='Extract the actionable signal from a stack trace or error log for a coding assistant.
@@ -42,7 +46,7 @@ If the cause is genuinely unclear, write CAUSE: insufficient context — needs d
 Never invent file paths or line numbers.'
 
 REPORT=$(printf '%s' "$PAYLOAD" \
-  | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 192 2>/dev/null)
+  | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 128 2>/dev/null)
 
 [ -n "$REPORT" ] || exit 0
 

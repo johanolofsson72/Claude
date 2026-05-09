@@ -86,7 +86,21 @@ fi
 awk -v filter="$FILTER_EPOCH" '
   BEGIN { FS = "\t" }
   {
-    ts = $1; hook = $2; exit_code = $3 + 0; dur = $4 + 0; bytes = $5 + 0
+    ts = $1; hook = $2; exit_code = $3 + 0
+    # Schema autodetect via NF.
+    #   v1 (5 cols): ts hook exit duration_seconds prompt_bytes
+    #   v2 (6 cols): ts hook exit duration_ms      prompt_bytes response_bytes
+    if (NF >= 6) {
+      dur_ms = $4 + 0
+      pb     = $5 + 0
+      rb     = $6 + 0
+      v2_rows++
+    } else {
+      dur_ms = ($4 + 0) * 1000
+      pb     = $5 + 0
+      rb     = 0
+      v1_rows++
+    }
     if (filter > 0) {
       cmd = "date -j -f %Y-%m-%dT%H:%M:%S%z \"" ts "\" +%s 2>/dev/null \
              || date -d \"" ts "\" +%s 2>/dev/null"
@@ -94,10 +108,11 @@ awk -v filter="$FILTER_EPOCH" '
       if (epoch + 0 < filter) next
     }
     fires[hook]++
-    total_dur[hook] += dur
-    total_bytes[hook] += bytes
+    total_dur[hook]    += dur_ms
+    total_prompt[hook] += pb
+    total_resp[hook]   += rb
     if (exit_code == 0) ok[hook]++
-    else fail_time[hook] += dur
+    else fail_time[hook] += dur_ms
     grand++
   }
   END {
@@ -105,19 +120,28 @@ awk -v filter="$FILTER_EPOCH" '
       print "No fires in window."
       exit 0
     }
-    printf "%-32s %6s %5s %7s %12s %10s\n", \
-      "hook", "fires", "ok%", "avg(s)", "fail_time(s)", "avg_bytes"
-    printf "%-32s %6s %5s %7s %12s %10s\n", \
-      "----", "-----", "---", "------", "-----------", "---------"
+    printf "%-32s %6s %5s %7s %12s %10s %10s\n", \
+      "hook", "fires", "ok%", "avg(s)", "fail_time(s)", "avg_prompt", "avg_resp"
+    printf "%-32s %6s %5s %7s %12s %10s %10s\n", \
+      "----", "-----", "---", "------", "-----------", "----------", "--------"
     for (h in fires) {
       n = fires[h]
       pct = (ok[h] + 0) / n * 100
-      avg = total_dur[h] / n
-      ab  = int(total_bytes[h] / n)
-      printf "%-32s %6d %4.0f%% %7.2f %12d %10d\n", \
-        h, n, pct, avg, fail_time[h] + 0, ab
+      avg_s = total_dur[h] / n / 1000
+      ft_s  = (fail_time[h] + 0) / 1000
+      ap = int(total_prompt[h] / n)
+      ar = int(total_resp[h]   / n)
+      printf "%-32s %6d %4.0f%% %7.2f %12.1f %10d %10d\n", \
+        h, n, pct, avg_s, ft_s, ap, ar
     }
-    printf "\ntotal fires: %d\n", grand
+    printf "\ntotal fires: %d", grand
+    if (v1_rows > 0 && v2_rows > 0) {
+      printf "  (mixed schema: %d v1 rows in seconds with no response_bytes, %d v2 rows in ms)", \
+        v1_rows, v2_rows
+    } else if (v1_rows > 0) {
+      printf "  (v1 schema: avg_resp shows 0 because old logs did not record response bytes)"
+    }
+    printf "\n"
   }
 ' "${LOGS[@]}" | (
   read -r header

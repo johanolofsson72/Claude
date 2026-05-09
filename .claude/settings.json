@@ -172,6 +172,26 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-dotenv-example-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-n1-query-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-migration-safety-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-react-deps-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-dockerfile-review-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-async-audit-hook.sh"
           }
         ]
       },
@@ -206,6 +226,14 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-gh-issue-view-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-bash-tldr-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-stacktrace-hook.sh"
           }
         ]
       },

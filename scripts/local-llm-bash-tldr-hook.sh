@@ -16,13 +16,16 @@ COMBINED="${STDOUT}
 ${STDERR}"
 
 LEN=${#COMBINED}
-THRESHOLD="${LOCAL_LLM_TLDR_MIN_CHARS:-4000}"
+THRESHOLD="${LOCAL_LLM_TLDR_MIN_CHARS:-6000}"
 [ "$LEN" -gt "$THRESHOLD" ] || exit 0
 
-# Cap input to keep the call snappy. Keep both ends — top usually has the
-# command intent, tail usually has the verdict / errors.
-TRUNCATED=$(printf '%s' "$COMBINED" | head -c 4000)
-TAIL=$(printf '%s' "$COMBINED" | tail -c 4000)
+# Cap input to keep the call under the 15s curl timeout. Asymmetric on
+# purpose: head gets just enough to capture the command intent, tail
+# gets the bulk because verdicts and errors live there.
+HEAD_CAP="${LOCAL_LLM_TLDR_HEAD_CHARS:-1500}"
+TAIL_CAP="${LOCAL_LLM_TLDR_TAIL_CHARS:-2500}"
+TRUNCATED=$(printf '%s' "$COMBINED" | head -c "$HEAD_CAP")
+TAIL=$(printf '%s' "$COMBINED" | tail -c "$TAIL_CAP")
 PAYLOAD=$(printf '== HEAD ==\n%s\n\n== TAIL ==\n%s\n' "$TRUNCATED" "$TAIL")
 
 SYSTEM='Summarize command output for a coding assistant. Output exactly three lines:
@@ -32,7 +35,7 @@ VERDICT: <success | failure | partial>
 No preamble, no markdown, no extra lines.'
 
 SUMMARY=$(printf '%s' "$PAYLOAD" \
-  | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 192 2>/dev/null)
+  | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 96 2>/dev/null)
 
 [ -n "$SUMMARY" ] || exit 0
 

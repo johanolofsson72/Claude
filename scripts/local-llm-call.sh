@@ -55,13 +55,33 @@ PAYLOAD=$(jq -nc \
     options: { temperature: 0.2, num_predict: $num_predict }
   }')
 
-T0=$(date +%s)
+# Millisecond-precision wall clock. macOS `date` does not support %3N, so
+# fall back through gdate (homebrew coreutils), python3, then plain
+# seconds × 1000 as a last resort.
+now_ms() {
+  if command -v gdate >/dev/null 2>&1; then
+    gdate +%s%3N
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null
+  else
+    echo "$(($(date +%s) * 1000))"
+  fi
+}
+
+T0=$(now_ms)
 RESPONSE=$(curl -sf --max-time "$LOCAL_LLM_TIMEOUT" \
   -X POST "${LOCAL_LLM_HOST}/api/generate" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" 2>/dev/null)
 CURL_EXIT=$?
-T1=$(date +%s)
+T1=$(now_ms)
+
+# Extract the model's response text once. Used both for telemetry byte
+# accounting and as the script's stdout payload.
+RESPONSE_TEXT=""
+if [ $CURL_EXIT -eq 0 ]; then
+  RESPONSE_TEXT=$(printf '%s' "$RESPONSE" | jq -r '.response // empty' 2>/dev/null)
+fi
 
 if [ "${LOCAL_LLM_TELEMETRY_DISABLE:-0}" != "1" ]; then
   # Pipefail off for the ps|grep|head pipeline — head -1 closing early can
@@ -76,10 +96,14 @@ if [ "${LOCAL_LLM_TELEMETRY_DISABLE:-0}" != "1" ]; then
   TELEMETRY_ERR="${TELEMETRY_LOG}.errors"
   mkdir -p "$(dirname "$TELEMETRY_LOG")" 2>>"$TELEMETRY_ERR" || true
   TS=$(date +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || echo "?")
-  DURATION=$((T1 - T0))
+  DURATION_MS=$((T1 - T0))
   PROMPT_BYTES=${#USER_PROMPT}
-  if ! printf '%s\t%s\t%d\t%d\t%d\n' \
-    "$TS" "$HOOK_NAME" "${CURL_EXIT:-99}" "$DURATION" "$PROMPT_BYTES" \
+  RESPONSE_BYTES=${#RESPONSE_TEXT}
+  # Schema v2: 6 columns. Older v1 logs had 5 (duration in seconds, no
+  # response_bytes). local-llm-stats.sh autodetects via NF.
+  if ! printf '%s\t%s\t%d\t%d\t%d\t%d\n' \
+    "$TS" "$HOOK_NAME" "${CURL_EXIT:-99}" "$DURATION_MS" \
+    "$PROMPT_BYTES" "$RESPONSE_BYTES" \
     >> "$TELEMETRY_LOG" 2>>"$TELEMETRY_ERR"; then
     printf 'WRITE_FAIL %s pid=%s ppid=%s\n' "$TS" "$$" "$PPID" \
       >> "$TELEMETRY_ERR" 2>/dev/null || true
@@ -87,4 +111,4 @@ if [ "${LOCAL_LLM_TELEMETRY_DISABLE:-0}" != "1" ]; then
 fi
 
 [ $CURL_EXIT -eq 0 ] || exit 1
-printf '%s' "$RESPONSE" | jq -r '.response // empty' 2>/dev/null
+printf '%s' "$RESPONSE_TEXT"
