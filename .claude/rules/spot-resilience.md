@@ -10,16 +10,19 @@ paths:
 
 # Spot resilience rules
 
-Production sites run on Azure Spot VMs as Swarm workers. Any worker can be evicted with ~30 seconds notice, so containers must assume they will be killed mid-operation. The rules below are non-negotiable for any service deployed to the live4 cluster.
+Production sites run on Azure Spot VMs as Swarm workers. Every worker can be evicted with ~30 seconds notice, so containers must assume they will be killed mid-operation. The rules below are non-negotiable for any service deployed to the live4 cluster.
 
 ## Architecture (BLOCKING)
 
-Stateful workloads (SQLite, Redis with persistence, anything with local files) must NOT run on a spot node. The volume dies with the node. Every project must either:
+The cluster has one manager (`live4-mgr-01`) and three spot workers. **All workers are spot.** There is no reserved/non-spot worker. Stateful services run on whichever spot worker the scheduler picks; durability comes from the NFS share exported from the manager (Azure managed disk → NFS → mounted on every worker).
 
-1. Pin stateful services to a reserved (non-spot) node via `node.labels.tier == stateful`, or
-2. Replicate state via LiteFS / Litestream / managed Postgres.
+Every project's compose file must therefore:
 
-See `.claude/docs/spot-architecture.md` for the three reference architectures and full compose templates.
+1. Mount durable state from `/mnt/nfs/<project>/...` (the NFS export, not local-disk on a worker).
+2. Run stateful services with `replicas: 1`, `update_config.order: stop-first`, and `stop_grace_period: 30s`.
+3. Keep workloads off the manager — the manager handles SSH, registry, and NFS export. Use `placement.constraints: [node.role == worker]` to keep services on the spot fleet only.
+
+For SQLite-specific PRAGMAs, NFS mount options, and the single-writer enforcement model, see `.claude/rules/sqlite.md`. For the full reference architectures (NFS-shared SQLite, LiteFS for read-heavy, managed Postgres for state-out-of-cluster), see `.claude/docs/spot-architecture.md`.
 
 ## Required components in every service
 
@@ -76,7 +79,7 @@ The watcher is a no-op outside Azure (IMDS calls fail and are caught), so it is 
 
 ### 2. Graceful drain
 
-Order matters. The first thing to do on shutdown is fail readiness so the load balancer drains traffic, then finish in-flight requests, then flush state. Reverse this order and you serve errors during shutdown.
+Order matters. The first thing to do on shutdown is fail readiness so the load balancer drains traffic, then finish in-flight requests, then flush state and release file handles. Reverse this order and you serve errors during shutdown — or worse, leave half-flushed SQLite handles open on NFS.
 
 ```csharp
 public sealed class GracefulDrain(
@@ -100,7 +103,7 @@ Configure Kestrel to allow in-flight work to finish:
 builder.WebHost.UseShutdownTimeout(TimeSpan.FromSeconds(20));
 ```
 
-In compose, give the container time to checkpoint and drain:
+In compose, give the container time to checkpoint, drain, and release NFS handles:
 
 ```yaml
 deploy:
@@ -108,6 +111,8 @@ deploy:
     order: stop-first
   stop_grace_period: 30s
 ```
+
+`stop-first` is mandatory for SQLite-using services. If the new container opens the NFS-backed DB while the old one still holds it, NFS lock contention plus journal recovery on a stale view of the file is the textbook NFS+SQLite corruption window.
 
 ### 3. Idempotent writes
 
@@ -134,20 +139,23 @@ Anything that triggers a side effect (email, webhook, message queue publish) mus
 
 ## Forbidden patterns
 
-- A service running on the spot tier that holds authoritative state in `IMemoryCache` or in-process buffers without a persistent backing store. Recoverable cache (read-through, derivable) is fine; authoritative is not.
+- A service running stateful workloads on a worker's local disk (anywhere outside `/mnt/nfs/<project>/...`). The local volume dies with the spot VM on eviction.
+- A service running on `live4-mgr-01` (no `placement.constraints: [node.role == worker]`). The manager is for management, registry, and NFS export — not application traffic.
 - A POST/PUT/PATCH/DELETE endpoint without idempotency support.
 - A side-effect call (email, webhook, queue publish) outside the outbox.
-- A `docker-compose*.yml` with a stateful service but no `placement.constraints` block.
-- A `docker-compose*.yml` without `stop_grace_period: 30s` on services that write to SQLite.
-- `update_config.order: start-first` on a stateful service. Use `stop-first` so the old container fully exits and checkpoints before the new one opens the DB file.
+- A SQLite-using service with `replicas > 1`, with `update_config.order: start-first`, or with `stop_grace_period < 30s`. Each one is a guaranteed NFS+SQLite corruption path under load.
+- A `docker-compose*.yml` for a stateful service whose `volumes:` section binds anywhere other than `/mnt/nfs/<project>/...` (or a sibling NFS path) for the durable data.
+- Authoritative state held only in `IMemoryCache` or in-process buffers. Recoverable cache (read-through, derivable) is fine; authoritative is not — the process can vanish in 30 seconds.
 
 ## Healthchecks
 
-Healthchecks must hit the actual dependency, not just `/health`. A process that returns HTTP 200 while its DB connection is broken lies to Swarm and gets traffic it cannot serve.
+Healthchecks must hit the actual dependency, not just `/health`. A process that returns HTTP 200 while its DB connection is broken lies to Swarm and gets traffic it cannot serve. On NFS, "broken DB connection" includes "the NFS server is reachable but lock acquisition is timing out" — `/health/db` must catch that.
 
 ```dockerfile
-HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
   CMD wget -qO- http://localhost:8080/health/db || exit 1
 ```
+
+The `--timeout=5s` and `--start-period=30s` are tuned for NFS — local-disk SQLite would use 3s/20s. NFS round-trips on cold mounts can run a few seconds long; tighter values produce false-negative restarts.
 
 `/health/db` runs `SELECT 1 FROM sqlite_master LIMIT 1` (or equivalent) against the connection pool. `/health/live` (process is alive) and `/health/ready` (ready to receive traffic, flips on drain) are separate endpoints.

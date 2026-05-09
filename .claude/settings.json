@@ -84,6 +84,15 @@
             "command": "bash scripts/ui-design-hook.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/sqlite-nfs-safety-hook.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [

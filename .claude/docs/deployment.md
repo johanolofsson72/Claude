@@ -18,9 +18,9 @@ ssh -i ~/ubuntu/ubuntu ubuntu@51.12.246.54     # Manager (port 22 or 7222)
 ```
 
 **Private Docker Registry:** `10.2.0.4:5000`
-**NFS mount:** `/mnt/nfs/` (shared storage across all nodes — for static seed data, build artifacts, compose files, and read-only assets ONLY. **Never** for SQLite, Redis with persistence, or any write workload — see `.claude/docs/spot-architecture.md` and `.claude/rules/sqlite.md`.)
+**NFS mount:** `/mnt/nfs/` — shared storage exported from the manager (`live4-mgr-01`) via Azure managed disk, mounted on every worker. This is the **only durable storage** available to the spot fleet, so it holds runtime databases, seed data, build artifacts, and compose files. NFS+SQLite has sharp edges (no WAL, no `mmap`, single writer) — see `.claude/rules/sqlite.md` for the mandatory rules.
 **Reverse proxy:** Nginx Proxy Manager (external overlay network `nginx_npm_network`)
-**Worker fleet:** Workers are Azure Spot VMs and can be evicted with ~30 seconds notice. Stateful services MUST pin to a non-spot worker labeled `tier=stateful` — see `.claude/docs/spot-architecture.md`.
+**Worker fleet:** All workers are Azure Spot VMs and can be evicted with ~30 seconds notice. Stateful services run on the spot fleet with `replicas: 1` and durable state on the NFS share — see `.claude/docs/spot-architecture.md`.
 
 ## Pipeline architecture
 
@@ -73,31 +73,28 @@ GitHub Actions (workflow_dispatch with confirmation)
 **Production environment (in appsettings.Production.json):**
 
 - `ASPNETCORE_ENVIRONMENT=Production`
-- `ConnectionStrings` point to `/data/` — mounted as a **local bind on the reserved (non-spot) `tier=stateful` node**, NOT NFS. SQLite write workloads on NFS corrupt during rolling restart and spot eviction. See `.claude/docs/spot-architecture.md`.
+- `ConnectionStrings` point to `/data/` — bound from `/mnt/nfs/<project>/db/` (the NFS share exported from `live4-mgr-01`). The managed disk on the manager provides durability across spot eviction; the NFS export makes the same file reachable from any spot worker. See `.claude/rules/sqlite.md` for the mandatory pragmas and the single-writer constraints that make NFS+SQLite safe.
 
 ## Storage layout per project
 
-**Shared NFS (`/mnt/nfs/[projectname]/`)** — read-only or build-time only:
+Everything durable lives on the NFS share. The split below is by purpose, not by host — all paths are subdirectories of the same NFS export.
+
+**Shared NFS (`/mnt/nfs/[projectname]/`)** — the only durable storage:
 
 ```text
 /mnt/nfs/[projectname]/
+├── db/
+│   ├── app.db                   # Main database — rollback journal mode, no -shm/-wal sidecar
+│   └── tenants/                 # Per-tenant databases (if applicable)
+│       └── {tenantId}/tenant.db
+├── files/                       # User uploads, cached files
+├── backup/                      # VACUUM INTO snapshots, hourly
 ├── seed-data/                   # Initial seed data (read-only at runtime)
 ├── temp/                        # Staging for Docker images during deploy
 └── docker-compose-stack-*.yml   # Resolved compose file
 ```
 
-**Local bind on the reserved (non-spot) `tier=stateful` node (`/var/lib/[projectname]/`)** — runtime DBs:
-
-```text
-/var/lib/[projectname]/
-├── db/
-│   ├── app.db (+ shm, wal)      # Main database — local disk, not NFS
-│   └── tenants/                 # Per-tenant databases (if applicable)
-│       └── {tenantId}/tenant.db
-└── files/                       # User uploads, cached files
-```
-
-The split exists because SQLite's WAL mode requires `mmap`'d shared memory which network filesystems do not provide consistently. Putting `app.db` on NFS is what causes the `SQLITE_IOERR (10)` corruption stories during rolling restarts.
+The DB lives on NFS because there is no other durable storage available to the spot fleet — the workers' local disks die on spot eviction. To make NFS+SQLite work safely the project must follow the rules in `.claude/rules/sqlite.md`: rollback-journal mode (no WAL), `mmap_size=0`, `busy_timeout=30000`, `synchronous=FULL`, NFS mount with `noac,actimeo=0`, and single-writer enforcement (`replicas: 1`, `update_config.order: stop-first`, `stop_grace_period: 30s`). Skipping any of these turns NFS+SQLite into a corruption generator under load.
 
 ## Docker Swarm commands
 
@@ -115,30 +112,49 @@ docker stack rm [projectname]                            # Remove stack
 
 When CI/CD is set up for a new project, inform the developer that the following must be created on the server:
 
-**NFS directories (on the manager node) — read-only / build-time only:**
+**NFS directories (on the manager node) — durable runtime storage:**
+
+```bash
+sudo mkdir -p /mnt/nfs/[projectname]/{db,files,backup,seed-data,temp}
+sudo mkdir -p /mnt/nfs/[projectname]/db/tenants     # If multi-tenant
+sudo chown -R 1000:1000 /mnt/nfs/[projectname]      # Match the container user
+sudo chmod -R 770 /mnt/nfs/[projectname]            # Tight perms — NFS-exposed
+```
+
+**NFS export (on the manager, one-time per project):**
+
+Add a line to `/etc/exports`:
+
+```text
+/mnt/nfs/[projectname]  10.2.0.0/22(rw,sync,no_subtree_check,no_root_squash)
+```
+
+Reload exports:
+
+```bash
+sudo exportfs -ra
+sudo exportfs -v   # verify the export landed
+```
+
+`sync` is mandatory — `async` exports lose the durability guarantee SQLite is relying on. `no_subtree_check` avoids spurious `ESTALE` errors on rename.
+
+**NFS mount (on each spot worker, one-time per project):**
+
+Add a line to `/etc/fstab`:
+
+```text
+10.2.0.4:/mnt/nfs/[projectname]  /mnt/nfs/[projectname]  nfs  nfsvers=4.2,hard,proto=tcp,noac,lookupcache=none,actimeo=0,timeo=600,retrans=2  0 0
+```
+
+Mount and verify:
 
 ```bash
 sudo mkdir -p /mnt/nfs/[projectname]
-sudo mkdir -p /mnt/nfs/[projectname]/seed-data
-sudo mkdir -p /mnt/nfs/[projectname]/temp
-sudo chmod -R 777 /mnt/nfs/[projectname]
+sudo mount -a
+mount | grep [projectname]   # confirm the mount options applied
 ```
 
-**Local DB directory on the reserved (non-spot) `tier=stateful` worker — for SQLite and other write workloads:**
-
-```bash
-# SSH into the reserved worker (the one labeled tier=stateful, spot=false)
-sudo mkdir -p /var/lib/[projectname]/db
-sudo mkdir -p /var/lib/[projectname]/db/tenants    # If multi-tenant
-sudo mkdir -p /var/lib/[projectname]/files
-sudo chown -R 1000:1000 /var/lib/[projectname]    # Match the container user
-```
-
-If no node is yet labeled `tier=stateful`, label one before continuing:
-
-```bash
-docker node update --label-add tier=stateful --label-add spot=false live4-wkr-01
-```
+`noac`, `lookupcache=none`, and `actimeo=0` together disable attribute caching — non-negotiable for SQLite locking on multi-host access. Skipping them produces silent corruption that surfaces hours later.
 
 **Project files that must be created:**
 

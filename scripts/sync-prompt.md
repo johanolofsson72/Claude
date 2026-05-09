@@ -60,7 +60,7 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/rules/allium.md` — Allium spec language rules (paths: `**/*.allium`)
 - `.claude/rules/continuous-execution.md` — forbids phase-splitting stalls ("should I continue with phase 2?"); execute multi-phase plans in one uninterrupted run
 - `.claude/rules/project-workflow.md` — gates PR suggestions behind a one-time `AskUserQuestion` (solo vs team + PRs yes/no/sometimes); answer is saved to project memory and silently suppresses PR nagging on solo projects
-- `.claude/rules/sqlite.md` — SQLite pragmas, lifecycle (WAL checkpoint on shutdown), volume rules (no NFS/SMB/blobfuse for write workloads), retry strategy (paths: `**/appsettings*.json`, `**/docker-compose*.yml`, `**/Program.cs`, `**/*Db*.cs`, `**/*Sqlite*.cs`)
+- `.claude/rules/sqlite.md` — SQLite-on-NFS pragmas (rollback journal, no `mmap`, `synchronous=FULL`, 30 s `busy_timeout`), single-writer enforcement (`replicas: 1` + `stop-first` + 30 s grace), NFS mount options (`noac`, `actimeo=0`), retry strategy (paths: `**/appsettings*.json`, `**/docker-compose*.yml`, `**/Program.cs`, `**/*Db*.cs`, `**/*Sqlite*.cs`)
 - `.claude/rules/spot-resilience.md` — required components for services on Azure spot workers: eviction watcher (IMDS scheduled events), graceful drain, idempotent writes, outbox pattern, healthcheck split (paths: `**/Program.cs`, `**/docker-compose*.yml`, controllers/endpoints/services/workers)
 
 **Docs (loaded on demand, referenced from CLAUDE.md):**
@@ -72,8 +72,8 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/docs/workflows.md` — hooks (27 events), skills, subagents, plugins, agent teams
 - `.claude/docs/skills.md` — SKILL.md format, frontmatter fields, recommended skills
 - `.claude/docs/agents-templates.md` — copy-paste agent templates
-- `.claude/docs/deployment.md` — Docker Swarm, CI/CD (now includes the local-disk vs NFS split for stateful workloads)
-- `.claude/docs/spot-architecture.md` — three reference architectures for stateful services on Azure spot workers (reserved DB node, LiteFS, managed Postgres) with full compose templates, volume matrix, healthcheck split, and migration path
+- `.claude/docs/deployment.md` — Docker Swarm, CI/CD, NFS export and mount setup (DBs live on `/mnt/nfs/<project>/db/`, manager exports the Azure managed disk to all spot workers)
+- `.claude/docs/spot-architecture.md` — three reference architectures for stateful services on an all-spot worker fleet (SQLite on NFS share, LiteFS replicas, managed Postgres) with full compose templates, volume matrix, healthcheck split, and migration path
 - `.claude/docs/stress-testing.md` — mandatory pre-deploy stress testing (k6, Lighthouse)
 - `.claude/docs/project-template.md` — template for project start
 
@@ -469,22 +469,41 @@ Then, based on the developer's answer:
 - ALWAYS keep regardless of answer: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`, `continuous-execution.md`, `project-workflow.md`, `continuous-execution-hook.sh`
 - When in doubt, **keep the file** — extra rules cost nothing, missing rules cost bugs
 
-### Step 7b: Audit for SQLite-on-NFS (if .NET + SQLite project)
+### Step 7b: Audit for unsafe SQLite-on-NFS patterns (if .NET + SQLite project)
 
-If the project uses SQLite AND deploys to the live4 cluster, scan for the corruption pattern fixed in this template version:
+The supported live4 architecture is SQLite-on-NFS (the manager exports the Azure managed disk; the spot workers mount it). NFS+SQLite works only when the project follows the strict rules in `.claude/rules/sqlite.md`. Scan for the patterns that break it:
 
 ```bash
-# Find any compose file that mounts NFS for a service that writes SQLite
-grep -RIn --include='docker-compose*.yml' '/mnt/nfs/' . 2>/dev/null | grep -i 'app\.db\|database\|/data'
+# Stateful services with replicas > 1 — guaranteed corruption on NFS+SQLite
+grep -RIn --include='docker-compose*.yml' -E 'replicas:\s*[2-9]' . 2>/dev/null
 
-# Find connection strings that point inside /mnt/nfs
-grep -RIn --include='appsettings*.json' '/mnt/nfs/' . 2>/dev/null
+# update_config.order: start-first — old container still holds the DB when new one opens it
+grep -RIn --include='docker-compose*.yml' 'order:\s*start-first' . 2>/dev/null
 
-# Find services without placement constraints that write SQLite
-grep -RIL --include='docker-compose*.yml' 'placement' . 2>/dev/null
+# stop_grace_period < 30s — not enough time to release NFS handles
+grep -RIn --include='docker-compose*.yml' -E 'stop_grace_period:\s*([0-9]|1[0-9]|2[0-9])s' . 2>/dev/null
+
+# WAL or non-zero mmap on a connection that touches the NFS-backed DB
+grep -RIn -E 'journal_mode\s*=\s*WAL|PRAGMA\s+journal_mode\s*=\s*WAL' . 2>/dev/null
+grep -RIn -E 'mmap_size\s*=\s*[1-9]' . 2>/dev/null
+
+# Connection strings pointing at a worker's local disk instead of NFS
+grep -RIn --include='appsettings*.json' -E '/var/lib/|/home/|/opt/.*\.db' . 2>/dev/null
+
+# Stale "tier=stateful" / "spot=false" placement constraints from the previous (deprecated) architecture
+grep -RIn --include='docker-compose*.yml' -E 'tier\s*==\s*stateful|spot\s*==\s*false' . 2>/dev/null
 ```
 
-If matches are found, **flag for manual review** in Step 10. The fix is to migrate to a local bind on a reserved (non-spot) node — see `.claude/docs/spot-architecture.md` "Migration path for existing projects". Do NOT auto-rewrite compose files; the migration involves SSH'ing to the cluster, copying the DB to the new path, and labeling a node as `tier=stateful`. That is a developer decision, not a sync action.
+If matches are found, **flag for manual review** in Step 10. The fix:
+
+- `replicas > 1` on a SQLite service → drop to `replicas: 1`. Multiple writers on NFS+SQLite corrupt the file.
+- `order: start-first` → switch to `stop-first` so the old container fully exits before the new one opens the DB.
+- `stop_grace_period < 30s` → raise to `30s` so connection pools clear and NFS handles release cleanly.
+- `journal_mode=WAL` or `mmap_size > 0` → switch to `journal_mode=DELETE` and `mmap_size=0`. WAL needs cross-host mmap consistency that NFS does not provide.
+- DB path on local disk → migrate to `/mnt/nfs/<project>/db/`. See `.claude/docs/spot-architecture.md` "Migration path for existing projects".
+- Stale `tier=stateful` / `spot=false` constraints → remove them and replace with `node.role == worker`. The cluster no longer has a reserved-node tier; all workers are spot.
+
+Do NOT auto-rewrite compose files or pragmas — the migration involves SSH'ing to the cluster, copying the DB to the NFS path, and verifying the export is configured with `noac`. That is a developer decision, not a sync action.
 
 ### Step 8: Verify
 
