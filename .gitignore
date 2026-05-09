@@ -5,3 +5,5 @@ temp/
 appsettings.Development.json
 .claude/validation/
 .claude/.local-llm-*
+.claude/projects/
+.claude/settings.local.json
