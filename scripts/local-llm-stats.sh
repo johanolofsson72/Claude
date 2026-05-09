@@ -5,23 +5,60 @@
 #   hook  fires  ok%  avg(s)  fail_time(s)  avg_bytes
 #
 # Usage:
-#   local-llm-stats.sh                   # all-time stats
-#   local-llm-stats.sh --since 1d        # last 24h
-#   local-llm-stats.sh --since 2026-05-01
+#   local-llm-stats.sh                       # this project (auto-detected)
+#   local-llm-stats.sh --since 1d            # last 24h, this project
+#   local-llm-stats.sh --since 2026-05-01    # since absolute date
+#   local-llm-stats.sh --all                 # aggregate across all projects + global
+#   local-llm-stats.sh --log <path>          # read a specific log
 
 set -uo pipefail
 
-LOG="${LOCAL_LLM_TELEMETRY_LOG:-$HOME/.claude/local-llm-fire.log}"
+# Argument parsing
+SINCE=""
+ALL=0
+EXPLICIT_LOG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --since) SINCE="${2:-}"; shift 2 ;;
+    --all)   ALL=1; shift ;;
+    --log)   EXPLICIT_LOG="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
 
-if [ ! -f "$LOG" ]; then
-  echo "No telemetry log at $LOG yet — run a few hooks first."
+# Resolve which log(s) to read.
+if [ -n "$EXPLICIT_LOG" ]; then
+  LOGS=("$EXPLICIT_LOG")
+elif [ "$ALL" = "1" ]; then
+  # Walk every .claude/local-llm-fire.log under common project roots + global.
+  LOGS=()
+  for candidate in "$HOME/.claude/local-llm-fire.log" \
+                   "$HOME/repos"/*/.claude/local-llm-fire.log \
+                   "$HOME/Projects"/*/.claude/local-llm-fire.log; do
+    [ -f "$candidate" ] && LOGS+=("$candidate")
+  done
+elif [ -n "${LOCAL_LLM_TELEMETRY_LOG:-}" ]; then
+  LOGS=("$LOCAL_LLM_TELEMETRY_LOG")
+else
+  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/local-llm-fire.log" ]; then
+    LOGS=("$REPO_ROOT/.claude/local-llm-fire.log")
+  elif [ -f "$HOME/.claude/local-llm-fire.log" ]; then
+    LOGS=("$HOME/.claude/local-llm-fire.log")
+  else
+    echo "No telemetry log found. Run a few hooks first, or use --all / --log <path>."
+    exit 0
+  fi
+fi
+
+if [ "${#LOGS[@]}" -eq 0 ]; then
+  echo "No telemetry logs found. Run a few hooks first."
   exit 0
 fi
 
-SINCE=""
-if [ "${1:-}" = "--since" ] && [ -n "${2:-}" ]; then
-  SINCE="$2"
-fi
+# Print which logs are in scope so the table can't lie about its source.
+echo "Reading: ${LOGS[*]}"
+echo
 
 cutoff_seconds() {
   local since="$1"
@@ -82,7 +119,7 @@ awk -v filter="$FILTER_EPOCH" '
     }
     printf "\ntotal fires: %d\n", grand
   }
-' "$LOG" | (
+' "${LOGS[@]}" | (
   read -r header
   read -r divider
   echo "$header"

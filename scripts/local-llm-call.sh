@@ -11,10 +11,17 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Resolve a per-project log directory. When invoked inside a git repo we
+# write logs to <repo>/.claude/ so each project gets its own telemetry
+# stream — no env-var management needed. Falls back to ~/.claude/ when
+# not in a repo.
+LOCAL_LLM_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+LOCAL_LLM_LOG_DIR="${LOCAL_LLM_REPO_ROOT:-$HOME}/.claude"
+
 # Entry tracer — proves the script was invoked at all. Survives every
 # downstream early-exit, so a missing telemetry row that has a tracer line
 # means the failure is in the telemetry block (not before).
-TRACE_LOG="${LOCAL_LLM_TRACE_LOG:-$HOME/.claude/local-llm-trace.log}"
+TRACE_LOG="${LOCAL_LLM_TRACE_LOG:-$LOCAL_LLM_LOG_DIR/local-llm-trace.log}"
 {
   mkdir -p "$(dirname "$TRACE_LOG")" 2>/dev/null
   PARENT_CMD=$(ps -o args= -p "$PPID" 2>/dev/null | head -c 200)
@@ -65,7 +72,7 @@ if [ "${LOCAL_LLM_TELEMETRY_DISABLE:-0}" != "1" ]; then
     | grep -oE 'local-llm-[a-z-]+-hook' | head -1 || true)
   set -o pipefail
   HOOK_NAME=${HOOK_NAME:-unknown}
-  TELEMETRY_LOG="${LOCAL_LLM_TELEMETRY_LOG:-$HOME/.claude/local-llm-fire.log}"
+  TELEMETRY_LOG="${LOCAL_LLM_TELEMETRY_LOG:-$LOCAL_LLM_LOG_DIR/local-llm-fire.log}"
   TELEMETRY_ERR="${TELEMETRY_LOG}.errors"
   mkdir -p "$(dirname "$TELEMETRY_LOG")" 2>>"$TELEMETRY_ERR" || true
   TS=$(date +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || echo "?")
