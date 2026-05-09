@@ -168,6 +168,42 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-test-gap-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-async-audit-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-auth-check-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-linq-perf-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-test-name-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-test-assertion-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-test-realism-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-task-traceability-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-allium-openq-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-dockerfile-review-hook.sh"
           }
         ]
       },
@@ -202,6 +238,18 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-tlc-translate-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-allium-drift-rank-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-branch-name-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-pr-splitter-hook.sh"
           }
         ]
       },

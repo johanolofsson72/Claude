@@ -18,6 +18,18 @@ Auto-detected hook layer that pushes low-stakes work to a local model when one i
 | `local-llm-tlc-translate-hook.sh` | `PostToolUse` on `Bash` matching TLC commands, output contains counterexample/invariant/deadlock | Translates TLA+ TLC counterexample traces from TLA+ syntax to plain-English step-by-step (VIOLATION / STEP N / ROOT CAUSE / NEXT ACTION). |
 | `local-llm-migration-safety-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.sql`, `*Migrations/*.cs`, `*/migrations/*.sql`, `*/db/migrate/*.rb` | Scans DB migrations for production-unsafe patterns (NOT NULL without default, DROP COLUMN without rename, missing FK index, non-online ALTER on big tables). |
 | `local-llm-test-gap-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.cs`/`*.tsx`/`*.ts` (skip test/generated/migrations) | Finds matching test file, lists public methods without tests. Backs CLAUDE.md's "every implemented function needs a test" rule. |
+| `local-llm-async-audit-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.cs` (skip tests/generated/migrations) | Scans for sync-over-async (`.Result`/`.Wait()`), missing `await`, blocking I/O in async, `async void` on non-events, missing `ConfigureAwait(false)` in libs. |
+| `local-llm-auth-check-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*Controller.cs` or files in `Controllers/` | Verifies each HTTP action method has explicit `[Authorize]` or `[AllowAnonymous]`. Surfaces silent inheritance. |
+| `local-llm-linq-perf-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.cs` | Catches LINQ inefficiencies (multi-enum of same `IEnumerable`, `ToList()` in loops, `.Where().Count()` vs `.Count(predicate)`, sync EF queries). |
+| `local-llm-test-name-hook.sh` | `PostToolUse` on `Edit`/`Write` for test files | Vague test names (`Test1`, `Foo`, `MethodTest`) → descriptive `Method_Scenario_Expected` suggestions. |
+| `local-llm-test-assertion-hook.sh` | `PostToolUse` on `Edit`/`Write` for test files | Tests with no assertion call (no `Assert.*`, `.Should()`, `expect()`, `Verify()`) — flagged as coverage placebos. |
+| `local-llm-test-realism-hook.sh` | `PostToolUse` on `Edit`/`Write` for test files | Mocks/stubs with `""`, `null`, `0`, `"test"`, `"x"` → suggests realistic values. Lenient about explicit boundary tests. |
+| `local-llm-task-traceability-hook.sh` | `PostToolUse` on `Edit`/`Write` for `tasks.md` in speckit specs | Maps tasks ↔ acceptance criteria; reports orphan tasks and orphan criteria. |
+| `local-llm-allium-drift-rank-hook.sh` | `PostToolUse` on `Bash` matching `allium distill` | Ranks each drift finding HIGH/MEDIUM/LOW for release-blocking severity, ends with `RELEASE_GATE: BLOCKED|PROCEED-WITH-FOLLOWUPS`. |
+| `local-llm-allium-openq-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.allium` | Extracts `open question`, `-- AMBIGUITY:`, `deferred` markers as actionable items requiring decision. |
+| `local-llm-dockerfile-review-hook.sh` | `PostToolUse` on `Edit`/`Write` for `Dockerfile`/`Dockerfile.*` | Missing HEALTHCHECK, root user, `:latest` tag, secrets in ENV, missing `.dockerignore`, layer-bloat patterns. |
+| `local-llm-branch-name-hook.sh` | `PostToolUse` on `Bash` matching `git checkout -b` / `git switch -c` | When new branch has lazy name (`fix`, `wip`, `temp`), suggests 3 descriptive alternatives + `git branch -m` rename command. |
+| `local-llm-pr-splitter-hook.sh` | `PostToolUse` on `Bash` matching `git push -u origin` if diff > 500 lines | Suggests 2-4 natural splits by file groupings + merge order, or marks as `COHESIVE` if single coherent change. |
 
 The humanize hook excludes Claude-internal markdown (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `.claude/docs/`, `.specify/`) so it only fires on human-facing copy.
 
@@ -42,6 +54,7 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 | `LOCAL_LLM_TLDR_MIN_CHARS` | `4000` | Minimum Bash output size before the TLDR hook fires. |
 | `LOCAL_LLM_STACKTRACE_MIN_CHARS` | `2000` | Minimum Bash output size before the stack-trace distiller fires. |
 | `LOCAL_LLM_ORIENTATION_DISABLE` | unset | Set to `1` to skip the SessionStart "where you left off" orientation. Useful for ephemeral sessions where the orientation overhead outweighs the value. |
+| `LOCAL_LLM_PR_SPLIT_MIN_LINES` | `500` | Minimum changed-line count before the PR splitter offers split suggestions on `git push -u origin`. |
 
 ## Setup
 

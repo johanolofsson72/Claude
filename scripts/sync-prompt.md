@@ -111,6 +111,18 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `scripts/local-llm-tlc-translate-hook.sh` — PostToolUse hook on `Bash` matching TLC commands (`tlc2.TLC`, `tla2tools`). When output contains counterexample/invariant/deadlock markers, translates the TLA+-syntax state trace into plain-English step-by-step.
 - `scripts/local-llm-migration-safety-hook.sh` — PostToolUse hook on `Edit`/`Write` for migration files (`*.sql`, `*Migrations/*.cs`, etc.). Scans for production-unsafe patterns (NOT NULL without default, DROP COLUMN without rename, missing FK index, non-online ALTER, etc.) and reports each as `RISK: ... | FIX: ...`.
 - `scripts/local-llm-test-gap-hook.sh` — PostToolUse hook on `Edit`/`Write` for `*.cs`/`*.tsx`/`*.ts` source files (skips test files, generated files, migrations). Finds matching test files via filename convention, lists public methods/functions without tests as `GAP: ... | reason ...`.
+- `scripts/local-llm-async-audit-hook.sh` — PostToolUse Edit/Write on `*.cs`. Scans for sync-over-async (`.Result`/`.Wait()`), missing `await`, blocking I/O in async methods, `async void` on non-events, missing `ConfigureAwait(false)` in libraries. Outputs `ISSUE: ... | FIX: ...` lines or `CLEAN`.
+- `scripts/local-llm-auth-check-hook.sh` — PostToolUse Edit/Write on `*Controller.cs` or files in `Controllers/`. Verifies every HTTP action method has explicit `[Authorize]` or `[AllowAnonymous]`. Outputs `UNGUARDED: ... | FIX: ...` or `GUARDED`.
+- `scripts/local-llm-linq-perf-hook.sh` — PostToolUse Edit/Write on `*.cs`. Detects multi-enumeration of same `IEnumerable`, `ToList()` in loops, `.Where(...).Count()` instead of `.Count(predicate)`, sync EF queries. Outputs `PERF: ... | FIX: ...` or `CLEAN`.
+- `scripts/local-llm-test-name-hook.sh` — PostToolUse Edit/Write on test files. Flags vague names (`Test1`, `MethodTest`, `Foo`) and suggests `Method_Scenario_Expected` replacements based on test body.
+- `scripts/local-llm-test-assertion-hook.sh` — PostToolUse Edit/Write on test files. Verifies each test contains at least one assertion call (`Assert.*`, `.Should()`, `expect()`, `Verify`). Catches placebo tests.
+- `scripts/local-llm-test-realism-hook.sh` — PostToolUse Edit/Write on test files. Flags placeholder mock data (`""`, `null`, `0`, `"test"`, `"x"`) and suggests realistic values. Lenient about explicit boundary tests.
+- `scripts/local-llm-task-traceability-hook.sh` — PostToolUse Edit/Write on speckit `tasks.md`. Maps tasks ↔ acceptance criteria from sibling `spec.md`; reports orphan tasks (scope creep) and orphan criteria (missing impl).
+- `scripts/local-llm-allium-drift-rank-hook.sh` — PostToolUse Bash matching `allium distill`. Ranks each drift finding HIGH/MEDIUM/LOW for release-blocking severity; ends with `RELEASE_GATE: BLOCKED|PROCEED-WITH-FOLLOWUPS`.
+- `scripts/local-llm-allium-openq-hook.sh` — PostToolUse Edit/Write on `*.allium`. Extracts `open question`, `-- AMBIGUITY:`, `deferred` markers as actionable items requiring decision per validation-followup rule.
+- `scripts/local-llm-dockerfile-review-hook.sh` — PostToolUse Edit/Write on `Dockerfile`/`Dockerfile.*`. Scans for missing HEALTHCHECK, root user, `:latest` base tag, secrets in ENV, missing `.dockerignore`, layer-bloat patterns.
+- `scripts/local-llm-branch-name-hook.sh` — PostToolUse Bash matching `git checkout -b <name>` or `git switch -c <name>`. When name is lazy (`fix`, `wip`, `temp`), suggests 3 descriptive alternatives based on diff and recent commits, plus a `git branch -m` rename command.
+- `scripts/local-llm-pr-splitter-hook.sh` — PostToolUse Bash matching `git push -u origin <branch>`. If diff against base > 500 lines, suggests 2-4 natural splits by file groupings + merge order, or marks `COHESIVE` if single coherent change.
 
 ### Step 2: Read this project's files
 
@@ -225,8 +237,20 @@ The template auto-detects a local Ollama daemon and offloads low-stakes work to 
 12. **`scripts/local-llm-tlc-translate-hook.sh`** — PostToolUse Bash TLC counterexample → plain English
 13. **`scripts/local-llm-migration-safety-hook.sh`** — PostToolUse Edit/Write DB migration safety scanner
 14. **`scripts/local-llm-test-gap-hook.sh`** — PostToolUse Edit/Write source-file test coverage gap detector
-15. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
-16. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the draft caches do not leak into the repo
+15. **`scripts/local-llm-async-audit-hook.sh`** — PostToolUse Edit/Write `*.cs` async/await anti-pattern scanner
+16. **`scripts/local-llm-auth-check-hook.sh`** — PostToolUse Edit/Write controller endpoint auth-attribute audit
+17. **`scripts/local-llm-linq-perf-hook.sh`** — PostToolUse Edit/Write `*.cs` LINQ inefficiency detector
+18. **`scripts/local-llm-test-name-hook.sh`** — PostToolUse Edit/Write vague-test-name detector
+19. **`scripts/local-llm-test-assertion-hook.sh`** — PostToolUse Edit/Write tests-without-assertions detector
+20. **`scripts/local-llm-test-realism-hook.sh`** — PostToolUse Edit/Write placeholder-test-data detector
+21. **`scripts/local-llm-task-traceability-hook.sh`** — PostToolUse Edit/Write tasks.md ↔ spec.md traceability
+22. **`scripts/local-llm-allium-drift-rank-hook.sh`** — PostToolUse Bash Allium drift severity ranker
+23. **`scripts/local-llm-allium-openq-hook.sh`** — PostToolUse Edit/Write `*.allium` open-question extractor
+24. **`scripts/local-llm-dockerfile-review-hook.sh`** — PostToolUse Edit/Write Dockerfile safety/hygiene reviewer
+25. **`scripts/local-llm-branch-name-hook.sh`** — PostToolUse Bash branch-name lazy-detector with suggestions
+26. **`scripts/local-llm-pr-splitter-hook.sh`** — PostToolUse Bash large-PR split suggester
+27. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
+28. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the draft caches do not leak into the repo
 
 **Hook entries to merge into `.claude/settings.json`** (UNION as usual — do not remove existing project hooks):
 
