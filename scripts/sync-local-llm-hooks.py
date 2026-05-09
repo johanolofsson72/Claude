@@ -31,7 +31,7 @@ import re
 import sys
 from pathlib import Path
 
-LOCAL_LLM_RE = re.compile(r"bash\s+scripts/(local-llm-[a-z-]+-hook\.sh)")
+LOCAL_LLM_RE = re.compile(r"bash\s+scripts/(local-llm-[a-z0-9-]+-hook\.sh)")
 
 
 def is_local_llm(hook: dict) -> bool:
