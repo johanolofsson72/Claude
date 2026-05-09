@@ -107,6 +107,10 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `scripts/local-llm-pr-draft-hook.sh` — PostToolUse hook on `Bash` matching `git push -u origin <branch>`. Reads the branch diff against main/master, drafts PR title + Summary + Test plan to `.claude/.local-llm-pr-draft.md`. Used when the assistant subsequently calls `gh pr create`.
 - `scripts/local-llm-spec-criteria-hook.sh` — PostToolUse hook on `Edit`/`Write` for speckit spec files (`specs/<id>/spec.md` and `.specify/specs/<id>/spec.md`). Scans Acceptance Criteria for vague language ("works well", "is fast"), suggests measurable replacements. Catches loose criteria before `/allium:elicit` runs.
 - `scripts/local-llm-changelog-hook.sh` — PostToolUse hook on `Edit`/`Write` for `CHANGELOG.md`. Reads `git log` since the last tag, groups by Conventional Commit type, drafts keep-a-changelog format entries to `.claude/.local-llm-changelog-draft.md`.
+- `scripts/local-llm-orientation-hook.sh` — SessionStart hook. Reads recent git log, status, diff, and active specs (modified last 7 days), generates a 5-8 line "where you left off" orientation as `additionalContext`. Honors `LOCAL_LLM_ORIENTATION_DISABLE=1`.
+- `scripts/local-llm-tlc-translate-hook.sh` — PostToolUse hook on `Bash` matching TLC commands (`tlc2.TLC`, `tla2tools`). When output contains counterexample/invariant/deadlock markers, translates the TLA+-syntax state trace into plain-English step-by-step.
+- `scripts/local-llm-migration-safety-hook.sh` — PostToolUse hook on `Edit`/`Write` for migration files (`*.sql`, `*Migrations/*.cs`, etc.). Scans for production-unsafe patterns (NOT NULL without default, DROP COLUMN without rename, missing FK index, non-online ALTER, etc.) and reports each as `RISK: ... | FIX: ...`.
+- `scripts/local-llm-test-gap-hook.sh` — PostToolUse hook on `Edit`/`Write` for `*.cs`/`*.tsx`/`*.ts` source files (skips test files, generated files, migrations). Finds matching test files via filename convention, lists public methods/functions without tests as `GAP: ... | reason ...`.
 
 ### Step 2: Read this project's files
 
@@ -217,8 +221,12 @@ The template auto-detects a local Ollama daemon and offloads low-stakes work to 
 8. **`scripts/local-llm-pr-draft-hook.sh`** — PostToolUse `git push -u origin` PR description generator
 9. **`scripts/local-llm-spec-criteria-hook.sh`** — PostToolUse Edit/Write speckit spec testability checker
 10. **`scripts/local-llm-changelog-hook.sh`** — PostToolUse Edit/Write `CHANGELOG.md` keep-a-changelog drafter
-11. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
-12. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the draft caches do not leak into the repo
+11. **`scripts/local-llm-orientation-hook.sh`** — SessionStart "where you left off" project orientation
+12. **`scripts/local-llm-tlc-translate-hook.sh`** — PostToolUse Bash TLC counterexample → plain English
+13. **`scripts/local-llm-migration-safety-hook.sh`** — PostToolUse Edit/Write DB migration safety scanner
+14. **`scripts/local-llm-test-gap-hook.sh`** — PostToolUse Edit/Write source-file test coverage gap detector
+15. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
+16. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the draft caches do not leak into the repo
 
 **Hook entries to merge into `.claude/settings.json`** (UNION as usual — do not remove existing project hooks):
 
@@ -235,7 +243,8 @@ The template auto-detects a local Ollama daemon and offloads low-stakes work to 
           { "type": "command", "command": "bash scripts/local-llm-bash-tldr-hook.sh" },
           { "type": "command", "command": "bash scripts/local-llm-commit-draft-hook.sh" },
           { "type": "command", "command": "bash scripts/local-llm-stacktrace-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-pr-draft-hook.sh" }
+          { "type": "command", "command": "bash scripts/local-llm-pr-draft-hook.sh" },
+          { "type": "command", "command": "bash scripts/local-llm-tlc-translate-hook.sh" }
         ]
       },
       {
@@ -243,9 +252,14 @@ The template auto-detects a local Ollama daemon and offloads low-stakes work to 
         "hooks": [
           { "type": "command", "command": "bash scripts/local-llm-humanize-hook.sh" },
           { "type": "command", "command": "bash scripts/local-llm-spec-criteria-hook.sh" },
-          { "type": "command", "command": "bash scripts/local-llm-changelog-hook.sh" }
+          { "type": "command", "command": "bash scripts/local-llm-changelog-hook.sh" },
+          { "type": "command", "command": "bash scripts/local-llm-migration-safety-hook.sh" },
+          { "type": "command", "command": "bash scripts/local-llm-test-gap-hook.sh" }
         ]
       }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "bash scripts/local-llm-orientation-hook.sh" }] }
     ]
   }
 }

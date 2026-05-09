@@ -14,6 +14,10 @@ Auto-detected hook layer that pushes low-stakes work to a local model when one i
 | `local-llm-pr-draft-hook.sh` | `PostToolUse` on `Bash` matching `git push -u origin <branch>` | Reads the diff between branch and main, drafts PR title + Summary + Test plan. Saved to `.claude/.local-llm-pr-draft.md`. |
 | `local-llm-spec-criteria-hook.sh` | `PostToolUse` on `Edit`/`Write` for `specs/<id>/spec.md` and `.specify/specs/<id>/spec.md` | Scans Acceptance Criteria for vague/untestable language ("works well", "is fast"), suggests measurable replacements. |
 | `local-llm-changelog-hook.sh` | `PostToolUse` on `Edit`/`Write` for `CHANGELOG.md` | Reads commits since last tag, groups by Conventional type, drafts entries in keep-a-changelog format to `.claude/.local-llm-changelog-draft.md`. |
+| `local-llm-orientation-hook.sh` | `SessionStart` (every session) | "Where you left off" — reads recent git log, status, diff, active specs and produces 5-8 line orientation injected as additionalContext. Disable per-session with `LOCAL_LLM_ORIENTATION_DISABLE=1`. |
+| `local-llm-tlc-translate-hook.sh` | `PostToolUse` on `Bash` matching TLC commands, output contains counterexample/invariant/deadlock | Translates TLA+ TLC counterexample traces from TLA+ syntax to plain-English step-by-step (VIOLATION / STEP N / ROOT CAUSE / NEXT ACTION). |
+| `local-llm-migration-safety-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.sql`, `*Migrations/*.cs`, `*/migrations/*.sql`, `*/db/migrate/*.rb` | Scans DB migrations for production-unsafe patterns (NOT NULL without default, DROP COLUMN without rename, missing FK index, non-online ALTER on big tables). |
+| `local-llm-test-gap-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.cs`/`*.tsx`/`*.ts` (skip test/generated/migrations) | Finds matching test file, lists public methods without tests. Backs CLAUDE.md's "every implemented function needs a test" rule. |
 
 The humanize hook excludes Claude-internal markdown (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `.claude/docs/`, `.specify/`) so it only fires on human-facing copy.
 
@@ -37,6 +41,7 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 | `LOCAL_LLM_CLASSIFY_TIMEOUT` | `4` | Tighter timeout for the `UserPromptSubmit` classifier so the prompt path stays snappy. |
 | `LOCAL_LLM_TLDR_MIN_CHARS` | `4000` | Minimum Bash output size before the TLDR hook fires. |
 | `LOCAL_LLM_STACKTRACE_MIN_CHARS` | `2000` | Minimum Bash output size before the stack-trace distiller fires. |
+| `LOCAL_LLM_ORIENTATION_DISABLE` | unset | Set to `1` to skip the SessionStart "where you left off" orientation. Useful for ephemeral sessions where the orientation overhead outweighs the value. |
 
 ## Setup
 

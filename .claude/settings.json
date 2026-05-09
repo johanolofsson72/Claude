@@ -160,6 +160,14 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-changelog-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-migration-safety-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-test-gap-hook.sh"
           }
         ]
       },
@@ -190,6 +198,10 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-pr-draft-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-tlc-translate-hook.sh"
           }
         ]
       },
@@ -241,6 +253,14 @@
           {
             "type": "command",
             "command": "echo '{\"systemMessage\": \"Context was compacted. Re-read any files you were working on before continuing.\"}'"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-orientation-hook.sh"
           }
         ]
       }
