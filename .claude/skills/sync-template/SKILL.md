@@ -77,6 +77,7 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `scripts/local-llm-call.sh` (telemetry funnel + auto-detect)
 - `scripts/local-llm-detect.sh`
 - `scripts/local-llm-stats.sh` (per-hook ROI reporter)
+- `scripts/sync-local-llm-hooks.py` (deterministic settings.json trim — invoked in step 3)
 - **Glob: every `scripts/local-llm-*-hook.sh`** — pull all matching files from the template. The template adds new local-LLM hook scripts over time; do not maintain a hand-edited list. Use `Glob` on `scripts/local-llm-*-hook.sh` against the template root and copy each file. Files present in the project but no longer in the template should also be removed (the template is the source of truth for the local-LLM hook script set).
 
 ### 2. Compare and merge
@@ -92,9 +93,24 @@ For each file:
 ### 3. Settings.json merge rules
 
 For `.claude/settings.json`:
+
+**Step 3.1 — local-LLM hooks (deterministic, run the helper script):**
+
+Once `scripts/sync-local-llm-hooks.py` has been copied from the template to the project (in step 1), invoke it from the project root:
+
+```bash
+python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/settings.json
+```
+
+The script removes every `bash scripts/local-llm-*-hook.sh` entry from the project's `hooks` block and replaces them with the template's exact set. Non-local-LLM hook entries are preserved verbatim. The script is idempotent and prints what it changed; capture that output for the report in step 6.
+
+Do NOT try to merge local-LLM hook entries by hand. Prose merge rules proved unreliable — the LLM running the sync hedged on "REPLACE" because it conflicts with "preserve project-specific customizations". The script removes the ambiguity.
+
+**Step 3.2 — non-local-LLM hook entries and other settings (merge):**
+
+For everything else in `settings.json`:
 - MERGE `permissions.deny` lists (union of both).
-- For `hooks` entries that invoke `bash scripts/local-llm-*-hook.sh`: **REPLACE the project's set with the template's**. The template is the source of truth for which local-LLM hooks are wired by default (token-saver-only policy — quality-gate scripts stay on disk but unwired). Do NOT additively merge — that preserves stale wiring for hooks the template has retired.
-- For other hook entries (project-specific or non-local-LLM template hooks): MERGE — add missing hooks, preserve existing custom hooks.
+- MERGE non-local-LLM `hooks` entries — add missing hooks from the template, preserve existing custom hooks.
 - Preserve any project-specific settings not in the template.
 
 ### 3a. .gitignore additions
