@@ -204,6 +204,30 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-dockerfile-review-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-react-deps-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-n1-query-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-secret-scan-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-todo-catalog-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-spec-scope-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-plan-feasibility-hook.sh"
           }
         ]
       },

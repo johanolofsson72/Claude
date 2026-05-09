@@ -30,6 +30,12 @@ Auto-detected hook layer that pushes low-stakes work to a local model when one i
 | `local-llm-dockerfile-review-hook.sh` | `PostToolUse` on `Edit`/`Write` for `Dockerfile`/`Dockerfile.*` | Missing HEALTHCHECK, root user, `:latest` tag, secrets in ENV, missing `.dockerignore`, layer-bloat patterns. |
 | `local-llm-branch-name-hook.sh` | `PostToolUse` on `Bash` matching `git checkout -b` / `git switch -c` | When new branch has lazy name (`fix`, `wip`, `temp`), suggests 3 descriptive alternatives + `git branch -m` rename command. |
 | `local-llm-pr-splitter-hook.sh` | `PostToolUse` on `Bash` matching `git push -u origin` if diff > 500 lines | Suggests 2-4 natural splits by file groupings + merge order, or marks as `COHESIVE` if single coherent change. |
+| `local-llm-react-deps-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.tsx`/`*.ts`/`*.jsx`/`*.js` (skip tests/vendored), only if file uses `useEffect`/`useCallback`/`useMemo`/etc. | Detects missing dependencies in React hook arrays (the canonical stale-closure bug source) plus empty/missing deps arrays and conditional hooks. |
+| `local-llm-n1-query-hook.sh` | `PostToolUse` on `Edit`/`Write` for `*.cs` (skip tests/migrations), only if file has both an enumeration and an awaited db/repo call | Catches the N+1 anti-pattern: `foreach (var x in collection) await _db.LoadAsync(x.Id)`. |
+| `local-llm-secret-scan-hook.sh` | `PostToolUse` on `Edit`/`Write` for source/config files (skip vendored, lock files, binaries) | Regex pre-filter catches likely secret patterns; llama3 distinguishes real leaks from false positives (variable names, type annotations, env-var lookups, test placeholders). |
+| `local-llm-todo-catalog-hook.sh` | `PostToolUse` on `Edit`/`Write` when file accumulates ≥3 TODO/FIXME/HACK/XXX/TBD markers | Catalogs each marker by category and priority so accumulating debt becomes visible. |
+| `local-llm-spec-scope-hook.sh` | `PostToolUse` on `Edit`/`Write` for `specs/<id>/spec.md` with both Scope and Acceptance Criteria sections | Detects acceptance criteria that fall outside the declared scope — undeclared scope creep. |
+| `local-llm-plan-feasibility-hook.sh` | `PostToolUse` on `Edit`/`Write` for `specs/<id>/plan.md` | Flags unrealistic estimates, missing critical phases (testing, deploy, rollback), tech-stack conflicts (cross-references CLAUDE.md), and hand-wavy steps. |
 
 The humanize hook excludes Claude-internal markdown (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `.claude/docs/`, `.specify/`) so it only fires on human-facing copy.
 
@@ -55,6 +61,7 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 | `LOCAL_LLM_STACKTRACE_MIN_CHARS` | `2000` | Minimum Bash output size before the stack-trace distiller fires. |
 | `LOCAL_LLM_ORIENTATION_DISABLE` | unset | Set to `1` to skip the SessionStart "where you left off" orientation. Useful for ephemeral sessions where the orientation overhead outweighs the value. |
 | `LOCAL_LLM_PR_SPLIT_MIN_LINES` | `500` | Minimum changed-line count before the PR splitter offers split suggestions on `git push -u origin`. |
+| `LOCAL_LLM_TODO_MIN_COUNT` | `3` | Minimum TODO/FIXME/HACK marker count in a single file before the TODO catalog fires. |
 
 ## Setup
 

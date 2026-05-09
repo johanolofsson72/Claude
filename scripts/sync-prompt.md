@@ -123,6 +123,12 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `scripts/local-llm-dockerfile-review-hook.sh` — PostToolUse Edit/Write on `Dockerfile`/`Dockerfile.*`. Scans for missing HEALTHCHECK, root user, `:latest` base tag, secrets in ENV, missing `.dockerignore`, layer-bloat patterns.
 - `scripts/local-llm-branch-name-hook.sh` — PostToolUse Bash matching `git checkout -b <name>` or `git switch -c <name>`. When name is lazy (`fix`, `wip`, `temp`), suggests 3 descriptive alternatives based on diff and recent commits, plus a `git branch -m` rename command.
 - `scripts/local-llm-pr-splitter-hook.sh` — PostToolUse Bash matching `git push -u origin <branch>`. If diff against base > 500 lines, suggests 2-4 natural splits by file groupings + merge order, or marks `COHESIVE` if single coherent change.
+- `scripts/local-llm-react-deps-hook.sh` — PostToolUse Edit/Write on `*.tsx`/`*.ts`/`*.jsx`/`*.js`. Detects missing deps in `useEffect`/`useCallback`/`useMemo` arrays (stale-closure bug source) plus empty/missing deps arrays and conditional hook calls.
+- `scripts/local-llm-n1-query-hook.sh` — PostToolUse Edit/Write on `*.cs`. Catches the N+1 anti-pattern (foreach over collection with awaited db call inside).
+- `scripts/local-llm-secret-scan-hook.sh` — PostToolUse Edit/Write on source/config files. Regex pre-filter for likely secrets, llama3 filters false positives (variable names, type annotations, env-var lookups, test placeholders).
+- `scripts/local-llm-todo-catalog-hook.sh` — PostToolUse Edit/Write when file accumulates ≥3 TODO/FIXME/HACK/XXX/TBD markers. Catalogs each by category (bug/feature/refactor/etc.) and priority (high/medium/low).
+- `scripts/local-llm-spec-scope-hook.sh` — PostToolUse Edit/Write on speckit `spec.md` with both Scope and Acceptance Criteria sections. Detects criteria that fall outside declared scope (scope creep).
+- `scripts/local-llm-plan-feasibility-hook.sh` — PostToolUse Edit/Write on speckit `plan.md`. Flags unrealistic estimates, missing critical phases (testing/deploy/rollback), tech-stack conflicts (cross-references CLAUDE.md), and hand-wavy steps.
 
 ### Step 2: Read this project's files
 
@@ -249,8 +255,14 @@ The template auto-detects a local Ollama daemon and offloads low-stakes work to 
 24. **`scripts/local-llm-dockerfile-review-hook.sh`** — PostToolUse Edit/Write Dockerfile safety/hygiene reviewer
 25. **`scripts/local-llm-branch-name-hook.sh`** — PostToolUse Bash branch-name lazy-detector with suggestions
 26. **`scripts/local-llm-pr-splitter-hook.sh`** — PostToolUse Bash large-PR split suggester
-27. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
-28. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the draft caches do not leak into the repo
+27. **`scripts/local-llm-react-deps-hook.sh`** — PostToolUse Edit/Write React hook deps array audit
+28. **`scripts/local-llm-n1-query-hook.sh`** — PostToolUse Edit/Write N+1 query detector for .cs
+29. **`scripts/local-llm-secret-scan-hook.sh`** — PostToolUse Edit/Write secret-leak scanner with LLM false-positive filter
+30. **`scripts/local-llm-todo-catalog-hook.sh`** — PostToolUse Edit/Write TODO/FIXME accumulation catalog
+31. **`scripts/local-llm-spec-scope-hook.sh`** — PostToolUse Edit/Write spec.md scope-creep detector
+32. **`scripts/local-llm-plan-feasibility-hook.sh`** — PostToolUse Edit/Write plan.md feasibility reviewer
+33. **`.claude/docs/local-llm.md`** — env var reference, setup, disable paths, failure modes
+34. **`.gitignore`** — must ignore `.claude/.local-llm-*` so the draft caches do not leak into the repo
 
 **Hook entries to merge into `.claude/settings.json`** (UNION as usual — do not remove existing project hooks):
 
