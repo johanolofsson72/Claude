@@ -42,19 +42,6 @@ NUM_PREDICT="${2:-256}"
 USER_PROMPT="$(cat)"
 [ -n "$USER_PROMPT" ] || exit 1
 
-PAYLOAD=$(jq -nc \
-  --arg model "$LOCAL_LLM_MODEL" \
-  --arg system "$SYSTEM_PROMPT" \
-  --arg prompt "$USER_PROMPT" \
-  --argjson num_predict "$NUM_PREDICT" \
-  '{
-    model: $model,
-    system: $system,
-    prompt: $prompt,
-    stream: false,
-    options: { temperature: 0.2, num_predict: $num_predict }
-  }')
-
 # Millisecond-precision wall clock. macOS `date` does not support %3N, so
 # fall back through gdate (homebrew coreutils), python3, then plain
 # seconds × 1000 as a last resort.
@@ -68,20 +55,87 @@ now_ms() {
   fi
 }
 
-T0=$(now_ms)
-RESPONSE=$(curl -sf --max-time "$LOCAL_LLM_TIMEOUT" \
-  -X POST "${LOCAL_LLM_HOST}/api/generate" \
-  -H "Content-Type: application/json" \
-  -d "$PAYLOAD" 2>/dev/null)
-CURL_EXIT=$?
-T1=$(now_ms)
+# Portable SHA-256 hashing (macOS ships `shasum`, Linux ships `sha256sum`).
+# Returns 64-char hex on stdout. Empty string on hashing failure — caller
+# treats empty as "no cache key, skip cache".
+sha256_hex() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum 2>/dev/null | awk '{print $1}'
+  else
+    echo ""
+  fi
+}
 
-# Extract the model's response text once. Used both for telemetry byte
-# accounting and as the script's stdout payload.
-RESPONSE_TEXT=""
-if [ $CURL_EXIT -eq 0 ]; then
-  RESPONSE_TEXT=$(printf '%s' "$RESPONSE" | jq -r '.response // empty' 2>/dev/null)
+# Cache layer. SHA-256 of (model || system || user || num_predict) keys
+# the response file under .claude/.local-llm-cache/<sha>.txt with TTL
+# enforced via mtime. Identical hook fires on identical inputs within
+# the TTL window return the previous response without burning a curl.
+#
+# Zero quality loss by construction: identical input bytes -> identical
+# cache key -> identical output. Files mutate -> new hash -> cache miss.
+# Disable globally with LOCAL_LLM_CACHE_DISABLE=1.
+CACHE_DIR="${LOCAL_LLM_CACHE_DIR:-$LOCAL_LLM_LOG_DIR/.local-llm-cache}"
+CACHE_TTL="${LOCAL_LLM_CACHE_TTL:-600}"
+CACHE_HIT=0
+CACHE_KEY=""
+CACHED_RESPONSE=""
+
+if [ "${LOCAL_LLM_CACHE_DISABLE:-0}" != "1" ]; then
+  CACHE_KEY=$(printf '%s\n%s\n%s\n%s' \
+    "$LOCAL_LLM_MODEL" "$SYSTEM_PROMPT" "$USER_PROMPT" "$NUM_PREDICT" \
+    | sha256_hex)
 fi
+
+if [ -n "$CACHE_KEY" ] && [ -f "$CACHE_DIR/$CACHE_KEY.txt" ]; then
+  # Cross-platform mtime: try GNU stat, fall back to BSD stat.
+  MTIME=$(stat -c %Y "$CACHE_DIR/$CACHE_KEY.txt" 2>/dev/null \
+       || stat -f %m "$CACHE_DIR/$CACHE_KEY.txt" 2>/dev/null \
+       || echo 0)
+  NOW_S=$(date +%s 2>/dev/null || echo 0)
+  if [ "$MTIME" -gt 0 ] && [ $((NOW_S - MTIME)) -lt "$CACHE_TTL" ]; then
+    CACHED_RESPONSE=$(cat "$CACHE_DIR/$CACHE_KEY.txt" 2>/dev/null || true)
+    [ -n "$CACHED_RESPONSE" ] && CACHE_HIT=1
+  else
+    rm -f "$CACHE_DIR/$CACHE_KEY.txt" 2>/dev/null || true
+  fi
+fi
+
+T0=$(now_ms)
+if [ "$CACHE_HIT" = "1" ]; then
+  RESPONSE_TEXT="$CACHED_RESPONSE"
+  CURL_EXIT=0
+else
+  PAYLOAD=$(jq -nc \
+    --arg model "$LOCAL_LLM_MODEL" \
+    --arg system "$SYSTEM_PROMPT" \
+    --arg prompt "$USER_PROMPT" \
+    --argjson num_predict "$NUM_PREDICT" \
+    '{
+      model: $model,
+      system: $system,
+      prompt: $prompt,
+      stream: false,
+      options: { temperature: 0.2, num_predict: $num_predict }
+    }')
+
+  RESPONSE=$(curl -sf --max-time "$LOCAL_LLM_TIMEOUT" \
+    -X POST "${LOCAL_LLM_HOST}/api/generate" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" 2>/dev/null)
+  CURL_EXIT=$?
+
+  RESPONSE_TEXT=""
+  if [ $CURL_EXIT -eq 0 ]; then
+    RESPONSE_TEXT=$(printf '%s' "$RESPONSE" | jq -r '.response // empty' 2>/dev/null)
+    if [ -n "$CACHE_KEY" ] && [ -n "$RESPONSE_TEXT" ]; then
+      mkdir -p "$CACHE_DIR" 2>/dev/null || true
+      printf '%s' "$RESPONSE_TEXT" > "$CACHE_DIR/$CACHE_KEY.txt" 2>/dev/null || true
+    fi
+  fi
+fi
+T1=$(now_ms)
 
 if [ "${LOCAL_LLM_TELEMETRY_DISABLE:-0}" != "1" ]; then
   # Pipefail off for the ps|grep|head pipeline — head -1 closing early can
@@ -99,11 +153,12 @@ if [ "${LOCAL_LLM_TELEMETRY_DISABLE:-0}" != "1" ]; then
   DURATION_MS=$((T1 - T0))
   PROMPT_BYTES=${#USER_PROMPT}
   RESPONSE_BYTES=${#RESPONSE_TEXT}
-  # Schema v2: 6 columns. Older v1 logs had 5 (duration in seconds, no
-  # response_bytes). local-llm-stats.sh autodetects via NF.
-  if ! printf '%s\t%s\t%d\t%d\t%d\t%d\n' \
+  # Schema v3: 7 columns adds cache_hit (0|1). v2 had 6, v1 had 5
+  # (duration in seconds, no response_bytes). local-llm-stats.sh
+  # autodetects via NF.
+  if ! printf '%s\t%s\t%d\t%d\t%d\t%d\t%d\n' \
     "$TS" "$HOOK_NAME" "${CURL_EXIT:-99}" "$DURATION_MS" \
-    "$PROMPT_BYTES" "$RESPONSE_BYTES" \
+    "$PROMPT_BYTES" "$RESPONSE_BYTES" "$CACHE_HIT" \
     >> "$TELEMETRY_LOG" 2>>"$TELEMETRY_ERR"; then
     printf 'WRITE_FAIL %s pid=%s ppid=%s\n' "$TS" "$$" "$PPID" \
       >> "$TELEMETRY_ERR" 2>/dev/null || true

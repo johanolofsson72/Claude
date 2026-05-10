@@ -89,6 +89,46 @@ The humanize hook excludes Claude-internal markdown (`CLAUDE.md`, `.claude/skill
 
 Detection is cheap. The expensive call is the `/api/generate` request inside each hook, which uses `LOCAL_LLM_TIMEOUT` (default 15s).
 
+## Built-in token-saving optimizations
+
+Three mechanisms inside `local-llm-call.sh` and a few hooks cut prompt volume. They do not change what gets caught, only how cheaply.
+
+### Response cache
+
+Every call through `local-llm-call.sh` keys on `sha256(model || system || user_prompt || num_predict)`. A hit inside the TTL window returns the previous response without touching Ollama. Identical input bytes produce the same key, so the cache is correct by construction. A file edit changes the content hash and forces a miss.
+
+Storage lives at `<repo>/.claude/.local-llm-cache/<sha>.txt` per project. The `.claude/.local-llm-*` gitignore pattern already covers it.
+
+TTL is enforced via file mtime on read. Stale entries get removed lazily on first miss.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LOCAL_LLM_CACHE_TTL` | `600` | Cache lifetime in seconds. Bump to `1800` for long sessions on the same files. |
+| `LOCAL_LLM_CACHE_DISABLE` | unset | Set to `1` to bypass the cache (telemetry still records). |
+| `LOCAL_LLM_CACHE_DIR` | `<repo>/.claude/.local-llm-cache` | Override storage location. |
+
+Telemetry now writes a 7th column `cache_hit` (0|1) per row. `local-llm-stats.sh` exposes a `cache%` column and reports the per-window total of prompt bytes the cache spared.
+
+### Per-hook content gates
+
+A hook should grep for its minimum input shape before calling the model. The grep runs in microseconds; the savings compound across every fire.
+
+Concrete examples currently shipping:
+
+- `local-llm-async-audit-hook.sh` requires one of `async`, `await`, `Task<.>`, `.Result`, `.Wait()`, `Thread.Sleep`, `ConfigureAwait`, or `ValueTask` in the file. A sample of 200 `.cs` files in a real .NET project showed 74% gated out — POCOs, config classes, mappers, entity types, enums.
+- `local-llm-n1-query-hook.sh` requires both a loop construct (`foreach`, `.Select`, `for`) and an awaited DB/repo call (`await _db.*Async`, `LoadAsync`, `ToListAsync`).
+- `local-llm-stacktrace-hook.sh` greps for error/exception keywords in the captured Bash output first.
+
+When you add a new hook, decide its minimum input shape, then grep for it before invoking the model. A gate that skips half the fires saves more than any prompt tuning.
+
+### Spec section extraction
+
+`local-llm-plan-draft-hook.sh` and `local-llm-tasks-draft-hook.sh` no longer feed the whole `spec.md` to the model. An awk pass extracts the load-bearing sections (Feature, Overview, User Story, Acceptance, Goals, Requirements, Constraints, Scope, Out of scope, Functional, Background, Context, Problem, Solution; plus Test/Coverage for tasks-draft). History, references, changelogs, and free-form prose get dropped.
+
+A 24631-byte production spec extracts to 6375 bytes (74% reduction). That fits under the 12000-char cap and far below the segmentation ceiling that used to make both hooks time out at 15s.
+
+If extraction returns under 500 bytes (a spec with non-standard headings), the hook falls back to a 12000-byte head capture so it still produces a draft instead of nothing.
+
 ## Configuration
 
 All env vars are optional. Set them in your shell profile or a project-local `.env` you source manually.
@@ -106,8 +146,9 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 | `LOCAL_LLM_ORIENTATION_DISABLE` | unset | Set to `1` to skip the SessionStart "where you left off" orientation. Useful for ephemeral sessions where the orientation overhead outweighs the value. |
 | `LOCAL_LLM_PR_SPLIT_MIN_LINES` | `500` | Minimum changed-line count before the PR splitter offers split suggestions on `git push -u origin`. |
 | `LOCAL_LLM_TODO_MIN_COUNT` | `3` | Minimum TODO/FIXME/HACK marker count in a single file before the TODO catalog fires. |
-| `LOCAL_LLM_TELEMETRY_LOG` | `~/.claude/local-llm-fire.log` | Tab-separated per-fire log: `timestamp \t hook \t exit_code \t duration_s \t prompt_bytes`. |
+| `LOCAL_LLM_TELEMETRY_LOG` | `<repo>/.claude/local-llm-fire.log` (per-project; falls back to `~/.claude/` outside a repo) | Tab-separated per-fire log. Schema v3: `timestamp \t hook \t exit_code \t duration_ms \t prompt_bytes \t response_bytes \t cache_hit`. |
 | `LOCAL_LLM_TELEMETRY_DISABLE` | unset | Set to `1` to skip writing the telemetry row. |
+| Cache settings | see [Built-in token-saving optimizations](#response-cache) | `LOCAL_LLM_CACHE_TTL`, `LOCAL_LLM_CACHE_DISABLE`, `LOCAL_LLM_CACHE_DIR` |
 
 ## Telemetry and ROI
 

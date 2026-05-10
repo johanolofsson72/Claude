@@ -27,6 +27,12 @@ SIZE=$(wc -c < "$FILE" 2>/dev/null || echo 0)
 [ "$SIZE" -gt 200 ] || exit 0
 [ "$SIZE" -lt 30000 ] || exit 0
 
+# Content gate: the audit looks for async/await anti-patterns. A POCO,
+# constant class, or pure-data DTO has nothing to audit. Skip the LLM
+# call entirely when the file contains no async tokens. Saves ~30-40%
+# of the 100+ daily fires on rocky-sized projects.
+grep -qE '\b(async|await|\.Result\b|\.Wait\(\)|Task[<.]|Thread\.Sleep|ConfigureAwait|ValueTask)' "$FILE" || exit 0
+
 CONTENT=$(head -c 12000 "$FILE")
 
 SYSTEM='You are reviewing C#/.NET code for async/await anti-patterns.

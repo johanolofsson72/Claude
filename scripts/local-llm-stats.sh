@@ -90,7 +90,15 @@ awk -v filter="$FILTER_EPOCH" '
     # Schema autodetect via NF.
     #   v1 (5 cols): ts hook exit duration_seconds prompt_bytes
     #   v2 (6 cols): ts hook exit duration_ms      prompt_bytes response_bytes
-    if (NF >= 6) {
+    #   v3 (7 cols): ts hook exit duration_ms      prompt_bytes response_bytes cache_hit
+    cache = 0
+    if (NF >= 7) {
+      dur_ms = $4 + 0
+      pb     = $5 + 0
+      rb     = $6 + 0
+      cache  = $7 + 0
+      v3_rows++
+    } else if (NF == 6) {
       dur_ms = $4 + 0
       pb     = $5 + 0
       rb     = $6 + 0
@@ -111,33 +119,42 @@ awk -v filter="$FILTER_EPOCH" '
     total_dur[hook]    += dur_ms
     total_prompt[hook] += pb
     total_resp[hook]   += rb
+    total_cache[hook]  += cache
     if (exit_code == 0) ok[hook]++
     else fail_time[hook] += dur_ms
     grand++
+    grand_cache += cache
+    grand_prompt += pb
+    grand_cache_prompt += (cache == 1 ? pb : 0)
   }
   END {
     if (grand == 0) {
       print "No fires in window."
       exit 0
     }
-    printf "%-32s %6s %5s %7s %12s %10s %10s\n", \
-      "hook", "fires", "ok%", "avg(s)", "fail_time(s)", "avg_prompt", "avg_resp"
-    printf "%-32s %6s %5s %7s %12s %10s %10s\n", \
-      "----", "-----", "---", "------", "-----------", "----------", "--------"
+    printf "%-32s %6s %5s %7s %7s %12s %10s %10s\n", \
+      "hook", "fires", "ok%", "cache%", "avg(s)", "fail_time(s)", "avg_prompt", "avg_resp"
+    printf "%-32s %6s %5s %7s %7s %12s %10s %10s\n", \
+      "----", "-----", "---", "------", "------", "-----------", "----------", "--------"
     for (h in fires) {
       n = fires[h]
       pct = (ok[h] + 0) / n * 100
+      cpct = (total_cache[h] + 0) / n * 100
       avg_s = total_dur[h] / n / 1000
       ft_s  = (fail_time[h] + 0) / 1000
       ap = int(total_prompt[h] / n)
       ar = int(total_resp[h]   / n)
-      printf "%-32s %6d %4.0f%% %7.2f %12.1f %10d %10d\n", \
-        h, n, pct, avg_s, ft_s, ap, ar
+      printf "%-32s %6d %4.0f%% %6.0f%% %7.2f %12.1f %10d %10d\n", \
+        h, n, pct, cpct, avg_s, ft_s, ap, ar
     }
     printf "\ntotal fires: %d", grand
-    if (v1_rows > 0 && v2_rows > 0) {
-      printf "  (mixed schema: %d v1 rows in seconds with no response_bytes, %d v2 rows in ms)", \
-        v1_rows, v2_rows
+    if (v3_rows > 0) {
+      saved = grand_cache_prompt
+      printf "  cache hits: %d (%.0f%%), prompt bytes spared by cache: %d", \
+        grand_cache, (grand_cache / grand) * 100, saved
+    }
+    if (v1_rows > 0 && (v2_rows > 0 || v3_rows > 0)) {
+      printf "  (mixed schema: %d v1, %d v2, %d v3)", v1_rows, v2_rows, v3_rows
     } else if (v1_rows > 0) {
       printf "  (v1 schema: avg_resp shows 0 because old logs did not record response bytes)"
     }

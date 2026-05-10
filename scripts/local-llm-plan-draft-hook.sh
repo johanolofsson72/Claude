@@ -17,7 +17,23 @@ case "$FILE" in
 esac
 [ -r "$FILE" ] || exit 0
 
-SPEC=$(head -c 24000 "$FILE")
+# Section-aware context extraction. A plan only needs the spec's intent
+# (Feature/Overview), user-facing behavior (User Story / Acceptance),
+# and boundaries (Scope / Constraints / Out of scope). History, links,
+# changelogs, and reference appendices are noise here. Falls back to a
+# byte cap when the extraction produces too little — e.g. a free-form
+# spec with non-standard headings.
+SPEC_FULL=$(cat "$FILE")
+SPEC_EXTRACTED=$(awk '
+  /^#+[[:space:]]+(Feature|Overview|User[[:space:]]+[Ss]tor|Acceptance|Goals?|Requirement|Constraint|Scope|Non[- ]functional|Out[[:space:]]+of[[:space:]]+scope|Functional|Background|Context|Problem|Solution)/ { p=1; print; next }
+  /^#+[[:space:]]+/ { p=0; next }
+  p { print }
+' <<<"$SPEC_FULL")
+if [ "${#SPEC_EXTRACTED}" -ge 500 ]; then
+  SPEC=$(printf '%s' "$SPEC_EXTRACTED" | head -c 12000)
+else
+  SPEC=$(printf '%s' "$SPEC_FULL" | head -c 12000)
+fi
 [ -n "$SPEC" ] || exit 0
 
 SYSTEM='You draft a plan.md for a speckit-style feature spec.
