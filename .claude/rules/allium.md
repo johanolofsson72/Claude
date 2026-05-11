@@ -22,13 +22,15 @@ Allium is the preferred specification language for this project. It sits between
 5. /tla (runs /allium:distill first) → drift detection + formal verification
 ```
 
-## When writing specs (AUTOMATIC — not optional, never ask)
+## When writing specs (AUTOMATIC for behavior-changing specs)
 
-IMMEDIATELY after a spec is written, run `/allium:elicit` to produce a formal `.allium` specification. This is enforced by a PostToolUse hook that checks for `.allium` files when spec files are saved. Do NOT proceed to implementation without it.
+When the spec is on the **full** or **light** pipeline track (see `specs.md` → Spec triage), run `/allium:elicit` IMMEDIATELY after the spec is written. The PostToolUse `allium-hook.sh` enforces this for speckit paths. Do NOT proceed to implementation without the `.allium` file.
 
 The `.allium` file MUST be saved in the same directory as the spec file.
 
-**NO EXCEPTIONS.** Every spec type gets an `.allium` file — feature specs, fix specs, hardening specs, refactoring specs, TLA+-generated specs, security specs. Even if the spec was generated from TLA+ findings. Even if there are no new features. Even if it seems unnecessary. Do NOT ask the user whether to run `/allium:elicit` — just run it automatically. Asking is treated as a bug.
+**Skip `/allium:elicit` for the spec-only track:** pure refactors, doc changes, dependency bumps, cosmetic UI changes, i18n, and fix/hardening specs that introduce no new entities or state transitions. Forcing elicitation on these produces fabricated `.allium` files that later surface as false drift during `/tla`. If the spec is on the full/light track, do not ask whether to run `/allium:elicit` — just run it.
+
+When unsure which track a spec belongs to, classify first (one `AskUserQuestion`), then act. Do not default to "full pipeline" — over-application is the failure mode this rule exists to prevent.
 
 This step:
 - Forces precision on entities, rules, and invariants

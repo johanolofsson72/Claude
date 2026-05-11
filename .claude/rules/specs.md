@@ -10,23 +10,35 @@ paths:
 
 # Spec and task rules (Allium + destructive browser tests + TLA+)
 
-## Spec creation flow (MANDATORY — every step is automatic)
+## Spec triage — pick the right pipeline (READ FIRST)
 
-When a spec is being written (speckit, specify, or manual), follow this exact sequence:
+Not every spec needs the full pipeline. Classify the spec **before** Phase A and pick the matching track:
 
-### Phase A: Write the spec
+| Spec shape | Pipeline |
+|---|---|
+| **Behavior-changing** — new feature, new entity, new state machine, new actor, new concurrency, new API surface | **Full pipeline:** spec → `/allium:elicit` → impl → browser tests → `/tla` |
+| **UI feature, single actor, no concurrency** — CRUD form, search/filter, simple workflow with linear state | **Light pipeline:** spec → `/allium:elicit` → impl → browser tests (skip `/tla` unless state machine is non-trivial — see TLA+ skill triviality gate) |
+| **Non-behavior** — pure refactor, doc change, dependency bump, config tweak, cosmetic UI change, i18n, logging/observability only | **Spec only.** No `.allium`, no `/tla`. Browser tests still apply if the user-facing surface changes. |
+| **Fix / hardening / security** with no new entities AND no new state transitions | **Spec only.** Express the constraint as a test, not as an Allium invariant. If the fix introduces a new invariant or state, escalate to behavior-changing. |
+
+**When in doubt, ask once with `AskUserQuestion`.** Do not default to "full pipeline" — over-applying Allium produces fabricated `.allium` files that then show up as false drift in `/tla` and chew through the per-finding decision protocol for no gain.
+
+## Spec creation flow
+
+After triage, follow the matching track:
+
+### Phase A: Write the spec (all tracks)
 1. **Read `.claude/docs/testing.md`** — the "Destructive browser tests (MANDATORY)" section.
 2. **Read `.claude/docs/spec-testing-checklist.md`** — attack categories checklist.
-3. Write the spec with destructive browser tests included.
+3. Write the spec with destructive browser tests included (if interactive UI applies).
 
-### Phase B: Sharpen with Allium (BLOCKING — do not skip, do not ask)
+### Phase B: Sharpen with Allium (full / light pipelines only — BLOCKING for those)
 4. **Run `/allium:elicit`** on the spec to produce a formal `.allium` specification.
    - Allium refuses vague requirements and forces precision on entities, rules, and invariants.
    - The `.allium` file MUST be saved alongside the spec (same directory).
    - This creates the baseline for drift detection after implementation.
-5. **A spec without a corresponding `.allium` file is NOT complete.** Do not proceed to implementation.
-
-**NO EXCEPTIONS.** This applies to ALL spec types: feature specs, fix specs, hardening specs, refactoring specs, TLA+-generated specs, security specs. The spec type does not matter. If it is a spec, it gets an `.allium` file. Do not ask the user whether to run it — just run it.
+5. **For full/light pipelines: a spec without a corresponding `.allium` file is NOT complete.** Do not proceed to implementation.
+6. **For spec-only track: Phase B is skipped entirely.** No `.allium` file is required and none should be created. Do not ask Claude to elicit one anyway.
 
 ## Requirements for every spec/task file with INTERACTIVE UI
 
@@ -73,7 +85,7 @@ Before a spec/task file is considered complete, verify:
 - [ ] Do the scenarios cover all 6 attack categories?
 - [ ] If offline/sync: are there additional edge case tests?
 - [ ] Does every test scenario have a clear task ID and description?
-- [ ] **Has `/allium:elicit` been run and a `.allium` file saved alongside the spec?**
+- [ ] **For full/light tracks only: has `/allium:elicit` been run and a `.allium` file saved alongside the spec?** (Skip this check for the spec-only track.)
 
 If any of these are missing — **the spec is NOT complete**. Do not proceed to implementation.
 

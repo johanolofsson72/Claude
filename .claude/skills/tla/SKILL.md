@@ -50,6 +50,36 @@ Read the spec file (`.allium` preferred, markdown fallback), implementation file
 - What should NEVER happen (safety)?
 - What should EVENTUALLY happen (liveness)?
 
+### Step 1.5: Triviality gate — bail early when formal verification adds no value
+
+Count the distinct states and transitions before going further. If the state machine is **trivial**, skip TLA+ entirely:
+
+- **Trivial state machine:** ≤3 distinct states OR ≤5 distinct transitions
+- **Single-actor, no concurrency, no shared mutable state** — only one user can be in this state machine at a time
+- **No async operations crossing state boundaries** — every transition is synchronous and atomic from the user's perspective
+
+If ALL three conditions hold, write the following report and stop:
+
+```
+## TLA+ Verification Report — Trivial State Machine
+
+### System: [feature name]
+### Decision: SKIPPED — state machine is trivial
+### Rationale: N states, M transitions, single actor, no concurrency
+
+The state machine is small enough that exhaustive browser test coverage
+is equivalent to formal verification. TLC would explore a state space
+already covered by the browser tests. Proceeding would produce a "0
+gaps, 0 counterexamples" report at the cost of tokens and load time.
+
+If subsequent changes introduce: more states, concurrent actors, async
+boundaries, or shared mutable state — re-run /tla.
+```
+
+Then exit. No invariant extraction, no TLC run, no per-finding `AskUserQuestion`. The triviality gate is itself the finding, and it has no decision to make.
+
+If ANY of the three conditions fail (more than trivial states/transitions, multiple actors, or async/shared state), proceed to Step 2.
+
 ### Step 2: Extract invariants
 
 From the spec and implementation, extract:

@@ -201,6 +201,10 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-async-audit-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-allium-openq-hook.sh"
           }
         ]
       },
@@ -243,6 +247,14 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-stacktrace-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-allium-drift-rank-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/local-llm-tlc-translate-hook.sh"
           }
         ]
       },
