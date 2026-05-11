@@ -91,8 +91,19 @@ awk -v filter="$FILTER_EPOCH" '
     #   v1 (5 cols): ts hook exit duration_seconds prompt_bytes
     #   v2 (6 cols): ts hook exit duration_ms      prompt_bytes response_bytes
     #   v3 (7 cols): ts hook exit duration_ms      prompt_bytes response_bytes cache_hit
+    #   v4 (8 cols): ts hook exit duration_ms      prompt_bytes response_bytes cache_hit model
     cache = 0
-    if (NF >= 7) {
+    model = "unknown"
+    if (NF >= 8) {
+      dur_ms = $4 + 0
+      pb     = $5 + 0
+      rb     = $6 + 0
+      cache  = $7 + 0
+      model  = $8
+      v4_rows++
+      model_fires[model]++
+      model_dur[model]   += dur_ms
+    } else if (NF == 7) {
       dur_ms = $4 + 0
       pb     = $5 + 0
       rb     = $6 + 0
@@ -148,22 +159,58 @@ awk -v filter="$FILTER_EPOCH" '
         h, n, pct, cpct, avg_s, ft_s, ap, ar
     }
     printf "\ntotal fires: %d", grand
-    if (v3_rows > 0) {
+    if (v3_rows + v4_rows > 0) {
       saved = grand_cache_prompt
       printf "  cache hits: %d (%.0f%%), prompt bytes spared by cache: %d", \
         grand_cache, (grand_cache / grand) * 100, saved
     }
-    if (v1_rows > 0 && (v2_rows > 0 || v3_rows > 0)) {
-      printf "  (mixed schema: %d v1, %d v2, %d v3)", v1_rows, v2_rows, v3_rows
+    schema_count = (v1_rows > 0) + (v2_rows > 0) + (v3_rows > 0) + (v4_rows > 0)
+    if (schema_count > 1) {
+      printf "  (mixed schema: %d v1, %d v2, %d v3, %d v4)", \
+        v1_rows, v2_rows, v3_rows, v4_rows
     } else if (v1_rows > 0) {
       printf "  (v1 schema: avg_resp shows 0 because old logs did not record response bytes)"
     }
     printf "\n"
+
+    # Per-model breakdown (v4 only — proves WHICH model served the fires).
+    if (v4_rows > 0) {
+      printf "\nModel breakdown (v4 rows only):\n"
+      printf "%-32s %6s %7s\n", "model", "fires", "avg(s)"
+      printf "%-32s %6s %7s\n", "-----", "-----", "------"
+      for (m in model_fires) {
+        mn = model_fires[m]
+        mavg = model_dur[m] / mn / 1000
+        printf "%-32s %6d %7.2f\n", m, mn, mavg
+      }
+    }
+    if (v3_rows > 0 && v4_rows == 0) {
+      printf "\nNote: telemetry is on v3 schema (no model column). "
+      printf "New fires will record the model — re-run after a few hook invocations to see the breakdown.\n"
+    }
   }
-' "${LOGS[@]}" | (
-  read -r header
-  read -r divider
-  echo "$header"
-  echo "$divider"
-  sort -k2,2 -nr
-)
+' "${LOGS[@]}" | awk '
+  # Pass-through awk that separates the hook-table rows from the trailer
+  # (totals + model breakdown), sorts only the hooks by fires desc, then
+  # reassembles. Avoids the previous bug where the outer sort pipe
+  # accidentally pulled "qwen2.5-coder:32b 1 12.26" into the hook table.
+  NR == 1 || NR == 2 { print; next }
+  /^(local-llm-[a-z0-9-]+|unknown)[ \t]+[0-9]/ {
+    hooks[++hc] = $0; next
+  }
+  { trailer[++tc] = $0 }
+  END {
+    # Bubble sort by column 2 (fires) descending. ~20 rows max, trivially fast.
+    for (i = 1; i <= hc; i++) {
+      for (j = i + 1; j <= hc; j++) {
+        split(hooks[i], a, /[[:space:]]+/)
+        split(hooks[j], b, /[[:space:]]+/)
+        if ((b[2] + 0) > (a[2] + 0)) {
+          t = hooks[i]; hooks[i] = hooks[j]; hooks[j] = t
+        }
+      }
+    }
+    for (i = 1; i <= hc; i++) print hooks[i]
+    for (i = 1; i <= tc; i++) print trailer[i]
+  }
+'

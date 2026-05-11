@@ -153,12 +153,12 @@ if [ "${LOCAL_LLM_TELEMETRY_DISABLE:-0}" != "1" ]; then
   DURATION_MS=$((T1 - T0))
   PROMPT_BYTES=${#USER_PROMPT}
   RESPONSE_BYTES=${#RESPONSE_TEXT}
-  # Schema v3: 7 columns adds cache_hit (0|1). v2 had 6, v1 had 5
-  # (duration in seconds, no response_bytes). local-llm-stats.sh
-  # autodetects via NF.
-  if ! printf '%s\t%s\t%d\t%d\t%d\t%d\t%d\n' \
+  # Schema v4: 8 columns adds model tag (audit trail — proves WHICH model
+  # served each fire, not just that one did). v3 had 7 (added cache_hit),
+  # v2 had 6, v1 had 5. local-llm-stats.sh autodetects via NF.
+  if ! printf '%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\n' \
     "$TS" "$HOOK_NAME" "${CURL_EXIT:-99}" "$DURATION_MS" \
-    "$PROMPT_BYTES" "$RESPONSE_BYTES" "$CACHE_HIT" \
+    "$PROMPT_BYTES" "$RESPONSE_BYTES" "$CACHE_HIT" "$LOCAL_LLM_MODEL" \
     >> "$TELEMETRY_LOG" 2>>"$TELEMETRY_ERR"; then
     printf 'WRITE_FAIL %s pid=%s ppid=%s\n' "$TS" "$$" "$PPID" \
       >> "$TELEMETRY_ERR" 2>/dev/null || true
