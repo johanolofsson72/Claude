@@ -37,17 +37,24 @@ elif command -v curl >/dev/null 2>&1; then
 fi
 
 # Auto-pick the best installed model when the caller has not pinned one.
+# Iteration uses a here-string + while-read pair instead of `for pref in
+# $VAR` because zsh does NOT word-split unquoted parameter expansions by
+# default — that breakage cost an afternoon. `tr` normalizes whitespace
+# so the loop works identically in bash and zsh when the script is
+# sourced (the shebang is irrelevant for sourced files).
 if [ -z "${LOCAL_LLM_MODEL:-}" ]; then
   if [ "$LOCAL_LLM_AVAILABLE" = "1" ] \
     && [ -n "$OLLAMA_TAGS" ] \
     && command -v jq >/dev/null 2>&1; then
     AVAILABLE_MODELS=$(printf '%s' "$OLLAMA_TAGS" | jq -r '.models[]?.name' 2>/dev/null)
-    for pref in $LOCAL_LLM_MODEL_PREF_ORDER; do
+    PREFS_NL=$(printf '%s' "$LOCAL_LLM_MODEL_PREF_ORDER" | tr -s ' \t' '\n')
+    while IFS= read -r pref; do
+      [ -n "$pref" ] || continue
       if printf '%s\n' "$AVAILABLE_MODELS" | grep -Fxq "$pref"; then
         LOCAL_LLM_MODEL="$pref"
         break
       fi
-    done
+    done <<< "$PREFS_NL"
   fi
   # Last-resort default if Ollama is unreachable or jq is missing.
   LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-llama3}"
