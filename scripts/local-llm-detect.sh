@@ -23,7 +23,7 @@ LOCAL_LLM_DETECT_TIMEOUT="${LOCAL_LLM_DETECT_TIMEOUT:-1}"
 
 # Default preference order biased toward coding-capable models. Tune by
 # exporting LOCAL_LLM_MODEL_PREF_ORDER (space-separated tags).
-LOCAL_LLM_MODEL_PREF_ORDER="${LOCAL_LLM_MODEL_PREF_ORDER:-qwen2.5-coder:32b qwen2.5-coder:14b qwen2.5-coder:7b mistral-small:24b qwen2.5:7b llama3:latest llama3}"
+LOCAL_LLM_MODEL_PREF_ORDER="${LOCAL_LLM_MODEL_PREF_ORDER:-qwen2.5-coder:14b qwen2.5-coder:7b qwen2.5-coder:32b mistral-small:24b qwen2.5:7b llama3:latest llama3}"
 
 OLLAMA_TAGS=""
 LOCAL_LLM_AVAILABLE=0

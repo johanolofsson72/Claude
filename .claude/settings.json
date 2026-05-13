@@ -164,14 +164,6 @@
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-tasks-draft-hook.sh"
-          },
-          {
-            "type": "command",
-            "command": "bash scripts/local-llm-plan-draft-hook.sh"
-          },
-          {
-            "type": "command",
             "command": "bash scripts/local-llm-readme-skeleton-hook.sh"
           },
           {
@@ -247,10 +239,6 @@
           {
             "type": "command",
             "command": "bash scripts/local-llm-stacktrace-hook.sh"
-          },
-          {
-            "type": "command",
-            "command": "bash scripts/local-llm-allium-drift-rank-hook.sh"
           },
           {
             "type": "command",

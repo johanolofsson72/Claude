@@ -16,6 +16,15 @@ PROMPT=$(printf '%s' "$INPUT" | jq -r '.prompt // empty' 2>/dev/null)
 LOCAL_LLM_TIMEOUT="${LOCAL_LLM_CLASSIFY_TIMEOUT:-4}"
 export LOCAL_LLM_TIMEOUT
 
+# Model selection deferred to local-llm-detect.sh auto-pick. Tested
+# alternatives (2026-05-13):
+#   llama3.2:3b → ~0.1s but failed format compliance (returned literal
+#                 "TOKEN | MEDIUM" instead of substituting the placeholder).
+#   qwen2.5:7b  → exceeded the 4s classify timeout on every call.
+# The preference order in local-llm-detect.sh picks qwen2.5-coder:14b
+# first when installed (was the only sub-second instruction-follower
+# in testing). To override per-hook, export LOCAL_LLM_MODEL.
+
 SYSTEM='You classify a developer prompt to a coding assistant.
 Reply with EXACTLY one line in this format and nothing else:
 TOKEN | <reason in <=12 words>
