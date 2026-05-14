@@ -51,6 +51,10 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `allium.md`
 - `specs.md`
 - `tests.md`
+- `continuous-execution.md`
+- `validation-followup.md`
+- `feature-pipeline.md`
+- `spec-register.md`
 
 **Docs (`.claude/docs/`):**
 - `skills.md`
@@ -74,6 +78,9 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `scripts/stop-validation-hook.sh`
 - `scripts/ui-design-hook.sh`
 - `scripts/after-specify-hook.sh`
+- `scripts/feature-pipeline-detect.sh`
+- `scripts/spec-register-guard-hook.sh`
+- `scripts/spec-register-orientation-hook.sh`
 - `scripts/local-llm-call.sh` (telemetry funnel + auto-detect)
 - `scripts/local-llm-detect.sh`
 - `scripts/local-llm-stats.sh` (per-hook ROI reporter)
@@ -110,8 +117,22 @@ Do NOT try to merge local-LLM hook entries by hand. Prose merge rules proved unr
 
 For everything else in `settings.json`:
 - MERGE `permissions.deny` lists (union of both).
+- MERGE `permissions.allow` lists (union of both) — the template's allow list has expanded git/gh entries (`git push:*`, `git pull:*`, `git fetch:*`, `git checkout:*`, `git switch:*`, `git branch:*`, `git merge:*`, `git rebase:*`, `git stash:*`, `git tag:*`, `git restore:*`, `git cherry-pick:*`, `git status:*`, `git diff:*`, `git log:*`, `git show:*`, `git blame:*`, `git remote:*`, `git config --get:*`, `git config --list:*`, `gh pr:*`, `gh issue:*`, `gh repo view:*`, `gh run view:*`) which the project should pick up.
+- If `permissions.ask` contains `Bash(git push *)`, REMOVE it (the template has moved this to allow). Other `permissions.ask` entries are preserved.
 - MERGE non-local-LLM `hooks` entries — add missing hooks from the template, preserve existing custom hooks.
 - Preserve any project-specific settings not in the template.
+
+**Step 3.2.1 — inline-hook OVERWRITE exceptions (the template version wins):**
+
+The merge rule above defaults to preserving customizations, but the following inline hooks have intentionally evolving behavior and MUST be replaced with the template version verbatim — do NOT preserve the project's older copy even if it differs. Match each by the unique grep pattern inside its command string and overwrite the entire hook object with the template version:
+
+| Hook | Match by command containing | Why it must be overwritten |
+|---|---|---|
+| `UserPromptSubmit` speckit pipeline mandate | `speckit[.:_-](specify\|plan\|tasks\|implement)` | Pipeline phase list evolves; new steps (e.g. `/speckit.analyze` between tasks and implement) get added over time. |
+| `UserPromptSubmit` speckit.analyze auto-apply | `speckit[.:_-](analyz\|analys)` | Behavior changed from "Reply suggest & apply for all" UX to immediate auto-apply + auto-chain to `/speckit.implement`. The old UX must be removed, not preserved. |
+| `UserPromptSubmit` speckit.clarify auto-pick | `speckit[.:_-]clarif` | New hook (auto-picks Recommended). Add if missing; if present in any older form, replace with the template version. |
+
+If you find a project's `settings.json` has the OLD analyze hook (containing the phrase `Reply **suggest & apply for all**` or `analyze.md Step 8 default of asking before applying.`), this is the legacy version — overwrite it. Mention the overwrite in the step-6 report so the user knows the analyze behavior has flipped from semi-manual to fully auto.
 
 ### 3a. .gitignore additions
 

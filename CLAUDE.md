@@ -5,6 +5,8 @@
 - **ALWAYS** read the code first — base ALL conclusions on evidence from the codebase, not assumptions.
 - **ALWAYS** verify with `dotnet build` and `dotnet test` before claiming anything is "done".
 - **ALWAYS** use the Edit tool for surgical changes — never copy entire files.
+- **ALWAYS** run the full pipeline (`/specify` → `/allium:elicit` → `/plan` → `/tasks` → `/implement` → browser tests → `/tla`) for any non-trivial feature, refactor, or fix. The pipeline is ONE task — never stop between phases to ask permission. Trivial-fix bypass requires an explicit classification sentence. See `.claude/rules/feature-pipeline.md`. This is a **BLOCKING REQUIREMENT**.
+- **ALWAYS** consult `specs/INDEX.md` (the spec register) before starting feature work. Work the next unchecked spec end-to-end (pipeline → commit → push → tick the register), then stop with a status summary. The only legitimate mid-spec stops are real ambiguity, hard blockers, Allium/TLA+ findings, or a register-rewrite proposal. See `.claude/rules/spec-register.md`. This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** follow existing patterns in the codebase — look at similar components first.
@@ -139,6 +141,8 @@ Read these files WHEN you need them — do not load everything upfront:
 - **Skills, SKILL.md format, Agent Skills standard** → `.claude/docs/skills.md`
 - **Tests (xUnit, Playwright)** → `.claude/docs/testing.md`
 - **Spec testing checklist (destructive tests)** → `.claude/docs/spec-testing-checklist.md`
+- **Feature pipeline (auto-trigger, end-to-end execution)** → `.claude/rules/feature-pipeline.md`
+- **Spec register (one stop per spec, project-level rail)** → `.claude/rules/spec-register.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
 - **Stress testing (pre-deploy)** → `.claude/docs/stress-testing.md`
 

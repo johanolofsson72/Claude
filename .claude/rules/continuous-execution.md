@@ -30,8 +30,10 @@ You SHOULD stop and ask when (and only when):
 2. **Hard blocker** — something you cannot resolve autonomously. Missing credentials, missing infrastructure, a failing external dependency, conflicting requirements that need human arbitration.
 3. **The plan is fully complete** — every phase done, every todo checked, every test passing, validation markers written. Then you stop and report.
 4. **Allium / TLA+ findings** — these have their own decision protocol per `.claude/rules/validation-followup.md` and ARE legitimate stop points.
+5. **End of a spec when a spec register exists** — when `specs/INDEX.md` is the authoritative plan, **one spec = one plan**. Finishing a spec (pipeline done, committed, pushed, register ticked) is case (3) at the spec boundary. Stop with the status summary defined in `.claude/rules/spec-register.md`. Do NOT chain into the next spec without explicit user instruction — the project-level register defines plan boundaries, the project as a whole does not.
+6. **Register-rewrite proposal** — if mid-spec you discover the register itself is wrong (next spec impossible, scope creep needs a new row, project goal shifted), stop with the rewrite proposal per `.claude/rules/spec-register.md`. This is the only mid-spec stop that is not (1), (2), or (4).
 
-If none of (1)-(4) apply: do not stop. Continue with the next phase, the next todo, the next file. Whatever is next in the plan, just do it.
+If none of (1)-(6) apply: do not stop. Continue with the next phase, the next todo, the next file. Whatever is next in the plan, just do it.
 
 ## How to apply
 
