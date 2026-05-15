@@ -16,15 +16,19 @@ Allium is the preferred specification language for this project. It sits between
 
 ```
 1. Spec written (markdown)           → what the developer wants
-2. /allium:elicit                    → sharpens into .allium (refuses vague requirements)
-3. Implementation                    → code written
-4. Destructive browser tests         → 8+ scenarios, 6 attack categories
-5. /tla (runs /allium:distill first) → drift detection + formal verification
+2. /clarify                          → fills gaps in the markdown spec via structured questions
+                                       (auto-pick recommended via settings.json hook; all tracks)
+3. /allium:elicit                    → sharpens clarified spec into .allium (refuses vague requirements)
+4. Implementation                    → code written
+5. Destructive browser tests         → 8+ scenarios, 6 attack categories
+6. /tla (runs /allium:distill first) → drift detection + formal verification
 ```
+
+`/clarify` runs BEFORE `/allium:elicit` so the `.allium` file is built from the clarified spec, not the original underspecified one. Running them the other way around causes the `.allium` to drift from `spec.md` the moment `/clarify` amends it.
 
 ## When writing specs (AUTOMATIC for behavior-changing specs)
 
-When the spec is on the **full** or **light** pipeline track (see `specs.md` → Spec triage), run `/allium:elicit` IMMEDIATELY after the spec is written. The PostToolUse `allium-hook.sh` enforces this for speckit paths. Do NOT proceed to implementation without the `.allium` file.
+When the spec is on the **full** or **light** pipeline track (see `specs.md` → Spec triage), run `/clarify` IMMEDIATELY after the spec is written, THEN `/allium:elicit`. The PostToolUse `allium-hook.sh` enforces the `.allium` step for speckit paths. Do NOT proceed to implementation without the `.allium` file.
 
 The `.allium` file MUST be saved in the same directory as the spec file.
 

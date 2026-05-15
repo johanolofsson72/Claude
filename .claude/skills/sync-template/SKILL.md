@@ -128,7 +128,7 @@ The merge rule above defaults to preserving customizations, but the following in
 
 | Hook | Match by command containing | Why it must be overwritten |
 |---|---|---|
-| `UserPromptSubmit` speckit pipeline mandate | `speckit[.:_-](specify\|plan\|tasks\|implement)` | Pipeline phase list evolves; new steps (e.g. `/speckit.analyze` between tasks and implement) get added over time. |
+| `UserPromptSubmit` speckit pipeline mandate | `speckit[.:_-](specify\|plan\|tasks\|implement)` or `speckit[.:_-](specify\|clarify\|plan\|tasks\|implement)` | Pipeline phase list evolves; new steps (e.g. `/clarify` between specify and allium, `/speckit.analyze` between tasks and implement) get added over time. The template version mandates `/clarify` immediately after `/specify` on every track and `/allium:elicit` after `/clarify` on full/light tracks — if the project's hook is missing the clarify step, overwrite it. |
 | `UserPromptSubmit` speckit.analyze auto-apply | `speckit[.:_-](analyz\|analys)` | Behavior changed from "Reply suggest & apply for all" UX to immediate auto-apply + auto-chain to `/speckit.implement`. The old UX must be removed, not preserved. |
 | `UserPromptSubmit` speckit.clarify auto-pick | `speckit[.:_-]clarif` | New hook (auto-picks Recommended). Add if missing; if present in any older form, replace with the template version. |
 

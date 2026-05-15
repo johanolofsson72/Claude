@@ -21,7 +21,7 @@ PROMPT=$(echo "$INPUT" | jq -r '.prompt // empty' 2>/dev/null)
 LP=$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')
 
 # 1) Already on the pipeline — let the existing hook handle it
-if echo "$LP" | grep -qE '(/specify|/plan\b|/tasks\b|/implement\b|/allium|/tla\b|speckit[.:_-])'; then
+if echo "$LP" | grep -qE '(/specify|/clarify\b|/plan\b|/tasks\b|/implement\b|/allium|/tla\b|speckit[.:_-])'; then
   exit 0
 fi
 
@@ -43,15 +43,16 @@ if echo "$LP" | grep -qE "$TRIGGER"; then
 
 0. If specs/INDEX.md exists (spec register), READ IT FIRST. Pick the next unchecked row and work that spec instead of spinning up a new ad-hoc spec. If the prompt is genuinely outside the register, treat it as a register-rewrite proposal per .claude/rules/spec-register.md, not as silent scope expansion.
 1. /specify — write the spec (with destructive browser tests if interactive UI). Triage the spec shape per .claude/rules/specs.md.
-2. /allium:elicit — full and light tracks only. Skip for spec-only track (refactor, doc, config, cosmetic, i18n, logging, simple fix with no new entities).
-3. /plan and /tasks — derive the functional inventory and implementation tasks from the spec.
-3b. /speckit.analyze — MANDATORY immediately after /tasks. Read-only consistency check; auto-applies ALL suggested remediations to spec/plan/tasks without prompting (user standing instruction), then auto-chains to /implement. No stop between tasks → analyze → implement.
-4. /implement — execute tasks. Follow existing patterns in the codebase.
-5. Browser tests — functional coverage (one test per implemented function, no exceptions) PLUS destructive tests (8+ scenarios across the 6 attack categories).
-6. /tla — runs /allium:distill, drift detection, invariants. Full track only; light track only if state machine is non-trivial.
-7. Commit + push to main directly (solo/direct-push workflow). Tick the register row. Stop with the status summary defined in .claude/rules/spec-register.md — that stop IS the question; do NOT add "ready for the next spec?" after it.
+2. /clarify — MANDATORY on EVERY track immediately after /specify. The settings.json auto-pick hook accepts the "(Recommended)" answer for every clarification question silently and only falls back to AskUserQuestion for the rare question with no defensible recommendation. Skipping /clarify is the canonical pipeline failure mode and is forbidden — running /specify → /plan directly is the bug this step exists to prevent.
+3. /allium:elicit — full and light tracks only. Skip for spec-only track (refactor, doc, config, cosmetic, i18n, logging, simple fix with no new entities). Runs AFTER /clarify so the .allium file is built from the clarified spec.
+4. /plan and /tasks — derive the functional inventory and implementation tasks from the clarified spec.
+4b. /speckit.analyze — MANDATORY immediately after /tasks. Read-only consistency check; auto-applies ALL suggested remediations to spec/plan/tasks without prompting (user standing instruction), then auto-chains to /implement. No stop between tasks → analyze → implement.
+5. /implement — execute tasks. Follow existing patterns in the codebase.
+6. Browser tests — functional coverage (one test per implemented function, no exceptions) PLUS destructive tests (8+ scenarios across the 6 attack categories).
+7. /tla — runs /allium:distill, drift detection, invariants. Full track only; light track only if state machine is non-trivial.
+8. Commit + push to main directly (solo/direct-push workflow). Tick the register row. Stop with the status summary defined in .claude/rules/spec-register.md — that stop IS the question; do NOT add "ready for the next spec?" after it.
 
-Do NOT skip to implementation. Do NOT ask "should I run /specify first?" — the answer is yes for any non-trivial work; just run it.
+Do NOT skip to implementation. Do NOT skip /clarify. Do NOT ask "should I run /specify first?" — the answer is yes for any non-trivial work; just run it.
 
 Legitimate stops during the pipeline: (a) genuine ambiguity the spec/triage cannot resolve — use AskUserQuestion; (b) hard blocker outside your control; (c) Allium/TLA+ findings — per validation-followup.md, surface each finding individually for explicit user decision; (d) end of a spec with status summary, when specs/INDEX.md exists; (e) register-rewrite proposal mid-spec, when the register itself turns out to be wrong.
 

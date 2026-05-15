@@ -7,15 +7,17 @@ The speckit + Allium + TLA+ pipeline is **not optional** for non-trivial work. S
 Every developer request that is **not** a trivial one-file fix MUST go through the pipeline. You do not need the user's permission to start it — the user authorized it by giving you the work. Starting the pipeline is the default, not the exception.
 
 ```
-/specify  →  /allium:elicit  →  /plan  →  /tasks  →  /speckit.analyze  →  /implement
-                                                          (auto-applies         │
-                                                          all suggested         │
-                                                          remediations)         ▼
-                                                                 browser tests (functional + destructive)
-                                                                                │
-                                                                                ▼
-                                                                       /tla (distill + drift + invariants)
+/specify  →  /clarify  →  /allium:elicit  →  /plan  →  /tasks  →  /speckit.analyze  →  /implement
+                (auto-pick     (full/light                              (auto-applies         │
+                recommended,   tracks only)                             all suggested         │
+                all tracks)                                             remediations)         ▼
+                                                                              browser tests (functional + destructive)
+                                                                                             │
+                                                                                             ▼
+                                                                                    /tla (distill + drift + invariants)
 ```
+
+`/clarify` is **mandatory** immediately after `/specify` on every track. The auto-pick hook in `.claude/settings.json` accepts the recommended answer for every clarification question without prompting (and only falls back to `AskUserQuestion` for the rare question with no defensible recommendation). It is the canonical speckit phase that catches under-specified requirements before `/plan` and `/tasks` lock them in — running `/specify → /plan` directly is the single most common pipeline-skip failure mode and it is forbidden.
 
 `/speckit.analyze` is **mandatory** between `/tasks` and `/implement`. The hook in `.claude/settings.json` auto-applies every remediation from the analysis report and auto-chains to `/implement` without prompting. There is no stop between `/tasks` → `/speckit.analyze` → auto-apply → `/implement` — the whole sub-chain is one continuous segment of the larger pipeline.
 
@@ -27,10 +29,12 @@ After `/specify` produces the spec, classify it per `specs.md` and pick the matc
 
 | Spec shape | Pipeline track |
 |---|---|
-| Behavior-changing (new feature, new entity, new state machine, new concurrency, new API surface) | **Full:** spec → `/allium:elicit` → impl → browser tests → `/tla` |
-| UI feature, single actor, no concurrency (CRUD form, search/filter, simple linear workflow) | **Light:** spec → `/allium:elicit` → impl → browser tests (skip `/tla` unless state machine non-trivial) |
-| Non-behavior (refactor, doc, dependency bump, config tweak, cosmetic, i18n, logging) | **Spec-only:** no `.allium`, no `/tla`. Browser tests still apply if user-facing surface changes. |
-| Fix / hardening / security with no new entities AND no new state transitions | **Spec-only.** Express the constraint as a test, not as an Allium invariant. |
+| Behavior-changing (new feature, new entity, new state machine, new concurrency, new API surface) | **Full:** spec → `/clarify` → `/allium:elicit` → impl → browser tests → `/tla` |
+| UI feature, single actor, no concurrency (CRUD form, search/filter, simple linear workflow) | **Light:** spec → `/clarify` → `/allium:elicit` → impl → browser tests (skip `/tla` unless state machine non-trivial) |
+| Non-behavior (refactor, doc, dependency bump, config tweak, cosmetic, i18n, logging) | **Spec-only:** spec → `/clarify` → impl. No `.allium`, no `/tla`. Browser tests still apply if user-facing surface changes. |
+| Fix / hardening / security with no new entities AND no new state transitions | **Spec-only.** spec → `/clarify` → impl. Express the constraint as a test, not as an Allium invariant. |
+
+`/clarify` runs on every track (auto-pick recommended) — not just full/light. `/allium:elicit` is the step that varies by track.
 
 When the track is unclear, ask **once** with `AskUserQuestion` and then proceed. Do not default to "full" out of caution.
 
@@ -52,13 +56,14 @@ When you skip the pipeline because the work is trivial, state that classificatio
 
 Two enforcement layers:
 
-1. **`UserPromptSubmit` hook** (`scripts/feature-pipeline-detect.sh`) — when your prompt contains feature-build trigger words (build, implement, add, create, refactor, fix, bygg, lägg till, skapa, ändra, ny, etc.) and is not already a pipeline command (`/specify`, `/plan`, `/tasks`, `/implement`, `/allium`, `/tla`, `speckit:*`), the hook injects a mandatory-pipeline reminder into the conversation. The reminder is non-blocking — Claude can still classify the request as trivial — but the reminder will appear on every feature-shaped prompt.
+1. **`UserPromptSubmit` hook** (`scripts/feature-pipeline-detect.sh`) — when your prompt contains feature-build trigger words (build, implement, add, create, refactor, fix, bygg, lägg till, skapa, ändra, ny, etc.) and is not already a pipeline command (`/specify`, `/clarify`, `/plan`, `/tasks`, `/implement`, `/allium`, `/tla`, `speckit:*`), the hook injects a mandatory-pipeline reminder into the conversation. The reminder is non-blocking — Claude can still classify the request as trivial — but the reminder will appear on every feature-shaped prompt.
 
 2. **This rule file** — auto-loaded each session via `.claude/rules/`. The rule is the source of truth; the hook is just the deterministic re-injection so the rule cannot be silently forgotten across long sessions.
 
 ## What this rule forbids
 
 - Jumping straight to `Edit`/`Write` on production code for a multi-file feature without `/specify` first.
+- Skipping `/clarify` after `/specify`. The auto-pick hook makes it zero-cost when the spec has no real gaps; running `/specify → /plan` directly is the canonical pipeline-skip failure mode this rule exists to prevent.
 - Writing a spec without then running `/allium:elicit` on the full/light track.
 - Implementing without `/plan` and `/tasks` derived from the spec (so the functional inventory is explicit before code is written).
 - Writing browser tests that cover only "the happy path" — functional coverage means **every implemented function**, plus 8+ destructive scenarios across the 6 attack categories.

@@ -9,7 +9,7 @@ This rule defines how Claude reads, executes, and updates the register. It inter
 When `specs/INDEX.md` exists in a project:
 
 1. **Read the register first.** Before doing any feature work, open `specs/INDEX.md` and identify the next unchecked spec.
-2. **Run the full pipeline for that one spec, end-to-end.** Triage per `specs.md`, run `/specify`, `/allium:elicit` if applicable, `/plan`, `/tasks`, `/implement`, browser tests (functional + destructive), `/tla` if applicable. No stops between phases — this is one task per `continuous-execution.md`.
+2. **Run the full pipeline for that one spec, end-to-end.** Triage per `specs.md`, run `/specify`, `/clarify` (all tracks, auto-pick), `/allium:elicit` if applicable, `/plan`, `/tasks`, `/speckit.analyze` (auto-apply), `/implement`, browser tests (functional + destructive), `/tla` if applicable. No stops between phases — this is one task per `continuous-execution.md`.
 3. **Commit and push to `main` directly.** Per `project_workflow` memory (solo, direct-push, no PRs), each spec finishes with `git add` + `git commit` + `git push origin main`. No feature branches, no merge step.
 4. **Tick the register.** Mark the spec as `[x]` in `specs/INDEX.md` and commit + push the register update along with (or immediately after) the spec's final commit.
 5. **Stop with a status summary.** This is the **only** legitimate stop between specs. The summary follows the template in this rule. The user resumes the next spec when ready.
@@ -62,7 +62,7 @@ When a spec is complete, Claude's stop message uses this exact shape:
 - Track: <full|light|spec-only>
 - Commits: <count> (last: <short-sha> — "<commit subject>")
 - Push: origin/main <short-sha>
-- Pipeline: spec → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
+- Pipeline: spec → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
 - Open findings: <count> (or "none")
 
 **Next: NNN — <slug>** (or "register complete")
@@ -71,6 +71,7 @@ When a spec is complete, Claude's stop message uses this exact shape:
 ```
 
 Fields:
+- `<clarify status>` — `clarify auto-picked N answers` / `clarify clean (no questions raised)` / `clarify deferred N questions to user`
 - `<allium status>` — `allium ok` / `allium skipped (spec-only track)` / `allium with N open questions surfaced`
 - `<tla status>` — `tla clean` / `tla skipped (spec-only or trivial state)` / `tla with N gaps surfaced`
 - If `Open findings` is non-zero, the findings MUST have been surfaced individually per `validation-followup.md` before this status summary is written — the summary cites the count for the audit trail, not as a deferral mechanism.
