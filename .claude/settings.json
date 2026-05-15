@@ -67,7 +67,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE '(speckit[.:_-](specify|clarify|plan|tasks|implement)|spec[.:_-](specify|clarify|plan|tasks|implement)|/specify\\b|/clarify\\b)'; then echo '{\"additionalContext\": \"MANDATORY PIPELINE — execute each step automatically, never ask: (1) Write spec with destructive browser tests (min 8 scenarios, 6 attack categories). Read .claude/docs/spec-testing-checklist.md FIRST. (2) IMMEDIATELY after spec is written: run /clarify on EVERY track. The auto-pick hook accepts the (Recommended) answer for every clarification silently; only the rare gap with no defensible default falls back to AskUserQuestion. Skipping /clarify is the canonical pipeline failure mode and is forbidden. (3) After /clarify, on full/light tracks ONLY: run /allium:elicit to produce a .allium file. Skip on spec-only track (refactor, doc, config, cosmetic, i18n, logging, simple fix with no new entities). Do NOT ask the user — just run it. Asking is a bug. (4) /plan then /tasks — derive functional inventory and implementation tasks. (5) /speckit.analyze — MANDATORY immediately after /tasks and immediately before /implement. Read-only consistency check across spec/plan/tasks; the analyze hook auto-applies all suggested remediations and auto-chains to /speckit.implement without prompting. Do NOT skip analyze. Do NOT run /implement before /speckit.analyze. (6) /implement — execute tasks. (7) AFTER implementation + browser tests: run /tla (auto-runs /allium:distill for drift detection). Again, do NOT ask — just run it.\"}'; fi"
+            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash scripts/pipeline-trigger-match.sh pipeline; then bash scripts/emit-pipeline-reminder.sh; fi"
           }
         ]
       },
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE 'speckit[.:_-](analyz|analys)'; then echo '{\"additionalContext\": \"SPECKIT ANALYZE — AUTO-APPLY MODE + AUTO-CHAIN TO /speckit.implement. READ-ONLY consistency check across spec/plan/tasks; do NOT trigger the spec→Allium→TLA+ pipeline for the analyze step itself. Steps for this run, executed as ONE continuous task per .claude/rules/continuous-execution.md:\\n\\n1. Produce the analysis report (findings with IDs A1, A2, ...) and the Next Actions block exactly as analyze.md prescribes.\\n2. Immediately AUTO-APPLY concrete remediation edits for EVERY finding in the report without prompting the user. This is the user'\\''s standing instruction and overrides the analyze.md Step 8 default of asking before applying. Do NOT emit any phrasing like \\\"Reply suggest & apply for all\\\" — that wait-for-user UX is removed.\\n3. After all remediation is applied and the spec/plan/tasks are consistent, AUTO-CHAIN to /speckit.implement without stopping, without asking, and without status-summary in between. The transition tasks → analyze → auto-apply → implement is a single uninterrupted run.\\n\\nLegitimate stops during this chain (same rules as the pipeline): genuine ambiguity (AskUserQuestion), hard blocker, Allium/TLA+ findings (per validation-followup.md), or a register-rewrite proposal (per spec-register.md). Otherwise: keep going. Asking the user mid-chain about whether to apply or whether to continue is a rule violation.\\n\\nAt the end of remediation, emit one short audit block (in addition to the analysis report) before /speckit.implement starts:\\n\\n**Auto-applied remediation:**\\n- A1 — <one-line topic>: <what changed> — <file:line>\\n- A2 — <one-line topic>: <what changed> — <file:line>\\n- ...\\n\\nThen start /speckit.implement.\"}'; fi"
+            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash scripts/pipeline-trigger-match.sh analyze; then bash scripts/emit-analyze-reminder.sh; fi"
           }
         ]
       },
@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PROMPT=$(cat | jq -r '.prompt // empty' 2>/dev/null); if echo \"$PROMPT\" | grep -qiE 'speckit[.:_-]clarif(y|ies|ication)'; then echo '{\"additionalContext\": \"SPECKIT CLARIFY — AUTO-PICK MODE. The user has standing instructions to always accept the recommended option for clarify questions. Do NOT use AskUserQuestion during this /speckit.clarify run. For every clarification raised, pick the option labeled \\\"(Recommended)\\\" or — if none is explicitly labeled — pick the option that best matches spec-kit conventions (the most conservative, standard, or spec-conforming interpretation). Proceed silently through all clarifications and apply each chosen answer to the spec. FALLBACK: if a specific clarification has no defensible recommended answer (all options are genuinely equivalent OR all options conflict with the spec), that ONE question may use AskUserQuestion — but note it in the audit list below with reason \\\"no recommended answer\\\". This fallback should be rare. At the very end of the /speckit.clarify run, emit a final block in this exact shape on its own paragraph:\\n\\n**Auto-picked clarifications:**\\n- Q1 — <one-line topic>: <chosen option> — <one-line reason>\\n- Q2 — <one-line topic>: <chosen option> — <one-line reason>\\n- ...\\n\\nIf any clarification was deferred to the user via the fallback, mark it with reason \\\"no recommended answer — asked user\\\" and include the user'\\''s answer.\"}'; fi"
+            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash scripts/pipeline-trigger-match.sh clarify; then bash scripts/emit-clarify-reminder.sh; fi"
           }
         ]
       },
@@ -122,6 +122,16 @@
             "type": "command",
             "command": "bash scripts/spec-register-guard-hook.sh",
             "statusMessage": "Checking spec register exists..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/pipeline-state-guard-hook.sh",
+            "statusMessage": "Checking pipeline phase completion..."
           }
         ]
       },

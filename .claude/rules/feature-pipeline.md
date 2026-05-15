@@ -54,11 +54,13 @@ When you skip the pipeline because the work is trivial, state that classificatio
 
 ## How this rule fires
 
-Two enforcement layers:
+Three enforcement layers — first two are reminders, third is a hard block:
 
-1. **`UserPromptSubmit` hook** (`scripts/feature-pipeline-detect.sh`) — when your prompt contains feature-build trigger words (build, implement, add, create, refactor, fix, bygg, lägg till, skapa, ändra, ny, etc.) and is not already a pipeline command (`/specify`, `/clarify`, `/plan`, `/tasks`, `/implement`, `/allium`, `/tla`, `speckit:*`), the hook injects a mandatory-pipeline reminder into the conversation. The reminder is non-blocking — Claude can still classify the request as trivial — but the reminder will appear on every feature-shaped prompt.
+1. **`UserPromptSubmit` reminder hooks** (`scripts/feature-pipeline-detect.sh` + the three speckit-command hooks wired through `scripts/pipeline-trigger-match.sh`) — when your prompt contains feature-build trigger words or a clean invocation of a speckit command (`/specify`, `/clarify`, `/speckit.analyze`, etc.), the hook injects a pipeline reminder into the conversation. The reminder is non-blocking. The trigger matcher anchors to line-start and strips quoted regions (markdown code blocks, blockquotes, table cells, Claude transcript bullets, pipeline-flow diagrams) so pasted transcripts that *mention* a command do not fire the hook. Test harness: `bash scripts/test-pipeline-hooks.sh`.
 
-2. **This rule file** — auto-loaded each session via `.claude/rules/`. The rule is the source of truth; the hook is just the deterministic re-injection so the rule cannot be silently forgotten across long sessions.
+2. **This rule file** — auto-loaded each session via `.claude/rules/`. The rule is the source of truth; the reminder hooks are deterministic re-injection so the rule cannot be silently forgotten across long sessions.
+
+3. **`PreToolUse` state-guard hook** (`scripts/pipeline-state-guard-hook.sh`) — this is the **hard block**. On every `Edit` / `Write` / `MultiEdit` against a source-code file, the hook walks up to the project root, reads `specs/INDEX.md` to find the active spec (`- [/]` row or first `- [ ]` row), parses the track from the row, and verifies that the required artifacts exist in the spec directory (`spec.md` with a `## Clarifications` section, `spec.allium` on full/light tracks, `plan.md`, `tasks.md`). If any required phase is missing, the hook returns `permissionDecision: deny` with a phase-by-phase deny reason. The block scope is strictly source-code extensions — markdown, config, `.claude/**`, `scripts/**`, and `specs/**` edits remain allowed so the pipeline can produce its artifacts. The hook is silent on template/scratch repos (no language marker at the `.git` root) and fails open on internal errors.
 
 ## What this rule forbids
 

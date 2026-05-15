@@ -74,6 +74,20 @@ Once the memory exists, every PR-related decision MUST consult it:
 - "Pestering" the user about PRs when `PRs=no` — even gentle nudges like "for visibility you could open a PR" are forbidden in solo/no-PR mode.
 - Asking the questions in the middle of unrelated work. If the user is mid-task and you have not hit a real PR-suggestion moment, do not pre-emptively ask. Wait until the question is actually load-bearing.
 
+## What this rule does NOT govern (scope boundary)
+
+This rule is **narrow**. It governs PR ceremony — opening pull requests, branch-based review flows, the `commit-commands:commit-push-pr` skill, and PR-related suggestions. It does NOT govern anything else about the project's workflow.
+
+In particular, a `PRs=no` / solo / direct-push setting does **not** authorize skipping:
+
+- `/clarify`, `/allium:elicit`, `/plan`, `/tasks`, `/speckit.analyze`, `/tla`, or any other phase in `.claude/rules/feature-pipeline.md`. The pipeline is independent of PR ceremony.
+- `before_specify`, `after_specify`, `pre-commit`, `post-commit`, or any other hook that is not specifically a PR-creation hook. If a hook fires and you don't understand why, read its source — do not wave it away with "solo direct-push".
+- Browser tests (Playwright), unit tests, TLA+ verification, or any other validation step required by `CLAUDE.md`.
+- Linting, formatting, type-checking, or any other automated quality gate that runs on commit.
+- The spec register (`specs/INDEX.md`) and the per-spec stop pattern in `.claude/rules/spec-register.md`. Direct-push means "push without opening a PR after the spec is done" — not "push without finishing the spec".
+
+If you find yourself reasoning "the project is solo direct-push, so I can skip X", and X is not literally a PR or PR-related artifact, the reasoning is wrong. Re-examine why the hook or phase exists and address it on its own terms. Citing this rule to bypass non-PR enforcement is a documented anti-pattern and a rule violation.
+
 ## When to re-ask
 
 You may re-ask (and overwrite the memory) only when:
