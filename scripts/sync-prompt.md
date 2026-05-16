@@ -509,6 +509,7 @@ Do NOT auto-rewrite compose files or pragmas — the migration involves SSH'ing 
 
 After syncing:
 - Run `dotnet build` if the project is .NET
+- Normalize hook script paths so they survive a cwd change (`python3 scripts/fix-hook-paths.py .claude/settings.json`). Hook commands must reference scripts as `bash "$CLAUDE_PROJECT_DIR/scripts/foo.sh"`, never `bash scripts/foo.sh` — the relative form silently breaks when `claude` is started from a subdirectory. The patcher is idempotent and exits non-zero on JSON parse failure.
 - Verify that `settings.json` is valid JSON (`python3 -m json.tool .claude/settings.json`)
 - Verify that the reference files section in CLAUDE.md points to files that actually exist
 

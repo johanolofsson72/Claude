@@ -67,7 +67,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash scripts/pipeline-trigger-match.sh pipeline; then bash scripts/emit-pipeline-reminder.sh; fi"
+            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash \"$CLAUDE_PROJECT_DIR/scripts/pipeline-trigger-match.sh\" pipeline; then bash \"$CLAUDE_PROJECT_DIR/scripts/emit-pipeline-reminder.sh\"; fi"
           }
         ]
       },
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash scripts/pipeline-trigger-match.sh analyze; then bash scripts/emit-analyze-reminder.sh; fi"
+            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash \"$CLAUDE_PROJECT_DIR/scripts/pipeline-trigger-match.sh\" analyze; then bash \"$CLAUDE_PROJECT_DIR/scripts/emit-analyze-reminder.sh\"; fi"
           }
         ]
       },
@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash scripts/pipeline-trigger-match.sh clarify; then bash scripts/emit-clarify-reminder.sh; fi"
+            "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash \"$CLAUDE_PROJECT_DIR/scripts/pipeline-trigger-match.sh\" clarify; then bash \"$CLAUDE_PROJECT_DIR/scripts/emit-clarify-reminder.sh\"; fi"
           }
         ]
       },
@@ -91,7 +91,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/local-llm-classify-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-classify-hook.sh\""
           }
         ]
       },
@@ -99,7 +99,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/feature-pipeline-detect.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/feature-pipeline-detect.sh\"",
             "statusMessage": "Checking for feature-pipeline trigger..."
           }
         ]
@@ -120,7 +120,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/spec-register-guard-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-register-guard-hook.sh\"",
             "statusMessage": "Checking spec register exists..."
           }
         ]
@@ -130,7 +130,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/pipeline-state-guard-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/pipeline-state-guard-hook.sh\"",
             "statusMessage": "Checking pipeline phase completion..."
           }
         ]
@@ -140,7 +140,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/ui-design-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/ui-design-hook.sh\""
           }
         ]
       },
@@ -149,7 +149,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/sqlite-nfs-safety-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sqlite-nfs-safety-hook.sh\""
           }
         ]
       }
@@ -179,7 +179,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/test-coverage-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
             "statusMessage": "Checking functional test coverage..."
           }
         ]
@@ -189,7 +189,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/tla-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
             "statusMessage": "Checking for TLA+ verification..."
           }
         ]
@@ -199,7 +199,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/allium-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/allium-hook.sh\"",
             "statusMessage": "Checking for Allium specification..."
           }
         ]
@@ -209,7 +209,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/after-specify-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/after-specify-hook.sh\"",
             "statusMessage": "after_specify: auto-commit check..."
           }
         ]
@@ -219,43 +219,43 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/local-llm-changelog-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-changelog-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-readme-skeleton-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-readme-skeleton-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-gitignore-skeleton-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gitignore-skeleton-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-dotenv-example-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dotenv-example-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-n1-query-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-n1-query-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-migration-safety-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-react-deps-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-dockerfile-review-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dockerfile-review-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-async-audit-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-async-audit-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-allium-openq-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-allium-openq-hook.sh\""
           }
         ]
       },
@@ -264,7 +264,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat | jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$INPUT\" | grep -qiE '(tlc|tla2tools|tlc2\\.TLC)'; then bash scripts/tlc-cleanup.sh 2>/dev/null; fi"
+            "command": "INPUT=$(cat | jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$INPUT\" | grep -qiE '(tlc|tla2tools|tlc2\\.TLC)'; then bash \"$CLAUDE_PROJECT_DIR/scripts/tlc-cleanup.sh\" 2>/dev/null; fi"
           }
         ]
       },
@@ -273,35 +273,35 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/local-llm-commit-draft-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-commit-draft-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-pr-draft-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-pr-draft-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-gh-run-view-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-run-view-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-gh-pr-view-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-pr-view-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-gh-issue-view-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-issue-view-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-bash-tldr-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-bash-tldr-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-stacktrace-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-stacktrace-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/local-llm-tlc-translate-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-tlc-translate-hook.sh\""
           }
         ]
       },
@@ -321,16 +321,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/tlc-cleanup.sh 2>/dev/null; true"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tlc-cleanup.sh\" 2>/dev/null; true"
           },
           {
             "type": "command",
-            "command": "bash scripts/continuous-execution-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/continuous-execution-hook.sh\"",
             "statusMessage": "Checking for phase-splitting anti-pattern..."
           },
           {
             "type": "command",
-            "command": "bash scripts/stop-validation-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/stop-validation-hook.sh\"",
             "statusMessage": "Validating spec + design compliance before stop..."
           }
         ]
@@ -360,11 +360,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/local-llm-orientation-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-orientation-hook.sh\""
           },
           {
             "type": "command",
-            "command": "bash scripts/spec-register-orientation-hook.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-register-orientation-hook.sh\""
           }
         ]
       }
