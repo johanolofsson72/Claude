@@ -96,6 +96,7 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `scripts/allium-hook.sh` — PostToolUse hook that blocks if spec lacks .allium companion
 - `scripts/tlc-cleanup.sh` — TLC process cleanup (kills orphaned Java/TLC processes after execution)
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
+- `scripts/spec-md-coverage-reminder-hook.sh` — Deterministic replacement for the legacy `type:"prompt"` spec-completeness hook. Never blocks (only emits `systemMessage`), detects carve-out phrases ("carved to", "out-of-scope", "deferred to", "tracked in", etc.) and suppresses the destructive-test reminder when tests are explicitly deferred to another slice. Fixes the false-positive blocks observed in projects when slicing specs.
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
 - `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama. Default uses 127.0.0.1 explicitly to avoid Happy-Eyeballs routing to the wrong ollama instance when both IPv4 and IPv6 listeners exist on port 11434.
 - `scripts/local-llm-call.sh` — Generic non-streaming `/api/generate` caller. Reads system prompt as `$1`, user prompt from stdin, num_predict as optional `$2`. Prints model output or exits non-zero on offline/timeout/missing-model.
@@ -180,17 +181,19 @@ These three components work together to ensure destructive browser tests are inc
 
 2. **`.claude/docs/spec-testing-checklist.md`** — concrete template with task structure per attack category. Defines minimum requirements per feature type (8-15 tests). Target: 99% E2E coverage.
 
-3. **PostToolUse prompt-hook in settings.json** — triggers on Edit/Write for spec files and blocks if destructive tests are missing. Verify this hook exists:
+3. **PostToolUse command-hook in settings.json** — triggers on Edit/Write of `.md` files whose path contains spec/tasks/plan/feature; emits an advisory `systemMessage` when an interactive-UI spec is missing FUNCTIONAL COVERAGE or destructive tests. NEVER blocks. Verify this hook exists in this exact form:
    ```json
    {
      "matcher": "Edit|Write",
      "hooks": [{
-       "type": "prompt",
-       "prompt": "A file was just written/edited. Check: if the file path contains spec, tasks, plan, or feature AND is a .md file AND involves UI features, verify it includes destructive browser test scenarios...",
+       "type": "command",
+       "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-md-coverage-reminder-hook.sh\"",
        "statusMessage": "Validating spec completeness..."
      }]
    }
    ```
+
+   **Legacy form to OVERWRITE if found:** earlier versions of the template used a `type:"prompt"` hook with a long prompt containing the phrases `INTERACTIVE UI` and `always approve and use systemMessage for the reminder`. The session LLM was observed overriding the "do not block" instruction and issuing `permissionDecision: deny` on specs that legitimately carved destructive tests to a later slice. If the project's `settings.json` still has that `type:"prompt"` hook, replace the entire hook object with the `type:"command"` form above. The new script (`spec-md-coverage-reminder-hook.sh`) is deterministic, only ever emits `systemMessage`, and detects carve-out phrases ("carved to", "out-of-scope", "deferred to", "tracked in", "see slice N") to suppress false-positive reminders.
 
 If ANY of these three are missing — copy from the template.
 
