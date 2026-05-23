@@ -48,20 +48,38 @@ done
 SUPPORTED_EXTS='cs ts tsx js jsx mjs py go rs java c cpp h hpp rb kt scala php swift lua zig ps1 ex exs m mm jl vue svelte astro groovy gradle dart sql sh bash'
 
 count_eligible_files() {
-  local count=0 ext
+  # Single-pass find. Earlier versions ran 36 separate finds (one per
+  # extension) and hit a 15+ minute wall on monorepos like iskvalp
+  # (101k source files). The OR-name predicate keeps it to one tree
+  # walk regardless of how long the extension list grows.
+  #
+  # set -f disables filename globbing for the duration of the function
+  # so bash doesn't expand `*.cs` against the current directory before
+  # find sees it. Without this, a project with `debug.cs` at the root
+  # turns `-name *.cs` into `-name debug.cs` and find then breaks with
+  # "unknown primary or operator" on the next token. set +f restores
+  # globbing before return.
+  local name_clause='' first=1 ext
+  set -f
   for ext in $SUPPORTED_EXTS; do
-    # -prune the noisy dirs so we don't count vendored code as project surface
-    local found
-    found=$(find . \
-      \( -path './node_modules' -o -path './.git' -o -path './bin' -o -path './obj' \
-         -o -path './dist' -o -path './build' -o -path './graphify-out' \
-         -o -path './artifacts' -o -path './.specify' -o -path './target' \
-         -o -path '*/wwwroot/dist*' -o -path '*/wwwroot/build*' \
-      \) -prune -o \
-      -type f -name "*.$ext" -print 2>/dev/null | wc -l | tr -d ' ')
-    count=$((count + found))
+    if [ "$first" = 1 ]; then
+      name_clause="-name *.$ext"
+      first=0
+    else
+      name_clause="$name_clause -o -name *.$ext"
+    fi
   done
-  printf '%d' "$count"
+  # shellcheck disable=SC2086  # word-splitting on $name_clause is intentional and safe under `set -f`
+  local count
+  count=$(find . \
+    \( -path './node_modules' -o -path './.git' -o -path './bin' -o -path './obj' \
+       -o -path './dist' -o -path './build' -o -path './graphify-out' \
+       -o -path './artifacts' -o -path './.specify' -o -path './target' \
+       -o -path '*/wwwroot/dist*' -o -path '*/wwwroot/build*' \
+    \) -prune -o \
+    -type f \( $name_clause \) -print 2>/dev/null | wc -l | tr -d ' ')
+  set +f
+  printf '%s' "$count"
 }
 
 ELIGIBLE_COUNT=$(count_eligible_files)
