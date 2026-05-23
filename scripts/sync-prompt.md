@@ -7,7 +7,30 @@ in the project you want to update.
 
 ## Update project with the latest Claude Code configuration
 
-The template repo is at `/Users/jool/repos/Claude`. Your job: sync THIS project's Claude Code setup against the template repo's latest version.
+The Claude template repo lives on the developer's local machine. **The exact path varies per developer** — Johan's macOS box has it at `/Users/jool/repos/Claude`, David's Linux box at `/home/david/repos/Claude`, others elsewhere. Resolve it once at the top of the run; never hardcode.
+
+### Step -1: Resolve $TEMPLATE (MANDATORY — first thing to do)
+
+Run this probe before reading any template files. It walks the developer's common project roots and stops at the first directory that contains the two files that together unambiguously identify the Claude template:
+
+```bash
+for CAND in "$HOME/repos/Claude" "$HOME/Projects/Claude" "$HOME/Code/Claude" "$HOME/code/Claude" "$HOME/src/Claude" "$HOME/dev/Claude" "/Users/jool/repos/Claude"; do
+  if [ -f "$CAND/CLAUDE.md" ] && [ -f "$CAND/.claude/skills/sync-template/SKILL.md" ]; then
+    TEMPLATE="$CAND"
+    break
+  fi
+done
+
+if [ -z "${TEMPLATE:-}" ]; then
+  echo "[ERROR] Could not locate the Claude template repo on this machine."
+  echo "        Clone it first:"
+  echo "        git clone https://github.com/johanolofsson72/Claude.git \$HOME/repos/Claude"
+  exit 1
+fi
+echo "[OK] Template at: $TEMPLATE"
+```
+
+After this point, **every reference to `/Users/jool/repos/Claude` in this document is an example only** — substitute `$TEMPLATE` when you execute. If you see a literal `/Users/jool/...` path in any command below, treat it as `$TEMPLATE/...` (the same suffix after the `/Claude` segment).
 
 ### Step 0: Version check (MANDATORY — saves tokens)
 
@@ -44,7 +67,7 @@ fi
 
 ### Step 1: Read the template repo
 
-Read the following files from `/Users/jool/repos/Claude` (all are important — do not skip any):
+Read the following files from `$TEMPLATE` (resolved in Step -1; all are important — do not skip any):
 
 **Configuration:**
 - `CLAUDE.md` — main configuration with critical rules and workflow
@@ -249,7 +272,7 @@ After copying scripts, run `chmod +x scripts/local-llm-*.sh scripts/sync-local-l
 **Wire the hooks deterministically** (this is what previously failed under prose-only "merge" rules):
 
 ```bash
-python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/settings.json
+python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"
 ```
 
 The script strips every `bash scripts/local-llm-*-hook.sh` entry from the project's `.claude/settings.json` and reinstalls the template's exact set. Non-local-LLM hook entries (project-specific or other template hooks like `tla-hook.sh`, `ui-design-hook.sh`) are preserved verbatim. Idempotent. Capture its stdout for the Step 10 report.
@@ -259,7 +282,7 @@ The script strips every `bash scripts/local-llm-*-hook.sh` entry from the projec
 **Cross-check the trim** (catches the trim's own bugs — e.g. a regex that does not match digits letting `n1-query` slip through):
 
 ```bash
-bash scripts/verify-local-llm-hooks.sh /Users/jool/repos/Claude/.claude/settings.json
+bash scripts/verify-local-llm-hooks.sh "$TEMPLATE/.claude/settings.json"
 ```
 
 Three checks run: (1) the wired set matches the template's exactly, (2) every wired hook has its script file on disk, (3) the count matches the template. Exit non-zero on any failure. **If this fails, the sync is broken — fix it before reporting success in Step 10.** Capture the stdout for the Step 10 report.
@@ -327,7 +350,7 @@ grep -c 'local-llm-.*-hook.sh' .claude/settings.json
 grep -E 'bash-tldr|stacktrace|allium-drift|test-(name|assertion|realism|gap)|async-audit|auth-check|linq-perf|n1-query|react-deps|secret-scan|todo-catalog|dockerfile-review|migration-safety|spec-(criteria|scope)|plan-feasibility|task-traceability|allium-openq|branch-name|pr-splitter|tlc-translate|humanize' .claude/settings.json
 ```
 
-If either check fails: re-run `python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/settings.json` from the project root.
+If either check fails: re-run `python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"` from the project root.
 
 ### Step 5d: Bootstrap Graphify (codebase knowledge graph) — cross-platform
 

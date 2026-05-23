@@ -8,7 +8,33 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 
 # Sync from template repo
 
-Update this project's Claude Code configuration from the template repo at `/Users/jool/repos/Claude`.
+Update this project's Claude Code configuration from the local Claude template repo. The template's location is **auto-detected** per developer — Johan's macOS box has it at `/Users/jool/repos/Claude`, David's Linux box has it at `/home/david/repos/Claude`, etc. Do not hardcode either.
+
+**Resolve `TEMPLATE` once at the start of every sync session** using this probe (in bash, runnable on macOS / Linux / Windows Git Bash):
+
+```bash
+# Auto-detect the template repo location. Stop at the first directory
+# that contains CLAUDE.md AND .claude/skills/sync-template/SKILL.md
+# (the two files that together unambiguously identify this template).
+for CAND in "$HOME/repos/Claude" "$HOME/Projects/Claude" "$HOME/Code/Claude" "$HOME/code/Claude" "$HOME/src/Claude" "$HOME/dev/Claude" "/Users/jool/repos/Claude"; do
+  if [ -f "$CAND/CLAUDE.md" ] && [ -f "$CAND/.claude/skills/sync-template/SKILL.md" ]; then
+    TEMPLATE="$CAND"
+    break
+  fi
+done
+
+if [ -z "${TEMPLATE:-}" ]; then
+  echo "[ERROR] Could not locate the Claude template repo on this machine." >&2
+  echo "        Clone it: git clone https://github.com/johanolofsson72/Claude.git \$HOME/repos/Claude" >&2
+  echo "        Or set TEMPLATE manually before re-running this sync." >&2
+  exit 1
+fi
+echo "[OK] Template at: $TEMPLATE"
+```
+
+Throughout this skill, every reference to the template path uses `$TEMPLATE`, never a hardcoded absolute path. If you are reading this skill as instructions to execute, **resolve `$TEMPLATE` first** with the probe above, then substitute it everywhere the skill mentions the template repo location.
+
+The hardcoded `/Users/jool/repos/Claude` references that remain elsewhere in this document are **example paths** showing where the file would be on Johan's machine — they are NOT meant to be used literally. Translate them to `$TEMPLATE/...` when you execute.
 
 ## What to sync
 
@@ -24,7 +50,7 @@ Argument controls scope. Default: `full`.
 
 ### 1. Read template files
 
-Read these files from the template repo (`/Users/jool/repos/Claude`):
+Read these files from the template repo at `$TEMPLATE` (resolved via the probe at the top of this skill):
 
 **Skills (`.claude/skills/`):**
 - `code-review/SKILL.md`
@@ -113,7 +139,7 @@ For `.claude/settings.json`:
 Once `scripts/sync-local-llm-hooks.py` has been copied from the template to the project (in step 1), invoke it from the project root:
 
 ```bash
-python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/settings.json
+python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"
 ```
 
 The script does TWO things atomically:
