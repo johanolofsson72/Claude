@@ -325,6 +325,9 @@ If a developer skips this, every local-llm-* hook detects the missing daemon in 
 | `LOCAL_LLM_CLASSIFY_TIMEOUT` | `4` | Tighter timeout for the prompt-path classifier |
 | `LOCAL_LLM_COMMIT_DIFF_BYTES` | `10000` | Diff cap for commit-draft (raise if you commit huge diffs) |
 | `LOCAL_LLM_COMMIT_DRAFT_TIMEOUT` | `20` | Per-hook timeout for commit-draft (overrides the global) |
+| `LOCAL_LLM_TASKS_DRAFT_TIMEOUT` | `60` | Per-hook timeout for tasks-draft — 1536 num_predict on the spec-aware extraction model regularly exceeds the global 15s. Lower if your local model is fast; raise if you see exit-28 timeouts in `local-llm-fire.log`. |
+| `LOCAL_LLM_PLAN_DRAFT_TIMEOUT` | `60` | Per-hook timeout for plan-draft — same rationale as tasks-draft. |
+| `LOCAL_LLM_ALLIUM_DRIFT_RANK_TIMEOUT` | `45` | Per-hook timeout for allium-drift-rank — ranks drift reports (up to 12KB) with `num_predict=768`. 32b-class models regularly exceed 15s on this. |
 | `LOCAL_LLM_TELEMETRY_LOG` | `<repo>/.claude/local-llm-fire.log` | Per-project log path; auto-detected from `git rev-parse --show-toplevel` |
 | `LOCAL_LLM_TRACE_LOG` | `<repo>/.claude/local-llm-trace.log` | Per-project entry-tracer log |
 | `LOCAL_LLM_TELEMETRY_DISABLE` | unset | Set to `1` to skip telemetry rows |
