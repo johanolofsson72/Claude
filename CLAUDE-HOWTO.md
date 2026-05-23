@@ -1,6 +1,28 @@
 # Getting started with the Claude Code configuration
 
-Step-by-step guide for using this template repo in a new or existing project.
+Step-by-step guide for using this template repo in a new or existing project. Works on **macOS, Linux, and Windows** (Git Bash or WSL).
+
+---
+
+## Cross-platform prerequisites
+
+Before running any of the install steps below, verify these are present. The same template repo is used by developers on macOS, Linux (Debian/Ubuntu, Fedora/RHEL, Arch, openSUSE), and Windows. Pick the column that matches your machine.
+
+| Prerequisite | macOS | Linux (apt) | Linux (dnf) | Linux (pacman) | Windows (Git Bash) |
+|---|---|---|---|---|---|
+| **bash** | built-in | built-in | built-in | built-in | Git for Windows ships it |
+| **git** | `brew install git` | `sudo apt install git` | `sudo dnf install git` | `sudo pacman -S git` | Git for Windows installer |
+| **python3** | `brew install python` | `sudo apt install python3 python3-pip` | `sudo dnf install python3 python3-pip` | `sudo pacman -S python python-pip` | `scoop install python` or python.org installer |
+| **jq** | `brew install jq` | `sudo apt install jq` | `sudo dnf install jq` | `sudo pacman -S jq` | `scoop install jq` or `winget install jqlang.jq` |
+| **pipx** | `brew install pipx && pipx ensurepath` | `sudo apt install pipx && pipx ensurepath` | `sudo dnf install pipx && pipx ensurepath` | `sudo pacman -S python-pipx && pipx ensurepath` | `scoop install pipx` or `winget install pipx` |
+| **gh** (optional) | `brew install gh` | `sudo apt install gh` | `sudo dnf install gh` | `sudo pacman -S github-cli` | `scoop install gh` or `winget install gh` |
+
+**Windows notes:**
+- Run all bash commands in this guide from **Git Bash** (recommended) or **WSL2** (also fully supported). Native PowerShell will not execute the `.sh` scripts directly.
+- Paths like `$HOME/.local/bin` work identically under Git Bash. If `pipx`-installed tools are not on PATH after install, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` (Git Bash) or `~/.profile` (WSL).
+- For native PowerShell users, every `.sh` script in this template is callable via `bash scripts/foo.sh` once Git Bash is on PATH. There is no native PowerShell equivalent — that is intentional, since the template repo standardizes on bash to keep one source of truth.
+
+If you skip the prerequisites, the install scripts fail with a clear error pointing at the missing tool — they don't silently degrade.
 
 ---
 
@@ -8,11 +30,14 @@ Step-by-step guide for using this template repo in a new or existing project.
 
 ### 1. Copy all configuration files
 
-Run the following from your new project's root directory:
+Run the following from your new project's root directory. Set `TEMPLATE` to wherever you cloned this template repo on your machine.
 
 ```bash
-# Path to the template repo
-TEMPLATE=/Users/jool/repos/Claude
+# Path to the template repo — adjust for your platform/clone location
+#   macOS:    TEMPLATE=$HOME/repos/Claude
+#   Linux:    TEMPLATE=$HOME/repos/Claude
+#   Win/Bash: TEMPLATE=$HOME/repos/Claude    (Git Bash translates ~/repos to /c/Users/<you>/repos)
+TEMPLATE="$HOME/repos/Claude"
 
 # Create directory structure
 mkdir -p .claude/docs .claude/agents .claude/rules
@@ -85,6 +110,42 @@ git add CLAUDE.md .claude/
 git commit -m "feat: Add Claude Code configuration"
 ```
 
+### 6. (Optional) Bootstrap Graphify — codebase knowledge graph
+
+If the project has 30+ source files in a supported language (`.cs/.ts/.tsx/.js/.py/.go/.rs/.java/...`), install Graphify so Claude can query the AST graph instead of grepping raw files. The bootstrap script is cross-platform and self-detects the package manager:
+
+```bash
+bash scripts/graphify-bootstrap.sh
+```
+
+Cross-platform fallback (run only if the bootstrap exits non-zero pointing at a missing tool):
+
+| Platform | Manual install |
+|---|---|
+| macOS | `brew install pipx && pipx ensurepath && pipx install graphifyy` |
+| Debian/Ubuntu | `sudo apt install -y pipx && pipx ensurepath && pipx install graphifyy` |
+| Fedora/RHEL | `sudo dnf install -y pipx && pipx ensurepath && pipx install graphifyy` |
+| Arch | `sudo pacman -S python-pipx && pipx ensurepath && pipx install graphifyy` |
+| openSUSE | `sudo zypper install python3-pipx && pipx ensurepath && pipx install graphifyy` |
+| Windows Git Bash | `scoop install pipx && pipx install graphifyy` (or `winget install pipx`) |
+
+After `graphify` is on PATH, run:
+
+```bash
+graphify install --project   # writes .claude/skills/graphify/SKILL.md + PreToolUse nudge hook
+graphify update .            # AST-only initial extraction (no API key needed) → graphify-out/graph.json
+graphify hook install        # post-commit + post-checkout auto-rebuild hooks
+```
+
+The token-savings telemetry hook (`scripts/graphify-fire-hook.sh`) logs every query to `.claude/graphify-fire.log`. Read it with:
+
+```bash
+bash scripts/graphify-stats.sh           # this project
+bash scripts/graphify-stats.sh --all     # aggregate across ~/repos/* and ~/Projects/*
+```
+
+See `.claude/docs/graphify.md` for full details on when to install, supported languages, and uninstall.
+
 ---
 
 ## Existing project
@@ -104,7 +165,7 @@ Then copy the template files and merge the existing content with the new.
 If you only want to add what is missing:
 
 ```bash
-TEMPLATE=/Users/jool/repos/Claude
+TEMPLATE="$HOME/repos/Claude"  # works on macOS, Linux, and Windows Git Bash
 
 # 1. Hooks (if .claude/settings.json is missing)
 cp "$TEMPLATE/.claude/settings.json" .claude/settings.json
@@ -129,7 +190,7 @@ Then open `CLAUDE.md` and add the missing sections (copy from the template).
 Run `/init` in the project — Claude generates a starter CLAUDE.md based on the project structure. Then supplement with the template repo's files:
 
 ```bash
-TEMPLATE=/Users/jool/repos/Claude
+TEMPLATE="$HOME/repos/Claude"  # works on macOS, Linux, and Windows Git Bash
 cp "$TEMPLATE/.claude/settings.json" .claude/settings.json
 cp -r "$TEMPLATE/.claude/rules/" .claude/rules/
 cp -r "$TEMPLATE/.claude/agents/" .claude/agents/

@@ -329,6 +329,98 @@ grep -E 'bash-tldr|stacktrace|allium-drift|test-(name|assertion|realism|gap)|asy
 
 If either check fails: re-run `python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/settings.json` from the project root.
 
+### Step 5d: Bootstrap Graphify (codebase knowledge graph) — cross-platform
+
+Graphify (`safishamsi/graphify`, MIT) builds a queryable AST graph of the codebase via tree-sitter — no LLM API key required for extraction. Claude Code queries the graph instead of grepping raw files for structural questions ("where is X defined", "who calls Y", "what connects auth to the database"). The token-savings hook (`scripts/graphify-fire-hook.sh`) logs every `graphify query|path|explain|update` invocation to `.claude/graphify-fire.log` so we can measure ROI per project.
+
+This step is **opt-in by source-file count**, not opt-in by developer decision. The bootstrap script counts eligible source files and skips projects with fewer than 30 — for prototypes the install overhead exceeds the savings.
+
+**Files to sync** (these three plus the install logic below):
+
+1. **`scripts/graphify-fire-hook.sh`** — PostToolUse Bash hook. Matches `graphify (query|path|explain|update)` invocations and appends a TSV line to `.claude/graphify-fire.log` with timestamp, subcommand, exit, arg bytes, response bytes, graph node count, graph edge count. Disable per-developer with `GRAPHIFY_TELEMETRY_DISABLE=1`.
+2. **`scripts/graphify-stats.sh`** — ROI reporter. Reads the fire log and prints per-subcommand fire counts, ok%, avg argument and response sizes. `--all` aggregates across `~/repos/*` and `~/Projects/*`.
+3. **`scripts/graphify-bootstrap.sh`** — Cross-platform self-installer. Idempotent. Detects platform package manager (`brew` → `apt-get` → `dnf` → `pacman` → `zypper` → `choco`/`scoop` on Windows → fallback to `python3 -m pip --user`), installs pipx if missing, installs graphifyy, runs `graphify install --project`, `graphify update .` (AST-only, no API key), `graphify hook install`, and adds `graphify-out/` to `.gitignore`. Pass `--eligibility-check` to dry-run the source-file count without installing. Pass `--force` to override the 30-file threshold.
+
+After copying these scripts, `chmod +x scripts/graphify-*.sh`.
+
+**Wire the telemetry hook in `.claude/settings.json`:**
+
+The hook is non-local-LLM, so `sync-local-llm-hooks.py` does NOT touch it — preserve it verbatim. Add (or verify the presence of) this PostToolUse entry in the `Bash` matcher block:
+
+```json
+{
+  "type": "command",
+  "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/graphify-fire-hook.sh\"",
+  "statusMessage": "Logging graphify invocation telemetry..."
+}
+```
+
+The path **must** use `$CLAUDE_PROJECT_DIR` — relative `bash scripts/...` breaks the moment Claude Code is launched from a subdirectory, and that has burned 14 repos before. Run `python3 scripts/fix-hook-paths.py .claude/settings.json` in Step 8 to catch any drift.
+
+**Run the bootstrap (cross-platform):**
+
+```bash
+bash scripts/graphify-bootstrap.sh
+```
+
+The script does its own platform detection. Expected behavior per OS:
+
+| OS / Shell | Package manager preferred | Bootstrap result |
+|---|---|---|
+| **macOS (zsh/bash)** | `brew` → `pip --user` | Installs pipx via brew, then graphifyy via pipx |
+| **Linux Debian/Ubuntu (bash)** | `apt-get` → `pip --user` | Installs pipx via apt, then graphifyy via pipx. `sudo` prompt expected. |
+| **Linux Fedora/RHEL (bash)** | `dnf` → `pip --user` | Installs pipx via dnf, then graphifyy via pipx. `sudo` prompt expected. |
+| **Linux Arch (bash)** | `pacman` → `pip --user` | Installs `python-pipx` via pacman, then graphifyy via pipx. `sudo` prompt expected. |
+| **Linux openSUSE (bash)** | `zypper` → `pip --user` | Installs `python3-pipx`, then graphifyy via pipx. |
+| **Windows Git Bash** | `scoop` → `winget` → `choco` → `pip --user` | Installs pipx via scoop (preferred — no UAC) or winget/choco, then graphifyy via pipx. Add `$HOME/.local/bin` to PATH if not present. |
+| **Windows WSL2** | Same as Linux variant of the WSL distro | Same as native Linux. |
+| **Windows PowerShell (native)** | NOT supported by `graphify-bootstrap.sh` directly | Run the script via Git Bash (recommended) or WSL. A native PowerShell sibling (`scripts/graphify-bootstrap.ps1`) is on the template TODO list. |
+
+**If the bootstrap fails:**
+
+Don't silently proceed. The script exits 1 with a specific message naming what's missing (no package manager, pipx install failed, graphify install failed). Capture the error in the Step 10 report and tell the developer to install pipx manually:
+
+- macOS: `brew install pipx && pipx ensurepath`
+- Debian/Ubuntu: `sudo apt install pipx && pipx ensurepath`
+- Fedora/RHEL: `sudo dnf install pipx && pipx ensurepath`
+- Arch: `sudo pacman -S python-pipx && pipx ensurepath`
+- Windows Git Bash: `scoop install pipx` or `winget install pipx`
+
+Then re-run `bash scripts/graphify-bootstrap.sh`.
+
+**Tuning** (optional, in shell profile or `.envrc`):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GRAPHIFY_TELEMETRY_DISABLE` | unset | Set to `1` to skip writing rows to `graphify-fire.log` (script still runs, exits silently) |
+| `GRAPHIFY_TELEMETRY_LOG` | `<repo>/.claude/graphify-fire.log` | Per-project log path |
+| `GRAPHIFY_VIZ_NODE_LIMIT` | `5000` | Skip `graph.html` viz above this node count (graphify's own var) |
+
+**Gitignore additions** (the bootstrap script adds these automatically, but verify):
+
+```
+graphify-out/
+.claude/graphify-*.log
+```
+
+**Verification:**
+
+```bash
+# graphify CLI on PATH
+command -v graphify && graphify --version
+
+# Initial graph exists
+test -f graphify-out/graph.json && echo "[OK] graph.json present"
+
+# Fire-hook script on disk and executable
+test -x scripts/graphify-fire-hook.sh && echo "[OK] graphify-fire-hook.sh executable"
+
+# Hook wired in settings.json
+grep -q 'graphify-fire-hook.sh' .claude/settings.json && echo "[OK] telemetry hook wired"
+```
+
+If any of these fail: re-run `bash scripts/graphify-bootstrap.sh`. The script is idempotent and will skip steps that are already complete.
+
 ### Step 6: Install required skills
 
 Install the following external skills to `~/.claude/skills/` if not already present. These are shared across all projects.

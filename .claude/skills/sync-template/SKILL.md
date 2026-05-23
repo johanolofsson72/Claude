@@ -86,8 +86,13 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `scripts/local-llm-call.sh` (telemetry funnel + auto-detect)
 - `scripts/local-llm-detect.sh`
 - `scripts/local-llm-stats.sh` (per-hook ROI reporter)
-- `scripts/sync-local-llm-hooks.py` (deterministic settings.json trim — invoked in step 3)
-- **Glob: every `scripts/local-llm-*-hook.sh`** — pull all matching files from the template. The template adds new local-LLM hook scripts over time; do not maintain a hand-edited list. Use `Glob` on `scripts/local-llm-*-hook.sh` against the template root and copy each file. Files present in the project but no longer in the template should also be removed (the template is the source of truth for the local-LLM hook script set).
+- `scripts/sync-local-llm-hooks.py` (deterministic settings.json wiring + scripts/ mirror — invoked in step 3.1)
+- `scripts/verify-local-llm-hooks.sh` (cross-check used by step 3.1)
+- `scripts/graphify-bootstrap.sh` (cross-platform Graphify self-installer — handles macOS brew, Linux apt/dnf/pacman/zypper, Windows Git Bash via scoop/winget/choco; idempotent; eligibility-gates by source-file count)
+- `scripts/graphify-fire-hook.sh` (PostToolUse Bash hook — logs every `graphify query|path|explain|update` invocation to `.claude/graphify-fire.log` with response bytes + graph node/edge counts)
+- `scripts/graphify-stats.sh` (per-project Graphify ROI reporter — `--all` flag aggregates across `~/repos/*` and `~/Projects/*`)
+
+Note: `scripts/local-llm-*-hook.sh` files are NOT hand-globbed here. Step 3.1 invokes `sync-local-llm-hooks.py`, which atomically mirrors both the wiring AND the hook script files on disk (copying new ones, deleting orphans, verifying no wired hook is missing its script). Hand-globbing this set used to be a prose instruction here and proved unreliable — the LLM short-circuited the glob and produced settings.json entries referencing scripts that did not exist on disk, generating "No such file or directory" errors on every Edit/Bash. The deterministic helper closed that gap.
 
 ### 2. Compare and merge
 
@@ -111,9 +116,52 @@ Once `scripts/sync-local-llm-hooks.py` has been copied from the template to the 
 python3 scripts/sync-local-llm-hooks.py /Users/jool/repos/Claude/.claude/settings.json
 ```
 
-The script removes every `bash scripts/local-llm-*-hook.sh` entry from the project's `hooks` block and replaces them with the template's exact set. Non-local-LLM hook entries are preserved verbatim. The script is idempotent and prints what it changed; capture that output for the report in step 6.
+The script does TWO things atomically:
 
-Do NOT try to merge local-LLM hook entries by hand. Prose merge rules proved unreliable — the LLM running the sync hedged on "REPLACE" because it conflicts with "preserve project-specific customizations". The script removes the ambiguity.
+1. **Wiring** — removes every `bash scripts/local-llm-*-hook.sh` entry from the project's `hooks` block and replaces them with the template's exact set. Non-local-LLM hook entries are preserved verbatim.
+2. **Scripts on disk** — copies every `scripts/local-llm-*-hook.sh` from the template into the project, and deletes any in the project that the template no longer ships. Template is the source of truth.
+
+Finally it verifies that every wired hook has its script on disk and exits non-zero (with the list of broken refs) if anything is off. If step 3.1 exits non-zero, do NOT continue — investigate the message and rerun the script.
+
+The script is idempotent and prints what it changed; capture that output for the report in step 6.
+
+Do NOT try to merge local-LLM hook entries by hand and do NOT hand-glob `scripts/local-llm-*-hook.sh`. Both prose approaches proved unreliable (the LLM hedged on "REPLACE" wiring and short-circuited the script-copy glob, leaving 17 ghost references in one project). The script removes the ambiguity from both ends.
+
+**Step 3.1b — Graphify bootstrap + telemetry hook (cross-platform, deterministic):**
+
+After the local-LLM sync completes, run the Graphify bootstrap. It is a separate concern from the local-LLM mirror — the script is idempotent and self-skipping when the project doesn't qualify:
+
+```bash
+bash scripts/graphify-bootstrap.sh
+```
+
+The script:
+
+1. Counts eligible source files (`.cs/.ts/.tsx/.js/.jsx/.py/.go/.rs/...`) excluding vendored dirs. Skips silently if under 30 — Graphify install overhead exceeds savings on small projects.
+2. Ensures `pipx` is on PATH. Self-installs via `brew`/`apt-get`/`dnf`/`pacman`/`zypper` (Linux/macOS) or `scoop`/`winget`/`choco` (Windows Git Bash); falls back to `python3 -m pip install --user pipx`. Exits non-zero with a platform-specific install hint if all paths fail.
+3. Installs `graphifyy` via pipx if `graphify` is not already on PATH.
+4. Runs `graphify install --project` to write the Graphify skill + PreToolUse hook to `.claude/`. Skips if `.claude/skills/graphify/SKILL.md` already exists.
+5. Runs `graphify update .` for the initial AST extraction (NOT `graphify .` — the bare command requires an LLM API key; `update` is AST-only and offline). Skips if `graphify-out/graph.json` already exists.
+6. Runs `graphify hook install` for git post-commit / post-checkout auto-rebuild. Skips if already installed.
+7. Appends `graphify-out/` and `.claude/graphify-*.log` to `.gitignore` if missing.
+
+The telemetry hook in `.claude/settings.json` is NOT wired by `graphify install --project` — that command only writes the PreToolUse "use the graph before grepping" nudge. The telemetry hook is a separate PostToolUse entry that must be present in the project's `settings.json`'s `Bash` matcher block:
+
+```json
+{
+  "type": "command",
+  "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/graphify-fire-hook.sh\"",
+  "statusMessage": "Logging graphify invocation telemetry..."
+}
+```
+
+This entry is preserved by `sync-local-llm-hooks.py` (it only strips entries whose command matches `bash scripts/local-llm-*-hook.sh`). Add it once and the local-LLM sync leaves it alone going forward.
+
+After bootstrap, verify with:
+
+```bash
+command -v graphify && test -f graphify-out/graph.json && test -x scripts/graphify-fire-hook.sh && grep -q 'graphify-fire-hook.sh' .claude/settings.json && echo "[OK] graphify wired" || echo "[FAIL] something missing"
+```
 
 **Step 3.2 — non-local-LLM hook entries and other settings (merge):**
 

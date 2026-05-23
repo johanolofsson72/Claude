@@ -7,6 +7,8 @@ appsettings.Development.json
 .claude/.local-llm-*
 .claude/local-llm-*.log
 .claude/local-llm-*.log.errors
+.claude/graphify-*.log
+.claude/graphify-*.log.errors
 .claude/projects/
 .claude/settings.local.json
 CLAUDE.local.md
