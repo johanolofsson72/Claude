@@ -76,6 +76,7 @@ Read the following files from `/Users/jool/repos/Claude` (all are important — 
 - `.claude/docs/spot-architecture.md` — three reference architectures for stateful services on an all-spot worker fleet (SQLite on NFS share, LiteFS replicas, managed Postgres) with full compose templates, volume matrix, healthcheck split, and migration path
 - `.claude/docs/stress-testing.md` — mandatory pre-deploy stress testing (k6, Lighthouse)
 - `.claude/docs/project-template.md` — template for project start
+- `.claude/docs/graphify.md` — optional codebase knowledge graph (opt-in per project, install instructions + when/when-not to use)
 
 **Agents (subagents with YAML frontmatter):**
 - `.claude/agents/dotnet-reviewer.md` — code review (isolation: worktree)

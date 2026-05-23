@@ -68,6 +68,7 @@ Read these files from the template repo (`/Users/jool/repos/Claude`):
 - `stress-testing.md`
 - `spec-testing-checklist.md`
 - `project-template.md`
+- `graphify.md`
 
 **Scripts:**
 - `scripts/tla-hook.sh`
