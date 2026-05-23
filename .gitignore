@@ -9,3 +9,4 @@ appsettings.Development.json
 .claude/local-llm-*.log.errors
 .claude/projects/
 .claude/settings.local.json
+CLAUDE.local.md
