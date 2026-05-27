@@ -84,16 +84,26 @@ Read the fetched content and **execute all instructions between the `---` marker
 4. Analyze and update/merge files per the sync-prompt's rules (copy missing, update outdated, merge project-specific)
 5. Verify spec testing pipeline
 6. Install required external skills (git clone commands)
-7. Ask about tech stack and remove irrelevant files
-8. Verify (valid JSON, CLAUDE.md size, reference files exist)
-9. Report what was synced
+7. **Run `python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"`** — deterministic local-LLM wiring (NOT optional, NOT prose-merged). Fail-hard if it exits non-zero.
+8. **Run `python3 scripts/sync-graphify-wiring.py "$TEMPLATE/.claude/settings.json"`** — deterministic Graphify wiring (NOT optional, NOT prose-merged). Fail-hard if it exits non-zero.
+9. **Run `bash scripts/graphify-bootstrap.sh`** — actually installs Graphify and builds the AST graph. The script eligibility-gates itself (skips silently under 30 source files) so it's safe to run unconditionally. On eligible projects this populates `graphify-out/graph.json` and `.claude/skills/graphify/SKILL.md`.
+10. Ask about tech stack and remove irrelevant files
+11. Verify (valid JSON, CLAUDE.md size, reference files exist). For eligible projects, also run the graphify exit-condition snippet — `command -v graphify && test -f graphify-out/graph.json && test -x scripts/graphify-fire-hook.sh && grep -q 'graphify-fire-hook.sh' .claude/settings.json && echo "[OK] graphify wired" || echo "[FAIL] something missing"`. If `[FAIL]`, the bootstrap is broken — stop and report.
+12. Report what was synced
 
 **IMPORTANT**: When the sync-prompt references reading files from `/Users/jool/repos/Claude/`, translate those paths to raw GitHub URLs:
 - `/Users/jool/repos/Claude/CLAUDE.md` → `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/CLAUDE.md`
 - `/Users/jool/repos/Claude/.claude/rules/dotnet.md` → `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/rules/dotnet.md`
+- `/Users/jool/repos/Claude/scripts/graphify-bootstrap.sh` → `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/graphify-bootstrap.sh -o scripts/graphify-bootstrap.sh && chmod +x scripts/graphify-bootstrap.sh`
+- `/Users/jool/repos/Claude/scripts/graphify-fire-hook.sh` → same pattern
+- `/Users/jool/repos/Claude/scripts/graphify-stats.sh` → same pattern
+- `/Users/jool/repos/Claude/scripts/sync-graphify-wiring.py` → same pattern (chmod +x after download)
+- `/Users/jool/repos/Claude/scripts/sync-local-llm-hooks.py` → same pattern
 - etc.
 
 This ensures the skill works on any machine, not just machines with a local clone of the template repo.
+
+**Graphify is a base requirement, not optional.** For any project that passes the 30-source-file eligibility threshold, steps 8 + 9 above MUST complete successfully before the wizard proceeds to Phase 0. If `sync-graphify-wiring.py` exits non-zero, or if `graphify-bootstrap.sh` reports `[FAIL]` on the verify snippet, treat it as a blocker — do not silently proceed without graphify. Projects below the threshold (vanilla HTML demos, single-script repos) skip gracefully because the bootstrap itself eligibility-gates.
 
 **Step 6 — Report bootstrap status:**
 
