@@ -81,6 +81,9 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `validation-followup.md`
 - `feature-pipeline.md`
 - `spec-register.md`
+- `project-workflow.md`
+- `sqlite.md`
+- `spot-resilience.md`
 
 **Docs (`.claude/docs/`):**
 - `skills.md`
@@ -95,6 +98,8 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `spec-testing-checklist.md`
 - `project-template.md`
 - `graphify.md`
+- `local-llm.md`
+- `spot-architecture.md`
 
 **Scripts:**
 - `scripts/tla-hook.sh`

@@ -82,6 +82,9 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/rules/wordpress.md` — WordPress rules
 - `.claude/rules/allium.md` — Allium spec language rules (paths: `**/*.allium`)
 - `.claude/rules/continuous-execution.md` — forbids phase-splitting stalls ("should I continue with phase 2?"); execute multi-phase plans in one uninterrupted run
+- `.claude/rules/validation-followup.md` — after any Allium/TLA+ run, surface every finding individually for an explicit fix/defer/dismiss decision (no "looks good overall" summaries that bury findings)
+- `.claude/rules/feature-pipeline.md` — mandates the speckit + Allium + TLA+ pipeline for non-trivial work; defines the triage tracks and the PreToolUse state-guard hard block
+- `.claude/rules/spec-register.md` — per-project `specs/INDEX.md` register, one-stop-per-spec execution, SessionStart orientation + PreToolUse bootstrap guard
 - `.claude/rules/project-workflow.md` — gates PR suggestions behind a one-time `AskUserQuestion` (solo vs team + PRs yes/no/sometimes); answer is saved to project memory and silently suppresses PR nagging on solo projects
 - `.claude/rules/sqlite.md` — SQLite-on-NFS pragmas (rollback journal, no `mmap`, `synchronous=FULL`, 30 s `busy_timeout`), single-writer enforcement (`replicas: 1` + `stop-first` + 30 s grace), NFS mount options (`noac`, `actimeo=0`), retry strategy (paths: `**/appsettings*.json`, `**/docker-compose*.yml`, `**/Program.cs`, `**/*Db*.cs`, `**/*Sqlite*.cs`)
 - `.claude/rules/spot-resilience.md` — required components for services on Azure spot workers: eviction watcher (IMDS scheduled events), graceful drain, idempotent writes, outbox pattern, healthcheck split (paths: `**/Program.cs`, `**/docker-compose*.yml`, controllers/endpoints/services/workers)
@@ -113,6 +116,8 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/skills/deploy-checklist/SKILL.md`
 - `.claude/skills/tla/SKILL.md` — TLA+ formal verification (auto-triggered after browser tests)
 - `.claude/skills/allium/SKILL.md` — Allium spec language skill (/allium:elicit, /allium:distill)
+- `.claude/skills/sync-template/SKILL.md` — the sync skill itself, so the downstream project can re-run `/project-update` later
+- `.claude/skills/update-template/SKILL.md` — keeps the template's own best-practices current (carried along for parity with the sync-template skill list)
 
 **Scripts:**
 
