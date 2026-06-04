@@ -84,6 +84,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `project-workflow.md`
 - `sqlite.md`
 - `spot-resilience.md`
+- `github-actions.md`
 
 **Docs (`.claude/docs/`):**
 - `skills.md`

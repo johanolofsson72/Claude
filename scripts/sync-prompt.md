@@ -88,6 +88,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/rules/project-workflow.md` — gates PR suggestions behind a one-time `AskUserQuestion` (solo vs team + PRs yes/no/sometimes); answer is saved to project memory and silently suppresses PR nagging on solo projects
 - `.claude/rules/sqlite.md` — SQLite-on-NFS pragmas (rollback journal, no `mmap`, `synchronous=FULL`, 30 s `busy_timeout`), single-writer enforcement (`replicas: 1` + `stop-first` + 30 s grace), NFS mount options (`noac`, `actimeo=0`), retry strategy (paths: `**/appsettings*.json`, `**/docker-compose*.yml`, `**/Program.cs`, `**/*Db*.cs`, `**/*Sqlite*.cs`)
 - `.claude/rules/spot-resilience.md` — required components for services on Azure spot workers: eviction watcher (IMDS scheduled events), graceful drain, idempotent writes, outbox pattern, healthcheck split (paths: `**/Program.cs`, `**/docker-compose*.yml`, controllers/endpoints/services/workers)
+- `.claude/rules/github-actions.md` — CI minimalism: solo projects get at most the `workflow_dispatch` deploy workflow (+ optionally ONE minimal validation workflow); no CodeQL/gitleaks/mutation/a11y/per-spec/scheduled workflows — those run locally. Born from iskvalp burning the org's 3000 Actions minutes in 4 days (June 2026)
 
 **Docs (loaded on demand, referenced from CLAUDE.md):**
 - `.claude/docs/testing.md` — test conventions, functional coverage + destructive browser tests (6+1 attack categories)
@@ -641,7 +642,7 @@ Then, based on the developer's answer:
 - Developer says NO to UI → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook
 - Developer says NO to SQLite → remove `.claude/rules/sqlite.md`
 - Developer says NO to live4 cluster deployment / Azure spot → remove `.claude/rules/spot-resilience.md` and `.claude/docs/spot-architecture.md`
-- ALWAYS keep regardless of answer: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`, `continuous-execution.md`, `project-workflow.md`, `continuous-execution-hook.sh`
+- ALWAYS keep regardless of answer: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`, `continuous-execution.md`, `project-workflow.md`, `github-actions.md`, `continuous-execution-hook.sh`
 - When in doubt, **keep the file** — extra rules cost nothing, missing rules cost bugs
 
 ### Step 7b: Audit for unsafe SQLite-on-NFS patterns (if .NET + SQLite project)

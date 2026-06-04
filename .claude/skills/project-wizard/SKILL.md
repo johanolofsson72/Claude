@@ -120,6 +120,7 @@ for f in \
   .claude/rules/validation-followup.md \
   .claude/rules/feature-pipeline.md \
   .claude/rules/spec-register.md \
+  .claude/rules/github-actions.md \
   scripts/allium-hook.sh \
   scripts/tla-hook.sh \
   scripts/sync-graphify-wiring.py \
@@ -398,9 +399,11 @@ This category MUST be informed by Phase 0 context absorption. If `.claude/docs/d
     - On-prem / self-hosted
     - Other
 
-    If Noisy Cricket is chosen, confirm: the deploy pipeline is GitHub Actions → build & test → stress test → Docker build → SCP to manager → push to private registry → `docker stack deploy`. The wizard should note that NFS directories and GitHub Secrets need to be set up (reference `.claude/docs/deployment.md` pattern).
+    If Noisy Cricket is chosen, confirm: the deploy pipeline is ONE GitHub Actions workflow (`workflow_dispatch` with `confirm_deploy: "deploy"`) → build & test → stress test → Docker build → SCP to manager → push to private registry → `docker stack deploy`. The wizard should note that NFS directories and GitHub Secrets need to be set up (reference `.claude/docs/deployment.md` pattern).
 
 34. **CI/CD**: Pipeline tool? (GitHub Actions ★ recommended for Noisy Cricket, GitLab CI, Azure DevOps)
+
+    **CI minimalism is non-negotiable on solo projects** (per `.claude/rules/github-actions.md`): the Actions budget is a shared 3000-minute/month free tier, and all tests run locally before deploy per the Definition of Done. GitHub Actions gets the manually-triggered deploy workflow and nothing else — no CodeQL, no scheduled scans, no push-triggered test workflows, no per-spec CI. Do NOT generate extra workflows during inception, and make sure the generated CLAUDE.md's CI/CD section states this policy.
 35. **Environments**: Which environments? (local + prod for MVP ★, or local + dev + staging + prod)
 36. **Containerization**: Docker ★ (required for Noisy Cricket), Docker Compose for local dev?
 37. **Domain & DNS**: Domain name? Subdomain on live4.se ★ (e.g., `projectname.live4.se`), or custom domain? SSL via Let's Encrypt (automatic with Nginx Proxy Manager).

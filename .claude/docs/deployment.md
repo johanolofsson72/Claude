@@ -49,6 +49,10 @@ GitHub Actions (workflow_dispatch with confirmation)
 - **Runner**: `ubuntu-latest`
 - **Image tag**: `YYYY.MM.DD-HHMM` (datetime-based)
 
+### Actions budget policy (BLOCKING — see `.claude/rules/github-actions.md`)
+
+The org shares ONE free tier: 3000 Actions minutes/month. iskvalp burned the whole month in four days (June 2026) with 17 workflows whose checks all ran locally anyway. The policy since then: on solo projects, the deploy workflow above is the ONLY workflow (optionally plus one minimal validation workflow when something truly cannot run locally). No CodeQL, no gitleaks/trufflehog on push or schedule, no mutation testing, no a11y audits, no per-spec CI, no `schedule:` triggers, no push-triggered builds. All of that runs locally before deploy, per the Definition of Done in `CLAUDE.md`. Give every job a `timeout-minutes` and the workflow a `concurrency` group with `cancel-in-progress: true`.
+
 ## Docker
 
 - **Dockerfiles**: Multi-stage builds with `mcr.microsoft.com/dotnet/sdk:10.0` (build) and `aspnet:10.0` (runtime)
