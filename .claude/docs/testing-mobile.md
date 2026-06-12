@@ -1,6 +1,18 @@
-# Testing conventions — React Native / Expo (mobile)
+# Testing conventions — native mobile (React Native / Expo · Flutter)
 
-> This is the **mobile** variant of `testing.md`. A native app has no browser, so "browser tests" do not apply — the equivalents are **Maestro** flows (E2E) and **React Native Testing Library** (component/integration). Use this file on Expo / React Native projects. Web/.NET projects use `testing.md` instead.
+> This is the **mobile** variant of `testing.md`, covering both native toolchains: **React Native / Expo** and **Flutter**. A native app has no browser, so "browser tests" do not apply. The backend is irrelevant here — this file is about the client; pair it with whatever backend testing doc fits (`testing.md` for a .NET/web API).
+>
+> **The destructive discipline is the same for both frameworks** — the attack categories below (lifecycle, permissions, offline, deep links) are platform-level and identical whether the app is RN or Flutter. Only the **tooling** differs:
+>
+> | | React Native / Expo | Flutter |
+> |---|---|---|
+> | Unit / logic | Jest (`jest-expo`) | `flutter test` (`flutter_test`) |
+> | Component / widget | React Native Testing Library | `flutter test` widget tests (`WidgetTester`) |
+> | E2E (in-process) | — | `integration_test` (`flutter test integration_test/`) |
+> | E2E (native, destructive) | **Maestro** (`.maestro/*.yaml`) | **Patrol** (`patrol test`) — native dialogs, permissions, deep links; Maestro also works |
+> | Lint / typecheck | `npx tsc --noEmit` | `flutter analyze` |
+>
+> Read the section for your framework where they differ; everything else applies to both. Web/.NET projects use `testing.md` instead.
 
 ## Testing philosophy
 
@@ -28,17 +40,35 @@ If a test only verifies that "the screen renders" or "the form submits with vali
 
 ## Test layers
 
+Three layers, both frameworks: pure logic, component/widget, and native E2E.
+
+- Component/widget tests query by **accessibility role/label/text/semantics**, never by test-internal implementation detail. If you cannot select an element by what the user sees, the screen is not accessible — fix the screen, not the test.
+- Native E2E flows must be green before anything is reported as "done". Destructive flows get a `-destructive` suffix.
+
+### React Native / Expo
+
 | Layer | Tool | What it covers |
 |---|---|---|
 | **Unit / logic** | Jest (`jest-expo` preset) | Pure functions, reducers, hooks-in-isolation, stores, mappers |
 | **Component / integration** | `@testing-library/react-native` (RNTL) | Rendering, user events (`fireEvent`, `userEvent`), state changes, conditional UI, accessibility queries |
-| **E2E flows** | **Maestro** (`.maestro/*.yaml`) | Real device/simulator flows: navigation, multi-step journeys, deep links, lifecycle, permissions |
+| **E2E flows** | **Maestro** (`.maestro/*.yaml`) | Real device/simulator flows: navigation, deep links, lifecycle, permissions |
 
-- Component tests query by **accessibility role/label/text**, never by test-internal implementation detail. If you cannot select an element by what the user sees, the screen is not accessible — fix the screen, not the test.
-- E2E flows live in `.maestro/` at the repo root (or `app/.maestro/`), one `.yaml` per flow. Destructive flows get a `-destructive` suffix.
-- E2E flows must be green before anything is reported as "done".
+E2E flows live in `.maestro/` at the repo root (or `app/.maestro/`), one `.yaml` per flow.
+
+### Flutter
+
+| Layer | Tool | What it covers |
+|---|---|---|
+| **Unit / logic** | `flutter test` (`flutter_test`) | Pure Dart, providers/blocs/notifiers, mappers, repositories with mocks |
+| **Widget** | `flutter test` + `WidgetTester` | `pumpWidget`, `tester.tap/enterText`, `find.bySemanticsLabel`, golden tests for visual regressions |
+| **Integration / E2E (in-process)** | `integration_test` | Whole-app flows driven on a real device/emulator via `flutter test integration_test/` |
+| **E2E (native, destructive)** | **Patrol** (`patrol test`) | Native permission dialogs, notifications, deep links, background/foreground, hardware back — the things `integration_test` alone cannot touch. Maestro also drives Flutter via the semantics tree |
+
+Widget tests live next to the code under `test/`; integration/Patrol tests under `integration_test/`.
 
 ## Running tests
+
+### React Native / Expo
 
 ```bash
 # Typecheck — the cheapest signal, run first
@@ -54,7 +84,25 @@ maestro test .maestro/                   # whole suite
 maestro test .maestro/login-destructive.yaml   # single flow
 ```
 
-If Maestro is not installed: `curl -fsSL https://get.maestro.mobile.dev | bash` (cross-platform; on Windows run under WSL or Git Bash). E2E flows require a running iOS Simulator (`xcrun simctl`) or Android emulator.
+If Maestro is not installed: `curl -fsSL https://get.maestro.mobile.dev | bash` (cross-platform; on Windows run under WSL or Git Bash).
+
+### Flutter
+
+```bash
+# Static analysis — the cheapest signal, run first
+flutter analyze
+
+# Unit + widget tests
+flutter test
+flutter test test/login_test.dart          # single file
+flutter test --name "withEmptyName"        # single test by name
+
+# Integration / E2E on a device or emulator
+flutter test integration_test/             # in-process integration tests
+patrol test                                 # native E2E (permissions, deep links, lifecycle)
+```
+
+If Patrol is not installed: `dart pub global activate patrol_cli` then `patrol doctor`. E2E in either framework requires a running iOS Simulator (`xcrun simctl`) or Android emulator.
 
 ## Functional coverage (MANDATORY — before destructive tests)
 
@@ -81,7 +129,7 @@ List EVERY user-facing function that was implemented or changed. Put this as a c
 
 ### Step 2: Write one test per function (MINIMUM)
 
-Each inventory item needs at least one test that verifies the function **actually works end-to-end** with realistic data — not a render-smoke test. A component test proves the interaction; a Maestro flow proves the journey on a real runtime.
+Each inventory item needs at least one test that verifies the function **actually works end-to-end** with realistic data — not a render-smoke test. A component/widget test proves the interaction; a native E2E flow (Maestro for RN, Patrol or `integration_test` for Flutter) proves the journey on a real runtime. (Flutter uses the same inventory in a `//` Dart comment block at the top of the test file.)
 
 ### Step 3: Verify coverage
 
@@ -155,11 +203,12 @@ Destructive tests without functional coverage are worthless — you are stress-t
 Use prefixes/suffixes that clearly show the test is destructive:
 
 ```
-submitProfile_withEmptyRequiredFields_showsValidationErrors   (RNTL)
-submitProfile_doubleTap_createsOnlyOneRecord                  (RNTL)
-login-destructive.yaml            → deep link to /account without auth → redirect
-checkout-background-resume.yaml   → background mid-step → relaunch → state intact
-sync-airplane-mode.yaml           → toggle airplane mid-push → outbox not corrupted
+submitProfile_withEmptyRequiredFields_showsValidationErrors   (RNTL / Flutter widget test)
+submitProfile_doubleTap_createsOnlyOneRecord                  (RNTL / Flutter widget test)
+login-destructive.yaml            (Maestro)  → deep link to /account without auth → redirect
+checkout-background-resume.yaml   (Maestro)  → background mid-step → relaunch → state intact
+sync_airplane_mode_test.dart      (Patrol)   → toggle airplane mid-push → outbox not corrupted
+permission_denied_test.dart       (Patrol)   → deny location at native dialog → graceful UX
 ```
 
 ### Test structure per spec
@@ -179,6 +228,12 @@ Minimum **1 functional test per implemented function** + **8 destructive tests**
 
 Before anything is declared "done":
 
+**React Native / Expo**
 1. `npx tsc --noEmit` — no type errors
 2. `npm test` — all unit + component (RNTL) tests pass
 3. `maestro test .maestro/` — all E2E flows pass (including destructive flows)
+
+**Flutter**
+1. `flutter analyze` — no analyzer errors
+2. `flutter test` — all unit + widget tests pass
+3. `flutter test integration_test/` and/or `patrol test` — all E2E flows pass (including destructive flows)

@@ -93,8 +93,8 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 **Docs (loaded on demand, referenced from CLAUDE.md):**
 - `.claude/docs/testing.md` — test conventions (web/.NET), functional coverage + destructive browser tests (6+1 attack categories)
 - `.claude/docs/spec-testing-checklist.md` — mandatory checklist (web/.NET): functional coverage inventory + destructive tests in specs
-- `.claude/docs/testing-mobile.md` — **mobile variant** of testing.md for React Native / Expo: Maestro flows + React Native Testing Library, native destructive categories (lifecycle/background, permissions, offline, deep links). On a mobile project this content becomes the project's canonical `testing.md` (see Step 7c)
-- `.claude/docs/spec-testing-checklist-mobile.md` — **mobile variant** of the checklist for React Native / Expo. On a mobile project this becomes the project's canonical `spec-testing-checklist.md` (see Step 7c)
+- `.claude/docs/testing-mobile.md` — **mobile variant** of testing.md covering BOTH native toolchains, React Native / Expo (Maestro + RNTL + jest-expo) and Flutter (`flutter test` + `integration_test` + Patrol). Native destructive categories (lifecycle/background, permissions, offline, deep links) are framework-agnostic. Backend-agnostic. On a mobile project this content becomes the project's canonical `testing.md` (see Step 7c)
+- `.claude/docs/spec-testing-checklist-mobile.md` — **mobile variant** of the checklist for React Native / Expo AND Flutter. On a mobile project this becomes the project's canonical `spec-testing-checklist.md` (see Step 7c)
 - `.claude/docs/conventions.md` — code style and naming
 - `.claude/docs/security.md` — security reference
 - `.claude/docs/git.md` — commit/branch/PR conventions
@@ -633,19 +633,23 @@ Use `AskUserQuestion` to confirm:
 > - .NET (C#, ASP.NET Core, Blazor, EF Core)
 > - WordPress (PHP, themes, plugins)
 > - React / web frontend with UI
-> - **React Native / Expo (native mobile app — iOS / Android)**
+> - **Native mobile app** — React Native / Expo **or** Flutter (iOS / Android)
 > - SQLite / database
 >
 > List all that apply, or say "all" to keep everything.
 
-**Auto-detect the mobile case before asking.** If the project root has a `package.json` whose dependencies include `expo` or `react-native`, OR there is an `app.json` / `app.config.{js,ts}` / `eas.json`, this is a **React Native / Expo mobile project** — present that as the pre-checked default and treat the testing layer as mobile (Step 7c) unless the developer overrides.
+**Auto-detect the mobile case before asking.** This is a **native mobile project** if the root has any of:
+- a `package.json` whose dependencies include `expo` or `react-native` (→ React Native / Expo), OR an `app.json` / `app.config.{js,ts}` / `eas.json`;
+- a `pubspec.yaml` containing a `flutter:` section / `sdk: flutter` (→ Flutter).
+
+Present that as the pre-checked default and treat the testing layer as mobile (Step 7c) unless the developer overrides. The testing docs are the same file for both frameworks — `testing-mobile.md` carries a React Native section and a Flutter section.
 
 Then, based on the developer's answer:
 
 - Developer says NO to WordPress → remove `.claude/rules/wordpress.md`
 - Developer says NO to .NET → remove `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
-  - **Exception:** a React Native / Expo project IS a UI project — do NOT remove the UI/testing pipeline (`specs.md`, `allium.md`, the TLA+ skill, the testing checklist). It keeps the **mobile** testing docs instead (Step 7c). "NO to .NET" on a mobile project removes only the .NET-specific files above.
-- Developer says NO to UI → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/docs/spec-testing-checklist-mobile.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook. (A React Native / Expo project always has UI — never take this branch for mobile.)
+  - **Exception:** a native mobile project (React Native / Expo OR Flutter) IS a UI project — do NOT remove the UI/testing pipeline (`specs.md`, `allium.md`, the TLA+ skill, the testing checklist). It keeps the **mobile** testing docs instead (Step 7c). "NO to .NET" on a mobile project removes only the .NET-specific files above.
+- Developer says NO to UI → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/docs/spec-testing-checklist-mobile.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook. (A native mobile project — RN/Expo or Flutter — always has UI; never take this branch for mobile.)
 - Developer says NO to SQLite → remove `.claude/rules/sqlite.md`
 - Developer says NO to live4 cluster deployment / Azure spot → remove `.claude/rules/spot-resilience.md` and `.claude/docs/spot-architecture.md`
 - ALWAYS keep regardless of answer: `testing.md` (web/.NET) **or** `testing-mobile.md`→`testing.md` (mobile, per Step 7c), `conventions.md`, `workflows.md`, `skills.md`, `git.md`, `continuous-execution.md`, `project-workflow.md`, `github-actions.md`, `continuous-execution-hook.sh`
@@ -653,14 +657,14 @@ Then, based on the developer's answer:
 
 ### Step 7c: Install the right testing docs for the stack (web vs mobile)
 
-The reference docs are always named `testing.md` and `spec-testing-checklist.md` in the project (CLAUDE.md points at those exact names). What differs by stack is their **content** — a native app has no browser, so the web/Playwright versions are actively wrong there (they say "browser back", "DOM manipulation", `dotnet test --filter "Category=UI"` — none of which exist on React Native). Pick the variant:
+The reference docs are always named `testing.md` and `spec-testing-checklist.md` in the project (CLAUDE.md points at those exact names). What differs by stack is their **content** — a native app has no browser, so the web/Playwright versions are actively wrong there (they say "browser back", "DOM manipulation", `dotnet test --filter "Category=UI"` — none of which exist on React Native or Flutter). The mobile doc covers BOTH native frameworks (it has a React Native section and a Flutter section), so the same selection works whether the app is Expo/RN or Flutter. Pick the variant:
 
 - **Web / .NET project** → the project's `testing.md` and `spec-testing-checklist.md` hold the **web** content (fetch `testing.md` / `spec-testing-checklist.md` from the template as normal). Remove `testing-mobile.md` and `spec-testing-checklist-mobile.md` if they were copied in — they are not needed.
-- **React Native / Expo project** → the project's `testing.md` and `spec-testing-checklist.md` must hold the **mobile** content. Do this:
+- **Native mobile project (React Native / Expo OR Flutter)** → the project's `testing.md` and `spec-testing-checklist.md` must hold the **mobile** content. Do this:
   1. Fetch `https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/docs/testing-mobile.md` and write it to the project as `.claude/docs/testing.md` (overwrite the web one — do NOT also fetch the web `testing.md`).
   2. Fetch `…/spec-testing-checklist-mobile.md` and write it to the project as `.claude/docs/spec-testing-checklist.md`.
   3. Do NOT leave `testing-mobile.md` / `spec-testing-checklist-mobile.md` as separate files in the project — their content now lives under the canonical names.
-- **Hybrid project** (real .NET/web backend with browser-testable pages AND a React Native client — e.g. a Razor admin + an Expo app) → keep BOTH: the web `testing.md` for the backend pages, and additionally write the mobile content to `.claude/docs/testing-mobile.md` and `.claude/docs/spec-testing-checklist-mobile.md`. Note in CLAUDE.md's reference-files section that the mobile client uses the `-mobile` docs.
+- **Hybrid project** (real .NET/web backend with browser-testable pages AND a native client — a Razor admin + an Expo or Flutter app) → keep BOTH: the web `testing.md` for the backend pages, and additionally write the mobile content to `.claude/docs/testing-mobile.md` and `.claude/docs/spec-testing-checklist-mobile.md`. Note in CLAUDE.md's reference-files section that the mobile client uses the `-mobile` docs.
 
 **Record the decision so re-sync does not clobber it.** Write the chosen testing track to `.claude/.sync-stack` (e.g. a line `testing=mobile` or `testing=web` or `testing=hybrid`). On a re-sync, read this file first: if it says `mobile`, repeat the mobile selection above instead of re-stamping the web `testing.md` over the mobile content. This is the mechanism that stops `/project-update` from silently reverting a mobile project to browser-testing docs on every run.
 

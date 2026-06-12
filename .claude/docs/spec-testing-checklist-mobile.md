@@ -1,6 +1,6 @@
-# Spec Testing Checklist — Destructive Tests (React Native / Expo)
+# Spec Testing Checklist — Destructive Tests (native mobile: React Native / Expo · Flutter)
 
-> This is the **mobile** variant of `spec-testing-checklist.md`. A native app has no browser — "browser tests" map to **Maestro** flows (E2E) and **React Native Testing Library** (component/integration). Read `.claude/docs/testing-mobile.md` for full detail on each attack category. Web/.NET projects use `spec-testing-checklist.md` instead.
+> This is the **mobile** variant of `spec-testing-checklist.md`, covering both native toolchains. A native app has no browser — "browser tests" map to component/widget tests (**React Native Testing Library** or **Flutter widget tests**) and native E2E flows (**Maestro** for RN, **Patrol** / `integration_test` for Flutter). The attack categories are platform-level and identical across both frameworks; only the test tooling differs. Read `.claude/docs/testing-mobile.md` for full detail. Backend-agnostic — pair with the backend's own checklist. Web/.NET projects use `spec-testing-checklist.md` instead.
 
 This checklist MUST be completed for every spec/feature that involves **interactive UI** (forms, user input, state-mutating buttons, multi-step flows, authentication, file/photo pickers, search/filter, gestures, map interaction, offline sync). Does NOT apply to static content screens, onboarding slides, or read-only display screens.
 
@@ -21,16 +21,17 @@ Every task file with UI features MUST include TWO dedicated test phases: functio
 ## Phase N-1: Functional Coverage Tests
 
 ### Functional inventory (list ALL implemented functions)
-- [ ] T0XX: [Function 1] — e.g., Sign in with email/password, error on bad credentials (RNTL + Maestro)
-- [ ] T0XX: [Function 2] — e.g., Map pins render, tapping a pin opens detail sheet (Maestro)
-- [ ] T0XX: [Function 3] — e.g., Category chips filter visible pins (RNTL)
-- [ ] T0XX: [Function 4] — e.g., Favourite toggles and persists across relaunch (Maestro)
-- [ ] T0XX: [Function 5] — e.g., Pull-to-refresh refetches the list (RNTL)
-- [ ] T0XX: [Function 6] — e.g., Deep link myapp://place/123 opens the right screen (Maestro)
+- [ ] T0XX: [Function 1] — e.g., Sign in with email/password, error on bad credentials (widget test + E2E)
+- [ ] T0XX: [Function 2] — e.g., Map pins render, tapping a pin opens detail sheet (E2E)
+- [ ] T0XX: [Function 3] — e.g., Category chips filter visible pins (component/widget)
+- [ ] T0XX: [Function 4] — e.g., Favourite toggles and persists across relaunch (E2E)
+- [ ] T0XX: [Function 5] — e.g., Pull-to-refresh refetches the list (component/widget)
+- [ ] T0XX: [Function 6] — e.g., Deep link myapp://place/123 opens the right screen (E2E)
 - [ ] T0XX: [Function N] — ... (continue until ALL functions are listed)
 
-Every function above MUST have at least one test (RNTL component test or Maestro flow) that verifies it
-works end-to-end. If you implemented 12 functions, you need at least 12 functional tests. No exceptions.
+Every function above MUST have at least one test — a component/widget test (RNTL or Flutter `WidgetTester`)
+or a native E2E flow (Maestro, or Patrol / integration_test for Flutter) — that verifies it works
+end-to-end. If you implemented 12 functions, you need at least 12 functional tests. No exceptions.
 ```
 
 ### Phase N: Destructive Tests
@@ -106,7 +107,7 @@ If the spec involves offline functionality, local persistence (AsyncStorage / SQ
 A spec is NOT complete unless:
 
 1. A "Functional Coverage Tests" phase exists with an inventory of ALL implemented functions
-2. Every function in the inventory has at least one test (RNTL or Maestro)
+2. Every function in the inventory has at least one test (component/widget test or native E2E flow)
 3. A dedicated "Destructive Tests" phase exists AFTER functional coverage
 4. Each test has a unique task ID (T0XX)
 5. Minimum destructive test count met per feature type
