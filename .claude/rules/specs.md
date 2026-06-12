@@ -8,7 +8,9 @@ paths:
   - "**/specs/**"
 ---
 
-# Spec and task rules (Allium + destructive browser tests + TLA+)
+# Spec and task rules (Allium + destructive browser/native E2E tests + TLA+)
+
+> **Native-app note (React Native / Expo · Flutter).** This rule says "browser tests" throughout because it was written for web/.NET. On a native mobile app there is no browser — read every "browser test" / "destructive browser test" here as its native equivalent: a **component/widget test** (React Native Testing Library or Flutter `WidgetTester`) or a **native E2E flow** (Maestro for RN; Patrol / `integration_test` for Flutter). The pipeline (spec → clarify → allium → plan → tasks → analyze → implement → tests → tla), the functional-inventory requirement, and the destructive attack categories all apply identically — only the test tooling differs. The mobile attack categories (lifecycle/background, process kill, hardware back, permissions, offline) live in `.claude/docs/spec-testing-checklist-mobile.md`, installed as the canonical `spec-testing-checklist.md` on mobile projects.
 
 ## Spec triage — pick the right pipeline (READ FIRST)
 

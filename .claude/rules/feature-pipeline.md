@@ -2,6 +2,8 @@
 
 The speckit + Allium + TLA+ pipeline is **not optional** for non-trivial work. Skipping it is the single biggest quality regression in this project — it loses functional inventory, drift detection, formal invariants, and destructive test coverage all at once. This rule closes that hole.
 
+> **Platform-neutral.** This pipeline is identical for web/.NET (client-server) and native mobile (React Native / Expo · Flutter). Where this rule and its diagram say "browser tests", a native app substitutes Maestro/Patrol/`integration_test` flows + component/widget tests — see `.claude/rules/specs.md` and `.claude/docs/testing-mobile.md`. Every phase (specify → clarify → allium:elicit → plan → tasks → analyze → implement → tests → tla) and every enforcement hook (`test-coverage-hook`, `stop-validation-hook`, the post-test validation hook, `pipeline-state-guard`) fires on mobile too: `pubspec.yaml` is a recognized language marker, and the test hooks match `npm test`/`maestro`/`flutter test`/`patrol`. Mobile gets the same teeth as client-server.
+
 ## The contract (BLOCKING)
 
 Every developer request that is **not** a trivial one-file fix MUST go through the pipeline. You do not need the user's permission to start it — the user authorized it by giving you the work. Starting the pipeline is the default, not the exception.
