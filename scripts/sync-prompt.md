@@ -102,6 +102,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/docs/skills.md` — SKILL.md format, frontmatter fields, recommended skills
 - `.claude/docs/agents-templates.md` — copy-paste agent templates
 - `.claude/docs/deployment.md` — Docker Swarm, CI/CD, NFS export and mount setup (DBs live on `/mnt/nfs/<project>/db/`, manager exports the Azure managed disk to all spot workers)
+- `.claude/docs/deployment-mobile.md` — **mobile app** deployment for React Native / Expo via EAS (Build/Submit/Update, store credentials, versioning, TestFlight + Play). Separate target from `deployment.md` (the backend). Installed on mobile/hybrid projects (Step 7c)
 - `.claude/docs/spot-architecture.md` — three reference architectures for stateful services on an all-spot worker fleet (SQLite on NFS share, LiteFS replicas, managed Postgres) with full compose templates, volume matrix, healthcheck split, and migration path
 - `.claude/docs/stress-testing.md` — mandatory pre-deploy stress testing (k6, Lighthouse)
 - `.claude/docs/project-template.md` — template for project start
@@ -659,11 +660,12 @@ Then, based on the developer's answer:
 
 The reference docs are always named `testing.md` and `spec-testing-checklist.md` in the project (CLAUDE.md points at those exact names). What differs by stack is their **content** — a native app has no browser, so the web/Playwright versions are actively wrong there (they say "browser back", "DOM manipulation", `dotnet test --filter "Category=UI"` — none of which exist on React Native or Flutter). The mobile doc covers BOTH native frameworks (it has a React Native section and a Flutter section), so the same selection works whether the app is Expo/RN or Flutter. Pick the variant:
 
-- **Web / .NET project** → the project's `testing.md` and `spec-testing-checklist.md` hold the **web** content (fetch `testing.md` / `spec-testing-checklist.md` from the template as normal). Remove `testing-mobile.md` and `spec-testing-checklist-mobile.md` if they were copied in — they are not needed.
+- **Web / .NET project** → the project's `testing.md` and `spec-testing-checklist.md` hold the **web** content (fetch `testing.md` / `spec-testing-checklist.md` from the template as normal). Remove `testing-mobile.md`, `spec-testing-checklist-mobile.md`, and `deployment-mobile.md` if they were copied in — they are not needed.
 - **Native mobile project (React Native / Expo OR Flutter)** → the project's `testing.md` and `spec-testing-checklist.md` must hold the **mobile** content. Do this:
   1. Fetch `https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/docs/testing-mobile.md` and write it to the project as `.claude/docs/testing.md` (overwrite the web one — do NOT also fetch the web `testing.md`).
   2. Fetch `…/spec-testing-checklist-mobile.md` and write it to the project as `.claude/docs/spec-testing-checklist.md`.
   3. Do NOT leave `testing-mobile.md` / `spec-testing-checklist-mobile.md` as separate files in the project — their content now lives under the canonical names.
+  4. Install `.claude/docs/deployment-mobile.md` (EAS Build/Submit/Update) so the project has a mobile-app deploy doc. Keep `deployment.md` only if the app also has a backend that deploys to live4 (otherwise remove it). A pure mobile app with a managed backend (Firebase/Supabase) does not need `deployment.md`.
 - **Hybrid project** (real .NET/web backend with browser-testable pages AND a native client — a Razor admin + an Expo or Flutter app) → keep BOTH: the web `testing.md` for the backend pages, and additionally write the mobile content to `.claude/docs/testing-mobile.md` and `.claude/docs/spec-testing-checklist-mobile.md`. Note in CLAUDE.md's reference-files section that the mobile client uses the `-mobile` docs.
 
 **Record the decision so re-sync does not clobber it.** Write the chosen testing track to `.claude/.sync-stack` (e.g. a line `testing=mobile` or `testing=web` or `testing=hybrid`). On a re-sync, read this file first: if it says `mobile`, repeat the mobile selection above instead of re-stamping the web `testing.md` over the mobile content. This is the mechanism that stops `/project-update` from silently reverting a mobile project to browser-testing docs on every run.
