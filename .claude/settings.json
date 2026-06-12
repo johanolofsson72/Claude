@@ -355,6 +355,31 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tlc-cleanup.sh\" 2>/dev/null; true"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/continuous-execution-hook.sh\"",
+            "statusMessage": "Checking subagent for phase-splitting anti-pattern..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tlc-cleanup.sh\" 2>/dev/null; true"
+          }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "hooks": [
