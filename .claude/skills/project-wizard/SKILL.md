@@ -55,7 +55,7 @@ specify init --here --force --integration claude
 
 This creates/resets the `.specify/` directory structure with templates, scripts, and Claude integration.
 
-> **NOTE**: The `--ai` flag is deprecated since speckit v0.7.x. Always use `--integration claude` instead.
+> **NOTE**: The `--ai` flag was **removed in spec-kit v0.10.0** (deprecated in the v0.9.x line) — it no longer exists. Always use `--integration claude` instead.
 
 **Step 4 — Restore constitution backup:**
 
@@ -566,6 +566,20 @@ If `CLAUDE.md` already exists, use the Edit tool to surgically update the `<!-- 
 
 If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established pattern from the user's other projects. Use the hireflow CLAUDE.md as the reference template — it is the most up-to-date version. The structure MUST include ALL of these sections:
 
+> **STACK-AWARE TESTING (READ THIS BEFORE FILLING THE TEMPLATE BELOW).** The template below is written for a web/.NET project where "tests" = Playwright browser tests + `dotnet test`. If the frontend answer (Q13) or the native-mobile answer (Q22) makes this a **native mobile** project — **React Native / Expo OR Flutter** — a browser does not exist, so Playwright/browser-test wording is wrong and will produce a project that can never satisfy its own Definition of Done. In that case, everywhere the template says "browser tests / Playwright" you MUST substitute the native equivalents for the chosen framework:
+> - **React Native / Expo:** Maestro flows (E2E) + React Native Testing Library (component) on the `jest-expo` runner. Commands: `npx tsc --noEmit`, `npm test`, `maestro test .maestro/`.
+> - **Flutter:** `flutter test` (unit + widget) + `integration_test` + **Patrol** (native E2E: permissions, deep links, lifecycle). Commands: `flutter analyze`, `flutter test`, `flutter test integration_test/` / `patrol test`.
+> - **Neither uses** Playwright or `dotnet test`.
+> - **Reference docs:** point the testing rows at `.claude/docs/testing.md` and `.claude/docs/spec-testing-checklist.md` as usual, but ensure those files hold the **mobile** content (the wizard's Phase -1 sync installs `testing-mobile.md` → `testing.md` for native projects per sync-prompt Step 7c; the mobile doc carries both a React Native and a Flutter section).
+> - **`/tla`** still applies for non-trivial state machines; it is runtime-agnostic.
+>
+> Decide web-vs-mobile ONCE here, then fill the whole template consistently. Do not emit a mobile project that still says "Playwright" anywhere.
+>
+> **Reconcile the testing docs (mobile projects only).** Phase -1's sync ran BEFORE the interview revealed the stack, so it may have installed the web `testing.md` by default. If this is a native mobile project (React Native / Expo OR Flutter) and `.claude/docs/testing.md` still contains web/Playwright content (grep it for `dotnet`/`Playwright`/`browser`), perform the Step 7c mobile swap now:
+> 1. `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/docs/testing-mobile.md` → write to `.claude/docs/testing.md`
+> 2. `curl -sL …/spec-testing-checklist-mobile.md` → write to `.claude/docs/spec-testing-checklist.md`
+> 3. Write `.claude/.sync-stack` with the line `testing=mobile` so `/project-update` never re-stamps the web docs over it.
+
 ```markdown
 # CLAUDE.md
 
@@ -574,10 +588,10 @@ If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established 
 - **ALWAYS** read the code first — base ALL conclusions on evidence from the codebase, not assumptions.
 - **ALWAYS** verify with [BUILD COMMAND] and [TEST COMMAND] before claiming anything is "done".
 - **ALWAYS** use the Edit tool for surgical changes — never copy entire files.
-- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
+- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, or React Native / Flutter widgets — design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** follow existing patterns in the codebase — look at similar components first.
-- **ALWAYS** test **100% of implemented functions** in browser tests (Playwright). [Adapt testing rules based on interview answers about testing strategy]
+- **ALWAYS** test **100% of implemented functions** in [browser tests (Playwright) | Maestro flows + React Native Testing Library — pick per the stack-aware note above]. [Adapt testing rules based on interview answers about testing strategy]
 
 ## Execution mode
 
@@ -683,10 +697,10 @@ Core flow: **[primary user flow from interview]**
 NEVER say something is "implemented" or "done" until:
 
 1. All **unit tests** pass (`[TEST COMMAND]`).
-2. All **E2E tests in Playwright** pass (`[E2E COMMAND]`).
-3. For UI features: **functional coverage tests** + **destructive tests** (8+ scenarios, 6 attack categories).
-4. For UI features: **TLA+ formal verification** has been run (`/tla`).
-5. For web projects: **visually verified** in the browser.
+2. All **E2E tests** pass (`[E2E COMMAND]`) — Playwright for web/.NET, **Maestro flows** for React Native / Expo, **Patrol / integration_test** for Flutter.
+3. For UI features: **functional coverage tests** + **destructive tests** (8+ scenarios, 6 attack categories). For mobile, the attack categories include lifecycle (background/resume, process kill, hardware back) and permissions — see `.claude/docs/spec-testing-checklist.md`.
+4. For UI features: **TLA+ formal verification** has been run (`/tla`) — runtime-agnostic, applies to web and mobile alike.
+5. For web projects: **visually verified** in the browser. For mobile: **visually verified** on a simulator/emulator or device.
 6. The code is assessed as **100% functional**.
 
 If tests cannot be run (missing infrastructure), clearly inform about this.
@@ -711,10 +725,12 @@ If tests cannot be run (missing infrastructure), clearly inform about this.
 ```
 
 Adapt these based on the chosen tech stack:
-- .NET: `dotnet build`, `dotnet test`, `dotnet run --project src/[Name]`
+- .NET: `dotnet build`, `dotnet test`, `dotnet run --project src/[Name]`, E2E `dotnet test --filter "Category=UI"` (Playwright)
 - Node.js: `npm run build`, `npm test`, `npm run dev`
 - Python: `python -m build`, `pytest`, `python manage.py runserver`
 - Go: `go build ./...`, `go test ./...`, `go run .`
+- **React Native / Expo: `npx tsc --noEmit` (typecheck), `npm test` (jest-expo unit + RNTL), `npx expo start` (run), E2E `maestro test .maestro/` — NO Playwright, NO `dotnet`**
+- **Flutter: `flutter analyze` (lint), `flutter test` (unit + widget), `flutter run` (run), E2E `flutter test integration_test/` / `patrol test` — NO Playwright, NO `dotnet`**
 
 ## Principles
 
