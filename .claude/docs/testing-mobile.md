@@ -55,6 +55,11 @@ Three layers, both frameworks: pure logic, component/widget, and native E2E.
 
 E2E flows live in `.maestro/` at the repo root (or `app/.maestro/`), one `.yaml` per flow.
 
+Notes (current as of 2026):
+- **Maestro is the default**; **Detox** is the alternative when you need app-synchronized, JS-driven flows (more setup, native build required). Expo supports Maestro first-class — in CI, prefer the **EAS Workflows `maestro_test` job** over a hand-rolled runner.
+- **RNTL version boundary:** v13 = React 18 / synchronous render; **v14 = React 19 + RN New Architecture, where `render`/`fireEvent`/`renderHook` are async and must be `await`ed.** New Architecture is now the default on recent Expo SDKs, so new projects are on the v14 async API. Pin deliberately and match your RN/React version.
+- Prefer **`userEvent.setup()` + the `screen` API** over `fireEvent` for new tests — it models real interaction (focus, press timing) more faithfully.
+
 ### Flutter
 
 | Layer | Tool | What it covers |

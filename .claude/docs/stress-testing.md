@@ -205,9 +205,9 @@ A mobile app does not get "stress tested" with concurrent virtual users — it g
 ### Tools
 
 **React Native / Expo**
-- **Hermes** engine + the in-app **Perf Monitor** (`Dev Menu → Show Perf Monitor`) for live JS/UI fps.
-- **Flipper** (or React Native DevTools) — Hermes profiler, flame charts, memory.
-- **`react-native-performance`** for marking startup/interaction timings programmatically.
+- **React Native DevTools** — the default debugger since RN 0.76, with the **Performance Panel** (JS-thread profiling, flame charts) since RN 0.83. This is the modern profiler. *(Flipper was deprecated in RN 0.74 and Meta wound down OSS Flipper in late 2024 — do NOT use it.)*
+- In-app **Perf Monitor** (`Dev Menu → Show Perf Monitor`) for a live JS/UI fps readout, plus the **Hermes Sampling Profiler** (flame graphs over the Chrome DevTools protocol) and the **React DevTools Profiler** for re-render analysis.
+- **`react-native-performance`** for marking startup/interaction timings programmatically — surfaced via **Rozenite** (the RN DevTools plugin host), not the dead Flipper plugin.
 - **Reassure** for render-performance *regression* tests in CI-adjacent runs (catches a component that got 3× slower).
 
 **Flutter**

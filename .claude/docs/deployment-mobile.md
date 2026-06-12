@@ -60,7 +60,7 @@ Let EAS manage signing credentials; do not hand-roll certificates.
 eas credentials                 # interactive — generates/stores iOS certs + provisioning, Android keystore
 ```
 
-- **iOS:** an App Store Connect API key (App Manager role) lets `eas submit` upload without an interactive Apple login. Store it as an EAS secret, not in the repo.
+- **iOS:** an App Store Connect API key (`ascApiKeyPath`/`ascApiKeyIssuerId`/`ascApiKeyId`) is the **preferred** submit credential — it uploads without an interactive Apple login or 2FA friction in CI. (Apple ID + app-specific password via `EXPO_APPLE_APP_SPECIFIC_PASSWORD` still works but is the fallback.) Store the key as an EAS secret, not in the repo.
 - **Android:** a Google Play service-account JSON with the "Release" permission. Keep it under `secrets/` (gitignored) or, better, an EAS secret.
 
 ## Build → submit → update
@@ -81,6 +81,23 @@ eas update --branch production --message "fix: filter reset on tab change"
 
 `eas update` only reaches builds whose `channel` matches the update `branch` mapping — so a `production` build receives `production` updates. Never push an update that assumes a native capability the installed build does not have; that is the one way OTA bricks a screen.
 
+## Runtime versions (OTA governance)
+
+An OTA update must only land on a build whose **native layer** is compatible — pushing a JS update that assumes a native module the installed binary lacks is the one way `eas update` bricks a screen. The runtime version is the compatibility key.
+
+Set a **fingerprint** policy for any app with native modules:
+
+```jsonc
+// app.config.ts / app.json
+{ "runtimeVersion": { "policy": "fingerprint" } }
+```
+
+`fingerprint` hashes the native project, so the runtime version bumps **automatically and only when native code actually changes** — graduated from experimental and now the recommended policy. The `appVersion` policy (the `eas update:configure` default) has a documented footgun: forget to bump the version after a native change and you ship an incompatible JS update. The invariant either way: **native change → new build + submit; JS/asset-only change → `eas update`.**
+
+Deployment governance the pipeline should use:
+- **Gradual rollouts** — publish an update to a percentage of users, watch crash/error rates, then ramp to 100%.
+- **Emergency rollback** — `eas update:roll-back-to-embedded` reverts live apps to the JS bundle baked into the binary when a bad update ships.
+
 ## Secrets / config
 
 - **Build-time secrets** (API keys baked into the binary, signing): `eas secret:create` / EAS environment variables. Never commit them.
@@ -98,7 +115,25 @@ A mobile release is not "done" until:
 
 ## CI/CD
 
-Per `.claude/rules/github-actions.md`, store builds are the one mobile case that genuinely cannot run locally on the cluster, so a **single `workflow_dispatch` build/submit workflow is allowed**. EAS runs the actual build on Expo's servers — the GitHub Action only triggers it, so it consumes almost no Actions minutes. No push/schedule triggers, no per-spec workflows. See the mobile carve-out in `github-actions.md`.
+Two paths. **Prefer EAS Workflows** for an Expo-centric project; use the GitHub Actions form only if the team is already standardized on GHA.
+
+**EAS Workflows (preferred).** Expo's own CI/CD — YAML in `.eas/workflows/`, with pre-packaged job types (`build`, `submit`, `update`, `maestro_test`, `deploy`) that chain build → submit → update without hand-wiring `EXPO_TOKEN` into a third-party runner. It runs on Expo's infrastructure, so it does not touch the org's GitHub Actions minutes at all — which also keeps it clear of the `github-actions.md` budget rule.
+
+```yaml
+# .eas/workflows/release.yml
+name: Mobile release
+on:
+  workflow_dispatch: {}
+jobs:
+  build_ios:     { type: build,  params: { platform: ios, profile: production } }
+  build_android: { type: build,  params: { platform: android, profile: production } }
+  submit_ios:    { needs: [build_ios],     type: submit, params: { platform: ios } }
+  submit_android:{ needs: [build_android], type: submit, params: { platform: android } }
+```
+
+Trigger with `eas workflow:run release.yml` (or a `workflow_dispatch`/manual trigger — keep it off push per the same on-demand principle as the cluster deploy).
+
+**GitHub Actions (fallback).** Per `.claude/rules/github-actions.md`, store builds are the one mobile case that genuinely cannot run locally on the cluster, so a **single `workflow_dispatch` build/submit workflow is allowed**. EAS runs the actual build on Expo's servers — the Action only triggers it, so it consumes almost no Actions minutes. No push/schedule triggers, no per-spec workflows.
 
 ```yaml
 # .github/workflows/mobile-release.yml — workflow_dispatch only
@@ -118,7 +153,7 @@ jobs:
         with: { node-version: 20 }
       - run: npm ci
       - run: npx tsc --noEmit && npm test    # gate: don't ship a broken build
-      - uses: expo/expo-github-action@v8
+      - uses: expo/expo-github-action@v9
         with: { eas-version: latest, token: ${{ secrets.EXPO_TOKEN }} }
       - run: eas build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive --no-wait
 ```
