@@ -9,7 +9,7 @@ This rule defines how Claude reads, executes, and updates the register. It inter
 When `specs/INDEX.md` exists in a project:
 
 1. **Read the register first.** Before doing any feature work, open `specs/INDEX.md` and identify the next unchecked spec.
-2. **Run the full pipeline for that one spec, end-to-end.** Triage per `specs.md`, run `/specify`, `/clarify` (all tracks, auto-pick), `/allium:elicit` if applicable, `/plan`, `/tasks`, `/speckit.analyze` (auto-apply), `/implement`, browser tests (functional + destructive), `/tla` if applicable. No stops between phases — this is one task per `continuous-execution.md`.
+2. **Run the full pipeline for that one spec, end-to-end.** Triage per `specs.md`, run `/speckit-specify`, `/speckit-clarify` (all tracks, auto-pick), `/allium:elicit` if applicable, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze` (auto-apply), `/speckit-implement`, browser tests (functional + destructive), `/tla` if applicable. No stops between phases — this is one task per `continuous-execution.md`.
 3. **Commit and push to `main` directly.** Per `project_workflow` memory (solo, direct-push, no PRs), each spec finishes with `git add` + `git commit` + `git push origin main`. No feature branches, no merge step.
 4. **Tick the register.** Mark the spec as `[x]` in `specs/INDEX.md` and commit + push the register update along with (or immediately after) the spec's final commit.
 5. **Stop with a status summary.** This is the **only** legitimate stop between specs. The summary follows the template in this rule. The user resumes the next spec when ready.

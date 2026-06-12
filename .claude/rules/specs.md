@@ -18,12 +18,12 @@ Not every spec needs the full pipeline. Classify the spec **before** Phase A and
 
 | Spec shape | Pipeline |
 |---|---|
-| **Behavior-changing** — new feature, new entity, new state machine, new actor, new concurrency, new API surface | **Full pipeline:** spec → `/clarify` → `/allium:elicit` → impl → browser tests → `/tla` |
-| **UI feature, single actor, no concurrency** — CRUD form, search/filter, simple workflow with linear state | **Light pipeline:** spec → `/clarify` → `/allium:elicit` → impl → browser tests (skip `/tla` unless state machine is non-trivial — see TLA+ skill triviality gate) |
-| **Non-behavior** — pure refactor, doc change, dependency bump, config tweak, cosmetic UI change, i18n, logging/observability only | **Spec only.** spec → `/clarify` → impl. No `.allium`, no `/tla`. Browser tests still apply if the user-facing surface changes. |
-| **Fix / hardening / security** with no new entities AND no new state transitions | **Spec only.** spec → `/clarify` → impl. Express the constraint as a test, not as an Allium invariant. If the fix introduces a new invariant or state, escalate to behavior-changing. |
+| **Behavior-changing** — new feature, new entity, new state machine, new actor, new concurrency, new API surface | **Full pipeline:** spec → `/speckit-clarify` → `/allium:elicit` → impl → browser tests → `/tla` |
+| **UI feature, single actor, no concurrency** — CRUD form, search/filter, simple workflow with linear state | **Light pipeline:** spec → `/speckit-clarify` → `/allium:elicit` → impl → browser tests (skip `/tla` unless state machine is non-trivial — see TLA+ skill triviality gate) |
+| **Non-behavior** — pure refactor, doc change, dependency bump, config tweak, cosmetic UI change, i18n, logging/observability only | **Spec only.** spec → `/speckit-clarify` → impl. No `.allium`, no `/tla`. Browser tests still apply if the user-facing surface changes. |
+| **Fix / hardening / security** with no new entities AND no new state transitions | **Spec only.** spec → `/speckit-clarify` → impl. Express the constraint as a test, not as an Allium invariant. If the fix introduces a new invariant or state, escalate to behavior-changing. |
 
-`/clarify` runs on every track immediately after `/specify` (auto-pick recommended via the settings.json hook). Skipping it is the canonical pipeline failure mode and is forbidden — see `feature-pipeline.md`.
+`/speckit-clarify` runs on every track immediately after `/speckit-specify` (auto-pick recommended via the settings.json hook). Skipping it is the canonical pipeline failure mode and is forbidden — see `feature-pipeline.md`.
 
 **When in doubt, ask once with `AskUserQuestion`.** Do not default to "full pipeline" — over-applying Allium produces fabricated `.allium` files that then show up as false drift in `/tla` and chew through the per-finding decision protocol for no gain.
 
