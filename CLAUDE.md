@@ -10,7 +10,7 @@
 - **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, or React Native / Flutter widgets — design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** follow existing patterns in the codebase — look at similar components first.
-- **ALWAYS** test **100% of implemented functions** in browser tests (Playwright). If you built 12 functions, write at least 12 functional tests — one per function. Then add 8+ destructive tests. Testing 3 out of 12 features is NOT acceptable. BEFORE writing tests: create a functional inventory listing EVERY implemented function, then write tests for ALL of them. Read `.claude/docs/testing.md` and `.claude/docs/spec-testing-checklist.md`.
+- **ALWAYS** test **100% of implemented functions** in browser tests (Playwright). If you built 12 functions, write at least 12 functional tests — one per function. Then add **at least 8 destructive tests PER interactive UI function — NOT 8 total per spec.** 12 interactive functions means ≥12 functional tests AND ≥96 destructive scenarios (12 × 8). Testing 3 out of 12 features is NOT acceptable. BEFORE writing tests: create a functional inventory listing EVERY implemented function, then write tests for ALL of them. Read `.claude/docs/testing.md` and `.claude/docs/spec-testing-checklist.md`.
 
 ## Execution mode
 
@@ -96,7 +96,7 @@ NEVER say something is "implemented" or "done" until:
 
 1. All **unit tests** pass (`dotnet test`).
 2. All **E2E tests in Playwright** pass (`dotnet test --filter "Category=UI"`).
-3. For UI features: **functional coverage tests** exist for EVERY implemented function (1 test per function minimum), PLUS **destructive tests** (8+ scenarios across all 6 attack categories). If you built 10 functions but only tested 4, you are NOT done.
+3. For UI features: **functional coverage tests** exist for EVERY implemented function (1 test per function minimum), PLUS **destructive tests — at least 8 scenarios PER interactive UI function across all 6 attack categories (8 per function, NOT 8 per spec).** If you built 10 functions but only tested 4, you are NOT done; if you wrote 8 destructive tests total instead of 8 per function, you are NOT done.
 4. For UI features: **TLA+ formal verification** has been run (`/tla`) — checks for race conditions, state machine gaps, and missing invariants. This step is auto-triggered after browser tests are written.
 5. For web projects: **visually verified** in the browser.
 6. The code is assessed as **100% functional**.

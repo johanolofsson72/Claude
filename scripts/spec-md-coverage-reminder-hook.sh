@@ -80,7 +80,7 @@ if [ "$HAS_FUNCTIONAL" -eq 0 ]; then
 fi
 
 if [ "$HAS_DESTRUCTIVE" -eq 0 ] && [ "$CARVED" -eq 0 ]; then
-  REMINDERS="${REMINDERS}- Missing DESTRUCTIVE tests: add 8+ scenarios across the 6 attack categories (boundary, malformed input, race/concurrency, auth/authz, resource exhaustion, state corruption).\n"
+  REMINDERS="${REMINDERS}- Missing DESTRUCTIVE tests: add at least 8 scenarios PER interactive UI function (NOT 8 per spec) across the 6 attack categories (boundary, malformed input, race/concurrency, auth/authz, resource exhaustion, state corruption). 12 interactive functions => >=96 destructive scenarios.\n"
 fi
 
 if [ -z "$REMINDERS" ]; then

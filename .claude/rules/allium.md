@@ -20,7 +20,7 @@ Allium is the preferred specification language for this project. It sits between
                                        (auto-pick recommended via settings.json hook; all tracks)
 3. /allium:elicit                    → sharpens clarified spec into .allium (refuses vague requirements)
 4. Implementation                    → code written
-5. Destructive browser tests         → 8+ scenarios, 6 attack categories
+5. Destructive browser tests         → 8+ scenarios PER UI function, 6 attack categories
 6. /tla (runs /allium:distill first) → drift detection + formal verification
 ```
 

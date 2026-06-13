@@ -32,8 +32,10 @@ Every function above MUST have at least one browser test that verifies it works 
 
 ### Phase N: Destructive Browser Tests
 
+> **The destructive quota is PER interactive UI function, not per spec.** Each function in the inventory above gets its own ≥8 destructive scenarios spanning the 6 attack categories. The block below is the template for ONE function — repeat it for every interactive function. 12 interactive functions = 12 destructive blocks = ≥96 scenarios. Eight scenarios for the whole spec is NOT compliant.
+
 ```markdown
-## Phase N: Destructive Browser Tests
+## Phase N: Destructive Browser Tests — Function: [Function 1] (repeat this whole block per interactive function)
 
 ### Category 1: Invalid Input (Garbage In)
 - [ ] T0XX: Empty required fields — submit form with all required fields empty, verify validation errors
@@ -82,7 +84,9 @@ If the spec involves offline functionality, service workers, or data synchroniza
 
 ## Minimum requirements
 
-| Feature type              | Min destructive tests | Required categories |
+**The counts below are PER interactive UI function, NOT per spec.** Each function in the functional inventory gets its own destructive suite at the minimum for its type. A spec with 12 interactive functions multiplies out: e.g. 12 simple-form functions = 12 × 8 = 96 destructive tests minimum. A flat 8-per-spec is NOT compliant.
+
+| Function type (per interactive function) | Min destructive tests **per function** | Required categories |
 |---------------------------|----------------------|---------------------|
 | Simple form               | 8                    | 1, 2, 4, 5         |
 | Multi-step flow           | 10                   | 1, 2, 3, 4, 5      |
@@ -98,8 +102,8 @@ A spec is NOT complete unless:
 2. Every function in the inventory has at least one browser test
 3. A dedicated "Destructive Browser Tests" phase exists AFTER functional coverage
 4. Each test has a unique task ID (T0XX)
-5. Minimum destructive test count met per feature type
-6. All relevant attack categories covered
+5. Minimum destructive test count met **per interactive function** (NOT a flat count for the whole spec — multiply the per-function minimum by the number of interactive functions)
+6. All relevant attack categories covered per function
 7. Tests describe what they verify, not just what they do
 
-**The functional coverage check is the most important item.** A spec with 8 destructive tests but only 3 out of 12 functions tested is NOT complete.
+**The functional coverage check is the most important item.** A spec with 8 destructive tests but only 3 out of 12 functions tested is NOT complete — and note that 8 destructive tests for a 12-function spec is itself non-compliant: the minimum there is 12 × 8 = 96, because the destructive quota is per interactive function, not per spec.

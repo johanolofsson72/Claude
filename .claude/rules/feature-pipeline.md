@@ -78,7 +78,7 @@ Three enforcement layers — first two are reminders, third is a hard block:
 - Skipping `/speckit-clarify` after `/speckit-specify`. The auto-pick hook makes it zero-cost when the spec has no real gaps; running `/speckit-specify → /speckit-plan` directly is the canonical pipeline-skip failure mode this rule exists to prevent.
 - Writing a spec without then running `/allium:elicit` on the full/light track.
 - Implementing without `/speckit-plan` and `/speckit-tasks` derived from the spec (so the functional inventory is explicit before code is written).
-- Writing browser tests that cover only "the happy path" — functional coverage means **every implemented function**, plus 8+ destructive scenarios across the 6 attack categories.
+- Writing browser tests that cover only "the happy path" — functional coverage means **every implemented function**, plus **at least 8 destructive scenarios PER interactive UI function** (not 8 per spec) across the 6 attack categories.
 - Declaring "done" without running `/tla` (or stating spec-only track and why).
 - Asking "should I start with /speckit-specify?" — the answer is yes for any non-trivial work; just start.
 

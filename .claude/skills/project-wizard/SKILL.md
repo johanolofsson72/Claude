@@ -698,7 +698,7 @@ NEVER say something is "implemented" or "done" until:
 
 1. All **unit tests** pass (`[TEST COMMAND]`).
 2. All **E2E tests** pass (`[E2E COMMAND]`) — Playwright for web/.NET, **Maestro flows** for React Native / Expo, **Patrol / integration_test** for Flutter.
-3. For UI features: **functional coverage tests** + **destructive tests** (8+ scenarios, 6 attack categories). For mobile, the attack categories include lifecycle (background/resume, process kill, hardware back) and permissions — see `.claude/docs/spec-testing-checklist.md`.
+3. For UI features: **functional coverage tests** + **destructive tests — at least 8 scenarios PER interactive UI function (NOT 8 per spec; 12 functions = >=96 destructive)**, 6 attack categories. For mobile, the attack categories include lifecycle (background/resume, process kill, hardware back) and permissions — see `.claude/docs/spec-testing-checklist.md`.
 4. For UI features: **TLA+ formal verification** has been run (`/tla`) — runtime-agnostic, applies to web and mobile alike.
 5. For web projects: **visually verified** in the browser. For mobile: **visually verified** on a simulator/emulator or device.
 6. The code is assessed as **100% functional**.
@@ -953,7 +953,7 @@ This is the human-readable version — for sharing with stakeholders, README, on
 
 #### 3E: Scaffold the native E2E test harness (MOBILE PROJECTS ONLY — React Native / Expo · Flutter)
 
-> Skip this subsection entirely for web/.NET projects — they already get the Playwright harness from the template sync. This subsection exists so a mobile project starts with a real destructive-flow directory instead of a blank page, giving Maestro/Patrol exact parity with web's Playwright setup. The 8+ destructive scenarios per interactive spec (per `.claude/docs/spec-testing-checklist.md`, which on a mobile project is the mobile variant) live HERE, as native E2E flows — NOT as widget tests.
+> Skip this subsection entirely for web/.NET projects — they already get the Playwright harness from the template sync. This subsection exists so a mobile project starts with a real destructive-flow directory instead of a blank page, giving Maestro/Patrol exact parity with web's Playwright setup. The destructive scenarios (at least 8 PER interactive UI function, NOT 8 per spec — per `.claude/docs/spec-testing-checklist.md`, which on a mobile project is the mobile variant) live HERE, as native E2E flows — NOT as widget tests.
 
 Determine the stack from the Phase 2 interview (Q22-23), then scaffold the matching harness:
 
@@ -1021,7 +1021,7 @@ void main() {
 
 Add Patrol as a dev dependency (`flutter pub add --dev patrol`) and note `dart pub global activate patrol_cli` + `patrol doctor` if not present. E2E in either framework needs a running iOS Simulator or Android emulator.
 
-**Both frameworks:** the scaffolded directory is the home for the 8+ destructive flows mandated per interactive spec. State explicitly in the Phase 4 summary that this harness was created and that destructive coverage is a native-E2E (Maestro/Patrol) requirement, not a widget-test one.
+**Both frameworks:** the scaffolded directory is the home for the destructive flows mandated per interactive UI function (at least 8 each, not 8 per spec). State explicitly in the Phase 4 summary that this harness was created and that destructive coverage is a native-E2E (Maestro/Patrol) requirement, not a widget-test one.
 
 ### Phase 4: Summary
 

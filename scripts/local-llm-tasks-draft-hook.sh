@@ -58,7 +58,7 @@ Rules:
 - Every task is a single concrete deliverable (file created, function implemented, test added, command run)
 - Tasks should be ordered: setup → core implementation → tests → wiring → docs
 - Each task references the acceptance criteria it satisfies (AC-1, AC-2, etc.) — use the IDs visible in the spec
-- Include explicit test tasks for every implemented function (functional coverage) plus 8+ destructive scenarios
+- Include explicit test tasks for every implemented function (functional coverage) plus at least 8 destructive scenarios PER interactive UI function (not 8 per spec)
 - Do not invent tasks not implied by the spec
 - 15-40 tasks total
 - No preamble, no markdown beyond the format'

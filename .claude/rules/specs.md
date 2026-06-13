@@ -10,7 +10,7 @@ paths:
 
 # Spec and task rules (Allium + destructive browser/native E2E tests + TLA+)
 
-> **Native-app note (React Native / Expo · Flutter).** This rule says "browser tests" throughout because it was written for web/.NET. On a native mobile app there is no browser — read every "browser test" / "destructive browser test" here as its native equivalent: a **component/widget test** (React Native Testing Library or Flutter `WidgetTester`) for functional coverage, or a **native E2E flow** (Maestro for RN; Patrol / `integration_test` for Flutter) for the destructive suite. The pipeline (spec → clarify → allium → plan → tasks → analyze → implement → tests → tla), the functional-inventory requirement, and the destructive attack categories all apply identically — only the test tooling differs. **Mobile parity is exact: just as web runs its 8+ destructive scenarios in Playwright, mobile runs its 8+ destructive scenarios as native E2E flows (Maestro for RN, Patrol for Flutter) — a widget test does NOT satisfy a destructive scenario.** The mobile attack categories (lifecycle/background, process kill, hardware back, permissions, offline) live in `.claude/docs/spec-testing-checklist-mobile.md`, installed as the canonical `spec-testing-checklist.md` on mobile projects.
+> **Native-app note (React Native / Expo · Flutter).** This rule says "browser tests" throughout because it was written for web/.NET. On a native mobile app there is no browser — read every "browser test" / "destructive browser test" here as its native equivalent: a **component/widget test** (React Native Testing Library or Flutter `WidgetTester`) for functional coverage, or a **native E2E flow** (Maestro for RN; Patrol / `integration_test` for Flutter) for the destructive suite. The pipeline (spec → clarify → allium → plan → tasks → analyze → implement → tests → tla), the functional-inventory requirement, and the destructive attack categories all apply identically — only the test tooling differs. **Mobile parity is exact: just as web runs its 8+ destructive scenarios per UI function in Playwright, mobile runs 8+ destructive scenarios per UI function as native E2E flows (Maestro for RN, Patrol for Flutter) — a widget test does NOT satisfy a destructive scenario. The count is per interactive function, not per spec.** The mobile attack categories (lifecycle/background, process kill, hardware back, permissions, offline) live in `.claude/docs/spec-testing-checklist-mobile.md`, installed as the canonical `spec-testing-checklist.md` on mobile projects.
 
 ## Spec triage — pick the right pipeline (READ FIRST)
 
@@ -62,8 +62,8 @@ When browser tests apply, include TWO phases:
 
 ### Destructive tests (PHASE 2 — after functional coverage)
 
-- **At least 8 destructive test scenarios** — these should actively try to break the application
-- **All 6 attack categories** should be represented (if relevant):
+- **At least 8 destructive test scenarios PER interactive UI function — NOT 8 total per spec.** Each interactive function in the inventory gets its own 8+ destructive scenarios. A spec with 12 interactive functions needs ≥96 destructive tests (12 × 8). A flat 8-per-spec is the failure mode this rule corrects. These should actively try to break the application.
+- **All 6 attack categories** should be represented per function (if relevant):
   1. Invalid input (garbage, XSS, SQL injection, emoji, extreme length)
   2. Wrong order (double-click, browser back, URL jumping, refresh mid-flow)
   3. Skip steps (direct URL, API without UI, DOM manipulation)
@@ -85,7 +85,7 @@ Before a spec/task file is considered complete, verify:
 - [ ] Is there a "Functional Coverage Tests" phase listing ALL implemented functions?
 - [ ] Does every function in the inventory have at least one browser test?
 - [ ] Is there a "Destructive Browser Tests" phase AFTER functional coverage?
-- [ ] Are there at least 8 destructive test scenarios?
+- [ ] Are there at least 8 destructive test scenarios **per interactive UI function** (not 8 total for the whole spec)?
 - [ ] Do the scenarios cover all 6 attack categories?
 - [ ] If offline/sync: are there additional edge case tests?
 - [ ] Does every test scenario have a clear task ID and description?

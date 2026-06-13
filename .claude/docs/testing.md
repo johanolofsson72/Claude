@@ -162,12 +162,13 @@ Every spec involving UI should have tests in this order:
 
 1. **Functional inventory** — list ALL implemented functions in a comment block
 2. **Functional tests** (1 per function, MINIMUM) — verify each function works end-to-end
-3. **Invalid input** (3-5 tests) — garbage, empty fields, extreme values
-4. **Wrong order** (2-3 tests) — double-click, back button, URL jumping
-5. **Boundary values** (2-3 tests) — max length, edge cases
-6. **Security** (1-2 tests) — XSS, injection, unauthorized access
+3. Then, **for EACH interactive function**, a destructive suite spanning the 6 attack categories:
+   - **Invalid input** (3-5 tests) — garbage, empty fields, extreme values
+   - **Wrong order** (2-3 tests) — double-click, back button, URL jumping
+   - **Boundary values** (2-3 tests) — max length, edge cases
+   - **Security** (1-2 tests) — XSS, injection, unauthorized access
 
-Minimum **1 functional test per implemented function** + **8 destructive tests** per spec. If a feature has forms, multi-step flows, or authentication — more destructive tests.
+Minimum **1 functional test per implemented function** + **at least 8 destructive tests PER interactive function** (NOT 8 per spec). 12 interactive functions = ≥12 functional + ≥96 destructive. Functions with forms, multi-step flows, or authentication need more than 8.
 
 ## Verification order
 

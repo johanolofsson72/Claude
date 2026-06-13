@@ -146,7 +146,7 @@ Count inventory items. Count functional tests. If tests < items, you are NOT don
 
 Every spec/feature involving **interactive UI** MUST include destructive tests AFTER functional coverage is complete. These tests actively try to break the app.
 
-> **Parity with web (non-negotiable): the destructive suite runs at the native E2E layer — Maestro for React Native / Expo, Patrol for Flutter — exactly as web runs its 8+ destructive scenarios in Playwright.** A widget/component test (RNTL or `WidgetTester`) does NOT count toward the destructive quota: it cannot background the app, kill the process, press the OS hardware back button, deny a permission dialog, toggle airplane mode, or open a deep link on cold start — and those ARE the destructive categories below. Widget tests cover Phase functional coverage; the 8+ destructive scenarios are Maestro/Patrol flows, each suffixed `-destructive`.
+> **Parity with web (non-negotiable): the destructive suite runs at the native E2E layer — Maestro for React Native / Expo, Patrol for Flutter — exactly as web runs its destructive scenarios in Playwright, and the count is ≥8 PER interactive UI function, NOT 8 per spec.** A screen with 12 interactive functions needs 12 × ≥8 = ≥96 destructive flows. A widget/component test (RNTL or `WidgetTester`) does NOT count toward the destructive quota: it cannot background the app, kill the process, press the OS hardware back button, deny a permission dialog, toggle airplane mode, or open a deep link on cold start — and those ARE the destructive categories below. Widget tests cover functional coverage; the per-function destructive scenarios are Maestro/Patrol flows, each suffixed `-destructive`.
 
 **Interactive UI** = forms, user input, buttons that mutate state, multi-step flows, authentication, file/photo pickers, modals/sheets with actions, search/filter, gestures, map interaction, real-time/offline sync. Static content screens, marketing/onboarding slides, and read-only display screens do NOT require destructive tests.
 
@@ -224,12 +224,13 @@ Every spec involving interactive UI should have tests in this order:
 
 1. **Functional inventory** — list ALL implemented functions in a comment block
 2. **Functional tests** (1 per function, MINIMUM) — RNTL and/or Maestro, verify each works end-to-end
-3. **Invalid input** (3–5 tests) — garbage, empty, extreme values
-4. **Lifecycle / wrong order** (2–3 tests) — double-tap, background/resume, hardware back
-5. **Boundary values** (2–3 tests) — max length, empty/huge lists
-6. **Network & permissions** (2–3 tests) — offline mid-save, denied permission, deep-link authz
+3. Then, **for EACH interactive function**, a native-E2E destructive suite (Maestro/Patrol) spanning the categories:
+   - **Invalid input** (3–5 tests) — garbage, empty, extreme values
+   - **Lifecycle / wrong order** (2–3 tests) — double-tap, background/resume, hardware back
+   - **Boundary values** (2–3 tests) — max length, empty/huge lists
+   - **Network & permissions** (2–3 tests) — offline mid-save, denied permission, deep-link authz
 
-Minimum **1 functional test per implemented function** + **8 destructive tests** per spec. Features with auth, offline sync, permissions, or multi-step flows need more.
+Minimum **1 functional test per implemented function** + **at least 8 destructive tests PER interactive function** (NOT 8 per spec) as native E2E flows. 12 interactive functions = ≥12 functional + ≥96 destructive flows. Functions with auth, offline sync, permissions, or multi-step flows need more than 8.
 
 ## Verification order
 
