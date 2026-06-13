@@ -36,8 +36,11 @@ end-to-end. If you implemented 12 functions, you need at least 12 functional tes
 
 ### Phase N: Destructive Tests
 
+> **The 8+ destructive scenarios MUST run as native E2E flows — Maestro (`.maestro/*-destructive.yaml`) for React Native / Expo, Patrol (`integration_test/`) for Flutter.** This is the mobile mirror of web running its 8 destructive scenarios in Playwright. A widget/component test (RNTL or `WidgetTester`) does NOT satisfy a destructive scenario: it cannot send the app to background, kill the process, press the OS hardware back button, deny a permission dialog, toggle airplane mode, or follow a deep link on cold start — and those are exactly the destructive categories. Widget tests are for **functional coverage** (Phase N-1); the destructive quota is a native-E2E quota. One destructive Maestro flow per scenario, each saved with a `-destructive` suffix.
+
 ```markdown
 ## Phase N: Destructive Tests
+<!-- Every scenario below is a native E2E flow: Maestro for RN, Patrol for Flutter. NOT a widget test. -->
 
 ### Category 1: Invalid Input (Garbage In)
 - [ ] T0XX: Empty required fields — submit with all required fields empty, verify validation errors
@@ -111,7 +114,8 @@ A spec is NOT complete unless:
 3. A dedicated "Destructive Tests" phase exists AFTER functional coverage
 4. Each test has a unique task ID (T0XX)
 5. Minimum destructive test count met per feature type
-6. All relevant attack categories covered — including the mobile-specific Category 2 (lifecycle) and Category 6 (permissions/platform)
-7. Tests describe what they verify, not just what they do
+6. **The destructive tests are native E2E flows — Maestro (RN/Expo) or Patrol (Flutter), NOT widget tests.** Mirror of web's "8 destructive scenarios in Playwright". A spec whose destructive quota is filled with widget tests is NOT complete.
+7. All relevant attack categories covered — including the mobile-specific Category 2 (lifecycle) and Category 6 (permissions/platform)
+8. Tests describe what they verify, not just what they do
 
 **The functional coverage check is the most important item.** A spec with 8 destructive tests but only 3 out of 12 functions tested is NOT complete.

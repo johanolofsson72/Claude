@@ -146,6 +146,8 @@ Count inventory items. Count functional tests. If tests < items, you are NOT don
 
 Every spec/feature involving **interactive UI** MUST include destructive tests AFTER functional coverage is complete. These tests actively try to break the app.
 
+> **Parity with web (non-negotiable): the destructive suite runs at the native E2E layer — Maestro for React Native / Expo, Patrol for Flutter — exactly as web runs its 8+ destructive scenarios in Playwright.** A widget/component test (RNTL or `WidgetTester`) does NOT count toward the destructive quota: it cannot background the app, kill the process, press the OS hardware back button, deny a permission dialog, toggle airplane mode, or open a deep link on cold start — and those ARE the destructive categories below. Widget tests cover Phase functional coverage; the 8+ destructive scenarios are Maestro/Patrol flows, each suffixed `-destructive`.
+
 **Interactive UI** = forms, user input, buttons that mutate state, multi-step flows, authentication, file/photo pickers, modals/sheets with actions, search/filter, gestures, map interaction, real-time/offline sync. Static content screens, marketing/onboarding slides, and read-only display screens do NOT require destructive tests.
 
 Destructive tests without functional coverage are worthless — you are stress-testing a building where half the rooms were never inspected.

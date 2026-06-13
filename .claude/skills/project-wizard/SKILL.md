@@ -951,6 +951,78 @@ This is the human-readable version — for sharing with stakeholders, README, on
 [Anything unresolved from the interview]
 ```
 
+#### 3E: Scaffold the native E2E test harness (MOBILE PROJECTS ONLY — React Native / Expo · Flutter)
+
+> Skip this subsection entirely for web/.NET projects — they already get the Playwright harness from the template sync. This subsection exists so a mobile project starts with a real destructive-flow directory instead of a blank page, giving Maestro/Patrol exact parity with web's Playwright setup. The 8+ destructive scenarios per interactive spec (per `.claude/docs/spec-testing-checklist.md`, which on a mobile project is the mobile variant) live HERE, as native E2E flows — NOT as widget tests.
+
+Determine the stack from the Phase 2 interview (Q22-23), then scaffold the matching harness:
+
+**React Native / Expo → Maestro**
+
+```bash
+mkdir -p .maestro
+```
+
+Create `.maestro/example-destructive.yaml` as the copy-me template for every future destructive flow:
+
+```yaml
+# Maestro destructive flow — COPY THIS per destructive scenario, one file each, *-destructive.yaml.
+# Parity with web: this is the mobile equivalent of a Playwright destructive spec.
+# Run: maestro test .maestro/        (whole suite)
+#      maestro test .maestro/example-destructive.yaml   (single flow)
+appId: ${APP_ID}   # set to your app's bundle/package id, e.g. com.acme.app
+---
+- launchApp:
+    clearState: true
+# Category 2 (lifecycle): double-tap submit must create exactly one record
+- tapOn: "Submit"
+- tapOn: "Submit"
+- assertVisible: "Saved"          # not "Saved (2)" — one record, not two
+# Category 2 (process kill): kill mid-flow, relaunch, expect sane restore
+- stopApp
+- launchApp
+- assertNotVisible: "corrupt"
+# Category 6 (permissions): deny a permission and assert graceful degradation
+# - tapOn: "Use my location"
+# - # (deny at the OS dialog) → assert the manual-entry fallback is visible
+```
+
+If Maestro is not installed on the dev's machine, note it (do not hard-fail): `curl -fsSL https://get.maestro.mobile.dev | bash` (Windows: run under WSL or Git Bash). Confirm `@testing-library/react-native` + the `jest-expo` preset are wired for the functional-coverage layer.
+
+**Flutter → Patrol / integration_test**
+
+```bash
+mkdir -p integration_test
+```
+
+Create `integration_test/example_destructive_test.dart` as the copy-me template:
+
+```dart
+// Patrol destructive flow — COPY THIS per destructive scenario, one test each.
+// Parity with web: this is the mobile equivalent of a Playwright destructive spec.
+// Run: patrol test            (native: permissions, deep links, lifecycle, hardware back)
+//      flutter test integration_test/   (in-process integration)
+import 'package:patrol/patrol.dart';
+
+void main() {
+  patrolTest('submit is idempotent under double-tap', ($) async {
+    await $.pumpWidgetAndSettle(/* YourApp() */);
+    // Category 2 (lifecycle): double-tap submit → exactly one record
+    await $('Submit').tap();
+    await $('Submit').tap();
+    await $('Saved').waitUntilVisible();
+    // Category 6 (permissions): deny at the native dialog, assert graceful fallback
+    // await $.native.denyPermission();
+    // Category 2 (hardware back): press OS back mid-flow, assert no data loss
+    // await $.native.pressBack();
+  });
+}
+```
+
+Add Patrol as a dev dependency (`flutter pub add --dev patrol`) and note `dart pub global activate patrol_cli` + `patrol doctor` if not present. E2E in either framework needs a running iOS Simulator or Android emulator.
+
+**Both frameworks:** the scaffolded directory is the home for the 8+ destructive flows mandated per interactive spec. State explicitly in the Phase 4 summary that this harness was created and that destructive coverage is a native-E2E (Maestro/Patrol) requirement, not a widget-test one.
+
 ### Phase 4: Summary
 
 After writing all files, present:
@@ -962,6 +1034,7 @@ After writing all files, present:
 - `CLAUDE.md` — [created/updated] ([X] sections, [Y] lines)
 - `.specify/memory/constitution.md` — [X] core principles ratified (v1.0.0)
 - `design-system/MASTER.md` — visual identity locked down [if generated]
+- `.maestro/` or `integration_test/` — native E2E destructive-flow harness scaffolded [mobile projects only; Maestro for RN, Patrol for Flutter — parity with web's Playwright]
 - `PROJECT-BRIEF.md` — human-readable project description
 
 **Constitution Principles:**

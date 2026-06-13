@@ -48,7 +48,7 @@ if echo "$LP" | grep -qE "$TRIGGER"; then
 4. /speckit-plan and /speckit-tasks — derive the functional inventory and implementation tasks from the clarified spec.
 4b. /speckit-analyze — MANDATORY immediately after /tasks. Read-only consistency check; auto-applies ALL suggested remediations to spec/plan/tasks without prompting (user standing instruction), then auto-chains to /implement. No stop between tasks → analyze → implement.
 5. /speckit-implement — execute tasks. Follow existing patterns in the codebase.
-6. Browser tests — functional coverage (one test per implemented function, no exceptions) PLUS destructive tests (8+ scenarios across the 6 attack categories).
+6. Browser tests (web: Playwright) OR native E2E flows (React Native / Expo: Maestro under .maestro/; Flutter: Patrol / integration_test) — same rigor either way: functional coverage (one test per implemented function, no exceptions) PLUS destructive tests (8+ scenarios across the 6 attack categories). On mobile the 8 destructive scenarios run as native E2E flows (Maestro/Patrol), exactly as web runs them in Playwright.
 7. /tla — runs /allium:distill, drift detection, invariants. Full track only; light track only if state machine is non-trivial.
 8. Commit + push to main directly (solo/direct-push workflow). Tick the register row. Stop with the status summary defined in .claude/rules/spec-register.md — that stop IS the question; do NOT add "ready for the next spec?" after it.
 
