@@ -2,15 +2,18 @@
 
 ## Critical rules (READ FIRST)
 
-- **ALWAYS** read the code first — base ALL conclusions on evidence from the codebase, not assumptions.
-- **ALWAYS** verify with `dotnet build` and `dotnet test` before claiming anything is "done".
-- **ALWAYS** use the Edit tool for surgical changes — never copy entire files.
-- **ALWAYS** run the full pipeline (`/speckit-specify` → `/speckit-clarify` → `/allium:elicit` → `/speckit-plan` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → browser tests → `/tla`) for any non-trivial feature, refactor, or fix. The pipeline is ONE task — never stop between phases to ask permission. `/speckit-clarify` runs on ALL tracks (auto-pick recommended) and catches underspecified requirements before `/speckit-plan`/`/speckit-tasks` lock them in; `/allium:elicit` runs on full/light tracks only. Trivial-fix bypass requires an explicit classification sentence. See `.claude/rules/feature-pipeline.md`. This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** consult `specs/INDEX.md` (the spec register) before starting feature work. Work the next unchecked spec end-to-end (pipeline → commit → push → tick the register), then stop with a status summary. The only legitimate mid-spec stops are real ambiguity, hard blockers, Allium/TLA+ findings, or a register-rewrite proposal. See `.claude/rules/spec-register.md`. This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, or React Native / Flutter widgets — design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** follow existing patterns in the codebase — look at similar components first.
-- **ALWAYS** test **100% of implemented functions** in browser tests (Playwright). If you built 12 functions, write at least 12 functional tests — one per function. Then add **at least 8 destructive tests PER interactive UI function — NOT 8 total per spec.** 12 interactive functions means ≥12 functional tests AND ≥96 destructive scenarios (12 × 8). Testing 3 out of 12 features is NOT acceptable. BEFORE writing tests: create a functional inventory listing EVERY implemented function, then write tests for ALL of them. Read `.claude/docs/testing.md` and `.claude/docs/spec-testing-checklist.md`.
+Rules tagged **(BLOCKING)** are backed by hooks — hard gates, not suggestions. The rest are strong defaults. (Markers are scarce on purpose: when everything is "ALWAYS", nothing is.)
+
+- Read the code first — base conclusions on evidence, never assumptions. Read relevant files BEFORE answering about the codebase; never guess.
+- Use the Edit tool for surgical changes — never copy whole files.
+- Verify with `dotnet build` + `dotnet test` before claiming anything is "done".
+- Follow existing patterns — look at similar components first.
+- **(BLOCKING)** Non-trivial feature/refactor/fix → run the full pipeline as **one task** (`specify → clarify → elicit → plan → tasks → analyze → implement → tests → tla`); no permission stops between phases. `clarify` runs on all tracks (auto-pick); `elicit` on full/light only. Trivial-fix bypass needs an explicit one-sentence classification. See `.claude/rules/feature-pipeline.md`.
+- **(BLOCKING)** Before feature work, consult the spec register `specs/INDEX.md`; work the next unchecked spec end-to-end (pipeline → commit → push → tick), then stop with the status summary. See `.claude/rules/spec-register.md`.
+- **(BLOCKING)** Keep the scenario map `specs/SCENARIOS.md` current — a diagram-led, surveyable exploded view (Mermaid use-case diagram + per-feature user-flow flowchart + SC-id ledger; journey/wireflow/storyboard on-demand). A gap or drift → **start a scenario interview**, never invent the missing cases silently. See `.claude/rules/scenarios.md`.
+- **(BLOCKING)** Invoke the `frontend-design` skill BEFORE writing any UI code (HTML/CSS/JS, React Native / Flutter widgets).
+- **(BLOCKING)** Run generated human-facing text through the `humanizer` skill before delivering (docs, commits, PRs, email, README).
+- **(BLOCKING)** Testing — every behaviour-changing feature gets **unit + integration + E2E** (integration is where AI code most often breaks), **PBT** for wide-input logic, **visual-regression** baselines for UI, and a functional test for **every** implemented function. The destructive suite is **sized per interactive function from its input domain** (toggle ~3 → multi-step/auth ~20-30+), NOT a flat quota. The **mutation kill rate** (Stryker, nightly/on-demand, ~80% on critical modules) is the gate — test count is not. See `.claude/docs/testing.md` + `.claude/rules/scenarios.md`.
 
 ## Execution mode
 
@@ -94,14 +97,16 @@ Docker Swarm cluster on Azure (live4.se). For IP addresses, pipeline, commands, 
 
 NEVER say something is "implemented" or "done" until:
 
-1. All **unit tests** pass (`dotnet test`).
-2. All **E2E tests in Playwright** pass (`dotnet test --filter "Category=UI"`).
-3. For UI features: **functional coverage tests** exist for EVERY implemented function (1 test per function minimum), PLUS **destructive tests — at least 8 scenarios PER interactive UI function across all 6 attack categories (8 per function, NOT 8 per spec).** If you built 10 functions but only tested 4, you are NOT done; if you wrote 8 destructive tests total instead of 8 per function, you are NOT done.
-4. For UI features: **TLA+ formal verification** has been run (`/tla`) — checks for race conditions, state machine gaps, and missing invariants. This step is auto-triggered after browser tests are written.
-5. For web projects: **visually verified** in the browser.
-6. The code is assessed as **100% functional**.
+1. This spec's scenarios are in `specs/SCENARIOS.md` AND marked `✓ validated` — each one observed *actually working at runtime* (real behaviour, not a stub), with all four states proven: success, a specific visible **error** message (never silent — a failed login must say why), empty, loading. Validate prerequisite scenarios first; a broken prerequisite is a hard stop. See `.claude/rules/scenarios.md`.
+2. **Unit + integration tests** pass (`dotnet test`) — both layers, not just one. Integration is where AI code most often fails (units pass, the seams don't). **PBT** added for wide-input logic.
+3. **E2E tests** pass (`dotnet test --filter "Category=UI"`).
+4. For UI features: **functional coverage** for EVERY implemented function (1 test each), PLUS a **destructive suite per interactive function sized to its input domain** (toggle ~3 → multi-step/auth ~20-30+, not a flat quota), PLUS **visual-regression** baselines for the key states.
+5. **Mutation kill rate** on the changed critical module(s) meets target (`dotnet stryker`, ~80%, nightly/on-demand — NOT per-push CI). This is the gate that proves the tests bite; a green suite that kills no mutants is not done.
+6. For UI features: **TLA+** has been run (`/tla`) — race conditions, state-machine gaps, missing invariants (full/light tracks; auto-triggered after tests).
+7. **Validated locally before any deploy** — `dotnet build` clean, full suite green, and the app runs in local dev AND in `docker compose up` (the artifact you ship is the container, so prove the container works).
+8. For web: **visually verified** in the browser. The code is assessed as **fully functional**.
 
-If tests cannot be run (missing infrastructure), clearly inform about this.
+If tests cannot be run (missing infrastructure), say so explicitly.
 
 ## Context management
 
@@ -139,8 +144,10 @@ Read these files WHEN you need them — do not load everything upfront:
 - **Hooks, subagents, plugins, sessions** → `.claude/docs/workflows.md`
 - **Creating new agents** → `.claude/docs/agents-templates.md`
 - **Skills, SKILL.md format, Agent Skills standard** → `.claude/docs/skills.md`
-- **Tests (xUnit, Playwright)** → `.claude/docs/testing.md`
+- **Tests (layers, risk-tiered destructive, PBT, VRT, mutation gate)** → `.claude/docs/testing.md`
 - **Spec testing checklist (destructive tests)** → `.claude/docs/spec-testing-checklist.md`
+- **Scenario map (`SCENARIOS.md`, gap/drift → interview)** → `.claude/rules/scenarios.md`
+- **Design references (decompile "feeling of Spotify" → primitives)** → `.claude/rules/design-references.md` + `.claude/docs/design-reference-library.md`
 - **Feature pipeline (auto-trigger, end-to-end execution)** → `.claude/rules/feature-pipeline.md`
 - **Spec register (one stop per spec, project-level rail)** → `.claude/rules/spec-register.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`

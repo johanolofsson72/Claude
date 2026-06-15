@@ -121,8 +121,12 @@ for f in \
   .claude/rules/feature-pipeline.md \
   .claude/rules/spec-register.md \
   .claude/rules/github-actions.md \
+  .claude/rules/scenarios.md \
+  .claude/rules/design-references.md \
+  .claude/docs/design-reference-library.md \
   scripts/allium-hook.sh \
   scripts/tla-hook.sh \
+  scripts/scenario-map-reminder-hook.sh \
   scripts/sync-graphify-wiring.py \
   scripts/sync-core-hooks.py \
   scripts/graphify-bootstrap.sh; do
@@ -130,7 +134,7 @@ for f in \
 done
 python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] settings.json is not valid JSON"; fail=1; }
 # Core-hook wiring gate: any core hook whose script is on disk MUST be wired (catches the prose-merge gap)
-for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook continuous-execution-hook; do
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook; do
   if [ -f "scripts/$s.sh" ] && ! grep -q "$s.sh" .claude/settings.json; then echo "[UNWIRED] core hook $s present on disk but not wired — run sync-core-hooks.py"; fail=1; fi
 done
 # Graphify is only enforced on eligible (>=30 source-file) projects; the bootstrap self-gates below threshold.
@@ -696,12 +700,14 @@ Core flow: **[primary user flow from interview]**
 
 NEVER say something is "implemented" or "done" until:
 
-1. All **unit tests** pass (`[TEST COMMAND]`).
-2. All **E2E tests** pass (`[E2E COMMAND]`) — Playwright for web/.NET, **Maestro flows** for React Native / Expo, **Patrol / integration_test** for Flutter.
-3. For UI features: **functional coverage tests** + **destructive tests — at least 8 scenarios PER interactive UI function (NOT 8 per spec; 12 functions = >=96 destructive)**, 6 attack categories. For mobile, the attack categories include lifecycle (background/resume, process kill, hardware back) and permissions — see `.claude/docs/spec-testing-checklist.md`.
-4. For UI features: **TLA+ formal verification** has been run (`/tla`) — runtime-agnostic, applies to web and mobile alike.
-5. For web projects: **visually verified** in the browser. For mobile: **visually verified** on a simulator/emulator or device.
-6. The code is assessed as **100% functional**.
+1. This spec's scenarios are in `specs/SCENARIOS.md` and marked `✓ validated` — observed actually working at runtime (real behaviour, not a stub), all four states proven: success, a specific visible error message (never silent), empty, loading. Validate prerequisite scenarios first; a broken prerequisite is a hard stop. A gap starts a scenario interview (`.claude/rules/scenarios.md`).
+2. **Unit + integration tests** pass (`[TEST COMMAND]`) — both layers; integration is where AI code most often breaks. **Property-based tests** for wide-input logic.
+3. All **E2E tests** pass (`[E2E COMMAND]`) — Playwright for web/.NET, **Maestro flows** for React Native / Expo, **Patrol / integration_test** for Flutter.
+4. For UI features: **functional coverage** (1 test per function) + a **destructive suite per interactive function sized to its input domain** (toggle ~3 → multi-step/auth ~20-30+, NOT a flat quota) + **visual-regression** baselines for key states. For mobile the attack categories include lifecycle and permissions — see `.claude/docs/spec-testing-checklist.md`.
+5. **Mutation kill rate** on the changed critical module(s) meets target (~80%; Stryker.NET web / StrykerJS mobile; nightly/on-demand, NOT per-push CI). The gate is the kill rate, not the test count.
+6. For UI features: **TLA+ formal verification** has been run (`/tla`) — runtime-agnostic, applies to web and mobile alike.
+7. **Validated locally before deploy** — full suite green AND the app runs in local dev and in Docker (`docker compose up`); you ship the container, so prove the container works.
+8. For web: **visually verified** in the browser. For mobile: **visually verified** on a simulator/emulator or device. The code is assessed as **fully functional**.
 
 If tests cannot be run (missing infrastructure), clearly inform about this.
 
@@ -774,6 +780,8 @@ Read these files WHEN you need them — do not load everything upfront:
 #### 3C: Generate `design-system/MASTER.md` (if user said yes to Q32)
 
 If the user wants a persisted design system, create `design-system/MASTER.md` with the visual decisions from Category 6. This file is the single source of truth that the `frontend-design` skill references when building any UI component.
+
+**Decompile any brand/vibe reference FIRST (per `.claude/rules/design-references.md`).** If the user described the look as a feeling or a brand ("the feeling of Spotify", "like Linear", "Apple-clean") in Q25/Q30, do NOT store it as a vague note — compile it into the concrete primitives below: look it up in `.claude/docs/design-reference-library.md` (instant for ~12 known aesthetics), `WebFetch` the live brand for anything not seeded, and run a short `AskUserQuestion` if the reference is multi-faceted (Spotify = dark immersion *and* green energy *and* dense browse — ask which). Fill the Color/Typography/Layout/Motion/Mood/Anti-pattern sections with the decompiled hex values and named fonts, and record the source reference. The whole point: `frontend-design` must inherit primitives, never a feeling.
 
 ```markdown
 # [Project Name] — Design System
@@ -951,9 +959,57 @@ This is the human-readable version — for sharing with stakeholders, README, on
 [Anything unresolved from the interview]
 ```
 
+#### 3D-2: Seed the scenario map (`specs/SCENARIOS.md`)
+
+The inception interview IS the project's first scenario interview — turn the core modules and use cases the user described (Categories 1, 4, 5) into the first **diagram-led** scenario map. This gives the project a real, surveyable exploded view to grow from instead of a blank page, and it's the source the functional inventories and destructive suites derive from for every future spec (see `.claude/rules/scenarios.md`). The map is diagram-led: always seed the project **use-case diagram** + a **user-flow flowchart** for the first feature + the SC-id table (Mermaid, so it renders in GitHub/VS Code/Obsidian). Journey map / wireflow / storyboard are added later on-demand.
+
+Create `specs/SCENARIOS.md`:
+
+````markdown
+# Scenario map
+
+Living, surveyable exploded view of every scenario. Append as the project grows; never reuse an SC-id.
+Status:  ☐ mapped  ·  ◐ tested  ·  ✓ validated (proven to actually work at runtime)
+Gap or drift → run the scenario interview (.claude/rules/scenarios.md) before writing code.
+
+## Use case overview (who can do what)
+
+```mermaid
+flowchart LR
+  actor1([Primary role]); actor2([Other role])
+  actor1 --> uc1([Core use case 1])
+  actor1 --> uc2([Core use case 2])
+```
+
+## Actor: [primary role from interview]
+
+### Feature: [first core module]   (spec: 001-[slug])
+
+User flow:
+
+```mermaid
+flowchart TD
+  A[Entry] --> B{Decision?}
+  B -- ok --> C[Success outcome · SC-001]
+  B -- bad --> D[Specific error message · SC-004]
+```
+
+| ID     | Type        | Scenario                          | Expected outcome                | Status |
+|--------|-------------|-----------------------------------|---------------------------------|--------|
+| SC-001 | happy       | [main success path]               | [outcome]                       | ☐      |
+| SC-002 | edge        | [a boundary the user mentioned]   | [outcome]                       | ☐      |
+| SC-003 | adversarial | [double-submit / tamper / race]   | [safe outcome]                  | ☐      |
+| SC-004 | error       | [network / auth / timeout]        | [specific visible message]      | ☐      |
+
+## Scenario history
+- [today] — seeded from inception interview ([N] features mapped)
+````
+
+Seed the use-case diagram + a user-flow flowchart + at least the happy + one edge/error row per core module (all `☐ mapped` at inception). Note in the Phase 4 summary that the map was seeded as a diagram-led artifact, that every future spec extends it (a gap triggers an interview, not a guess), and that scenarios only reach `✓` once observed working at runtime with all four states (success / specific error / empty / loading).
+
 #### 3E: Scaffold the native E2E test harness (MOBILE PROJECTS ONLY — React Native / Expo · Flutter)
 
-> Skip this subsection entirely for web/.NET projects — they already get the Playwright harness from the template sync. This subsection exists so a mobile project starts with a real destructive-flow directory instead of a blank page, giving Maestro/Patrol exact parity with web's Playwright setup. The destructive scenarios (at least 8 PER interactive UI function, NOT 8 per spec — per `.claude/docs/spec-testing-checklist.md`, which on a mobile project is the mobile variant) live HERE, as native E2E flows — NOT as widget tests.
+> Skip this subsection entirely for web/.NET projects — they already get the Playwright harness from the template sync. This subsection exists so a mobile project starts with a real destructive-flow directory instead of a blank page, giving Maestro/Patrol exact parity with web's Playwright setup. The destructive scenarios (sized per interactive UI function from its input domain — not a flat quota, not one batch per spec — per `.claude/docs/spec-testing-checklist.md`, which on a mobile project is the mobile variant) live HERE, as native E2E flows — NOT as widget tests.
 
 Determine the stack from the Phase 2 interview (Q22-23), then scaffold the matching harness:
 
@@ -1021,7 +1077,7 @@ void main() {
 
 Add Patrol as a dev dependency (`flutter pub add --dev patrol`) and note `dart pub global activate patrol_cli` + `patrol doctor` if not present. E2E in either framework needs a running iOS Simulator or Android emulator.
 
-**Both frameworks:** the scaffolded directory is the home for the destructive flows mandated per interactive UI function (at least 8 each, not 8 per spec). State explicitly in the Phase 4 summary that this harness was created and that destructive coverage is a native-E2E (Maestro/Patrol) requirement, not a widget-test one.
+**Both frameworks:** the scaffolded directory is the home for the destructive flows mandated per interactive UI function (sized to each function's input domain, not a flat quota and not one batch per spec). State explicitly in the Phase 4 summary that this harness was created and that destructive coverage is a native-E2E (Maestro/Patrol) requirement, not a widget-test one.
 
 ### Phase 4: Summary
 
