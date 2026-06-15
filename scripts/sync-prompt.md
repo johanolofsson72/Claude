@@ -44,7 +44,8 @@ if [ -z "$TEMPLATE_SHA" ]; then
   echo "[WARN] Could not fetch template SHA — falling back to full sync"
 elif [ "$TEMPLATE_SHA" = "$LAST_SHA" ]; then
   echo "[UP TO DATE] Already synced with template @ $TEMPLATE_SHA"
-  # Nothing changed since last sync — skip Steps 1-8, but STILL run Step 9 (CLAUDE.md slim check).
+  # Nothing changed since last sync — skip Steps 1-8, but STILL run Step 8c
+  # (freshness pass) AND Step 9 (CLAUDE.md slim check). Both are unconditional.
   # (If the user says "force resync" or "full resync", ignore this and continue with a full sync.)
 elif [ -n "$LAST_SHA" ]; then
   echo "[INCREMENTAL SYNC] $LAST_SHA → $TEMPLATE_SHA"
@@ -58,8 +59,8 @@ fi
 
 **Decision logic:**
 
-- **SHAs equal** → project is up to date. Report "already current", skip Steps 1-8, then **jump to Step 9** (CLAUDE.md slim check always runs). Do NOT read template files.
-- **LAST_SHA exists, SHAs differ** → **incremental mode**. Read ONLY files in `$CHANGED`, skip steps that involve files not in that list. Still run Step 7 (tech stack confirmation), Step 8 (verify), and Step 9 (slim check) unconditionally.
+- **SHAs equal** → project is up to date. Report "already current", skip Steps 1-8, then **run Step 8c (freshness pass) and Step 9 (CLAUDE.md slim check)** — both always run. Do NOT read template files.
+- **LAST_SHA exists, SHAs differ** → **incremental mode**. Read ONLY files in `$CHANGED`, skip steps that involve files not in that list. Still run Step 7 (tech stack confirmation), Step 8 (verify), **Step 8c (freshness pass)**, and Step 9 (slim check) unconditionally.
 - **No LAST_SHA** → **full sync**. Read all template files per Step 1 below.
 - **Force override** → if the user prompt contains "force", "full resync", or "--force", ignore `.sync-version` and do a full sync regardless.
 
@@ -755,11 +756,18 @@ git add -f .claude/.sync-version 2>/dev/null && echo "[STAGED] .claude/.sync-ver
 
 **Why this matters:** `.sync-version` is per-project cache state. If it's gitignored or left unstaged, a teammate who clones the repo fresh has no record of the last sync SHA, and their next `/project-update` will do a full 100% sync instead of the incremental path. Committing it is the only way the cache survives across machines.
 
-### Step 8c: Freshness pass (report-first — trufflehog + npm audit)
+### Step 8c: Freshness pass (ALWAYS RUNS — regardless of sync mode)
 
-Make the freshness script executable and run it from the project root to keep the project fresh:
+This is the "keep the project fresh" ritual and it runs on **every** `/project-update`, including an "already current" no-op sync and an incremental sync that touched unrelated files. The point is to catch **newly-disclosed dependency CVEs and newly-committed secrets** independent of what template files changed since last sync — a vulnerability disclosed last week against a dependency you never touched must still surface. Do NOT skip this in incremental or up-to-date mode.
+
+Make the freshness script executable and run it from the project root (report-first — trufflehog + npm audit). Because this step ALSO runs in "already current" / incremental mode (where Step 1's file copy was skipped), it first ensures the script is actually present — fetching it from `$TEMPLATE` if a pre-freshness project somehow lacks it:
 
 ```bash
+if [ ! -f scripts/project-freshness.sh ]; then
+  mkdir -p scripts
+  cp "$TEMPLATE/scripts/project-freshness.sh" scripts/project-freshness.sh 2>/dev/null \
+    || curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/project-freshness.sh -o scripts/project-freshness.sh
+fi
 chmod +x scripts/project-freshness.sh
 bash scripts/project-freshness.sh
 ```

@@ -258,9 +258,11 @@ Ensure the project's `.gitignore` covers these patterns. Add any that are missin
 - `.claude/projects/` (per-user memory directory — never commit)
 - `.claude/settings.local.json` (per-machine settings)
 
-### 3b. Freshness pass (report-first — trufflehog + npm audit)
+### 3b. Freshness pass (ALWAYS RUNS — regardless of sync mode)
 
-After `scripts/project-freshness.sh` has been copied from the template (step 1) and made executable, run it from the project root to keep the project fresh:
+This runs on **every** `/project-update` — full, incremental, or "already current" no-op. It is the recurring "keep the project fresh" ritual: it catches newly-disclosed dependency CVEs and newly-committed secrets independent of whether any template file changed. Do NOT skip it just because the sync was incremental or the project was already up to date.
+
+After `scripts/project-freshness.sh` has been copied from the template (step 1) and made executable, run it from the project root (report-first):
 
 ```bash
 chmod +x scripts/project-freshness.sh
