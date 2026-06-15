@@ -135,6 +135,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `scripts/spec-md-coverage-reminder-hook.sh` — Deterministic replacement for the legacy `type:"prompt"` spec-completeness hook. Never blocks (only emits `systemMessage`), detects carve-out phrases ("carved to", "out-of-scope", "deferred to", "tracked in", etc.) and suppresses the destructive-test reminder when tests are explicitly deferred to another slice. Fixes the false-positive blocks observed in projects when slicing specs.
 - `scripts/scenario-map-reminder-hook.sh` — PostToolUse advisory (never blocks). Fires when a spec/tasks file gains interactive behaviour but `specs/SCENARIOS.md` has no rows for it; instructs Claude to START a scenario interview (capture happy/edge/adversarial/error/offline cases) rather than just jotting a note. Silent on template/scratch repos (no language marker). Pairs with `.claude/rules/scenarios.md`.
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
+- `scripts/project-freshness.sh` — Local "keep the project fresh" maintenance pass (NOT a hook — invoked manually or as a sync step). Runs a trufflehog verified-secret scan (git history, or working tree if no `.git`) and an `npm audit` dependency-CVE report for every non-vendored `package.json`. **Self-installs trufflehog if missing** (brew → scoop → official install script into `~/.local/bin`, mirroring `graphify-bootstrap.sh`; `--no-install` suppresses it). Report-first: mutates nothing in the project tree by default; `--fix` opts into `npm audit fix --force` plus a build/test verification reminder. Falls back to a manual-install hint only if every trufflehog install path fails; `npm audit` is skipped (not failed) when there's no lockfile or npm is absent. bash 3.2-safe, cross-platform (macOS/Linux/Windows Git Bash). LOCAL only — never wire it as a CI/scheduled Action (`.claude/rules/github-actions.md`).
 - `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama. Default uses 127.0.0.1 explicitly to avoid Happy-Eyeballs routing to the wrong ollama instance when both IPv4 and IPv6 listeners exist on port 11434.
 - `scripts/local-llm-call.sh` — Generic non-streaming `/api/generate` caller. Reads system prompt as `$1`, user prompt from stdin, num_predict as optional `$2`. Prints model output or exits non-zero on offline/timeout/missing-model.
 - `scripts/local-llm-classify-hook.sh` — UserPromptSubmit hook. Tags the incoming prompt as TRIVIAL / MEDIUM / COMPLEX via local LLM and injects the hint as `additionalContext`. Skips prompts ≤20 chars. Honors `LOCAL_LLM_CLASSIFY_TIMEOUT` (default 4s) so the prompt path stays snappy.
@@ -753,6 +754,23 @@ git add -f .claude/.sync-version 2>/dev/null && echo "[STAGED] .claude/.sync-ver
 ```
 
 **Why this matters:** `.sync-version` is per-project cache state. If it's gitignored or left unstaged, a teammate who clones the repo fresh has no record of the last sync SHA, and their next `/project-update` will do a full 100% sync instead of the incremental path. Committing it is the only way the cache survives across machines.
+
+### Step 8c: Freshness pass (report-first — trufflehog + npm audit)
+
+Make the freshness script executable and run it from the project root to keep the project fresh:
+
+```bash
+chmod +x scripts/project-freshness.sh
+bash scripts/project-freshness.sh
+```
+
+Two LOCAL checks (never as a GitHub Action — that violates `.claude/rules/github-actions.md`): a trufflehog verified-secret scan and an `npm audit` dependency report. The script mutates nothing by default. Fold the outcome into the Step 10 report:
+
+- **Verified secrets found** → this is a hard stop, not a footnote. Tell the developer to rotate the exposed credential immediately and surface it at the TOP of the Step 10 report.
+- **npm advisories found** → report the counts and the remediation path. Suggest `npm audit fix` (safe) first; `npm audit fix --force` only on explicit developer confirmation, always followed by `npm run build && npm test` (or `dotnet build && dotnet test` when React feeds `wwwroot`). `bash scripts/project-freshness.sh --fix` does the force + verification-reminder in one shot.
+- **trufflehog missing** → the script self-installs it (brew/scoop/official script). If every install path fails, it falls back to a SKIP with a manual-install hint — note it, do not block the sync. **npm/lockfile missing** → the `npm audit` leg is a SKIP (no lockfile → "run `npm install` first"), never a false-positive finding.
+
+Do NOT auto-run `--fix` here. A forced dependency upgrade is a developer decision, not a silent side effect of `/project-update`.
 
 ### Step 9: Slim CLAUDE.md (ALWAYS RUNS — regardless of sync mode)
 
