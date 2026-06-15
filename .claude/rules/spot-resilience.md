@@ -118,7 +118,8 @@ deploy:
     delay: 30s
     failure_action: pause
     order: stop-first
-  stop_grace_period: 30s
+# stop_grace_period is a SERVICE-level key (sibling of deploy:, NOT a deploy: sub-key) — keep it >= 30s:
+stop_grace_period: 30s
 ```
 
 `stop-first` is mandatory for SQLite-using services. If the new container opens the NFS-backed DB while the old one still holds it, NFS lock contention plus journal recovery on a stale view of the file is the textbook NFS+SQLite corruption window. `parallelism: 1` + `failure_action: pause` keep a bad rollout from cycling tasks against the NFS share; `restart_policy.condition: any` with unlimited attempts and a 2m delay rides out spot evictions without hammering.
