@@ -67,6 +67,31 @@ The org shares ONE free tier: 3000 Actions minutes/month. iskvalp burned the who
 - **Persistent storage**: `/mnt/nfs/[projectname]/` (databases, seed data, compose files)
 - **Networks**: Project-internal overlay network + `nginx_npm_network` (external, for reverse proxy)
 
+### Mandatory container `deploy:` block (cluster standard)
+
+Every service deployed to the live4 Swarm cluster MUST carry this `deploy:` block. The restart policy and update_config are the cluster defaults — `order: stop-first` and `replicas: 1` are also required by the single-writer rules in `.claude/rules/sqlite.md` and `.claude/rules/spot-resilience.md`, so this completes (does not conflict with) those:
+
+```yaml
+deploy:
+  replicas: 1                 # single-writer (NFS+SQLite + spot fleet)
+  restart_policy:
+    condition: any
+    delay: 2m
+    max_attempts: 0           # 0 = unlimited
+    window: 30s
+  update_config:
+    parallelism: 1
+    delay: 30s
+    failure_action: pause     # halt the rollout on a failed task, don't keep cycling
+    order: stop-first         # old task fully stops before the new one starts (NFS+SQLite safe)
+  # stop_grace_period belongs at the service level (not under deploy:) — keep it >= 30s:
+# stop_grace_period: 30s
+```
+
+- **restart_policy** — `condition: any` restarts on any exit; `delay: 2m` between attempts; `max_attempts: 0` is unlimited; `window: 30s` is the evaluation window.
+- **update_config** — `parallelism: 1` + `order: stop-first` means one task at a time, old stopped before new starts; `delay: 30s` between tasks; `failure_action: pause` stops a bad rollout instead of churning.
+- A stateful (SQLite) service additionally keeps `stop_grace_period: 30s` and `replicas: 1` per `.claude/rules/spot-resilience.md`.
+
 ## Environment variables and secrets
 
 **GitHub Secrets (configured in repo settings):**

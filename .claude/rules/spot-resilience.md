@@ -19,7 +19,7 @@ The cluster has one manager (`live4-mgr-01`) and three spot workers. **All worke
 Every project's compose file must therefore:
 
 1. Mount durable state from `/mnt/nfs/<project>/...` (the NFS export, not local-disk on a worker).
-2. Run stateful services with `replicas: 1`, `update_config.order: stop-first`, and `stop_grace_period: 30s`.
+2. Carry the cluster-standard `deploy:` block: `replicas: 1`, `restart_policy` (`condition: any`, `delay: 2m`, `max_attempts: 0`, `window: 30s`), `update_config` (`parallelism: 1`, `delay: 30s`, `failure_action: pause`, `order: stop-first`), and `stop_grace_period: 30s`. See the full block below and `.claude/docs/deployment.md`.
 3. Keep workloads off the manager — the manager handles SSH, registry, and NFS export. Use `placement.constraints: [node.role == worker]` to keep services on the spot fleet only.
 
 For SQLite-specific PRAGMAs, NFS mount options, and the single-writer enforcement model, see `.claude/rules/sqlite.md`. For the full reference architectures (NFS-shared SQLite, LiteFS for read-heavy, managed Postgres for state-out-of-cluster), see `.claude/docs/spot-architecture.md`.
@@ -103,16 +103,25 @@ Configure Kestrel to allow in-flight work to finish:
 builder.WebHost.UseShutdownTimeout(TimeSpan.FromSeconds(20));
 ```
 
-In compose, give the container time to checkpoint, drain, and release NFS handles:
+In compose, give the container time to checkpoint, drain, and release NFS handles. Every service on the cluster uses this full `deploy:` block (cluster standard — mirrors the Swarm UI restart-policy + update-config; also documented in `.claude/docs/deployment.md`):
 
 ```yaml
 deploy:
+  replicas: 1
+  restart_policy:
+    condition: any
+    delay: 2m
+    max_attempts: 0          # unlimited
+    window: 30s
   update_config:
+    parallelism: 1
+    delay: 30s
+    failure_action: pause
     order: stop-first
   stop_grace_period: 30s
 ```
 
-`stop-first` is mandatory for SQLite-using services. If the new container opens the NFS-backed DB while the old one still holds it, NFS lock contention plus journal recovery on a stale view of the file is the textbook NFS+SQLite corruption window.
+`stop-first` is mandatory for SQLite-using services. If the new container opens the NFS-backed DB while the old one still holds it, NFS lock contention plus journal recovery on a stale view of the file is the textbook NFS+SQLite corruption window. `parallelism: 1` + `failure_action: pause` keep a bad rollout from cycling tasks against the NFS share; `restart_policy.condition: any` with unlimited attempts and a 2m delay rides out spot evictions without hammering.
 
 ### 3. Idempotent writes
 
