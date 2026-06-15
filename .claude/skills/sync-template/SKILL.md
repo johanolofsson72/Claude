@@ -118,7 +118,8 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `scripts/spec-register-guard-hook.sh`
 - `scripts/spec-register-orientation-hook.sh`
 - `scripts/spec-md-coverage-reminder-hook.sh` (deterministic replacement for the legacy `type:"prompt"` spec-completeness hook; never blocks, suppresses reminder on carved-out test slices)
-- `scripts/scenario-map-reminder-hook.sh` (advisory; fires the scenario interview when a spec gains interactive behaviour but `specs/SCENARIOS.md` lacks rows for it)
+- `scripts/scenario-map-reminder-hook.sh` (PostToolUse advisory; fires the scenario interview when a spec gains interactive behaviour but `specs/SCENARIOS.md` lacks rows for it)
+- `scripts/scenario-map-orientation-hook.sh` (SessionStart advisory; PROACTIVE complement — nudges a scenario interview when the project has specs but no `specs/SCENARIOS.md`, catching already-built projects the reactive reminder misses)
 - `scripts/local-llm-call.sh` (telemetry funnel + auto-detect)
 - `scripts/local-llm-detect.sh`
 - `scripts/local-llm-stats.sh` (per-hook ROI reporter)

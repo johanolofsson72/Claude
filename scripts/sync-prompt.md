@@ -135,6 +135,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
 - `scripts/spec-md-coverage-reminder-hook.sh` — Deterministic replacement for the legacy `type:"prompt"` spec-completeness hook. Never blocks (only emits `systemMessage`), detects carve-out phrases ("carved to", "out-of-scope", "deferred to", "tracked in", etc.) and suppresses the destructive-test reminder when tests are explicitly deferred to another slice. Fixes the false-positive blocks observed in projects when slicing specs.
 - `scripts/scenario-map-reminder-hook.sh` — PostToolUse advisory (never blocks). Fires when a spec/tasks file gains interactive behaviour but `specs/SCENARIOS.md` has no rows for it; instructs Claude to START a scenario interview (capture happy/edge/adversarial/error/offline cases) rather than just jotting a note. Silent on template/scratch repos (no language marker). Pairs with `.claude/rules/scenarios.md`.
+- `scripts/scenario-map-orientation-hook.sh` — SessionStart advisory (never blocks). PROACTIVE complement to the reminder above: at session start, if the project already has specs but no `specs/SCENARIOS.md`, it emits a systemMessage telling Claude to START a scenario interview. Catches the **retroactive gap** the PostToolUse reminder structurally cannot — an already-built project whose map was never created (the reminder only fires while a spec is being edited). Silent on template/scratch repos, on projects with no specs, and when the map already exists. Wired into SessionStart by `sync-core-hooks.py` (script-presence gated). Pairs with `.claude/rules/scenarios.md`.
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
 - `scripts/project-freshness.sh` — Local "keep the project fresh" maintenance pass (NOT a hook — invoked manually or as a sync step). Runs a trufflehog verified-secret scan (git history, or working tree if no `.git`) and an `npm audit` dependency-CVE report for every non-vendored `package.json`. **Self-installs trufflehog if missing** (brew → scoop → official install script into `~/.local/bin`, mirroring `graphify-bootstrap.sh`; `--no-install` suppresses it). Report-first: mutates nothing in the project tree by default; `--fix` opts into `npm audit fix --force` plus a build/test verification reminder. Falls back to a manual-install hint only if every trufflehog install path fails; `npm audit` is skipped (not failed) when there's no lockfile or npm is absent. bash 3.2-safe, cross-platform (macOS/Linux/Windows Git Bash). LOCAL only — never wire it as a CI/scheduled Action (`.claude/rules/github-actions.md`).
 - `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama. Default uses 127.0.0.1 explicitly to avoid Happy-Eyeballs routing to the wrong ollama instance when both IPv4 and IPv6 listeners exist on port 11434.
@@ -779,6 +780,25 @@ Two LOCAL checks (never as a GitHub Action — that violates `.claude/rules/gith
 - **trufflehog missing** → the script self-installs it (brew/scoop/official script). If every install path fails, it falls back to a SKIP with a manual-install hint — note it, do not block the sync. **npm/lockfile missing** → the `npm audit` leg is a SKIP (no lockfile → "run `npm install` first"), never a false-positive finding.
 
 Do NOT auto-run `--fix` here. A forced dependency upgrade is a developer decision, not a silent side effect of `/project-update`.
+
+### Step 8d: Scenario-map presence check (ALWAYS RUNS — regardless of sync mode)
+
+The scenario map (`specs/SCENARIOS.md`) is a BLOCKING artifact per `.claude/rules/scenarios.md` — it's the source the functional inventory and destructive test suite derive from. The reactive PostToolUse reminder only fires while a spec is being edited, so an already-built project whose map was never created (the iskvalp case) never gets nudged. This sync-time check closes that retroactive gap. Run it on every `/project-update`:
+
+```bash
+if { [ -f specs/INDEX.md ] && grep -qE '^- \[[ x/!]\]' specs/INDEX.md; } \
+   || ls specs/*/spec.md >/dev/null 2>&1 || ls .specify/specs/*/spec.md >/dev/null 2>&1; then
+  if [ ! -f specs/SCENARIOS.md ]; then
+    echo "[SCENARIO GAP] project has specs but specs/SCENARIOS.md is MISSING"
+  else
+    echo "[OK] specs/SCENARIOS.md present"
+  fi
+else
+  echo "[N/A] no specs yet — scenario map not expected"
+fi
+```
+
+If it prints `[SCENARIO GAP]`, surface it prominently in the Step 10 report and **offer to START a scenario interview** (`AskUserQuestion`, one feature at a time, recommended answers the developer confirms) to build the map from the project's existing specs. Do NOT autonomously scaffold a `SCENARIOS.md` — the rule forbids inventing scenarios silently; the map must come from the developer. The SessionStart hook (`scenario-map-orientation-hook.sh`) emits the same nudge every session until the map exists, so this is belt-and-suspenders for the maintenance moment.
 
 ### Step 9: Slim CLAUDE.md (ALWAYS RUNS — regardless of sync mode)
 
