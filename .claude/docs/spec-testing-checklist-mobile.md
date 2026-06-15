@@ -4,6 +4,8 @@
 
 This checklist MUST be completed for every spec/feature that involves **interactive UI** (forms, user input, state-mutating buttons, multi-step flows, authentication, file/photo pickers, search/filter, gestures, map interaction, offline sync). Does NOT apply to static content screens, onboarding slides, or read-only display screens.
 
+> **Scenarios come from the living scenario map.** The functional inventory below is derived from the `happy` rows of `specs/SCENARIOS.md`, and the destructive suite from its `edge` / `adversarial` / `error` / `offline` rows (see `.claude/rules/scenarios.md`). If a function or destructive case here has no matching `SC-id`, the scenario was never mapped — add it (or run the scenario interview) before writing the flow.
+
 ## When to use
 
 - Writing a new spec (`spec.md`, `spec-*.md`)
@@ -36,7 +38,7 @@ end-to-end. If you implemented 12 functions, you need at least 12 functional tes
 
 ### Phase N: Destructive Tests
 
-> **The destructive quota is PER interactive UI function (≥8 each), and every scenario MUST run as a native E2E flow — Maestro (`.maestro/*-destructive.yaml`) for React Native / Expo, Patrol (`integration_test/`) for Flutter.** This is the mobile mirror of web running its 8 destructive scenarios per function in Playwright. The count is per function, NOT per spec: a screen with 12 interactive functions needs 12 × ≥8 = ≥96 destructive flows. A widget/component test (RNTL or `WidgetTester`) does NOT satisfy a destructive scenario: it cannot send the app to background, kill the process, press the OS hardware back button, deny a permission dialog, toggle airplane mode, or follow a deep link on cold start — and those are exactly the destructive categories. Widget tests are for **functional coverage** (Phase N-1); the destructive quota is a native-E2E quota. The block below is the template for ONE function — repeat it per interactive function. One destructive Maestro flow per scenario, each saved with a `-destructive` suffix.
+> **The destructive suite is sized PER interactive UI function (not per spec), and every scenario MUST run as a native E2E flow — Maestro (`.maestro/*-destructive.yaml`) for React Native / Expo, Patrol (`integration_test/`) for Flutter.** This is the mobile mirror of web running its per-function Playwright destructive suite. The *size* of each function's suite is derived from its input domain, not a flat constant: `(one flow per invalid equivalence class) + (3-value boundary-value analysis per bounded field) + (applicable cross-cutting attack scenarios)`. A status toggle lands around 2-3 flows; a 12-field wizard lands at 20-30+ (see the floor table below). The count is per function, NOT per spec. A widget/component test (RNTL or `WidgetTester`) does NOT satisfy a destructive scenario: it cannot send the app to background, kill the process, press the OS hardware back button, deny a permission dialog, toggle airplane mode, or follow a deep link on cold start — and those are exactly the destructive categories. Widget tests are for **functional coverage** (Phase N-1); the destructive suite is native-E2E only. The block below is the template for ONE function — repeat it per interactive function and prune/expand each category to fit that function's domain. One destructive Maestro/Patrol flow per scenario, each saved with a `-destructive` suffix.
 
 ```markdown
 ## Phase N: Destructive Tests — Function: [Function 1] (repeat this whole block per interactive function)
@@ -94,18 +96,32 @@ If the spec involves offline functionality, local persistence (AsyncStorage / SQ
 - [ ] T0XX: Multi-device — same record edited on two devices, verify UUID-based conflict handling
 ```
 
-## Minimum requirements
+## Sizing the destructive suite (per interactive function, input-domain-derived)
 
-**The counts below are PER interactive UI function, NOT per spec.** Each function in the functional inventory gets its own native-E2E destructive suite (Maestro/Patrol) at the minimum for its type. A screen with 12 interactive functions multiplies out: e.g. 12 simple-form functions = 12 × 8 = 96 destructive flows minimum. A flat 8-per-spec is NOT compliant.
+**The size is decided PER interactive UI function, NOT per spec — but it is derived from each function's input domain, not stapled on as a constant.** For every function in the inventory, the destructive count (in native-E2E flows — Maestro/Patrol) is:
 
-| Function type (per interactive function) | Min destructive tests **per function** | Required categories |
-|---------------------------------|----------------------|---------------------|
-| Simple form                     | 8                    | 1, 2, 4, 5         |
-| Multi-step flow / wizard        | 10                   | 1, 2, 3, 4, 5      |
-| Auth-related                    | 10                   | 1, 2, 3, 5, 6      |
-| Offline/sync                    | 15                   | 1–7 (all)           |
-| Map / location / camera feature | 10                   | 2, 4, 5, 6         |
-| List / data display            | 8                    | 2, 4, 5, 6          |
+```
+(one flow per invalid equivalence class)
+  + (3-value boundary-value analysis per bounded field — value + both neighbours)
+  + (applicable cross-cutting attack scenarios — lifecycle/background, process kill, hardware back,
+     skip-step/deep-link guards, permissions, offline, a11y that apply regardless of field count)
+```
+
+A status toggle has ~1 invalid class and no bounded fields, so it lands low; an email + password + date form multiplies partitions and boundaries across three fields, so it lands high. The table below is a **floor and a guide — a sanity check, not a gate.** Its only job is to fight the well-documented positive-test bias (developers under-write negatives). The "Required categories" column still tells you which attack categories apply to each shape — that part is load-bearing.
+
+| Function shape (per interactive function) | Destructive floor (guide, not gate) | Required categories |
+|---|---|---|
+| Trivial interactive — toggle, single non-input button, pure navigation | **~2-3** (mostly lifecycle/order + a11y; almost no input partitions) | 2, 5, 6 |
+| Simple form — 1-3 input fields | **~6-10** (a handful of invalid partitions + boundaries) | 1, 2, 4, 5 |
+| Moderate form / filterable list / map / camera — 4-8 fields or platform surface | **~12-20** (partitions multiply across fields; add permissions/platform) | 1, 2, 4, 5, 6 |
+| Multi-step flow / wizard / auth / money / state machine | **~20-30+** (add skip-step/deep-link guards, lifecycle, race on top of per-field partitions) | 1, 2, 3, 4, 5, 6 |
+| Offline/sync | the matching tier above **+** the offline/sync category | tier's categories + 7 |
+
+Every flow is still native E2E (Maestro/Patrol), never a widget test — sizing changes the count, not the tooling. Do not pad a toggle to hit a number, and do not stop a wizard at the simple-form floor. The old flat "8" survives only as roughly the simple-form case — it was never a universal constant.
+
+### The real gate is mutation kill rate, not the count
+
+The destructive count is a **floor to fight positive-test bias** — it proves the negative flows *exist*. It is NOT the definition of done. The actual quality gate is the **mutation kill rate** (StrykerJS for the RN/JS logic, run nightly / on-demand per `github-actions.md`, target **~80% on critical modules** — auth, money, state machines, sync/conflict resolution, parsers). A function can have 30 green destructive flows and still let a flipped `>`/`<` through; the count says flows exist, the mutation score says they *bite*. A spec that hits its count but whose tests don't kill mutants is NOT done.
 
 ## Validation
 
@@ -115,9 +131,9 @@ A spec is NOT complete unless:
 2. Every function in the inventory has at least one test (component/widget test or native E2E flow)
 3. A dedicated "Destructive Tests" phase exists AFTER functional coverage
 4. Each test has a unique task ID (T0XX)
-5. Minimum destructive test count met **per interactive function** (NOT a flat count for the whole spec — multiply the per-function minimum by the number of interactive functions)
-6. **The destructive tests are native E2E flows — Maestro (RN/Expo) or Patrol (Flutter), NOT widget tests.** Mirror of web's "8 destructive scenarios per function in Playwright". A spec whose destructive quota is filled with widget tests is NOT complete.
+5. The destructive suite **per interactive function** is sized to its input domain (equivalence partitions + boundaries + applicable categories), not a flat quota — sized individually per function, NOT a single number for the whole spec
+6. **The destructive tests are native E2E flows — Maestro (RN/Expo) or Patrol (Flutter), NOT widget tests.** Mirror of web running its destructive suite per function in Playwright. A spec whose destructive suite is filled with widget tests is NOT complete.
 7. All relevant attack categories covered per function — including the mobile-specific Category 2 (lifecycle) and Category 6 (permissions/platform)
 8. Tests describe what they verify, not just what they do
 
-**The functional coverage check is the most important item.** A spec with 8 destructive tests but only 3 out of 12 functions tested is NOT complete — and note that 8 destructive flows for a 12-function screen is itself non-compliant: the minimum is 12 × 8 = 96, because the destructive quota is per interactive function, not per spec.
+**The functional coverage check is the most important item.** A spec with a destructive suite but only 3 out of 12 functions tested is NOT complete — and a single destructive block covering the whole screen is itself non-compliant: each interactive function gets its own native-E2E suite, sized to its own input domain. And remember the count is only the floor: the actual gate is the mutation kill rate (~80% on critical modules) — a spec that hits its counts but whose flows don't kill mutants is NOT done.

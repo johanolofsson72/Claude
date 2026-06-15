@@ -15,12 +15,15 @@ Allium is the preferred specification language for this project. It sits between
 ## The pipeline
 
 ```
+0. Scenario map (SCENARIOS.md)       → every use case, exploded (gap/drift → interview)
 1. Spec written (markdown)           → what the developer wants
 2. /speckit-clarify                          → fills gaps in the markdown spec via structured questions
                                        (auto-pick recommended via settings.json hook; all tracks)
 3. /allium:elicit                    → sharpens clarified spec into .allium (refuses vague requirements)
 4. Implementation                    → code written
-5. Destructive browser tests         → 8+ scenarios PER UI function, 6 attack categories
+5. Tests                             → unit + integration + PBT (wide input); E2E functional +
+                                       risk-tiered destructive (sized per UI function) + visual regression;
+                                       mutation kill rate is the gate, not the count
 6. /tla (runs /allium:distill first) → drift detection + formal verification
 ```
 

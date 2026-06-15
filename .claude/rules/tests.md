@@ -27,7 +27,7 @@ A test suite that covers 3 out of 12 implemented features is NOT a test suite. I
 
 ### Step 1: Functional inventory (BLOCKING — do this FIRST)
 
-Before writing a single test, create a comment block listing EVERY user-facing function that was implemented or changed. This is not optional.
+Before writing a single test, create a comment block listing EVERY user-facing function that was implemented or changed. This is not optional. The list IS the happy-path rows of the scenario map (`specs/SCENARIOS.md`) — if a function you built isn't in the map, you found a scenario gap: stop and run the scenario interview (`.claude/rules/scenarios.md`) before testing.
 
 ```csharp
 // ===== FUNCTIONAL COVERAGE INVENTORY =====
@@ -54,11 +54,15 @@ Write at least one test per inventory item that verifies the function **actually
 
 ### Step 3: Destructive tests (per .claude/docs/testing.md)
 
-AFTER functional coverage is complete, add destructive tests across all 6 attack categories. Destructive tests without functional coverage are worthless — you're stress-testing a building where half the rooms were never inspected.
+AFTER functional coverage is complete, add a destructive suite **per interactive function, sized to its input domain** (equivalence partitions + boundary values + applicable attack categories — a toggle ~3, a multi-step/auth flow ~20-30+; not a flat quota). Destructive tests without functional coverage are worthless — you're stress-testing a building where half the rooms were never inspected.
+
+### Don't forget the other layers
+
+E2E destructive tests are the top of the pyramid, not the whole of it. Every behaviour-changing feature also needs **unit + integration tests** (integration is where AI-written code most often breaks — units pass, the seams don't), and **property-based tests** for wide-input logic, **visual-regression baselines** for UI. The **mutation kill rate** (Stryker, nightly/on-demand) — not the test count — is the real proof the suite bites. See `.claude/docs/testing.md`.
 
 ## Coverage check before declaring done
 
-Count your inventory items. Count your functional tests. If functional tests < inventory items, you are NOT done. Every gap is a function that has zero test coverage.
+Count your inventory items. Count your functional tests. If functional tests < inventory items, you are NOT done. Every gap is a function that has zero test coverage. Then confirm the mutation kill rate on the changed critical module(s) meets target — a green suite that kills no mutants is not coverage, it's theatre.
 
 ## What counts as a "function"
 

@@ -38,9 +38,17 @@ If a test only verifies that "the screen renders" or "the form submits with vali
 - Tests should be isolated and reproducible.
 - Naming: `subject_scenario_expectedResult` (e.g., `submitProfile_withEmptyName_showsValidationError`).
 
-## Test layers
+## Test layers — every feature gets ALL of them (not just E2E)
 
-Three layers, both frameworks: pure logic, component/widget, and native E2E.
+A feature is not covered by destructive native-E2E flows alone. The mix follows the architecture (the broad base is pure-logic unit tests, more weight on component/widget integration for screen-heavy code — there's no universal ratio, the shape follows the code), but every behaviour-changing feature carries all three layers:
+
+| Layer | Tool (RN / Flutter) | Covers | Rule of thumb |
+|---|---|---|---|
+| **Unit / logic** | Jest (`jest-expo`) / `flutter test` (`flutter_test`) | Pure functions, reducers, hooks/notifiers, stores, mappers, money/date math — fast, no I/O | The broad base. Every non-trivial function with a decision in it. |
+| **Integration (component/widget + API)** | RNTL (`@testing-library/react-native`) / `WidgetTester` | Rendering + user events, state changes, conditional UI, navigation wiring, plus any API-integration tests against a real (test) backend — the seams between units | **Mandatory** — AI-written code passes unit tests but fails at the seams (this is where the real bugs concentrate). |
+| **E2E (destructive)** | **Maestro** (RN) / **Patrol** (Flutter) | Full user journeys on a real runtime + the destructive suite below + visual regression | Critical journeys + adversarial input. Thin but vicious. |
+
+Unit + integration are **always required**, not optional extras on top of E2E. For mobile, the **integration** layer means component/widget integration (RNTL / `WidgetTester`) plus any API-integration tests — it is the layer AI code most often fails (units pass, the seams don't), so never skip it. The destructive E2E layer is the native flows (Maestro/Patrol) described below.
 
 - Component/widget tests query by **accessibility role/label/text/semantics**, never by test-internal implementation detail. If you cannot select an element by what the user sees, the screen is not accessible — fix the screen, not the test.
 - Native E2E flows must be green before anything is reported as "done". Destructive flows get a `-destructive` suffix.
@@ -142,15 +150,39 @@ Count inventory items. Count functional tests. If tests < items, you are NOT don
 
 **What counts as a function:** any user-visible behavior — taps/gestures, navigation (stack/tab/deep link), data operations (CRUD, filter, sort, search, paginate), state changes (loading, error, empty, success), and persistence (does it survive a relaunch?).
 
+## Every interactive function must prove all four states at runtime (MANDATORY)
+
+Same rule as web (`.claude/rules/scenarios.md` → post-implementation validation): for every interactive/async function, observe **all four states actually working** — success (the tap/gesture actually does the thing), a **specific visible error** (never silent, never a blank screen — a failed sign-in must say why), empty (zero results → real empty state), loading (feedback that resolves, no infinite spinner). Validate the **real behaviour** on a real runtime (Maestro/Patrol drive the actual app), not a stub or a render-smoke. Validate prerequisite/critical-path flows FIRST — if sign-in or the primary gesture is broken, everything behind it is untestable; fix the prerequisite before fanning out.
+
 ## Destructive tests (MANDATORY)
 
 Every spec/feature involving **interactive UI** MUST include destructive tests AFTER functional coverage is complete. These tests actively try to break the app.
 
-> **Parity with web (non-negotiable): the destructive suite runs at the native E2E layer — Maestro for React Native / Expo, Patrol for Flutter — exactly as web runs its destructive scenarios in Playwright, and the count is ≥8 PER interactive UI function, NOT 8 per spec.** A screen with 12 interactive functions needs 12 × ≥8 = ≥96 destructive flows. A widget/component test (RNTL or `WidgetTester`) does NOT count toward the destructive quota: it cannot background the app, kill the process, press the OS hardware back button, deny a permission dialog, toggle airplane mode, or open a deep link on cold start — and those ARE the destructive categories below. Widget tests cover functional coverage; the per-function destructive scenarios are Maestro/Patrol flows, each suffixed `-destructive`.
+> **Parity with web (non-negotiable): the destructive suite runs at the native E2E layer — Maestro for React Native / Expo, Patrol for Flutter — exactly as web runs its destructive scenarios in Playwright.** A widget/component test (RNTL or `WidgetTester`) does NOT count toward the destructive quota: it cannot background the app, kill the process, press the OS hardware back button, deny a permission dialog, toggle airplane mode, or open a deep link on cold start — and those ARE the destructive categories below. Widget tests cover functional coverage; the per-function destructive scenarios are Maestro/Patrol flows, each suffixed `-destructive`. The *number* of those flows scales with the function's input domain (next section) — it is not a flat constant.
 
 **Interactive UI** = forms, user input, buttons that mutate state, multi-step flows, authentication, file/photo pickers, modals/sheets with actions, search/filter, gestures, map interaction, real-time/offline sync. Static content screens, marketing/onboarding slides, and read-only display screens do NOT require destructive tests.
 
 Destructive tests without functional coverage are worthless — you are stress-testing a building where half the rooms were never inspected.
+
+### How many destructive flows? Derive the count from the input domain — do NOT staple a constant to every function
+
+There is no magic number. A flat "N per function" over-tests a toggle and under-tests a multi-step auth+permissions wizard — the count must scale with how much surface each function actually exposes. Derive it the way ISTQB does, per function:
+
+1. **Equivalence partitioning** — one destructive flow per *invalid* input class. A status toggle has ~1 invalid class; an email+password+date form has many.
+2. **Boundary value analysis** — ISTQB 3-value BVA: for each boundary, test the value plus both neighbours (so ~2-3 boundary flows per bounded field).
+3. **Cross-cutting attack scenarios** — the mobile categories below that apply *regardless* of input count: lifecycle/order (double-tap, background-resume, process-kill, hardware back), skip-step/deep-link, race/network (offline mid-save, slow network, token expiry), permissions/a11y.
+
+Sum those three and you get a count that fits the function. As a sanity-check floor (the real reason a minimum exists at all is to fight the well-documented *positive-test bias* — developers naturally under-write negatives):
+
+| Function shape | Destructive floor (guide, not gate) |
+|---|---|
+| Trivial interactive — toggle, single tap, pure navigation | **2-3** (mostly lifecycle/order + a11y; almost no input partitions) |
+| Simple form — 1-3 input fields | **~6-10** (a handful of invalid partitions + boundaries) |
+| Moderate form / list-with-filters — 4-8 fields | **~12-20** (partitions multiply across fields) |
+| Multi-step / auth / map / permissions-heavy | **~20-30+** (add skip-step, lifecycle, race on top of per-field partitions) |
+| Offline / sync | the relevant tier **+** the offline/network category |
+
+The old flat "8" survives only as roughly the *simple-form* case — it was never a universal constant. **The count is a floor and a guide. It is NOT the definition of done.** The actual quality gate is the mutation kill rate (see below): a function can have 30 destructive flows that all pass and still let a flipped `>`/`<` through. Count proves flows *exist*; mutation score proves they *bite*.
 
 ### Attack categories — every interactive spec should cover ALL relevant categories
 
@@ -224,13 +256,42 @@ Every spec involving interactive UI should have tests in this order:
 
 1. **Functional inventory** — list ALL implemented functions in a comment block
 2. **Functional tests** (1 per function, MINIMUM) — RNTL and/or Maestro, verify each works end-to-end
-3. Then, **for EACH interactive function**, a native-E2E destructive suite (Maestro/Patrol) spanning the categories:
-   - **Invalid input** (3–5 tests) — garbage, empty, extreme values
-   - **Lifecycle / wrong order** (2–3 tests) — double-tap, background/resume, hardware back
-   - **Boundary values** (2–3 tests) — max length, empty/huge lists
-   - **Network & permissions** (2–3 tests) — offline mid-save, denied permission, deep-link authz
+3. Then, **for EACH interactive function**, a native-E2E destructive suite (Maestro/Patrol) sized to that function's input domain (see "How many destructive flows?" above), spanning the relevant categories:
+   - **Invalid input** — one flow per invalid equivalence class (garbage, empty, extreme, injection)
+   - **Boundary values** — 3-value BVA per bounded field (value + both neighbours); empty/huge lists
+   - **Lifecycle / wrong order** — double-tap, background/resume, process-kill, hardware back
+   - **Skip steps / navigation guards** — deep-link to a protected screen, deep-link past wizard steps, direct backend authz
+   - **Network & permissions** — offline mid-save, slow network, token expiry, denied/revoked permission, a11y (screen reader, Dynamic Type, Reduce Motion)
 
-Minimum **1 functional test per implemented function** + **at least 8 destructive tests PER interactive function** (NOT 8 per spec) as native E2E flows. 12 interactive functions = ≥12 functional + ≥96 destructive flows. Functions with auth, offline sync, permissions, or multi-step flows need more than 8.
+The minimum is **1 functional test per implemented function** plus a per-function destructive floor scaled to its shape (trivial ~3 → multi-step/auth/permissions-heavy ~20-30+), all as native E2E flows. Don't pad a toggle to hit a quota and don't stop a wizard at 8.
+
+The destructive scenarios are not invented from scratch each time — they derive from the project's living scenario map at `specs/SCENARIOS.md` (see `.claude/rules/scenarios.md`): happy-path rows become functional tests, the edge / adversarial / error / offline rows become destructive flows.
+
+## Property-based tests (RECOMMENDED — the rung between example tests and TLA+)
+
+For logic with a wide input space, hand-picked example tests sample a few points and miss the rest. Property-based testing (PBT) asserts an *invariant* and lets the framework generate hundreds of inputs (including the nasty boundaries it shrinks toward). It's the broadly-adopted "semi-formal" middle ground — lighter than TLA+, far stronger than a dozen hand-written cases — and combined PBT + example testing measurably out-detects either alone.
+
+- **React Native / JS-TS:** **fast-check** — wire into the existing Jest (`jest-expo`) project. Best ROI on: parsers / serializers (round-trip: `parse(render(x)) === x`), money & date math, sorting/dedup/merge, reducers, and any pure function with algebraic invariants.
+- **Flutter / Dart:** **kiri_check** or **glados** are the Dart options — note they are **less mature** than fast-check, so treat them as nice-to-have rather than a default reach.
+- **Recommended, not blocking.** Inventing a meaningful property is real work — apply PBT where the input space is wide and the invariant is clear; skip it where example tests already pin the behaviour.
+
+## Visual regression tests (REQUIRED for UI — AI writes code, not pixels)
+
+Functional and destructive tests pass while the screen still looks broken: AI reasons over code tokens, not rendered output, so it ships wrong spacing, dead design tokens, and collapsed responsive layouts that no role/label assertion catches. Screenshot baselines close that gap, and one framework already has it built in — **local-only** (respects `github-actions.md` CI-minimalism).
+
+- **Flutter:** **golden tests** are native VRT. Pump the widget to a state, then `await expectLater(find.byType(MyWidget), matchesGoldenFile('my_widget.png'))`. First run writes baselines with `flutter test --update-goldens`; commit them, later runs diff and fail on drift. Use golden tests for the key widget states.
+- **React Native / Expo:** no built-in golden support — use **Maestro screenshots** in a flow (`- takeScreenshot: dashboard-loaded`) or **jest-image-snapshot** for component-level capture. Update baselines deliberately when a design change is intended.
+- Capture the *states that matter* (empty / loading / error / loaded, plus dark mode and one device size), not every pixel of every screen. A baseline update is a reviewable diff, never an automatic overwrite.
+
+## Mutation testing (THE quality gate — replaces "count the tests" as proof of done)
+
+Line coverage proves a line *executed*; it says nothing about whether a test would *notice* if that line were wrong. Mutation testing injects deliberate bugs (flip `>` to `>=`, `&&` to `||`, delete a statement) and checks your tests kill them. The kill rate is the only metric that measures whether tests actually bite — Google, Meta, and AWS all converge on this over coverage %.
+
+- **React Native / TS-JS:** **StrykerJS** (`@stryker-mutator/core`) — run `npx stryker run` over the changed module.
+- **Flutter / Dart:** **`mutation_test`** or **`mutest`** are the Dart options — note their **relative immaturity** compared to StrykerJS; treat the Flutter side as best-effort on critical modules.
+- **NEVER in CI per push** (see `github-actions.md` — it's minutes-expensive and was a budget incident). Run it **nightly or on-demand**, and incrementally (changed files) on a branch.
+- **Thresholds:** `break: 60, low: 60, high: 80`. Target **~80% kill on critical modules** (auth, money, state machines, parsers, sync/outbox). Don't chase 100% — the last 20% buys fragile tests for vanishing return. The mutation kill rate is the gate; the test count is not.
+- Flaky tests poison the score (a flaky test "survives" mutants at random) — stabilize flakiness first.
 
 ## Verification order
 
@@ -238,10 +299,12 @@ Before anything is declared "done":
 
 **React Native / Expo**
 1. `npx tsc --noEmit` — no type errors
-2. `npm test` — all unit + component (RNTL) tests pass
-3. `maestro test .maestro/` — all E2E flows pass (including destructive flows)
+2. `npm test` — all unit + component (RNTL) tests pass (incl. any fast-check property tests)
+3. `maestro test .maestro/` — all E2E flows pass (functional + destructive + visual-regression screenshots)
+4. `npx stryker run` on the changed critical module(s) — **nightly/on-demand, never in per-push CI** — kill rate ≥ target (80% on critical modules). This is the gate that proves the tests above actually catch bugs.
 
 **Flutter**
 1. `flutter analyze` — no analyzer errors
-2. `flutter test` — all unit + widget tests pass
-3. `flutter test integration_test/` and/or `patrol test` — all E2E flows pass (including destructive flows)
+2. `flutter test` — all unit + widget tests pass (incl. golden tests and any kiri_check/glados property tests)
+3. `flutter test integration_test/` and/or `patrol test` — all E2E flows pass (functional + destructive)
+4. `mutation_test` / `mutest` on the changed critical module(s) — **nightly/on-demand, never in per-push CI** — kill rate ≥ target (80% on critical modules). This is the gate that proves the tests above actually catch bugs.
