@@ -93,6 +93,11 @@ fi
 cd "$ROOT" || { echo "[ERROR] cannot cd to $ROOT" >&2; exit 2; }
 
 FINDINGS=0
+# Per-section verdicts for the bottom-line SUMMARY recap. On a noisy project the
+# npm audit table buries everything above it, so `... | tail` would miss the
+# secret verdict entirely — these one-liners guarantee both land at the bottom.
+SECRETS_STATUS="not run (--deps)"
+DEPS_STATUS="not run (--secrets)"
 
 echo "=========================================================="
 echo " project-freshness — $ROOT"
@@ -112,20 +117,25 @@ if [ "$DO_SECRETS" -eq 1 ]; then
       # git history scan: naturally skips gitignored node_modules/build output.
       if trufflehog git "file://$ROOT" --only-verified --no-update --fail; then
         echo "[OK] No verified secrets in git history."
+        SECRETS_STATUS="clean"
       else
         echo "[FINDING] trufflehog found verified secret(s) above. Rotate them NOW —"
         echo "          a committed credential is compromised the moment it is pushed."
         FINDINGS=1
+        SECRETS_STATUS="VERIFIED SECRET(S) FOUND — rotate now"
       fi
     else
       if trufflehog filesystem "$ROOT" --only-verified --no-update --fail; then
         echo "[OK] No verified secrets in working tree."
+        SECRETS_STATUS="clean"
       else
         echo "[FINDING] trufflehog found verified secret(s) above. Rotate them NOW."
         FINDINGS=1
+        SECRETS_STATUS="VERIFIED SECRET(S) FOUND — rotate now"
       fi
     fi
   else
+    SECRETS_STATUS="skipped (trufflehog unavailable)"
     if [ "$NO_INSTALL" -eq 1 ]; then
       echo "[SKIP] trufflehog not installed and --no-install given. Install it manually (local only — never wire it as a CI/scheduled Action):"
     else
@@ -148,6 +158,7 @@ if [ "$DO_DEPS" -eq 1 ]; then
   echo "── [2/2] npm audit (dependency CVEs) ─────────────────────"
   # Scan every package.json that is not vendored/build output.
   PKG_FOUND=0
+  DEPS_VULN=0; DEPS_CLEAN=0; DEPS_SKIPPED=0; DEPS_SUMMARY=""
   while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
     PKG_FOUND=1
@@ -157,27 +168,39 @@ if [ "$DO_DEPS" -eq 1 ]; then
     # Route non-npm package managers to their own audit — npm audit can't read their lockfiles.
     if [ -f "$dir/yarn.lock" ]; then
       echo "  [SKIP] yarn.lock present — run 'yarn npm audit' (Berry) or 'yarn audit' (Classic) in $dir."
+      DEPS_SKIPPED=1
       continue
     fi
     if [ -f "$dir/pnpm-lock.yaml" ]; then
       echo "  [SKIP] pnpm-lock.yaml present — run 'pnpm audit' in $dir."
+      DEPS_SKIPPED=1
       continue
     fi
     # npm audit needs a lockfile; without one it errors (ENOLOCK), which is NOT a vulnerability finding.
     if [ ! -f "$dir/package-lock.json" ] && [ ! -f "$dir/npm-shrinkwrap.json" ]; then
       echo "  [SKIP] No lockfile — run 'npm install' in $dir first, then re-run the freshness pass."
+      DEPS_SKIPPED=1
       continue
     fi
     if ! command -v npm >/dev/null 2>&1; then
       echo "  [SKIP] npm not installed — see https://nodejs.org or your package manager."
+      DEPS_SKIPPED=1
       break
     fi
     # Report only. With a lockfile present, a non-zero exit means vulnerabilities exist.
-    if ( cd "$dir" && npm audit ); then
+    AUDIT_OUT=$( cd "$dir" && npm audit 2>&1 ); AUDIT_RC=$?
+    printf '%s\n' "$AUDIT_OUT"
+    if [ "$AUDIT_RC" -eq 0 ]; then
       echo "  [OK] No advisories for $pkg."
+      DEPS_CLEAN=1
     else
       echo "  [FINDING] Vulnerabilities reported for $pkg (see table above)."
       FINDINGS=1
+      DEPS_VULN=1
+      # Scrape npm's own summary line ("N vulnerabilities (a low, b moderate, …)").
+      VSUM=$(printf '%s\n' "$AUDIT_OUT" | grep -i 'vulnerabilit' | tail -1 | sed 's/^[[:space:]]*//')
+      [ -n "$VSUM" ] || VSUM="advisories found"
+      DEPS_SUMMARY="$DEPS_SUMMARY $(basename "$dir")/: $VSUM;"
       if [ "$DO_FIX" -eq 1 ]; then
         echo "  [FIX] Running 'npm audit fix --force' (this CAN introduce breaking major bumps)…"
         ( cd "$dir" && npm audit fix --force )
@@ -204,11 +227,23 @@ EOF
   if [ "$PKG_FOUND" -eq 0 ]; then
     echo "  [SKIP] No package.json found — not a Node/JS project. (yarn/pnpm projects: run 'yarn npm audit' / 'pnpm audit' manually.)"
   fi
+  # Roll the per-package outcomes up into one verdict for the SUMMARY recap.
+  if [ "$PKG_FOUND" -eq 0 ]; then
+    DEPS_STATUS="no package.json (not a Node project)"
+  elif [ "$DEPS_VULN" -eq 1 ]; then
+    DEPS_STATUS="advisories —$DEPS_SUMMARY"
+  elif [ "$DEPS_CLEAN" -eq 1 ]; then
+    DEPS_STATUS="clean"
+  else
+    DEPS_STATUS="skipped (no lockfile / non-npm — see notes above)"
+  fi
 fi
 
 # ---- summary ----------------------------------------------------------------
 echo
 echo "=========================================================="
+echo " SUMMARY  Secrets: $SECRETS_STATUS"
+echo "          Deps:    $DEPS_STATUS"
 if [ "$FINDINGS" -eq 0 ]; then
   echo " RESULT: clean (no verified secrets, no reported advisories)."
   exit 0
