@@ -188,6 +188,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/scenario-map-reminder-hook.sh\"",
+            "statusMessage": "Checking scenario map (SCENARIOS.md)..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
             "statusMessage": "Checking functional test coverage..."
           }
