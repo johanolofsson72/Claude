@@ -93,6 +93,7 @@ if [ -n "$CACHE_KEY" ] && [ -f "$CACHE_DIR/$CACHE_KEY.txt" ]; then
   MTIME=$(stat -c %Y "$CACHE_DIR/$CACHE_KEY.txt" 2>/dev/null \
        || stat -f %m "$CACHE_DIR/$CACHE_KEY.txt" 2>/dev/null \
        || echo 0)
+  case "$MTIME" in (*[!0-9]*|'') MTIME=0 ;; esac
   NOW_S=$(date +%s 2>/dev/null || echo 0)
   if [ "$MTIME" -gt 0 ] && [ $((NOW_S - MTIME)) -lt "$CACHE_TTL" ]; then
     CACHED_RESPONSE=$(cat "$CACHE_DIR/$CACHE_KEY.txt" 2>/dev/null || true)
