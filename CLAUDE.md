@@ -10,6 +10,7 @@ Rules tagged **(BLOCKING)** are enforced — by hooks (some are hard PreToolUse 
 - Follow existing patterns — look at similar components first.
 - **(BLOCKING)** Non-trivial feature/refactor/fix → run the full pipeline as **one task** (`specify → clarify → elicit → plan → tasks → analyze → implement → tests → tla`); no permission stops between phases. `clarify` runs on all tracks (auto-pick); `elicit` on full/light only. Trivial-fix bypass needs an explicit one-sentence classification. See `.claude/rules/feature-pipeline.md`.
 - **(BLOCKING)** Before feature work, consult the spec register `specs/INDEX.md`; work the next unchecked spec end-to-end (pipeline → commit → push → tick), then stop with the status summary. See `.claude/rules/spec-register.md`.
+- **(BLOCKING)** Hardening — a spec that crosses a risk threshold (auth / payments / PII / upload / new external surface, full-track state machine, new entity or ≥6 files, or tagged `[hardened]`) runs the **hardened tier**: the full pipeline **plus** threat-model pass, expanded destructive + stress, a hard mutation-kill gate, and an adversarial review. Every 5 completed specs, work an **integration-hardening checkpoint** (register row: full-system regression + security sweep). Full-track and hardened specs **start in a fresh session** — when the SessionStart banner says so, run `/clear` first (a hook cannot clear context for you). See `.claude/rules/spec-hardening.md`.
 - **(BLOCKING)** Keep the scenario map `specs/SCENARIOS.md` current — a diagram-led, surveyable exploded view (Mermaid use-case diagram + per-feature user-flow flowchart + SC-id ledger; journey/wireflow/storyboard on-demand). A gap or drift → **start a scenario interview**, never invent the missing cases silently. See `.claude/rules/scenarios.md`.
 - **(BLOCKING)** Invoke the `frontend-design` skill BEFORE writing any UI code (HTML/CSS/JS, React Native / Flutter widgets).
 - **(BLOCKING)** Run generated human-facing text through the `humanizer` skill before delivering (docs, commits, PRs, email, README).
@@ -150,6 +151,7 @@ Read these files WHEN you need them — do not load everything upfront:
 - **Design references (decompile "feeling of Spotify" → primitives)** → `.claude/rules/design-references.md` + `.claude/docs/design-reference-library.md`
 - **Feature pipeline (auto-trigger, end-to-end execution)** → `.claude/rules/feature-pipeline.md`
 - **Spec register (one stop per spec, project-level rail)** → `.claude/rules/spec-register.md`
+- **Spec hardening (risk tier above full, integration checkpoints, /clear for big specs)** → `.claude/rules/spec-hardening.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
 - **Stress testing (pre-deploy)** → `.claude/docs/stress-testing.md`
 - **Codebase knowledge graph (opt-in per project)** → `.claude/docs/graphify.md`

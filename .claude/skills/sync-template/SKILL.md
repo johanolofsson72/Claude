@@ -83,6 +83,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `validation-followup.md`
 - `feature-pipeline.md`
 - `spec-register.md`
+- `spec-hardening.md`
 - `project-workflow.md`
 - `sqlite.md`
 - `spot-resilience.md`
