@@ -136,6 +136,16 @@
         ]
       },
       {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-interview-guard-hook.sh\"",
+            "statusMessage": "Checking spec interview (15-25 questions)..."
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {

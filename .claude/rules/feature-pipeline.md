@@ -4,18 +4,18 @@ The speckit + Allium + TLA+ pipeline is **not optional** for non-trivial work. S
 
 > **Platform-neutral — EVERY spec runs the full speckit pipeline, web or mobile (non-negotiable).** This pipeline is identical for web/.NET (client-server) and native mobile (React Native / Expo · Flutter). Where this rule and its diagram say "browser tests", a native app substitutes Maestro/Patrol/`integration_test` flows + component/widget tests — see `.claude/rules/specs.md` and `.claude/docs/testing-mobile.md`. Every phase (specify → clarify → allium:elicit → plan → tasks → analyze → implement → tests → tla) and every enforcement hook fires on mobile too: `pubspec.yaml` is a recognized language marker (alongside `package.json` for RN), and the test hooks match `npm test`/`maestro`/`flutter test`/`patrol`.
 >
-> The "always via speckit" guarantee is deterministic, not advisory — two `PreToolUse` guards block source edits (`.dart`, `.tsx`, …) until the artifacts exist: **`spec-register-guard`** denies the edit until `specs/INDEX.md` and a spec row exist, then **`pipeline-state-guard`** denies it until that spec has `spec.md` (with a `## Clarifications` section), `spec.allium` (full/light), `plan.md`, and `tasks.md`. There is no bypass for mobile — a Flutter `lib/` edit is blocked exactly like a `.cs` edit. Mobile gets the same teeth as client-server.
+> The "always via speckit" guarantee is deterministic, not advisory — three `PreToolUse` guards block source edits (`.dart`, `.tsx`, …) until the artifacts exist: **`spec-register-guard`** denies the edit until `specs/INDEX.md` and a spec row exist, **`pipeline-state-guard`** denies it until that spec has `spec.md` (with a `## Clarifications` section), `spec.allium` (full/light), `plan.md`, and `tasks.md`, and **`spec-interview-guard`** denies it until that spec's `interview.md` records ≥15 human-answered questions (the anti-drift interview, `.claude/rules/spec-interview.md`). There is no bypass for mobile — a Flutter `lib/` edit is blocked exactly like a `.cs` edit. Mobile gets the same teeth as client-server.
 
 ## The contract (BLOCKING)
 
 Every developer request that is **not** a trivial one-file fix MUST go through the pipeline. You do not need the user's permission to start it — the user authorized it by giving you the work. Starting the pipeline is the default, not the exception.
 
 ```
-/speckit-specify  →  /speckit-clarify  →  /allium:elicit  →  /speckit-plan  →  /speckit-tasks  →  /speckit-analyze  →  /speckit-implement
-                (auto-pick     (full/light                              (auto-applies         │
-                recommended,   tracks only)                             all suggested         │
-                all tracks)                                             remediations)         ▼
-                                                                              browser tests (functional + destructive)
+/speckit-specify  →  SPEC INTERVIEW  →  /speckit-clarify  →  /allium:elicit  →  /speckit-plan  →  /speckit-tasks  →  /speckit-analyze  →  /speckit-implement
+                (15–25 Q, human-     (auto-pick     (full/light                              (auto-applies         │
+                 answered, NO        recommended,   tracks only)                             all suggested         │
+                 auto-pick;          residual                                                remediations)         ▼
+                 every spec)         only)                                          browser tests (functional + destructive)
                                                                                              │
                                                                                              ▼
                                                                                     /tla (distill + drift + invariants)
@@ -26,6 +26,8 @@ Every developer request that is **not** a trivial one-file fix MUST go through t
 > **Two spec-kit phases sit outside the per-spec blocking chain above:**
 > - **`/speckit-constitution`** — establishes the project's principles. Runs **once at project init** (the `/project-wizard` skill generates the constitution), not per spec. Re-run only when amending principles.
 > - **`/speckit-checklist`** — generates a requirements quality-checklist for a spec, after `/speckit-clarify`. **Optional** here: this project already enforces a stronger destructive-test checklist (`spec-testing-checklist.md`) plus Allium invariants, so `/speckit-checklist` is available as an extra gate but not mandatory. Use it on a large/ambiguous spec where a requirements sanity pass adds value.
+
+The **spec interview** is **mandatory** immediately after `/speckit-specify`, on **every** spec regardless of track, and runs **before** `/speckit-clarify`. It is a human-answered interview of 15–25 questions (`AskUserQuestion`, one per turn, **auto-pick OFF**) recorded in `<spec-dir>/interview.md`, and the `spec-interview-guard` PreToolUse hook hard-blocks source-code edits until it records ≥15 answered questions. This is the anti-drift gate: `/speckit-clarify` auto-picks its answers silently, so without the interview a spec can reach implementation with no human ever pinning down its scope, edge cases, error states, or non-goals. See `.claude/rules/spec-interview.md`. The interview's answers then feed clarify, plan, tasks, and the Allium elicitation — it is part of the same uninterrupted task, with no "ready to implement?" stop after it.
 
 `/speckit-clarify` is **mandatory** immediately after `/speckit-specify` on every track. The auto-pick hook in `.claude/settings.json` accepts the recommended answer for every clarification question without prompting (and only falls back to `AskUserQuestion` for the rare question with no defensible recommendation). It is the canonical speckit phase that catches under-specified requirements before `/speckit-plan` and `/speckit-tasks` lock them in — running `/speckit-specify → /speckit-plan` directly is the single most common pipeline-skip failure mode and it is forbidden.
 
@@ -45,7 +47,7 @@ After `/speckit-specify` produces the spec, classify it per `specs.md` and pick 
 | Non-behavior (refactor, doc, dependency bump, config tweak, cosmetic, i18n, logging) | **Spec-only:** spec → `/speckit-clarify` → impl. No `.allium`, no `/tla`. Browser tests still apply if user-facing surface changes. |
 | Fix / hardening / security with no new entities AND no new state transitions | **Spec-only.** spec → `/speckit-clarify` → impl. Express the constraint as a test, not as an Allium invariant. |
 
-`/speckit-clarify` runs on every track (auto-pick recommended) — not just full/light. `/allium:elicit` is the step that varies by track. **Hardened is full + a surcharge, not a separate path** — a hardened spec runs the entire full pipeline and adds the four checks; mark its register row `full track [hardened]`.
+The **spec interview** (15–25 human-answered questions → `interview.md`) and `/speckit-clarify` (auto-pick) both run on **every** track — not just full/light; the interview is the substantive human step, clarify mops up residual trivia. `/allium:elicit` is the step that varies by track. **Hardened is full + a surcharge, not a separate path** — a hardened spec runs the entire full pipeline and adds the four checks; mark its register row `full track [hardened]`.
 
 When the track is unclear, ask **once** with `AskUserQuestion` and then proceed. Do not default to "full" out of caution. (The cross-spec **integration-hardening checkpoint** — every 5 completed specs — is a register row, not a per-spec track; see `.claude/rules/spec-hardening.md`.)
 
@@ -65,18 +67,21 @@ When you skip the pipeline because the work is trivial, state that classificatio
 
 ## How this rule fires
 
-Three enforcement layers — first two are reminders, third is a hard block:
+Four enforcement layers — the first two are a reminder hook and this rule (the source of truth); the last two are the hard `PreToolUse` blocks (interview-guard and state-guard, alongside the spec-register guard described in `.claude/rules/spec-register.md`):
 
 1. **`UserPromptSubmit` reminder hooks** (`scripts/feature-pipeline-detect.sh` + the three speckit-command hooks wired through `scripts/pipeline-trigger-match.sh`) — when your prompt contains feature-build trigger words or a clean invocation of a speckit command (`/speckit-specify`, `/speckit-clarify`, `/speckit-analyze`, etc.), the hook injects a pipeline reminder into the conversation. The reminder is non-blocking. The trigger matcher anchors to line-start and strips quoted regions (markdown code blocks, blockquotes, table cells, Claude transcript bullets, pipeline-flow diagrams) so pasted transcripts that *mention* a command do not fire the hook. Test harness: `bash scripts/test-pipeline-hooks.sh`.
 
 2. **This rule file** — auto-loaded each session via `.claude/rules/`. The rule is the source of truth; the reminder hooks are deterministic re-injection so the rule cannot be silently forgotten across long sessions.
 
-3. **`PreToolUse` state-guard hook** (`scripts/pipeline-state-guard-hook.sh`) — this is the **hard block**. On every `Edit` / `Write` / `MultiEdit` against a source-code file, the hook walks up to the project root, reads `specs/INDEX.md` to find the active spec (`- [/]` row or first `- [ ]` row), parses the track from the row, and verifies that the required artifacts exist in the spec directory (`spec.md` with a `## Clarifications` section, `spec.allium` on full/light tracks, `plan.md`, `tasks.md`). If any required phase is missing, the hook returns `permissionDecision: deny` with a phase-by-phase deny reason. The block scope is strictly source-code extensions — markdown, config, `.claude/**`, `scripts/**`, and `specs/**` edits remain allowed so the pipeline can produce its artifacts. The hook is silent on template/scratch repos (no language marker at the `.git` root) and fails open on internal errors.
+3. **`PreToolUse` interview-guard hook** (`scripts/spec-interview-guard-hook.sh`) — a second **hard block**, sibling to the state-guard. On every `Edit`/`Write`/`MultiEdit` against a source-code file it walks to the project root, finds the active spec in `specs/INDEX.md`, and counts answered questions in that spec's `interview.md`. Fewer than 15 → `permissionDecision: deny` with instructions to run the interview. Same scope rules as the state-guard (source extensions only; markdown/config/`.claude/**`/`scripts/**`/`specs/**` pass through; silent on template/scratch repos; fails open). See `.claude/rules/spec-interview.md`.
+
+4. **`PreToolUse` state-guard hook** (`scripts/pipeline-state-guard-hook.sh`) — this is the **hard block**. On every `Edit` / `Write` / `MultiEdit` against a source-code file, the hook walks up to the project root, reads `specs/INDEX.md` to find the active spec (`- [/]` row or first `- [ ]` row), parses the track from the row, and verifies that the required artifacts exist in the spec directory (`spec.md` with a `## Clarifications` section, `spec.allium` on full/light tracks, `plan.md`, `tasks.md`). If any required phase is missing, the hook returns `permissionDecision: deny` with a phase-by-phase deny reason. The block scope is strictly source-code extensions — markdown, config, `.claude/**`, `scripts/**`, and `specs/**` edits remain allowed so the pipeline can produce its artifacts. The hook is silent on template/scratch repos (no language marker at the `.git` root) and fails open on internal errors.
 
 ## What this rule forbids
 
 - Jumping straight to `Edit`/`Write` on production code for a multi-file feature without `/speckit-specify` first.
 - Skipping `/speckit-clarify` after `/speckit-specify`. The auto-pick hook makes it zero-cost when the spec has no real gaps; running `/speckit-specify → /speckit-plan` directly is the canonical pipeline-skip failure mode this rule exists to prevent.
+- Skipping or auto-generating the **spec interview**. Every spec answers 15–25 questions the user actually answered (`AskUserQuestion`, no auto-pick), recorded in `interview.md` — fabricating the answers from the model's own assumptions is the drift this gate exists to stop, and the `spec-interview-guard` hook blocks source edits until it is genuinely done. See `.claude/rules/spec-interview.md`.
 - Writing a spec without then running `/allium:elicit` on the full/light track.
 - Implementing without `/speckit-plan` and `/speckit-tasks` derived from the spec (so the functional inventory is explicit before code is written).
 - Writing browser tests that cover only "the happy path" — functional coverage means **every implemented function**, plus a **destructive suite per interactive UI function, sized to its input domain** (not a flat quota, not one batch per spec) across the relevant attack categories, plus **unit + integration tests** underneath. The **mutation kill rate** (Stryker, nightly/on-demand) is what proves the suite actually bites.

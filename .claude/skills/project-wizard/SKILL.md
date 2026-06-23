@@ -70,7 +70,7 @@ fi
 
 **Step 5 — Run the COMPLETE template sync (identical to `/project-update`):**
 
-This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-register.md`, `spec-hardening.md`, the stack rules), every doc, every hook script, the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
+This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-interview.md`, `spec-register.md`, `spec-hardening.md`, the stack rules), every doc, every hook script (including the `spec-interview-guard` that hard-blocks implementation until each spec answers its 15–25 anti-drift questions), the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
 
 The wizard does NOT paraphrase the sync into a summary and curl files one at a time — that approach reliably dropped `allium`, the pipeline rules, and the graphify wiring on the floor. Instead it resolves the template **locally** (cloning once if absent, which is far more reliable than ~50 individual HTTP fetches) and executes the canonical `sync-prompt.md` verbatim — the exact same instruction set `/project-update` runs. Single source of truth, zero drift.
 
@@ -120,6 +120,7 @@ for f in \
   .claude/rules/validation-followup.md \
   .claude/rules/feature-pipeline.md \
   .claude/rules/spec-register.md \
+  .claude/rules/spec-interview.md \
   .claude/rules/spec-hardening.md \
   .claude/rules/github-actions.md \
   .claude/rules/scenarios.md \
@@ -127,6 +128,7 @@ for f in \
   .claude/docs/design-reference-library.md \
   scripts/allium-hook.sh \
   scripts/tla-hook.sh \
+  scripts/spec-interview-guard-hook.sh \
   scripts/scenario-map-reminder-hook.sh \
   scripts/sync-graphify-wiring.py \
   scripts/sync-core-hooks.py \
@@ -135,7 +137,7 @@ for f in \
 done
 python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] settings.json is not valid JSON"; fail=1; }
 # Core-hook wiring gate: any core hook whose script is on disk MUST be wired (catches the prose-merge gap)
-for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook; do
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook; do
   if [ -f "scripts/$s.sh" ] && ! grep -q "$s.sh" .claude/settings.json; then echo "[UNWIRED] core hook $s present on disk but not wired — run sync-core-hooks.py"; fail=1; fi
 done
 # Graphify is only enforced on eligible (>=30 source-file) projects; the bootstrap self-gates below threshold.
@@ -1113,6 +1115,8 @@ II. [Principle name]
 4. In the new session, start writing feature specs with `/speckit-specify`
 
 The project DNA is now in place. Every Claude session in this project will know the core principles, tech stack, and constraints before a single feature spec is written.
+
+> **This inception interview scopes the PROJECT, not any single spec.** Every spec you build from the register will ALSO run its own **15–25 question anti-drift interview** (`.claude/rules/spec-interview.md`) right after `/speckit-specify` — human-answered, auto-pick OFF, recorded in `<spec-dir>/interview.md`. The `spec-interview-guard` hook hard-blocks source code until each spec's interview is done. That is by design: this wizard decides *what the project is*; the per-spec interview decides *exactly how each feature behaves* so the implementation can't drift from your intent.
 ```
 
 ## Rules

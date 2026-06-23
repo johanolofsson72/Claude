@@ -17,6 +17,8 @@ Allium is the preferred specification language for this project. It sits between
 ```
 0. Scenario map (SCENARIOS.md)       → every use case, exploded (gap/drift → interview)
 1. Spec written (markdown)           → what the developer wants
+1b. Spec interview (interview.md)    → 15–25 human-answered questions, auto-pick OFF, EVERY spec
+                                       (anti-drift gate; .claude/rules/spec-interview.md)
 2. /speckit-clarify                          → fills gaps in the markdown spec via structured questions
                                        (auto-pick recommended via settings.json hook; all tracks)
 3. /allium:elicit                    → sharpens clarified spec into .allium (refuses vague requirements)

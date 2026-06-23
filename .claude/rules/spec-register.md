@@ -65,7 +65,7 @@ When a spec is complete, Claude's stop message uses this exact shape:
 - Track: <full|light|spec-only>[ +hardened]
 - Commits: <count> (last: <short-sha> — "<commit subject>")
 - Push: origin/main <short-sha>
-- Pipeline: spec → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
+- Pipeline: spec → interview (<I> answers) → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
 - Hardening: <hardening status>
 - Open findings: <count> (or "none")
 
@@ -75,6 +75,7 @@ When a spec is complete, Claude's stop message uses this exact shape:
 ```
 
 Fields:
+- `<I> answers` — the count of human-answered questions recorded in `interview.md` (must be 15–25 per `.claude/rules/spec-interview.md`; the `spec-interview-guard` hook blocks implementation below 15).
 - `<clarify status>` — `clarify auto-picked N answers` / `clarify clean (no questions raised)` / `clarify deferred N questions to user`
 - `<allium status>` — `allium ok` / `allium skipped (spec-only track)` / `allium with N open questions surfaced`
 - `<tla status>` — `tla clean` / `tla skipped (spec-only or trivial state)` / `tla with N gaps surfaced`
