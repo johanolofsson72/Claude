@@ -105,8 +105,8 @@ detect_stack() {
     case " $flags " in *" mobile "*) :;; *) flags="$flags mobile" ;; esac
   fi
 
-  # Normalize / dedupe-ish: trim
-  echo "$flags" | tr -s ' ' | sed 's/^ //;s/ $//'
+  # Normalize: split to words, drop duplicates preserving first-seen order, rejoin.
+  echo "$flags" | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' ' | sed 's/ $//'
 }
 
 has_flag() { case " $1 " in *" $2 "*) return 0;; *) return 1;; esac; }
