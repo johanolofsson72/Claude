@@ -141,6 +141,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `scripts/spec-interview-guard-hook.sh` — PreToolUse hard block (third sibling of `spec-register-guard` and `pipeline-state-guard`). Denies source-code edits until the project's active spec records a completed anti-drift interview — at least 15 answered questions (target 15–25) in `<spec-dir>/interview.md`, where each answer is a `**A:**` line. Walks up to the project root, reads `specs/INDEX.md` for the active spec, counts answers. Silent on template/scratch repos (no language marker), fails open on internal errors. Pairs with `.claude/rules/spec-interview.md`. Override the floor with `SPEC_INTERVIEW_MIN` (default 15).
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
 - `scripts/project-freshness.sh` — Local "keep the project fresh" maintenance pass (NOT a hook — invoked manually or as a sync step). Runs a trufflehog verified-secret scan (git history, or working tree if no `.git`) and an `npm audit` dependency-CVE report for every non-vendored `package.json`. **Self-installs trufflehog if missing** (brew → scoop → official install script into `~/.local/bin`, mirroring `graphify-bootstrap.sh`; `--no-install` suppresses it). Report-first: mutates nothing in the project tree by default; `--fix` opts into `npm audit fix --force` plus a build/test verification reminder. Falls back to a manual-install hint only if every trufflehog install path fails; `npm audit` is skipped (not failed) when there's no lockfile or npm is absent. bash 3.2-safe, cross-platform (macOS/Linux/Windows Git Bash). LOCAL only — never wire it as a CI/scheduled Action (`.claude/rules/github-actions.md`).
+- `scripts/skill-audit.sh` — Local "what skills am I actually loading?" audit pass (NOT a hook — invoked manually or as a sync step, Step 8e). Finds every `SKILL.md` under `~/.claude/skills` (global, shared across all projects) and `./.claude/skills` (project), including nested ones (one clone like anthropics/skills contains many skills), extracts name + description, estimates the per-session baseline context cost (`chars/4`, since only name+description load at session start — full bodies load on fire via progressive disclosure), and sums an honest total. Detects the project's stack (`.claude/.sync-stack`, else `.csproj`/`pubspec.yaml`/`package.json` markers) and **flags** bundles the stack plainly does not use (`[REVIEW]` — e.g. `playwright-skill`/`qa-test` on a mobile-only stack with no browser, `dotnet-skills` with no `.csproj`, `vercel-skills` React-web-perf on a Flutter app). Warns when the global count crosses a soft ceiling (`--ceiling`, default 15). **REPORT-ONLY — it NEVER deletes**: global skills are shared, so deleting one because *this* project's stack does not use it would break a sibling project; `[REVIEW]` means "review", not "safe to delete". The deliberate complement to the install-only skill sync (Step 6): the installer adds, this surfaces the cost so the developer prunes with discipline. bash 3.2-safe, cross-platform. LOCAL only.
 - `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama. Default uses 127.0.0.1 explicitly to avoid Happy-Eyeballs routing to the wrong ollama instance when both IPv4 and IPv6 listeners exist on port 11434.
 - `scripts/local-llm-call.sh` — Generic non-streaming `/api/generate` caller. Reads system prompt as `$1`, user prompt from stdin, num_predict as optional `$2`. Prints model output or exits non-zero on offline/timeout/missing-model.
 - `scripts/local-llm-classify-hook.sh` — UserPromptSubmit hook. Tags the incoming prompt as TRIVIAL / MEDIUM / COMPLEX via local LLM and injects the hint as `additionalContext`. Skips prompts ≤20 chars. Honors `LOCAL_LLM_CLASSIFY_TIMEOUT` (default 4s) so the prompt path stays snappy.
@@ -518,7 +519,28 @@ If any of these fail: re-run `bash scripts/graphify-bootstrap.sh`. The script is
 
 Install the following external skills to `~/.claude/skills/` if not already present. These are shared across all projects.
 
+**Stack-gate the stack-specific bundles (intelligence, not blanket install).** Four of these bundles are stack-specific: `dotnet-skills` (.NET only), `vercel-skills` (React *web* perf), and `playwright-skill` + `qa-test` (browser testing — useless on a native-mobile stack that uses Maestro/Patrol). The universal bundles (`anthropics/skills`, `superpowers`, `trailofbits`, `ui-ux-pro-max`) always install. For the stack-specific four, **skip the clone when we have positive evidence the stack does not use it** — that is how we stop a Flutter-only machine from accreting React/Playwright skills it will never fire (the context-tax problem `skill-audit.sh` measures). When the stack is unknown (fresh project, no markers yet), install everything — under-installing and missing a needed skill is worse than the small context cost, and Step 8e's audit will flag any that turn out irrelevant later.
+
 ```bash
+# Detect the stack ONCE, conservatively. .sync-stack is authoritative when present
+# (it records the testing track chosen in Step 7c); otherwise fall back to file markers.
+WANT_DOTNET=1; WANT_REACT=1; WANT_BROWSER=1   # default: unknown stack → install all
+STACK_DESC="unknown (install all)"
+if [ -f .claude/.sync-stack ]; then
+  TRACK=$(grep -E '^testing=' .claude/.sync-stack 2>/dev/null | head -1 | cut -d= -f2 | tr -d '[:space:]')
+  case "$TRACK" in
+    mobile)  # native app: no browser; React-web perf rarely applies; .NET only if a .csproj is also present
+      WANT_BROWSER=0; WANT_REACT=0
+      { ls ./*.csproj ./*.sln >/dev/null 2>&1 || find . -maxdepth 3 -name '*.csproj' 2>/dev/null | head -1 | grep -q .; } || WANT_DOTNET=0
+      STACK_DESC="mobile (testing=mobile)";;
+    web)     # browser stack: keep browser+react; .NET only if a .csproj is present
+      { ls ./*.csproj ./*.sln >/dev/null 2>&1 || find . -maxdepth 3 -name '*.csproj' 2>/dev/null | head -1 | grep -q .; } || WANT_DOTNET=0
+      STACK_DESC="web (testing=web)";;
+    hybrid)  STACK_DESC="hybrid (testing=hybrid) — install all";;  # keep everything
+  esac
+fi
+echo "[STACK] skill install gating: $STACK_DESC (dotnet=$WANT_DOTNET react=$WANT_REACT browser=$WANT_BROWSER)"
+
 # anthropics/skills — Official Anthropic collection (includes frontend-design, PDF, PPTX, XLSX)
 # CRITICAL: frontend-design is a BLOCKING REQUIREMENT in CLAUDE.md
 if [ ! -d "$HOME/.claude/skills/anthropics-skills" ]; then
@@ -536,7 +558,7 @@ else
   echo "[SKIPPED] obra/superpowers — already installed"
 fi
 
-# trailofbits/skills — Security research skills from Trail of Bits
+# trailofbits/skills — Security research skills from Trail of Bits (universal)
 if [ ! -d "$HOME/.claude/skills/trailofbits-skills" ]; then
   git clone https://github.com/trailofbits/skills.git "$HOME/.claude/skills/trailofbits-skills"
   echo "[INSTALLED] trailofbits/skills — security research"
@@ -544,36 +566,44 @@ else
   echo "[SKIPPED] trailofbits/skills — already installed"
 fi
 
-# adampaulwalker/qa-test — Destructive/adversarial browser testing with Playwright
-if [ ! -d "$HOME/.claude/skills/qa-test" ]; then
+# adampaulwalker/qa-test — Destructive/adversarial BROWSER testing (stack-gated: skip on mobile-only)
+if [ -d "$HOME/.claude/skills/qa-test" ]; then
+  echo "[SKIPPED] qa-test — already installed"
+elif [ "$WANT_BROWSER" = 1 ]; then
   git clone https://github.com/adampaulwalker/qa-test.git "$HOME/.claude/skills/qa-test"
   echo "[INSTALLED] qa-test — destructive browser testing (Jinx persona)"
 else
-  echo "[SKIPPED] qa-test — already installed"
+  echo "[SKIPPED] qa-test — not relevant to detected stack ($STACK_DESC): no browser"
 fi
 
-# dotnet/skills — Official Microsoft .NET skills (ASP.NET Core, EF Core, Blazor)
-if [ ! -d "$HOME/.claude/skills/dotnet-skills" ]; then
+# dotnet/skills — Official Microsoft .NET skills (stack-gated: skip when no .csproj/.sln)
+if [ -d "$HOME/.claude/skills/dotnet-skills" ]; then
+  echo "[SKIPPED] dotnet/skills — already installed"
+elif [ "$WANT_DOTNET" = 1 ]; then
   git clone https://github.com/dotnet/skills.git "$HOME/.claude/skills/dotnet-skills"
   echo "[INSTALLED] dotnet/skills — official .NET patterns and best practices"
 else
-  echo "[SKIPPED] dotnet/skills — already installed"
+  echo "[SKIPPED] dotnet/skills — not relevant to detected stack ($STACK_DESC): no .NET project"
 fi
 
-# vercel-labs/skills — React performance rules and web design guidelines
-if [ ! -d "$HOME/.claude/skills/vercel-skills" ]; then
+# vercel-labs/skills — React WEB performance rules (stack-gated: skip on non-web/mobile-only)
+if [ -d "$HOME/.claude/skills/vercel-skills" ]; then
+  echo "[SKIPPED] vercel-labs/skills — already installed"
+elif [ "$WANT_REACT" = 1 ]; then
   git clone https://github.com/vercel-labs/skills.git "$HOME/.claude/skills/vercel-skills"
   echo "[INSTALLED] vercel-labs/skills — React performance (45 rules), web design"
 else
-  echo "[SKIPPED] vercel-labs/skills — already installed"
+  echo "[SKIPPED] vercel-labs/skills — not relevant to detected stack ($STACK_DESC): React web-perf"
 fi
 
-# lackeyjb/playwright-skill — Deep Playwright knowledge (POM, patterns, CI/CD)
-if [ ! -d "$HOME/.claude/skills/playwright-skill" ]; then
+# lackeyjb/playwright-skill — Deep Playwright/BROWSER knowledge (stack-gated: skip on mobile-only)
+if [ -d "$HOME/.claude/skills/playwright-skill" ]; then
+  echo "[SKIPPED] playwright-skill — already installed"
+elif [ "$WANT_BROWSER" = 1 ]; then
   git clone https://github.com/lackeyjb/playwright-skill.git "$HOME/.claude/skills/playwright-skill"
   echo "[INSTALLED] playwright-skill — Playwright patterns, POM, test generation"
 else
-  echo "[SKIPPED] playwright-skill — already installed"
+  echo "[SKIPPED] playwright-skill — not relevant to detected stack ($STACK_DESC): no browser"
 fi
 ```
 
@@ -803,6 +833,30 @@ fi
 
 If it prints `[SCENARIO GAP]`, surface it prominently in the Step 10 report and **offer to START a scenario interview** (`AskUserQuestion`, one feature at a time, recommended answers the developer confirms) to build the map from the project's existing specs. Do NOT autonomously scaffold a `SCENARIOS.md` — the rule forbids inventing scenarios silently; the map must come from the developer. The SessionStart hook (`scenario-map-orientation-hook.sh`) emits the same nudge every session until the map exists, so this is belt-and-suspenders for the maintenance moment.
 
+### Step 8e: Skill audit (ALWAYS RUNS — regardless of sync mode)
+
+The skill install in Step 6 is **install-only** — it adds bundles and never removes them, so a machine accretes globally-installed skills over time, each costing baseline context at every session start (name + description load even when the skill never fires). This step makes that cost visible. It runs on **every** `/project-update`, including up-to-date / incremental syncs, because new skills get installed independent of which template files changed.
+
+Ensure the script is present (fetch from `$TEMPLATE` if a pre-audit project lacks it), then run it report-only:
+
+```bash
+if [ ! -f scripts/skill-audit.sh ]; then
+  mkdir -p scripts
+  cp "$TEMPLATE/scripts/skill-audit.sh" scripts/skill-audit.sh 2>/dev/null \
+    || curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/skill-audit.sh -o scripts/skill-audit.sh
+fi
+chmod +x scripts/skill-audit.sh
+bash scripts/skill-audit.sh
+```
+
+It is **report-only and NEVER deletes** — global skills are shared across every project on the machine, so a bundle this project's stack does not use (`[REVIEW]`) may still be needed by a sibling project. Fold the outcome into the Step 10 report:
+
+- **Total skill count + estimated baseline tokens** → report the numbers (e.g. "412 skills, ~30k tokens of per-session baseline context").
+- **`[CEILING]` printed** → note that the global count exceeds the soft ceiling and that the developer should review the `[REVIEW]`-tagged bundles. Do NOT auto-remove anything — surface the candidates and the `rm -rf` command for the developer to run if they choose.
+- **`[REVIEW]` bundles** → list them in the report as "stack-irrelevant to THIS project (review before removing — global/shared)".
+
+Do NOT delete a global skill as a side effect of `/project-update`. Pruning a shared resource is a developer decision, exactly like `--fix` on the freshness pass.
+
 ### Step 9: Slim CLAUDE.md (ALWAYS RUNS — regardless of sync mode)
 
 **This step runs unconditionally — even when Step 0 reports "[UP TO DATE]" and even when the user forces a full resync.** The goal is to keep `CLAUDE.md` as lean as possible on every run, since drift accumulates over time.
@@ -840,6 +894,13 @@ Synced from template repo (YYYY-MM-DD):
 - [SKIPPED] filename — why (already current / not relevant)
 - [REMOVED] filename — not relevant for project tech stack
 - [TRANSLATED] filename — migrated from Swedish to English
+
+Skill audit (Step 8e — report-only, nothing deleted):
+- Stack detected: web | mobile | hybrid | unknown
+- Skills installed: <N> (~<T>k tokens baseline context per session)
+- Stack-gated installs skipped this run: <bundle(s) or "none">
+- [REVIEW] stack-irrelevant bundles (global/shared — review before removing): <list or "none">
+- Soft ceiling: <within / EXCEEDED (N > ceiling)>
 
 Project-specific preserved:
 - filename — what was preserved

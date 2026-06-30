@@ -120,9 +120,11 @@ Execute all instructions between the `---` markers in the fetched sync-prompt. S
 
 8. **Verify Allium + TLA+ pipeline** — Ensure all verification pipeline files exist per sync-prompt instructions.
 
-9. **Install required external skills** — Run the git clone commands for any missing skills (anthropics/skills, superpowers, trailofbits, qa-test, dotnet, vercel, playwright). Skip already-installed ones.
+9. **Install required external skills** — Run the git clone commands for any missing skills. The universal bundles (anthropics/skills, superpowers, trailofbits, ui-ux-pro-max) always install. The **stack-specific four** (dotnet, vercel, qa-test, playwright) are **stack-gated** per sync-prompt Step 6: skipped when `.claude/.sync-stack` (or file markers) shows the stack does not use them — e.g. no browser bundles on a `testing=mobile` project, no `dotnet/skills` without a `.csproj`. Already-installed bundles are always skipped. Unknown stack → install all (the audit in step 11 flags any that turn out irrelevant).
 
 10. **Install TLC model checker** — Verify TLC is available, install if missing.
+
+11. **Skill audit (report-only)** — Run `bash scripts/skill-audit.sh` (sync-prompt Step 8e). It counts every installed `SKILL.md` (global + project), estimates the per-session baseline context cost, and flags `[REVIEW]` bundles this project's stack does not use. It **NEVER deletes** — global skills are shared, so pruning is a developer decision. Fold the totals and any `[REVIEW]`/`[CEILING]` output into the Step 8 report.
 
 > **Spec-interview gate (anti-drift) — must land on every project.** As part of the sync-prompt's rule list + script list + core-hook wiring, this sync installs `.claude/rules/spec-interview.md` and `scripts/spec-interview-guard-hook.sh`, and `sync-core-hooks.py` wires the `spec-interview-guard` PreToolUse hook. That hook hard-blocks source-code edits until the active spec records ≥15 human-answered questions in `<spec-dir>/interview.md` (target 15–25). It is the per-spec complement to `/speckit-clarify`'s auto-pick: the interview is where a human pins down scope, edge cases, error/empty/loading states, authorization, and non-goals so the implementation can't drift. Confirm it landed in Step 7's wiring check.
 
@@ -171,6 +173,13 @@ Use `AskUserQuestion` to confirm the project's tech stack (the sync-prompt has t
 - spec-interview-guard — [wired / GAP] (anti-drift: 15–25 questions per spec before source edits)
 - pipeline-state-guard — [wired / GAP]
 - spec-register-guard — [wired / GAP]
+
+### Skill audit (report-only — nothing deleted):
+- Stack detected: [web / mobile / hybrid / unknown]
+- Skills installed: [N] (~[T]k tokens baseline context per session)
+- Stack-gated installs skipped this run: [bundles or "none"]
+- [REVIEW] stack-irrelevant bundles (global/shared — review before removing): [list or "none"]
+- Soft ceiling: [within / EXCEEDED]
 
 ### Project-specific preserved:
 - filename — what was preserved

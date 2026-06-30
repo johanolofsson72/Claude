@@ -166,6 +166,7 @@ After the sync completes, present a brief summary:
 **Sync-prompt**: fetched from johanolofsson72/Claude (main)
 **Files synced**: [count created] created, [count updated] updated, [count skipped] skipped
 **Constitution**: [preserved from backup / fresh from speckit / not found]
+**Skill audit** (sync-prompt Step 8e, report-only): [N] skills installed (~[T]k tokens baseline); stack-gated installs skipped: [bundles or none]; [REVIEW]/[CEILING]: [summary or "within ceiling"]. (On a fresh project the stack is not yet decided, so Step 6 installs all bundles and the audit flags any that turn out irrelevant once the stack is set.)
 
 ⚠️ **IMPORTANT**: Speckit skills (`/speckit-specify`, `/speckit-plan`, etc.) were installed to `.claude/skills/` but are NOT available as slash commands in this session. Claude Code loads skills at session start — new skills installed mid-session require a restart. After this wizard completes, exit Claude and start a new session to use the speckit commands.
 
