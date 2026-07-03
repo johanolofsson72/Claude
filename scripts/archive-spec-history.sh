@@ -6,8 +6,10 @@
 # subsequent spec. On a 60+ spec project that history balloons to tens of
 # thousands of tokens that buy nothing — the live rows/ledger are what the
 # pipeline actually needs. This script moves the OLD history entries out to a
-# sibling ".history.md" archive (never read per-spec) and keeps only the last
-# N entries inline. The live spec rows / SC-id ledger are never touched.
+# sibling ".history.md" archive (never read per-spec) and keeps only the N
+# NEWEST entries inline (ordering auto-detected: works whether the register
+# appends newest-at-bottom or prepends newest-at-top). The live spec rows /
+# SC-id ledger are never touched.
 #
 # Safe by construction:
 #   - Operates only on the "## Register history" / "## Scenario history" section
@@ -20,7 +22,7 @@
 #
 # Usage:
 #   scripts/archive-spec-history.sh                 # cleans ./specs/*, KEEP=5
-#   scripts/archive-spec-history.sh --keep 8        # keep last 8 inline
+#   scripts/archive-spec-history.sh --keep 8        # keep the 8 newest inline
 #   scripts/archive-spec-history.sh --dir path/to/specs
 #   scripts/archive-spec-history.sh --dry-run       # report only, write nothing
 #
@@ -60,9 +62,13 @@ fi
 [ -n "$SPECS_DIR" ] && [ -d "$SPECS_DIR" ] || { echo "no specs/ dir found (use --dir)" >&2; exit 1; }
 
 # archive_history <live-file> <archive-file> <history-heading-regex>
-# Splits the file at the LAST top-level history heading matching the regex.
-# Keeps the last KEEP top-level "- " bullets (with their continuation lines)
-# inline; prepends the older bullets to the archive newest-first.
+# <history-heading-regex> MUST be anchored to a markdown heading (^#+ ...) so a
+# history ENTRY that merely mentions the words "register history" in its prose is
+# not mistaken for the section heading (that would split the file at the wrong
+# line). Splits the file at the LAST heading matching the regex.
+# Keeps the KEEP newest top-level "- " bullets (with their continuation lines)
+# inline — detecting whether newest is at the top or bottom from the first vs
+# last entry's ISO date — and moves the older bullets to the archive.
 archive_history() {
   live="$1"; archive="$2"; heading_re="$3"
   [ -f "$live" ] || { echo "  skip: $live (not found)"; return 0; }
@@ -82,21 +88,30 @@ archive_history() {
 
   # History region = everything after the heading. Group into entries: an entry
   # starts at a top-level "- " bullet and includes following non-bullet lines.
-  # Keep the last KEEP entries in tmp_keep; the rest go to tmp_move (in order).
+  # Keep the KEEP NEWEST entries inline; archive the rest. Registers differ in
+  # convention: some append newest-at-bottom (the template example), some prepend
+  # newest-at-top (every real project checked). So detect ordering from the first
+  # vs last entry's ISO date and keep whichever END holds the newest entries —
+  # never blindly keep-last, or a newest-first register archives its RECENT
+  # history and keeps ancient entries inline.
   awk -v h="$hdr_line" -v keep="$KEEP" -v fkeep="$tmp_keep" -v fmove="$tmp_move" '
+    function dateof(s){ if (match(s, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) return substr(s, RSTART, RLENGTH); return "" }
     NR<=h { next }
     { region[++n]=$0 }
     END{
-      # Find entry-start line indices (top-level bullets).
       e=0
       for(i=1;i<=n;i++) if (region[i] ~ /^- /) starts[++e]=i
-      if (e==0) { for(i=1;i<=n;i++) print region[i] > fkeep; exit }
-      cut = e - keep            # number of entries to archive
-      if (cut < 0) cut = 0
-      moveEnd = (cut>0) ? starts[cut+1]-1 : 0   # last region line that gets moved
-      for(i=1;i<=n;i++){
-        if (i<=moveEnd) print region[i] > fmove
-        else            print region[i] > fkeep
+      if (e<=keep) { for(i=1;i<=n;i++) print region[i] > fkeep; exit }   # nothing to move
+      fd = dateof(region[starts[1]]); ld = dateof(region[starts[e]])
+      newestFirst = (fd != "" && ld != "" && fd > ld) ? 1 : 0
+      if (newestFirst) {
+        # newest at top → keep entries 1..keep, archive keep+1..e
+        keepEnd = starts[keep+1] - 1
+        for(i=1;i<=n;i++){ if (i<=keepEnd) print region[i] > fkeep; else print region[i] > fmove }
+      } else {
+        # newest at bottom (or undated) → keep the last KEEP, archive 1..(e-keep)
+        moveEnd = starts[e-keep+1] - 1
+        for(i=1;i<=n;i++){ if (i<=moveEnd) print region[i] > fmove; else print region[i] > fkeep }
       }
     }
   ' "$live"
@@ -111,7 +126,7 @@ archive_history() {
   fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  DRY:  $(basename "$live") — would archive $moved entr$([ "$moved" -eq 1 ] && echo y || echo ies) → $(basename "$archive"), keep last $KEEP inline"
+    echo "  DRY:  $(basename "$live") — would archive $moved entr$([ "$moved" -eq 1 ] && echo y || echo ies) → $(basename "$archive"), keep newest $KEEP inline"
     return 0
   fi
 
@@ -135,10 +150,10 @@ archive_history() {
 
   # Rebuild the live file: body (through heading) + kept entries.
   { cat "$tmp_body"; cat "$tmp_keep"; } > "$live.tmp" && mv "$live.tmp" "$live"
-  echo "  ok:   $(basename "$live") — archived $moved entr$([ "$moved" -eq 1 ] && echo y || echo ies) → $(basename "$archive"), kept last $KEEP inline"
+  echo "  ok:   $(basename "$live") — archived $moved entr$([ "$moved" -eq 1 ] && echo y || echo ies) → $(basename "$archive"), kept newest $KEEP inline"
 }
 
-echo "Archiving spec history in: $SPECS_DIR (keep last $KEEP inline)$([ "$DRY_RUN" -eq 1 ] && echo '  [DRY RUN]')"
-archive_history "$SPECS_DIR/INDEX.md"     "$SPECS_DIR/INDEX.history.md"     'register history'
-archive_history "$SPECS_DIR/SCENARIOS.md" "$SPECS_DIR/SCENARIOS.history.md" 'scenario history'
+echo "Archiving spec history in: $SPECS_DIR (keep newest $KEEP inline)$([ "$DRY_RUN" -eq 1 ] && echo '  [DRY RUN]')"
+archive_history "$SPECS_DIR/INDEX.md"     "$SPECS_DIR/INDEX.history.md"     '^#+ .*register history'
+archive_history "$SPECS_DIR/SCENARIOS.md" "$SPECS_DIR/SCENARIOS.history.md" '^#+ .*scenario history'
 echo "Done. Review with 'git diff', undo with 'git checkout -- $SPECS_DIR'."
