@@ -128,6 +128,15 @@ Execute all instructions between the `---` markers in the fetched sync-prompt. S
 
 > **Spec-interview gate (anti-drift) — must land on every project.** As part of the sync-prompt's rule list + script list + core-hook wiring, this sync installs `.claude/rules/spec-interview.md` and `scripts/spec-interview-guard-hook.sh`, and `sync-core-hooks.py` wires the `spec-interview-guard` PreToolUse hook. That hook hard-blocks source-code edits until the active spec records ≥15 human-answered questions in `<spec-dir>/interview.md` (target 15–25). It is the per-spec complement to `/speckit-clarify`'s auto-pick: the interview is where a human pins down scope, edge cases, error/empty/loading states, authorization, and non-goals so the implementation can't drift. Confirm it landed in Step 7's wiring check.
 
+> **Context-cost pre-cleanup (run BEFORE a heavy project).** On a mature project, `specs/INDEX.md` and `specs/SCENARIOS.md` are read (often re-read) on every spec and tend to balloon — a paragraph-per-spec `## history` section is the usual culprit, and it re-bills tokens every turn. This sync installs `scripts/archive-spec-history.sh` and the updated "Keep the register/map lean" rules. If either file is large (the spec-register orientation hook's canary flags it past ~25 KB), run the cleanup once — it moves old history to sibling `*.history.md` archives, keeping the last ~5 inline, and it is git-reversible:
+>
+> ```bash
+> scripts/archive-spec-history.sh --dry-run   # preview
+> scripts/archive-spec-history.sh --keep 5    # apply; review with git diff
+> ```
+>
+> It touches only the history section — live spec rows and the SC-id ledger are untouched. Note in the Step 8 report if you ran it and the size delta. (This is a one-shot cleanup, not part of the automated sync — run it deliberately.)
+
 ### Step 6: Ask about tech stack and clean up
 
 Use `AskUserQuestion` to confirm the project's tech stack (the sync-prompt has the exact question). Remove irrelevant files based on the answer.

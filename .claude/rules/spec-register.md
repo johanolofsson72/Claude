@@ -8,7 +8,7 @@ This rule defines how Claude reads, executes, and updates the register. It inter
 
 When `specs/INDEX.md` exists in a project:
 
-1. **Read the register first.** Before doing any feature work, open `specs/INDEX.md` and identify the next unchecked spec.
+1. **Read the register first — targeted, not whole.** Before doing any feature work, identify the next unchecked spec. The SessionStart orientation hook already prints the next row, so on a fresh session you usually need no read at all. When you must open `specs/INDEX.md`, read only the `## Specs` list — **do not** load the `## Register history` section or `INDEX.history.md` into context; they are an audit trail, never an input to the current spec. On a large register, `grep -nE '^- \[[ /!]\]' specs/INDEX.md | head` finds the next row without swallowing the file. See **Keep the register lean** below.
 2. **Run the full pipeline for that one spec, end-to-end.** Triage per `specs.md`, run `/speckit-specify`, `/speckit-clarify` (all tracks, auto-pick), `/allium:elicit` if applicable, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze` (auto-apply), `/speckit-implement`, browser tests (functional + destructive), `/tla` if applicable. No stops between phases — this is one task per `continuous-execution.md`.
 3. **Commit and push to `main` directly.** Per `project_workflow` memory (solo, direct-push, no PRs), each spec finishes with `git add` + `git commit` + `git push origin main`. No feature branches, no merge step.
 4. **Tick the register.** Mark the spec as `[x]` in `specs/INDEX.md` and commit + push the register update along with (or immediately after) the spec's final commit.
@@ -55,6 +55,15 @@ Status markers:
 - `- [x]` — done, committed, pushed
 - `- [!]` — blocked or needs register rewrite (Claude sets this when surfacing a register-rewrite proposal)
 
+## Keep the register lean (BLOCKING — context-cost hygiene)
+
+The register is read (and often re-read) on essentially every spec. If it balloons, every spec pays for it. A 60-spec register with a paragraph of history per spec becomes tens of thousands of tokens that buy nothing — the live rows are all the pipeline needs; the history is an audit trail nobody reads in-flight. Keep it small:
+
+- **History entries are ONE line each.** `- YYYY-MM-DD — <one sentence>`. Not a paragraph. Not a retrospective. If a spec needs more explanation, that belongs in the spec's own `plan.md` / commit message, not the register. Writing a paragraph-long history entry is the self-reinforcing cost that this rule exists to stop — you write it once and then re-read it on every subsequent spec.
+- **Cap inline history at ~5 entries; archive the rest.** When `## Register history` grows past ~5 entries, move the older ones to `specs/INDEX.history.md` (a sibling file that is **never** read during the pipeline). Run `scripts/archive-spec-history.sh` — it does this mechanically and reversibly (`--keep 5` by default, `--dry-run` to preview). The live `INDEX.md` keeps only the current spec rows + the last handful of history lines.
+- **Never load the history section as pipeline input.** When you read the register to find the next row, read the `## Specs` list only. `INDEX.history.md` exists so it can be consulted *deliberately* (an audit question), not swallowed by default.
+- **Ticking a row is an Edit, not a rewrite.** Change `- [ ]` to `- [x]` on the one row with a surgical `Edit`; do not read-and-rewrite the whole register to tick one box.
+
 ## The status summary (the one stop per spec)
 
 When a spec is complete, Claude's stop message uses this exact shape:
@@ -70,6 +79,8 @@ When a spec is complete, Claude's stop message uses this exact shape:
 - Open findings: <count> (or "none")
 
 **Next: NNN — <slug>** (or "register complete")
+
+→ Before starting the next spec, run `/clear`. A spec is one self-contained unit of work; carrying this spec's transcript into the next one is the single biggest per-spec token cost (a long unbroken session re-bills the whole growing transcript every turn, and cache expires after ~5 min idle). Fresh context per spec is the cheap default — the register + orientation hook restore all the state the next spec needs.
 
 (Resume when ready.)
 ```
