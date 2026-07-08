@@ -209,6 +209,103 @@ REG3
 guard_test "edit .json file in marker repo → allow"   "allow"              "$TMP3/data/config.json"
 rm -rf "$TMP3"
 
+# ─── spec-interview-guard-hook.sh ────────────────────────────────────────
+
+echo
+echo "── spec-interview-guard-hook.sh ──────────────────────"
+echo
+
+# Fresh fixture: marker repo, register with in-progress spec 003, no interview yet.
+IVT=$(mktemp -d)
+mkdir -p "$IVT/.git" "$IVT/specs/003-search" "$IVT/src"
+echo '{"name":"iv"}' > "$IVT/package.json"
+cat > "$IVT/specs/INDEX.md" <<'IVREG'
+# Spec register
+## Specs
+- [/] 003 — search — full track — fuzzy search
+IVREG
+
+# Write N answers of a given marker ("**A:**" human or "**A (auto):**" auto) to interview.md
+write_interview() {
+  local n_auto="$1" n_human="$2"
+  { echo "# Spec interview — 003-search"; echo
+    local i=1
+    while [ "$i" -le "$n_auto" ]; do printf '## Q%s\n**Q:** q\n**A (auto):** recommended answer here\n\n' "$i"; i=$((i+1)); done
+    while [ "$i" -le $((n_auto + n_human)) ]; do printf '## Q%s\n**Q:** q\n**A:** the human answer here\n\n' "$i"; i=$((i+1)); done
+  } > "$IVT/specs/003-search/interview.md"
+}
+
+iv_guard() {
+  # $1 = mode ("" for default auto, "manual"), $2 = file
+  local mode="$1" file="$2"
+  if [ -n "$mode" ]; then
+    printf '{"tool_input":{"file_path":"%s"}}' "$file" | SPEC_INTERVIEW_MODE="$mode" bash scripts/spec-interview-guard-hook.sh
+  else
+    printf '{"tool_input":{"file_path":"%s"}}' "$file" | bash scripts/spec-interview-guard-hook.sh
+  fi
+}
+
+iv_test() {
+  local name="$1" expect="$2" mode="$3"
+  local out
+  out=$(iv_guard "$mode" "$IVT/src/app.ts" 2>&1)
+  if [ "$expect" = "allow" ]; then
+    if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:80})" 1; fi
+  else
+    if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
+      _record "$name" 0
+    else
+      _record "$name (expected deny, got: ${out:0:80})" 1
+    fi
+  fi
+}
+
+echo "no interview.md yet:"
+iv_test "no interview → deny (auto default)"          "deny"  ""
+
+echo
+echo "AUTO mode (default — counts human + auto):"
+write_interview 15 0
+iv_test "15 auto answers → allow"                     "allow" ""
+write_interview 14 0
+iv_test "14 auto answers → deny (below floor)"        "deny"  ""
+write_interview 8 7
+iv_test "8 auto + 7 human = 15 → allow"               "allow" ""
+
+echo
+echo "MANUAL mode (SPEC_INTERVIEW_MODE=manual — counts only human):"
+write_interview 15 0
+iv_test "15 auto, manual mode → deny"                 "deny"  "manual"
+write_interview 8 7
+iv_test "8 auto + 7 human, manual mode → deny (7<15)" "deny"  "manual"
+write_interview 0 15
+iv_test "15 human, manual mode → allow"               "allow" "manual"
+
+echo
+echo "scope + environment (interview guard):"
+_iv_scope() {
+  local name="$1" expect="$2" file="$3"
+  local out; out=$(iv_guard "" "$file" 2>&1)
+  if [ "$expect" = "allow" ]; then
+    if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:80})" 1; fi
+  else
+    if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then _record "$name" 0; else _record "$name (expected deny)" 1; fi
+  fi
+}
+write_interview 0 0   # empty interview so a source edit WOULD deny — proves allowlist bypasses it
+_iv_scope "edit specs/ file → allow (allowlist)"      "allow" "$IVT/specs/003-search/spec.md"
+_iv_scope "edit .claude/ file → allow (allowlist)"    "allow" "$IVT/.claude/x.json"
+_iv_scope "edit README.md → allow (allowlist)"        "allow" "$IVT/README.md"
+_iv_scope "edit data.json → allow (non-source ext)"   "allow" "$IVT/src/data.json"
+_iv_scope "edit app.ts, empty interview → deny"       "deny"  "$IVT/src/app.ts"
+
+# Marker-less repo → silent allow even with no interview
+IVT2=$(mktemp -d); mkdir -p "$IVT2/.git" "$IVT2/src"
+_iv_scope "marker-less repo → allow (silent)"         "allow" "$IVT2/src/x.ts"
+rm -rf "$IVT2"
+
+rm -rf "$IVT"
+
 # ─── totals ───────────────────────────────────────────────────────────────
 
 echo

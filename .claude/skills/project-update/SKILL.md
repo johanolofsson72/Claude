@@ -126,7 +126,7 @@ Execute all instructions between the `---` markers in the fetched sync-prompt. S
 
 11. **Skill audit (report-only)** — Run `bash scripts/skill-audit.sh` (sync-prompt Step 8e). It counts every installed `SKILL.md` (global + project), estimates the per-session baseline context cost, and flags `[REVIEW]` bundles this project's stack does not use. It **NEVER deletes** — global skills are shared, so pruning is a developer decision. Fold the totals and any `[REVIEW]`/`[CEILING]` output into the Step 8 report.
 
-> **Spec-interview gate (anti-drift) — must land on every project.** As part of the sync-prompt's rule list + script list + core-hook wiring, this sync installs `.claude/rules/spec-interview.md` and `scripts/spec-interview-guard-hook.sh`, and `sync-core-hooks.py` wires the `spec-interview-guard` PreToolUse hook. That hook hard-blocks source-code edits until the active spec records ≥15 human-answered questions in `<spec-dir>/interview.md` (target 15–25). It is the per-spec complement to `/speckit-clarify`'s auto-pick: the interview is where a human pins down scope, edge cases, error/empty/loading states, authorization, and non-goals so the implementation can't drift. Confirm it landed in Step 7's wiring check.
+> **Spec-interview gate (anti-drift) — must land on every project.** As part of the sync-prompt's rule list + script list + core-hook wiring, this sync installs `.claude/rules/spec-interview.md` and `scripts/spec-interview-guard-hook.sh`, and `sync-core-hooks.py` wires the `spec-interview-guard` PreToolUse hook. That hook hard-blocks source-code edits until the active spec records ≥15 answered questions in `<spec-dir>/interview.md` (target 15–25). **Default is AUTO mode:** Claude auto-answers the base with the recommended option (tagged `**A (auto):**`) and asks the developer only the overflow questions when it judges a spec large/advanced — the hook counts both auto and human answers. A project that wants the old fully-human behaviour sets `SPEC_INTERVIEW_MODE=manual` (settings.json `env` or `CLAUDE.local.md`), and the hook then counts only human `**A:**` answers. Confirm it landed in Step 7's wiring check.
 
 > **Context-cost pre-cleanup (run BEFORE a heavy project).** On a mature project, `specs/INDEX.md` and `specs/SCENARIOS.md` are read (often re-read) on every spec and tend to balloon — a paragraph-per-spec `## history` section is the usual culprit, and it re-bills tokens every turn. This sync installs `scripts/archive-spec-history.sh` and the updated "Keep the register/map lean" rules. If either file is large (the spec-register orientation hook's canary flags it past ~25 KB), run the cleanup once — it moves old history to sibling `*.history.md` archives, keeping the last ~5 inline, and it is git-reversible:
 >
@@ -179,7 +179,7 @@ Use `AskUserQuestion` to confirm the project's tech stack (the sync-prompt has t
 - [TRANSLATED] filename — migrated Swedish → English
 
 ### Enforcement gates:
-- spec-interview-guard — [wired / GAP] (anti-drift: 15–25 questions per spec before source edits)
+- spec-interview-guard — [wired / GAP] (anti-drift: 15–25 questions per spec before source edits; AUTO by default, human overflow on flag)
 - pipeline-state-guard — [wired / GAP]
 - spec-register-guard — [wired / GAP]
 
