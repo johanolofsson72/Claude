@@ -181,6 +181,19 @@ Use `if` to restrict WHEN a hook triggers, with permission rule syntax:
 
 `if` matches on the tool's arguments — the hook above only triggers for `Bash` calls starting with `git`. Without `if`, it triggers for ALL Bash calls.
 
+**Syntax constraints (learned the hard way):**
+
+- `if` holds **exactly one** permission rule. No `&&`, no `||`, no list. A hook that needs N patterns becomes N handler objects with the same `command`, one rule each.
+- File patterns use **gitignore syntax**, and `Edit(...)` covers *every* file-editing tool — Edit, Write, MultiEdit, NotebookEdit. `Write(path)` and `Glob(path)` rules are accepted but **never matched** (v2.1.210+ warns about them at startup); use `Edit(...)` and `Read(...)`.
+- Prefix patterns with `**/` (`Edit(**/*.cs)`, not `Edit(*.cs)`). Anchored single-segment patterns match at different depths depending on rule type; `**/` matches at any depth in every rule type, so it means what you think it means.
+- Avoid clever globs (character classes, brace-ish tricks). A pattern that fails to match doesn't error — the hook simply never runs. Silent. Write the extension out.
+
+**This template's convention — the `if` pattern must be a SUPERSET of the script's own filter.** Every hook script re-checks the file it was handed; `if` exists only to skip the process spawn. A pattern narrower than the script's internal guard silently disables the hook for files it used to cover, and nothing tells you.
+
+**Deliberately ungated** (they must fire unconditionally): the three PreToolUse enforcement guards (`spec-register-guard`, `pipeline-state-guard`, `spec-interview-guard`), the sensitive-file deny hook, `sqlite-nfs-safety-hook`, `ui-design-hook`, and the Bash hooks that analyze arbitrary command *output* (`bash-tldr`, `stacktrace`, `tlc-translate`, `tlc-cleanup`, `graphify-fire`). Never let a config-level filter shadow a security or enforcement gate — that trades a few milliseconds for a hole you cannot see.
+
+Measured effect in this template: 29 handlers wired to `Edit|Write`, all of which used to spawn on every single edit. With `if`, a spec `.md` edit spawns 5, a `.cs` edit 6, a `.tsx` edit 3, and an `appsettings.json` edit 0.
+
 ### Defer permission decision (v2.1.89)
 
 For headless sessions (`claude -p`), PreToolUse hooks can return `permissionDecision: "defer"` to pause the session. Resume later with `-p --resume` to have the hook re-evaluate.
