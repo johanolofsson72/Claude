@@ -12,3 +12,6 @@ appsettings.Development.json
 .claude/projects/
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Template auto-sync rate-limit marker (machine-local; the manifest .claude/.template-sync IS tracked)
+.claude/.template-sync-check
