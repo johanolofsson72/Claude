@@ -297,6 +297,37 @@ if [ -f "$PROJECT_ROOT/scripts/sync-core-hooks.py" ] && [ -f "$TEMPLATE_DIR/.cla
   fi
 fi
 
+# The local-LLM hook family is owned by its own helper (core-hooks deliberately
+# ignores it), so wiring changes there — e.g. adding `if` filters — do not
+# propagate without this. The helper treats the template as source of truth and
+# DELETES project local-llm scripts the template does not ship; unattended
+# deletion is not something this sync promises, so run it only when the delete
+# set is provably empty and report otherwise.
+if [ -f "$PROJECT_ROOT/scripts/sync-local-llm-hooks.py" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ] \
+   && command -v python3 >/dev/null 2>&1; then
+  EXTRA=""
+  for pf in "$PROJECT_ROOT"/scripts/local-llm-*-hook.sh; do
+    [ -f "$pf" ] || continue
+    [ -f "$TEMPLATE_DIR/scripts/$(basename "$pf")" ] || EXTRA="$EXTRA $(basename "$pf")"
+  done
+  if [ -n "$EXTRA" ]; then
+    HOOKS_NOTE="$HOOKS_NOTE · local-LLM wiring skipped (project-only scripts would be deleted:$EXTRA)"
+  else
+    cp "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.autosync-bak" 2>/dev/null
+    if (cd "$PROJECT_ROOT" && python3 scripts/sync-local-llm-hooks.py "$TEMPLATE_DIR/.claude/settings.json" >/dev/null 2>&1) \
+       && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
+      if ! cmp -s "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.autosync-bak"; then
+        HOOKS_NOTE="$HOOKS_NOTE + local-LLM rewired"
+        case " $WROTE " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+      fi
+      rm -f "$PROJECT_ROOT/.claude/settings.json.autosync-bak"
+    else
+      mv "$PROJECT_ROOT/.claude/settings.json.autosync-bak" "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null
+      HOOKS_NOTE="$HOOKS_NOTE · local-LLM rewiring FAILED (rolled back)"
+    fi
+  fi
+fi
+
 # ------------------------------------------------------------------ the stamp
 {
   printf 'sha=%s\n' "$TEMPLATE_SHA"
