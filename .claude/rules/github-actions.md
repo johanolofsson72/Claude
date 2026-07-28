@@ -41,6 +41,27 @@ Dependabot config (`.github/dependabot.yml`) is allowed — Dependabot PRs consu
 - `timeout-minutes` on every job (a hung job bills until the 6-hour default kills it)
 - No third-party actions beyond the well-known set (`actions/checkout`, `actions/setup-dotnet`, `appleboy/scp-action` etc.) — fewer moving parts, fewer minutes
 
+## Caching (BLOCKING — mandatory on the allowed workflow)
+
+The two-workflow allowance in this rule caps *how many* workflows exist; caching is what keeps the *one* that remains cheap. An uncached `dotnet restore`/`npm ci` + Docker build on every deploy run burns minutes on work that hasn't changed since the last run. Every job in the allowed deploy workflow (and the optional validation workflow, if one exists) MUST cache its restorable state:
+
+- **Shallow checkout.** `actions/checkout` with `fetch-depth: 1` (default) unless a step genuinely needs history (e.g. computing a changelog) — a shallow clone is faster to fetch and has nothing to do with Actions-minute billing directly, but it removes one avoidable source of job wall-clock.
+- **.NET restore cache.** `actions/setup-dotnet` with its built-in `cache: true` (available since setup-dotnet v4), keyed on the lockfile/`*.csproj`/`*.sln` set. If the project has no `packages.lock.json`, generate one (`dotnet restore --use-lock-file`) so the cache key is stable — without a lock file the cache degrades to "restore everything, every time."
+- **Node/npm restore cache.** `actions/setup-node` with `cache: 'npm'` (or `'pnpm'`/`'yarn'` to match the project's package manager) pointed at the correct lockfile. For a React frontend built into `wwwroot`, this is the single biggest minute-saver after Docker layer caching.
+- **Docker layer caching.** The deploy workflow builds one image — cache its layers with `docker/build-push-action`'s built-in `cache-from`/`cache-to` using `type=gha` (GitHub Actions cache backend, no extra registry needed):
+  ```yaml
+  - uses: docker/build-push-action@v6
+    with:
+      cache-from: type=gha
+      cache-to: type=gha,mode=max
+  ```
+  `mode=max` caches intermediate layers too (not just the final stage), which matters for multi-stage Dockerfiles (build stage + runtime stage — the common shape for a .NET+React single-image build). Without this, every deploy rebuilds the SDK image, restores every package, and re-runs `npm run build` from scratch, even when only a config file changed.
+- **Order Dockerfile layers for cache reuse.** Copy `*.csproj`/`package.json`+lockfile and run restore/`npm ci` *before* copying the rest of the source — so a source-only change doesn't invalidate the restore layer. This is a Dockerfile-authoring concern, not a workflow-YAML one, but it's the other half of making `cache-from`/`cache-to` actually pay off.
+- **Path filters to skip the job entirely.** If the deploy workflow's validation gate (build + unit tests) runs on paths that didn't change relevant files, use `paths`/`paths-ignore` (team workflows only, since solo projects don't trigger on push at all — see below) so unrelated commits don't even queue a run.
+- **No redundant cache layers.** Don't hand-roll a `actions/cache@v4` step for `~/.nuget/packages` or `node_modules` *in addition to* `setup-dotnet`'s/`setup-node`'s built-in cache — that double-caches the same bytes under two keys and wastes cache storage/restore time without adding hit rate. Use the built-in `cache:` option first; only add a manual `actions/cache` step for something the setup action doesn't already cover (e.g. a Docker Buildx cache dir with `type=local`, if `type=gha` isn't available on self-hosted runners).
+
+None of this changes the two-workflow ceiling — caching is an amendment *within* the allowed workflow(s), not a reason to add more of them. When reviewing an existing deploy workflow, missing cache configuration is a finding to fix in place, same priority as a missing `timeout-minutes`.
+
 ## Team projects
 
 If the project workflow memory says `staffing: team` AND `PRs: yes`, a single push/PR-triggered validation workflow (build + unit tests, with `paths` filters and concurrency cancellation) is acceptable, because there is a reviewer who needs the signal remotely. The heavy checks (CodeQL, mutation testing, scheduled scans) stay forbidden without an explicit, recorded user decision.
