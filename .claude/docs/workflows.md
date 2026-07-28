@@ -400,9 +400,19 @@ Multiple Claude Code instances working together with direct communication and a 
 
 ## Model and output
 
-- Default model: Opus 4.6 with 1M token context window (Max/Team/Enterprise)
-- Default max output: 64k tokens, upper limit 128k tokens (Opus 4.6 and Sonnet 4.6)
-- Fast mode (`/fast`) uses the same Opus 4.6 with faster output — does NOT switch model
+Current lineup (verified July 2026 — re-check before quoting, this section goes stale fast):
+
+| Model | Model ID | $/MTok in → out | Where it is the default |
+|---|---|---|---|
+| Fable 5 | `claude-fable-5` | 10 → 50 | Opt-in (requires usage-credits consent) |
+| Opus 5 | `claude-opus-5` | 5 → 25 | Max, Team Premium, Enterprise PAYG, API — 1M context |
+| Sonnet 5 | `claude-sonnet-5` | 3 → 15 (intro 2 → 10 through Aug 31) | Pro, Team Standard, Enterprise seats — 1M context, adaptive thinking on |
+| Haiku 4.5 | `claude-haiku-4-5-20251001` | 1 → 5 | Cheap tier for mechanical subagents |
+
+- Default max output: 64k tokens, upper limit 128k tokens
+- Fast mode (`/fast`) runs Opus 5 with faster output — it does NOT downgrade to a smaller model. Opus 4.7 was removed from fast mode.
+- `fallbackModel` (v2.1.166+) configures up to three fallback models tried in order when the primary is unavailable.
+- Effort: `/effort` slider with `xhigh` as the recommended level for hard coding work; hooks read the active level from `$CLAUDE_EFFORT` / `effort.level`.
 
 ## Session management
 

@@ -154,6 +154,7 @@ Read these files WHEN you need them — do not load everything upfront:
 - **Spec interview (15–25 questions per spec, auto-answered by default / human on flag, anti-drift hard gate)** → `.claude/rules/spec-interview.md`
 - **Spec register (one stop per spec, project-level rail)** → `.claude/rules/spec-register.md`
 - **Spec hardening (risk tier above full, integration checkpoints, /clear for big specs)** → `.claude/rules/spec-hardening.md`
+- **Template auto-sync (SessionStart, keeps projects current without `/project-update`)** → `.claude/docs/template-autosync.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
 - **Stress testing (pre-deploy)** → `.claude/docs/stress-testing.md`
 - **Codebase knowledge graph (opt-in per project)** → `.claude/docs/graphify.md`

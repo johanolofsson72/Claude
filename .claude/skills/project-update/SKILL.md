@@ -27,9 +27,11 @@ Check that the required tools are available:
 ```bash
 command -v uv && echo "[OK] uv found" || echo "[MISSING] uv — install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
 command -v specify && echo "[OK] specify found" || echo "[MISSING] specify — will be installed"
+command -v python3 && echo "[OK] python3 found" || echo "[MISSING] python3 — required by the sync helper scripts"
+command -v jq && echo "[OK] jq found" || echo "[MISSING] jq — four inline hooks in settings.json parse tool input with jq and SILENTLY no-op without it. Install: apt/dnf/pacman install jq (Linux) · brew install jq (macOS)"
 ```
 
-If `uv` is missing, tell the user to install it and stop.
+If `uv` or `python3` is missing, tell the user to install it and stop. A missing `jq` is not fatal — the sync proceeds — but report it in Step 8, because the affected hooks fail open (no error, no effect), which is the worst kind of broken.
 
 If `$ARGUMENTS` is `sync-only`, skip to Step 4.
 

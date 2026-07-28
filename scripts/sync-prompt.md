@@ -270,11 +270,13 @@ If any are missing — copy from template.
 **Optional: Install Allium CLI** for automatic `.allium` file validation:
 
 ```bash
-# Homebrew
+# macOS / Linuxbrew
 brew tap juxt/allium && brew install allium
-# Or Cargo
+# Any platform with a Rust toolchain (the Linux path — install rustup first if needed)
 cargo install allium-cli
 ```
+
+No distro package exists, so on a plain Linux box without Homebrew the Cargo path is the only one: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` then `cargo install allium-cli`. Allium is optional — without the CLI, `.allium` files are written and read but not machine-validated.
 
 ### Step 5c: Verify local-LLM offload stack
 
@@ -654,12 +656,23 @@ if command -v tlc &>/dev/null; then
   echo "[SKIPPED] TLC model checker — already installed ($(which tlc))"
 elif command -v brew &>/dev/null; then
   echo "[INSTALLING] TLC model checker via Homebrew..."
-  brew install --quiet tlaplus
-  echo "[INSTALLED] TLC model checker (tlaplus)"
+  brew install --quiet tlaplus && echo "[INSTALLED] TLC model checker (tlaplus)" \
+    || echo "[FAILED] brew install tlaplus — install manually"
 else
+  # No Homebrew (the normal case on Linux). Install the JAR into the user's own
+  # ~/.local/lib — /usr/local/lib is root-owned on Linux and the template denies
+  # Bash(sudo *), so writing there fails. Report the real curl exit code; a
+  # download that 404s or times out must NOT print [INSTALLED].
   echo "[INSTALLING] TLC model checker via JAR download..."
-  curl -fsSL -o /usr/local/lib/tla2tools.jar https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
-  echo "[INSTALLED] TLC model checker (JAR at /usr/local/lib/tla2tools.jar)"
+  mkdir -p "$HOME/.local/lib"
+  if curl -fsSL -o "$HOME/.local/lib/tla2tools.jar" \
+       https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar; then
+    echo "[INSTALLED] TLC model checker (JAR at $HOME/.local/lib/tla2tools.jar)"
+    echo "            run with: java -cp $HOME/.local/lib/tla2tools.jar tlc2.TLC <spec>"
+  else
+    echo "[FAILED] TLC JAR download failed — /tla falls back to reasoning-only verification."
+    echo "         Distro packages: Debian/Ubuntu 'apt install tlaplus' · Fedora 'dnf install tlaplus' · Arch AUR 'tla-plus-toolbox'"
+  fi
 fi
 ```
 
@@ -791,6 +804,22 @@ git add -f .claude/.sync-version 2>/dev/null && echo "[STAGED] .claude/.sync-ver
 ```
 
 **Why this matters:** `.sync-version` is per-project cache state. If it's gitignored or left unstaged, a teammate who clones the repo fresh has no record of the last sync SHA, and their next `/project-update` will do a full 100% sync instead of the incremental path. Committing it is the only way the cache survives across machines.
+
+### Step 8b2: Arm the template auto-sync (MANDATORY)
+
+This sync is the *last* one the developer should have to trigger by hand for the mechanical half. `scripts/template-autosync.sh` + `scripts/template-autosync-hook.sh` keep `scripts/`, `.claude/rules/`, `.claude/docs/`, `.claude/agents/` and the core-hook wiring current from a SessionStart hook, rate-limited to one check per 6 hours, committing only what it wrote. Full contract: `.claude/docs/template-autosync.md`.
+
+Both scripts are in the core script set (they copy like any other hook script) and `sync-core-hooks.py` wires the SessionStart hook automatically once they exist on disk. Verify it landed:
+
+```bash
+test -f scripts/template-autosync.sh && test -f scripts/template-autosync-hook.sh \
+  && echo "[OK] auto-sync scripts present" || echo "[GAP] auto-sync scripts missing — copy them from the template"
+grep -q "template-autosync-hook.sh" .claude/settings.json \
+  && echo "[OK] auto-sync hook wired" || echo "[GAP] not wired — run: python3 scripts/sync-core-hooks.py \"$TEMPLATE/.claude/settings.json\""
+bash scripts/template-autosync.sh --check
+```
+
+The `--check` run is report-only. It also seeds nothing — the first real run (next session start) writes the `.claude/.template-sync` manifest that protects locally-modified files from then on.
 
 ### Step 8c: Freshness pass (ALWAYS RUNS — regardless of sync mode)
 

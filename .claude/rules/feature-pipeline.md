@@ -22,7 +22,9 @@ Every developer request that is **not** a trivial one-file fix MUST go through t
                                                                                     /tla (distill + drift + invariants)
 ```
 
-> **Command names (spec-kit v0.10.x + `--integration claude`).** `specify init` installs these phases as **skills** with hyphenated names: `/speckit-specify`, `/speckit-clarify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze`, `/speckit-implement` (plus `/speckit-constitution` and `/speckit-checklist`). Earlier spec-kit used bare `/specify` etc. — those no longer match the installed skills, so always use the `/speckit-` prefix. `/allium:elicit` and `/tla` are this project's OWN skills (not spec-kit) and keep their names.
+> **Command names (spec-kit v0.10.0+ — current release v0.14.2 as of July 2026 — with `--integration claude`).** The hyphenated skill names below have been stable since the v0.10 line; v0.11–v0.14 normalized hyphenation across integrations, moved Claude Code files from `.claude/commands/` to `.claude/skills/`, and added a `py` script type (v0.14.0) alongside `sh`/`ps`. The install commands in `/project-wizard` and `/project-update` pull from `git+…/spec-kit.git` (i.e. whatever `main` is that day) — pin a tag (`uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.14.2`) when two developers need identical phases.
+>
+> **Skill names.** `specify init` installs these phases as **skills** with hyphenated names: `/speckit-specify`, `/speckit-clarify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze`, `/speckit-implement` (plus `/speckit-constitution` and `/speckit-checklist`). Earlier spec-kit used bare `/specify` etc. — those no longer match the installed skills, so always use the `/speckit-` prefix. `/allium:elicit` and `/tla` are this project's OWN skills (not spec-kit) and keep their names.
 >
 > **Two spec-kit phases sit outside the per-spec blocking chain above:**
 > - **`/speckit-constitution`** — establishes the project's principles. Runs **once at project init** (the `/project-wizard` skill generates the constitution), not per spec. Re-run only when amending principles.
