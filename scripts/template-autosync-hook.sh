@@ -63,8 +63,14 @@ RC=$?
 [ "$RC" -ne 0 ] && exit 0            # fail open
 
 case "$OUT" in
-  *"[synced]"*) ;;                   # something changed — report it
+  *"[synced]"*) ;;                   # the sync ran
   *) exit 0 ;;                       # up to date / skipped — stay silent
+esac
+
+# A run that wrote nothing is not news. Only speak when files actually moved —
+# otherwise every session start after a template no-op costs context for nothing.
+case "$OUT" in
+  *"0 updated, 0 added"*) exit 0 ;;
 esac
 
 MSG=$(printf '%s' "$OUT" | sed -e 's/"/\\"/g' -e 's/$/\\n/' | tr -d '\n')

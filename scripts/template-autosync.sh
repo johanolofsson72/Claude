@@ -48,6 +48,9 @@ while [ $# -gt 0 ]; do
 done
 
 say()  { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*"; }
+# The final summary is the machine-readable result — the SessionStart wrapper
+# greps it for "[synced]". --quiet suppresses chatter, never this.
+tell() { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
 
 # ---------------------------------------------------------------- project root
@@ -342,9 +345,9 @@ fi
 SUMMARY="template $TEMPLATE_SHA → $N_WROTE updated, $N_ADDED added, $N_SKIP skipped (locally modified)"
 [ -n "$HOOKS_NOTE" ] && SUMMARY="$SUMMARY · $HOOKS_NOTE"
 SUMMARY="$SUMMARY · $COMMIT_NOTE"
-say "[synced] $SUMMARY"
+tell "[synced] $SUMMARY"
 if [ "$N_SKIP" -gt 0 ]; then
-  say "[manual] locally-modified files left alone — run /project-update to merge them:"
-  for x in $SKIPPED; do say "         $x"; done
+  tell "[manual] locally-modified files left alone — run /project-update to merge them:"
+  for x in $SKIPPED; do tell "         $x"; done
 fi
 exit 0
