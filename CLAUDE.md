@@ -25,7 +25,7 @@ Rules tagged **(BLOCKING)** are enforced — by hooks (some are hard PreToolUse 
 - Missing information is not a blocker — make reasonable assumptions and continue.
 - Errors should be handled and fixed independently.
 - Questions are allowed ONLY for architecture decisions or requirement interpretations that cannot reasonably be assumed.
-- **Max 3 attempts per problem** — if the same approach fails 3 times, run `/clear` and try a completely different strategy with a better prompt.
+- **Max 3 attempts per problem** — if the same approach fails 3 times, run `/clear` and try a completely different strategy with a better prompt. Enforced: `scripts/repeat-failure-guard-hook.sh` counts consecutive failures of the same verification command and fires at 3 ("change strategy, not syntax"), escalating at 5 ("this is a blocker — surface it"). A passing run resets the counter.
 
 ### Anti-stall rule
 

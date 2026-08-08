@@ -156,10 +156,16 @@ Use `AskUserQuestion` to confirm the project's tech stack (the sync-prompt has t
 - **Core-hook wiring check** — every core hook script present on disk MUST be wired (catches the prose-merge gap that previously dropped pipeline/register/interview hooks):
 
   ```bash
-  for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook; do
-    test -f "scripts/$s.sh" && ! grep -q "$s.sh" .claude/settings.json && echo "[GAP] $s present on disk but NOT wired — run: python3 scripts/sync-core-hooks.py \"\$TEMPLATE/.claude/settings.json\""
+  for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook \
+           spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook \
+           continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+    if [ ! -f "scripts/$s.sh" ]; then
+      echo "[MISSING] scripts/$s.sh never copied — re-run the core-script mirror (sync-prompt.md Step 5c)"
+    elif ! grep -q "$s.sh" .claude/settings.json; then
+      echo "[GAP] $s present on disk but NOT wired — run: python3 scripts/sync-core-hooks.py \"\$TEMPLATE/.claude/settings.json\""
+    fi
   done
-  echo "core-hook wiring check done (no [GAP] lines above = complete)"
+  echo "core-hook check done (no [MISSING]/[GAP] lines above = complete)"
   ```
 
   If `spec-interview-guard-hook` prints `[GAP]`, the anti-drift gate is not active — re-run `sync-core-hooks.py` (and confirm `scripts/spec-interview-guard-hook.sh` was copied first).

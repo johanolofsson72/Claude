@@ -115,9 +115,42 @@ if [ -n "$FOUND_REG" ]; then
   whole. See 'Keep the register lean' / 'Keep the map lean' in .claude/rules/."
   fi
 
+  # Failure memory for a resumed spec: when a row is mid-flight ("- [/]"), show
+  # the TAIL of its run log so a fresh session knows what already went wrong
+  # (escalated interview answer, failed gate, deferred finding) instead of
+  # rediscovering it. Tail only — the log is never pipeline input.
+  RUNLOG_TAIL=""
+  if [ "$PROG" -gt 0 ]; then
+    IP_ROW=$(grep -m1 -E '^- \[/\]' "$FOUND_REG" 2>/dev/null | sed -E 's/^- \[.\] *//')
+    IP_ID=$(printf '%s' "$IP_ROW" | awk '{print $1}')
+    IP_SLUG=$(printf '%s' "$IP_ROW" | awk -F' — ' '{print $2}' | tr -d ' ')
+    for cand in "${PROJECT_ROOT}/specs/${IP_ID}-${IP_SLUG}/run-log.md" "${PROJECT_ROOT}/.specify/specs/${IP_ID}-${IP_SLUG}/run-log.md"; do
+      if [ -f "$cand" ]; then
+        TAIL_LINES=$(grep -E '^- ' "$cand" 2>/dev/null | tail -5)
+        [ -n "$TAIL_LINES" ] && RUNLOG_TAIL="
+Run log (last 5, ${cand#$PROJECT_ROOT/}):
+${TAIL_LINES}"
+        break
+      fi
+    done
+  fi
+
+  # Quiet mode vs attention mode. A SessionStart advisory that prints the same
+  # paragraph every session is a fixed context tax on EVERY session, forever, and
+  # it trains the reader to skim past exactly the sessions where it matters. So:
+  # the full block prints only when something is actually actionable (checkpoint
+  # due / fresh-context banner / size canary / a blocked or in-flight row);
+  # otherwise the register collapses to a single line.
+  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}"
+  if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
+    MSG="Register: ${DONE}/${TOTAL} done · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
+    jq -n --arg m "$MSG" '{systemMessage: $m}'
+    exit 0
+  fi
+
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}
+Next: ${NEXT_LINE}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit + push to main, tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   jq -n --arg m "$MSG" '{systemMessage: $m}'

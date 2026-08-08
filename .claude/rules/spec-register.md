@@ -64,6 +64,19 @@ The register is read (and often re-read) on essentially every spec. If it balloo
 - **Never load the history section as pipeline input.** When you read the register to find the next row, read the `## Specs` list only. `INDEX.history.md` exists so it can be consulted *deliberately* (an audit question), not swallowed by default.
 - **Ticking a row is an Edit, not a rewrite.** Change `- [ ]` to `- [x]` on the one row with a surgical `Edit`; do not read-and-rewrite the whole register to tick one box.
 
+## Failure memory across `/clear` (`<spec-dir>/run-log.md`)
+
+The register says *which* spec is next; the on-disk artifacts (`spec.md`, `spec.allium`, `plan.md`, `tasks.md`) say *which phase* it reached. Neither remembers what went **wrong** getting there — and `.claude/rules/spec-hardening.md` actively tells you to resume big specs in a fresh session, which throws that memory away.
+
+`scripts/spec-run-log-hook.sh` keeps it: one line per event in `<spec-dir>/run-log.md`, appended automatically when a pipeline artifact is written, and manually for anything worth remembering:
+
+```bash
+bash scripts/spec-run-log-hook.sh --note "mutation gate FAILED — 41% on AuthService, tests are theatre"
+bash scripts/spec-run-log-hook.sh --note "Q7 authz escalated to developer — anonymous search deferred to a later spec"
+```
+
+Rules: **one line per entry, never a paragraph** (the same discipline as "Keep the register lean" — this file is read on resume). It is **not** pipeline input and nothing gates on it; the SessionStart hook surfaces only the last 5 lines, and only while the row is `- [/]`. Log the things a fresh session would otherwise rediscover the hard way: failed gates, escalated answers, deferred findings, a phase you had to redo.
+
 ## The status summary (the one stop per spec)
 
 When a spec is complete, Claude's stop message uses this exact shape:
@@ -129,6 +142,8 @@ The register is enforced deterministically — Claude cannot silently skip it be
 The walk in both hooks stops at the `.git` boundary so a parent directory's stray language marker (e.g. a `~/package.json` left over from some other project) cannot cause a false positive in an unrelated repo. The template repo itself trips no enforcement because it has no language marker at its `.git` root.
 
 ## Bootstrapping the register (new projects)
+
+**On a project that went through `/project-wizard`, the register already exists** — the wizard writes it in Phase 3D-3 from the inception interview, while it still holds the core modules, auth model, and risk surface in context. The steps below are the fallback for a project that never ran the wizard (or ran an older version of it). If you find yourself bootstrapping a register on a project whose wizard ran recently, that is a wizard bug worth reporting, not a routine step.
 
 When a new project starts and `specs/INDEX.md` does not yet exist:
 

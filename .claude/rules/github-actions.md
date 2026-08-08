@@ -30,6 +30,8 @@ Creating any of the following as GitHub Actions workflows:
 - Push-triggered test or build workflows — tests run locally per the Definition of Done
 - EAS/store build workflows on push — run `eas build` locally or via `workflow_dispatch` only if truly needed
 
+**The ban comes with an answer.** "No `schedule:` triggers" is only half a policy — the other half is where the recurring work actually happens, otherwise "nightly" quietly means "never" (which is what happened to the mutation gate and the secret scan). `scripts/project-maintenance.sh` is the local recurring pass: secrets + CVEs, context-cost canary, register drift, the every-5 hardening checkpoint, and `--full` for the mutation kill rate. It reports in attention mode (clean = one line) and exits 0/1/2 so a scheduler can branch. Wire it with `/schedule` (a weekly cloud routine), `/loop 7d`, or a plain crontab entry — all of which cost zero Actions minutes.
+
 When a spec says "add a CI gate", the correct implementation is a local script, a Claude Code hook, or a step inside the existing deploy workflow's validation gate. Not a new workflow file. If a spec explicitly demands a new workflow, that is a register-rewrite conversation per `.claude/rules/spec-register.md`, not a silent `mkdir .github/workflows`.
 
 Dependabot config (`.github/dependabot.yml`) is allowed — Dependabot PRs consume no Actions minutes by themselves. But remember: every Dependabot PR triggers any push/PR-triggered workflows that exist. One more reason the allowed set excludes them.

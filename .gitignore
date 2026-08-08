@@ -15,3 +15,6 @@ CLAUDE.local.md
 
 # Template auto-sync rate-limit marker (machine-local; the manifest .claude/.template-sync IS tracked)
 .claude/.template-sync-check
+
+# Attempt counters for the repeat-failure guard (machine-local, TTL-pruned)
+.claude/state/

@@ -141,6 +141,9 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `scripts/spec-register-orientation-hook.sh` — SessionStart advisory. Emits the spec-register status (totals + next row) and the `/clear`-before-big-spec banner, PLUS a **context-cost canary**: `wc -c` on `specs/INDEX.md` and `specs/SCENARIOS.md`, and past ~25 KB it warns that these per-spec-read files have ballooned and to run `scripts/archive-spec-history.sh` + read them targeted. Wired into SessionStart by `sync-core-hooks.py` (script-presence gated). Pairs with `.claude/rules/spec-register.md`. (Previously absent from this manifest — a project only received edits to it by accident; now copied like the other core hooks.)
 - `scripts/archive-spec-history.sh` — Local one-shot context-cost cleanup (NOT a hook — invoked manually). Moves OLD `## Register history` / `## Scenario history` entries out of `specs/INDEX.md` / `specs/SCENARIOS.md` into sibling `*.history.md` archives (never read in-flight), keeping the last ~5 inline (`--keep N`, `--dry-run` to preview). Touches only the history section — live spec rows / SC-id ledger are untouched; reversible via git. **The pre-cleanup a developer runs before `/project-update` when their register/scenario history has bloated** (the self-reinforcing paragraph-per-spec cost). Pairs with the "Keep the register lean" / "Keep the map lean" sections in `.claude/rules/spec-register.md` + `.claude/rules/scenarios.md`. bash/awk, cross-platform. LOCAL only.
 - `scripts/spec-interview-guard-hook.sh` — PreToolUse hard block (third sibling of `spec-register-guard` and `pipeline-state-guard`). Denies source-code edits until the project's active spec records a completed anti-drift interview — at least 15 answered questions (target 15–25) in `<spec-dir>/interview.md`. In the default AUTO mode it counts human `**A:**` + auto `**A (auto):**` answers; with `SPEC_INTERVIEW_MODE=manual` it counts only human `**A:**` answers (forcing a fully-human interview). Walks up to the project root, reads `specs/INDEX.md` for the active spec, counts answers. Silent on template/scratch repos (no language marker), fails open on internal errors. Pairs with `.claude/rules/spec-interview.md`. Override the floor with `SPEC_INTERVIEW_MIN` (default 15); force fully-human answering with `SPEC_INTERVIEW_MODE=manual`.
+- `scripts/repeat-failure-guard-hook.sh` — PostToolUse hook on `Bash`. Makes CLAUDE.md's "Max 3 attempts per problem" enforceable instead of aspirational. Fingerprints VERIFICATION commands only (`dotnet build|test|stryker`, `npm test|run build|lint|typecheck`, `pytest`, `go test`, `cargo test`, `flutter test|build|analyze`, `maestro`/`patrol`, `mvn`/`gradlew`, `tsc`, `eslint`, `vitest`, `jest`, `playwright test`) and counts CONSECUTIVE failures per fingerprint in `.claude/state/attempts/` (gitignored, TTL-pruned, default 6h). At 3 it injects "change strategy, not syntax"; at 5 it escalates to "this is a hard blocker — surface it". A passing run resets the counter. Never blocks, fails open, needs `jq`. Failure detection is signature-based (`Build FAILED`, `error CS…`, `error TS…`, `npm ERR!`, `Exit code: [1-9]`, …) — deliberately biased toward false negatives so it stays quiet rather than crying wolf. Tunables: `ATTEMPT_LIMIT` (3), `ATTEMPT_ESCALATE` (5), `ATTEMPT_TTL` (21600), `REPEAT_FAILURE_DISABLE=1`.
+- `scripts/spec-run-log-hook.sh` — PostToolUse hook on `Edit`/`Write` (also callable as `--note "<text>"`). Appends ONE line per event to `<spec-dir>/run-log.md` when a pipeline artifact is written (spec.md / interview.md / *.allium / plan.md / tasks.md), deduped against the previous line and capped at `RUNLOG_MAX` (60). **Failure memory across `/clear`**: artifact-derived pipeline state answers "which phase am I in" but carries no memory of what went wrong getting there — the escalated interview answer, the 41% mutation score, the deferred TLA+ gap. A spec resumed in a fresh session (which `spec-hardening.md` actively encourages) would otherwise start blind. NOT pipeline input — nothing gates on it; `spec-register-orientation-hook.sh` surfaces only the last 5 lines, and only for an in-progress `- [/]` row. Disable with `RUNLOG_DISABLE=1`.
+- `scripts/project-maintenance.sh` — The recurring LOCAL maintenance pass (NOT a hook — invoked manually or by a scheduler). Wraps `project-freshness.sh` (trufflehog + `npm audit`), the 25 KB context-cost canary on `specs/INDEX.md` / `SCENARIOS.md`, register drift (blocked rows, >1 in-progress row, a missed every-5 integration-hardening checkpoint), stale attempt-counter pruning, and — with `--full` — the mutation kill-rate pass (`dotnet stryker` / `npx stryker run`, flagging <80%). **Attention mode**: a clean run prints one line, findings print the full report; exit 0 = clean, 1 = findings, 2 = a step could not run, so a scheduler can branch on it. This is what finally makes the "nightly/on-demand" mutation + secret scanning in `.claude/docs/testing.md` and `.claude/rules/tests.md` actually happen — wire it via `/schedule`, `/loop 7d`, or crontab. NEVER as a GitHub Action `schedule:` trigger (`.claude/rules/github-actions.md`). bash 3.2-safe, cross-platform. LOCAL only.
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
 - `scripts/project-freshness.sh` — Local "keep the project fresh" maintenance pass (NOT a hook — invoked manually or as a sync step). Runs a trufflehog verified-secret scan (git history, or working tree if no `.git`) and an `npm audit` dependency-CVE report for every non-vendored `package.json`. **Self-installs trufflehog if missing** (brew → scoop → official install script into `~/.local/bin`, mirroring `graphify-bootstrap.sh`; `--no-install` suppresses it). Report-first: mutates nothing in the project tree by default; `--fix` opts into `npm audit fix --force` plus a build/test verification reminder. Falls back to a manual-install hint only if every trufflehog install path fails; `npm audit` is skipped (not failed) when there's no lockfile or npm is absent. bash 3.2-safe, cross-platform (macOS/Linux/Windows Git Bash). LOCAL only — never wire it as a CI/scheduled Action (`.claude/rules/github-actions.md`).
 - `scripts/skill-audit.sh` — Local "what skills am I actually loading?" audit pass (NOT a hook — invoked manually or as a sync step, Step 8e). Finds every `SKILL.md` under `~/.claude/skills` (global, shared across all projects) and `./.claude/skills` (project), including nested ones (one clone like anthropics/skills contains many skills), extracts name + description, estimates the per-session baseline context cost (`chars/4`, since only name+description load at session start — full bodies load on fire via progressive disclosure), and sums an honest total. Detects the project's stack (`.claude/.sync-stack`, else `.csproj`/`pubspec.yaml`/`package.json` markers) and **flags** bundles the stack plainly does not use (`[REVIEW]` — e.g. `playwright-skill`/`qa-test` on a mobile-only stack with no browser, `dotnet-skills` with no `.csproj`, `vercel-skills` React-web-perf on a Flutter app). Warns when the global count crosses a soft ceiling (`--ceiling`, default 15). **REPORT-ONLY — it NEVER deletes**: global skills are shared, so deleting one because *this* project's stack does not use it would break a sibling project; `[REVIEW]` means "review", not "safe to delete". The deliberate complement to the install-only skill sync (Step 6): the installer adds, this surfaces the cost so the developer prunes with discipline. bash 3.2-safe, cross-platform. LOCAL only.
@@ -316,6 +319,25 @@ bash scripts/verify-local-llm-hooks.sh "$TEMPLATE/.claude/settings.json"
 
 Three checks run: (1) the wired set matches the template's exactly, (2) every wired hook has its script file on disk, (3) the count matches the template. Exit non-zero on any failure. **If this fails, the sync is broken — fix it before reporting success in Step 10.** Capture the stdout for the Step 10 report.
 
+**Copy the CORE ENFORCEMENT scripts first (MANDATORY — deterministic, never tech-stack gated).**
+
+`sync-core-hooks.py` gates wiring on script presence, which is exactly right for the tech-stack hooks (a non-UI project should not get `tla-hook.sh` back) — but it means a core script that was never COPIED is silently never wired, and the verify loop below, which only checks "present on disk → wired", reports green on a project that has no guards at all. The enforcement family is mandatory on every project regardless of stack; copy it deterministically instead of trusting a prose file list:
+
+```bash
+for s in \
+  pipeline-trigger-match.sh emit-pipeline-reminder.sh emit-analyze-reminder.sh emit-clarify-reminder.sh \
+  feature-pipeline-detect.sh spec-register-guard-hook.sh pipeline-state-guard-hook.sh \
+  spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh spec-register-orientation-hook.sh \
+  scenario-map-reminder-hook.sh scenario-map-orientation-hook.sh after-specify-hook.sh \
+  continuous-execution-hook.sh stop-validation-hook.sh repeat-failure-guard-hook.sh \
+  spec-run-log-hook.sh archive-spec-history.sh project-maintenance.sh project-freshness.sh \
+  sync-core-hooks.py pipeline-trigger-match.py; do
+  [ -f "$TEMPLATE/scripts/$s" ] && cp "$TEMPLATE/scripts/$s" "scripts/$s"
+done
+chmod +x scripts/*.sh scripts/*.py 2>/dev/null
+echo "[OK] core enforcement scripts mirrored from template"
+```
+
 **Wire the CORE hooks deterministically** (pipeline / spec-register / execution / tech-stack — the family that prose-merge kept dropping):
 
 ```bash
@@ -327,11 +349,21 @@ This strips every template core hook from the project's `.claude/settings.json` 
 **Verify core hooks landed** (run in project root):
 
 ```bash
-# Every core hook script the project HAS on disk must be wired — no script present-but-unwired
-for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook; do
-  test -f "scripts/$s.sh" && ! grep -q "$s.sh" .claude/settings.json && echo "[GAP] $s present on disk but NOT wired"
+# (a) MANDATORY enforcement scripts must EXIST — a missing script is silently never
+#     wired, which is how a project ends up with zero guards and a green report.
+gap=0
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook \
+         spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook \
+         continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+  test -f "scripts/$s.sh" || { echo "[MISSING] scripts/$s.sh never copied — re-run the core-script mirror above"; gap=1; }
 done
-echo "core-hook wiring check done (no [GAP] lines above = complete)"
+# (b) every core hook script present on disk must be WIRED — no script present-but-unwired
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook \
+         spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook \
+         continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+  test -f "scripts/$s.sh" && ! grep -q "$s.sh" .claude/settings.json && { echo "[GAP] $s present on disk but NOT wired"; gap=1; }
+done
+[ "$gap" -eq 0 ] && echo "core-hook check done — all enforcement scripts present AND wired"
 ```
 
 **Currently wired by default (20 hooks — 7 token-saver core + 13 quality-gate-adjacent):**

@@ -306,6 +306,87 @@ rm -rf "$IVT2"
 
 rm -rf "$IVT"
 
+# ─── loop breakers, attempt limit, run log, quiet mode ────────────────────
+#
+# The four mechanisms added after the loop-engineering review. Together they are
+# the "iteration limit + failure memory + attention mode" layer: a Stop hook that
+# cannot re-block forever, an attempt counter that makes CLAUDE.md's 3-attempt cap
+# real, a per-spec run log that survives /clear, and a SessionStart advisory that
+# shuts up when nothing is wrong.
+
+echo
+echo "── loop breakers (stop_hook_active) ───────────────────"
+echo
+
+_stop_active() {
+  local name="$1" script="$2" rc
+  echo '{"stop_hook_active":true,"transcript_path":"/nonexistent"}' | bash "scripts/$script" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then _record "$name" 0; else _record "$name (expected 0, got $rc)" 1; fi
+}
+_stop_active "continuous-execution: re-entry → allow stop" continuous-execution-hook.sh
+_stop_active "stop-validation: re-entry → allow stop"      stop-validation-hook.sh
+
+echo
+echo "── repeat-failure-guard-hook.sh ───────────────────────"
+echo
+
+RFT=$(mktemp -d); mkdir -p "$RFT/.git"
+_rf() {  # $1 name, $2 expect(fire|quiet), $3 cmd, $4 output
+  local out rc=0
+  out=$(printf '{"tool_input":{"command":%s},"tool_response":{"stdout":%s}}' \
+        "$(printf '%s' "$3" | jq -Rs .)" "$(printf '%s' "$4" | jq -Rs .)" \
+        | CLAUDE_PROJECT_DIR="$RFT" bash scripts/repeat-failure-guard-hook.sh 2>/dev/null)
+  case "$2" in
+    fire)  [ -n "$out" ] || rc=1 ;;
+    quiet) [ -z "$out" ] || rc=1 ;;
+  esac
+  _record "$1" "$rc"
+}
+FAILOUT="Build FAILED
+  error CS1002: ; expected"
+_rf "1st failure → quiet"                   quiet "dotnet test" "$FAILOUT"
+_rf "2nd failure → quiet"                   quiet "dotnet test" "$FAILOUT"
+_rf "3rd identical failure → fires"         fire  "dotnet test" "$FAILOUT"
+_rf "non-verification cmd never counted"    quiet "git status"  "$FAILOUT"
+printf '{"tool_input":{"command":"dotnet test"},"tool_response":{"stdout":"Passed!  - Failed: 0, Passed: 12"}}' \
+  | CLAUDE_PROJECT_DIR="$RFT" bash scripts/repeat-failure-guard-hook.sh >/dev/null 2>&1
+_rf "success resets the counter"            quiet "dotnet test" "$FAILOUT"
+rm -rf "$RFT"
+
+echo
+echo "── spec-run-log-hook.sh ───────────────────────────────"
+echo
+
+RLT=$(mktemp -d); mkdir -p "$RLT/.git" "$RLT/specs/002-search" "$RLT/src"
+# --note resolves the active spec from the register, so the register must exist.
+printf '# R\n\n## Specs\n\n- [/] 002 — search — full track — free-text search\n' > "$RLT/specs/INDEX.md"
+_rl_write() { echo "{\"tool_input\":{\"file_path\":\"$1\"}}" | bash scripts/spec-run-log-hook.sh >/dev/null 2>&1; }
+_rl_write "$RLT/specs/002-search/plan.md"
+_rl_write "$RLT/specs/002-search/plan.md"     # dedupe against previous line
+_rl_write "$RLT/src/app.ts"                   # not a pipeline artifact → ignored
+LOG="$RLT/specs/002-search/run-log.md"
+[ -f "$LOG" ] && [ "$(grep -cE '^- ' "$LOG")" -eq 1 ] \
+  && _record "logs one line per phase, deduped" 0 || _record "logs one line per phase, deduped" 1
+CLAUDE_PROJECT_DIR="$RLT" bash scripts/spec-run-log-hook.sh --note "mutation gate FAILED 41%" >/dev/null 2>&1
+grep -q 'mutation gate FAILED' "$LOG" 2>/dev/null \
+  && _record "--note writes to the active spec" 0 || _record "--note writes to the active spec" 1
+rm -rf "$RLT"
+
+echo
+echo "── spec-register-orientation quiet/attention mode ─────"
+echo
+
+QOT=$(mktemp -d); mkdir -p "$QOT/.git" "$QOT/specs"; : > "$QOT/package.json"
+_orient_lines() { (cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""' | grep -c .); }
+printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — b — light track — y\n' > "$QOT/specs/INDEX.md"
+[ "$(_orient_lines)" -eq 1 ] && _record "nothing actionable → one-line quiet mode" 0 \
+                             || _record "nothing actionable → one-line quiet mode" 1
+printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — b — full track — y\n' > "$QOT/specs/INDEX.md"
+[ "$(_orient_lines)" -gt 3 ] && _record "full-track next row → attention mode" 0 \
+                             || _record "full-track next row → attention mode" 1
+rm -rf "$QOT"
+
 # ─── totals ───────────────────────────────────────────────────────────────
 
 echo
