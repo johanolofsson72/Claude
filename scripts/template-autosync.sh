@@ -294,7 +294,14 @@ if [ "$MODE_CHECK" -eq 1 ]; then
   exit 0
 fi
 
-chmod +x "$PROJECT_ROOT"/scripts/*.sh 2>/dev/null
+# chmod ONLY what this sync wrote. A blanket `chmod +x scripts/*.sh` also flips
+# the mode bit on the project's own scripts, producing mode-change diffs in files
+# the sync does not own — unexplained churn in someone else's repo.
+for _f in $WROTE $ADDED; do
+  case "$_f" in
+    scripts/*.sh|scripts/*.py) chmod +x "$PROJECT_ROOT/$_f" 2>/dev/null ;;
+  esac
+done
 
 # ------------------------------------------------------------- self-update
 # A project runs its OWN copy of this script, so the CORE_SCRIPTS list in memory
