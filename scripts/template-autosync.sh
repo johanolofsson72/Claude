@@ -34,6 +34,7 @@ TEMPLATE_REPO_URL="https://github.com/johanolofsson72/Claude.git"
 TEMPLATE_TARBALL="https://codeload.github.com/johanolofsson72/Claude/tar.gz/refs/heads/main"
 
 MODE_CHECK=0; MODE_DRYRUN=0; FORCE=0; DO_COMMIT=1; QUIET=0
+ORIG_ARGS="$*"   # kept for the self-update re-exec below (flags contain no spaces)
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)     MODE_CHECK=1 ;;
@@ -196,6 +197,23 @@ STACK=$(sed -n 's/^testing=//p' "$PROJECT_ROOT/.claude/.sync-stack" 2>/dev/null 
 WROTE=""; SKIPPED=""; ADDED=""; ADOPTED=""
 NEW_MANIFEST=$(mktemp 2>/dev/null || mktemp -t manifest)
 
+# Write via temp + rename, never `cp` onto a live path.
+#
+# This sync overwrites scripts/template-autosync.sh — itself — while bash is
+# still reading it. bash reads a script incrementally by byte offset, so a plain
+# `cp` truncates and rewrites the SAME inode under the running interpreter, which
+# then resumes at its old offset inside different content and dies with a syntax
+# error somewhere in the middle of the file. `mv` swaps the directory entry
+# instead: the running process keeps its original inode open and finishes
+# cleanly, while the next exec picks up the new file. Same reasoning protects any
+# hook script that happens to be executing during a sync.
+atomic_copy() {
+  _dst="$2"
+  cp "$1" "$_dst.autosync-tmp.$$" 2>/dev/null && mv -f "$_dst.autosync-tmp.$$" "$_dst" 2>/dev/null && return 0
+  rm -f "$_dst.autosync-tmp.$$" 2>/dev/null
+  cp "$1" "$_dst"   # last-resort fallback (e.g. a filesystem without rename)
+}
+
 # copy_file <template-abs> <project-rel> <class> [<template-rel>]
 copy_file() {
   SRC="$1"; REL="$2"; CLASS="$3"; SRCREL="${4:-$2}"
@@ -221,13 +239,13 @@ copy_file() {
         return 0
       fi
     fi
-    [ "$MODE_CHECK" -eq 1 ] || cp "$SRC" "$DEST"
+    [ "$MODE_CHECK" -eq 1 ] || atomic_copy "$SRC" "$DEST"
     WROTE="$WROTE $REL"
   else
     # New file: only add CORE machinery. A doc/rule the project deliberately
     # removed (wordpress.md on a .NET project) must stay removed.
     is_core "$BASE" "$CLASS" || return 0
-    [ "$MODE_CHECK" -eq 1 ] || { mkdir -p "$(dirname "$DEST")"; cp "$SRC" "$DEST"; }
+    [ "$MODE_CHECK" -eq 1 ] || { mkdir -p "$(dirname "$DEST")"; atomic_copy "$SRC" "$DEST"; }
     ADDED="$ADDED $REL"
   fi
   printf '%s  %s\n' "$SRC_HASH" "$REL" >> "$NEW_MANIFEST"
@@ -277,6 +295,30 @@ if [ "$MODE_CHECK" -eq 1 ]; then
 fi
 
 chmod +x "$PROJECT_ROOT"/scripts/*.sh 2>/dev/null
+
+# ------------------------------------------------------------- self-update
+# A project runs its OWN copy of this script, so the CORE_SCRIPTS list in memory
+# is the one from the PREVIOUS template version. When the template adds a new
+# enforcement script, this run copies the updated template-autosync.sh but has
+# already decided (using the stale list) not to add the new script — so the
+# project needs a second run to converge. Re-exec once with the freshly-written
+# version instead. AUTOSYNC_REEXEC bounds it to exactly one hop: no matter what
+# the new version does, it cannot re-exec again.
+if [ "${AUTOSYNC_REEXEC:-0}" -eq 0 ]; then
+  case " $WROTE " in
+    *" scripts/template-autosync.sh "*)
+      say "[self-update] template-autosync.sh changed — re-running once with the new version"
+      # Carry this pass's counts so the final summary reports the whole sync,
+      # not just what the second pass happened to touch.
+      AUTOSYNC_REEXEC=1
+      AUTOSYNC_CARRY_WROTE=$(echo "$WROTE" | tr ' ' '\n' | grep -c .)
+      AUTOSYNC_CARRY_ADDED=$(echo "$ADDED" | tr ' ' '\n' | grep -c .)
+      export AUTOSYNC_REEXEC AUTOSYNC_CARRY_WROTE AUTOSYNC_CARRY_ADDED
+      rm -f "$NEW_MANIFEST"
+      exec bash "$PROJECT_ROOT/scripts/template-autosync.sh" $ORIG_ARGS --force
+      ;;
+  esac
+fi
 
 # ------------------------------------------------------- core-hook re-wiring
 HOOKS_NOTE=""
@@ -341,8 +383,8 @@ fi
 } > "$STAMP"
 rm -f "$NEW_MANIFEST"
 
-N_WROTE=$(echo "$WROTE" | tr ' ' '\n' | grep -c .)
-N_ADDED=$(echo "$ADDED" | tr ' ' '\n' | grep -c .)
+N_WROTE=$(( $(echo "$WROTE" | tr ' ' '\n' | grep -c .) + ${AUTOSYNC_CARRY_WROTE:-0} ))
+N_ADDED=$(( $(echo "$ADDED" | tr ' ' '\n' | grep -c .) + ${AUTOSYNC_CARRY_ADDED:-0} ))
 N_SKIP=$(echo "$SKIPPED" | tr ' ' '\n' | grep -c .)
 
 # ---------------------------------------------------------------- commit/push
