@@ -68,6 +68,14 @@ else
 fi
 ```
 
+**Step 4.5 — Apply the spec-kit extension policy (after every `specify init --force`):**
+
+```bash
+bash scripts/speckit-extension-policy.sh 2>/dev/null || true   # installed by the sync in Step 5; re-run there if missing
+```
+
+spec-kit 0.16.x enables its `git` extension by default, registering five skills that create feature branches, enforce branch naming, and auto-commit per phase — all of which contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push). Disable it here, and again after Step 5 if the script only landed during the sync. `agent-context` stays enabled.
+
 **Step 5 — Run the COMPLETE template sync (identical to `/project-update`):**
 
 This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-interview.md`, `spec-register.md`, `spec-hardening.md`, the stack rules), every doc, every hook script (including the `spec-interview-guard` that hard-blocks implementation until each spec has its 15–25 anti-drift questions answered — base auto-answered with the recommended option by default, human overflow when a spec is flagged large/advanced), the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.

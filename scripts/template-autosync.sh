@@ -171,6 +171,7 @@ spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-remi
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
 detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh
+speckit-extension-policy.sh
 archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
@@ -425,6 +426,19 @@ if [ -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] && command -v python3 
       case " $WROTE " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
       ;;
   esac
+fi
+
+# ------------------------------------------- spec-kit extension policy
+# `specify init --force` re-enables the git extension every time it runs, and it
+# runs outside this sync (via /project-update or by hand). Re-assert the policy
+# here so a project cannot silently regain feature-branch + auto-commit skills
+# that contradict spec-register.md. Idempotent and silent when already correct.
+if [ -f "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" ]; then
+  POL=$(bash "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" --repo "$PROJECT_ROOT" 2>/dev/null | head -1)
+  if [ -n "$POL" ]; then
+    say "[speckit] $POL"
+    case " $WROTE " in *" .specify/extensions/.registry "*) ;; *) WROTE="$WROTE .specify/extensions/.registry" ;; esac
+  fi
 fi
 
 # ------------------------------------------------- stack marker (derive if absent)
