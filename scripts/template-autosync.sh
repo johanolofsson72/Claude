@@ -330,6 +330,23 @@ fi
 
 # ------------------------------------------------------- core-hook re-wiring
 HOOKS_NOTE=""
+
+# A project with .claude/ but no settings.json has the rules and the scripts and
+# runs NONE of it — every hook lives in settings.json, so the whole deterministic
+# layer is simply absent. The wiring helpers then fail with "project settings not
+# found", which the block below used to report as a rollback, implying damage
+# where there was nothing to roll back. Seed it from the template instead; this is
+# what /project-update's settings.json merge prescribes for a file that does not
+# exist yet ("File does NOT exist in this project → copy from template").
+if [ ! -f "$PROJECT_ROOT/.claude/settings.json" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ]; then
+  atomic_copy "$TEMPLATE_DIR/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json"
+  ADDED="$ADDED .claude/settings.json"
+  HOOKS_NOTE="settings.json seeded from template (project had none)"
+  warn "[note] $PROJECT_ROOT had no .claude/settings.json — seeded from the template."
+  warn "       Enforcement hooks are now ACTIVE here. If this project has source code"
+  warn "       but no specs/INDEX.md, spec-register-guard will block source edits until"
+  warn "       you create the register (the deny message explains how)."
+fi
 if [ -f "$PROJECT_ROOT/scripts/sync-core-hooks.py" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ] \
    && command -v python3 >/dev/null 2>&1; then
   cp "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.autosync-bak" 2>/dev/null
