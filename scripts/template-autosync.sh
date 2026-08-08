@@ -244,9 +244,12 @@ copy_file() {
     [ "$MODE_CHECK" -eq 1 ] || atomic_copy "$SRC" "$DEST"
     WROTE="$WROTE $REL"
   else
-    # New file: only add CORE machinery. A doc/rule the project deliberately
-    # removed (wordpress.md on a .NET project) must stay removed.
-    is_core "$BASE" "$CLASS" || return 0
+    # New file: only add CORE machinery, plus template-owned SKILLS. A doc/rule
+    # the project deliberately removed (wordpress.md on a .NET project) must stay
+    # removed — but a missing skill is never a decision, it is just a project that
+    # predates the skill. Skills are add-if-missing yet manifest-protected on
+    # update (they are not in the CORE set), so a customized skill is still safe.
+    is_core "$BASE" "$CLASS" || [ "$CLASS" = "skills" ] || return 0
     [ "$MODE_CHECK" -eq 1 ] || { mkdir -p "$(dirname "$DEST")"; atomic_copy "$SRC" "$DEST"; }
     ADDED="$ADDED $REL"
   fi
@@ -267,6 +270,18 @@ for f in "$TEMPLATE_DIR"/.claude/agents/*.md; do
   [ -f "$f" ] || continue
   copy_file "$f" ".claude/agents/$(basename "$f")" agents
 done
+
+# Template-owned skills. Until this existed the sync shipped rules, docs, scripts
+# and agents but never skills — so a fix to /project-wizard or /project-update sat
+# in the template while 35 projects kept running the old copy. Since those two
+# skills are what bootstrap and update a project, a stale copy reproduces bugs
+# that were fixed months earlier. `find`, not a glob: skills carry nested files
+# (ui-ux-pro-max/data/*.csv, project-wizard/install.sh).
+if [ -d "$TEMPLATE_DIR/.claude/skills" ]; then
+  for rel in $(cd "$TEMPLATE_DIR/.claude/skills" && find . -type f 2>/dev/null | sed 's#^\./##'); do
+    copy_file "$TEMPLATE_DIR/.claude/skills/$rel" ".claude/skills/$rel" skills
+  done
+fi
 
 for f in "$TEMPLATE_DIR"/.claude/docs/*.md; do
   [ -f "$f" ] || continue
