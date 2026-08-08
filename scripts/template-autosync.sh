@@ -170,7 +170,7 @@ spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-gua
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
-detect-stack.sh prune-dangling-hooks.py
+detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh
 archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
