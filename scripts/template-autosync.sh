@@ -169,7 +169,7 @@ emit-clarify-reminder.sh emit-analyze-reminder.sh feature-pipeline-detect.sh
 spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-guard-hook.sh
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
-repeat-failure-guard-hook.sh spec-run-log-hook.sh
+repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
 archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py

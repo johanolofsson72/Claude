@@ -387,6 +387,56 @@ printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — 
                              || _record "full-track next row → attention mode" 1
 rm -rf "$QOT"
 
+echo
+echo "── stack-marker-canary-hook.sh ────────────────────────"
+echo
+
+# $1 name, $2 expect(warn|silent), $3 marker value ("" = no marker file), $4.. = setup fn
+_canary() {
+  local name="$1" expect="$2" marker="$3" rc=0 out
+  [ -n "$marker" ] && printf 'testing=%s\n' "$marker" > "$CT/.claude/.sync-stack" || rm -f "$CT/.claude/.sync-stack"
+  out=$(CLAUDE_PROJECT_DIR="$CT" bash scripts/stack-marker-canary-hook.sh 2>/dev/null)
+  case "$expect" in
+    warn)   [ -n "$out" ] || rc=1 ;;
+    silent) [ -z "$out" ] || rc=1 ;;
+  esac
+  _record "$name" "$rc"
+}
+
+# web project (vite + playwright, nested client dir like puck's web/)
+CT=$(mktemp -d); mkdir -p "$CT/.git" "$CT/.claude" "$CT/web"
+echo '{"devDependencies":{"vite":"5","@playwright/test":"1"}}' > "$CT/web/package.json"
+_canary "web project marked mobile → warns"        warn   mobile
+_canary "web project marked web → silent"          silent web
+_canary "web project, no marker → warns"           warn   ""
+_canary "hybrid marker on one-sided repo → silent" silent hybrid
+rm -rf "$CT"
+
+# Expo project
+CT=$(mktemp -d); mkdir -p "$CT/.git" "$CT/.claude"
+echo '{"dependencies":{"expo":"51","react-native":"0.74"}}' > "$CT/package.json"
+_canary "expo project marked web → warns"          warn   web
+_canary "expo project marked mobile → silent"      silent mobile
+rm -rf "$CT"
+
+# .NET backend + Expo client → hybrid
+CT=$(mktemp -d); mkdir -p "$CT/.git" "$CT/.claude" "$CT/api" "$CT/mobile"
+touch "$CT/api/Api.csproj"; echo '{"dependencies":{"expo":"51"}}' > "$CT/mobile/package.json"
+_canary "dotnet + expo marked mobile → warns"      warn   mobile
+_canary "dotnet + expo marked hybrid → silent"     silent hybrid
+rm -rf "$CT"
+
+# react-native-web is a WEB dependency — must not read as a native client
+CT=$(mktemp -d); mkdir -p "$CT/.git" "$CT/.claude"
+echo '{"dependencies":{"react-native-web":"0.19","vite":"5"}}' > "$CT/package.json"
+_canary "react-native-web ≠ native (no false positive)" silent web
+rm -rf "$CT"
+
+# nothing recognizable (template/scratch repo) → never speaks
+CT=$(mktemp -d); mkdir -p "$CT/.git" "$CT/.claude"
+_canary "unrecognizable stack → silent"            silent ""
+rm -rf "$CT"
+
 # ─── totals ───────────────────────────────────────────────────────────────
 
 echo
