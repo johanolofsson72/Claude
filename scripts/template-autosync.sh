@@ -398,6 +398,19 @@ if [ -f "$PROJECT_ROOT/scripts/sync-local-llm-hooks.py" ] && [ -f "$TEMPLATE_DIR
   fi
 fi
 
+# ------------------------------------- pick up the helper-owned script mirrors
+# sync-local-llm-hooks.py and sync-graphify-wiring.py mirror their own script
+# families as a side effect of wiring, outside the copy loop above — so those
+# writes never entered $WROTE and silently escaped the commit, leaving the repo
+# permanently dirty with files identical to the template. Same class of bug as
+# the re-exec dropping its file list; fold them in before staging.
+for _f in $(git -C "$PROJECT_ROOT" status --porcelain -- scripts 2>/dev/null | awk '{print $2}'); do
+  case "$_f" in
+    scripts/local-llm-*|scripts/graphify-*|scripts/sync-local-llm-hooks.py|scripts/sync-graphify-wiring.py)
+      case " $WROTE $ADDED " in *" $_f "*) ;; *) WROTE="$WROTE $_f" ;; esac ;;
+  esac
+done
+
 # --------------------------------------------------- prune dangling hook refs
 # settings.json can reference scripts the project never received — the graphify
 # and local-LLM families are owned by other helpers and are stack/opt-in gated,
