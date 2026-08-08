@@ -308,11 +308,12 @@ if [ "${AUTOSYNC_REEXEC:-0}" -eq 0 ]; then
   case " $WROTE " in
     *" scripts/template-autosync.sh "*)
       say "[self-update] template-autosync.sh changed — re-running once with the new version"
-      # Carry this pass's counts so the final summary reports the whole sync,
-      # not just what the second pass happened to touch.
+      # Carry this pass's file LISTS, not just counts. `git add -- $WROTE $ADDED`
+      # in the second pass stages only what that pass touched, so carrying counts
+      # alone leaves pass-1's files updated on disk but absent from the commit.
       AUTOSYNC_REEXEC=1
-      AUTOSYNC_CARRY_WROTE=$(echo "$WROTE" | tr ' ' '\n' | grep -c .)
-      AUTOSYNC_CARRY_ADDED=$(echo "$ADDED" | tr ' ' '\n' | grep -c .)
+      AUTOSYNC_CARRY_WROTE="$WROTE"
+      AUTOSYNC_CARRY_ADDED="$ADDED"
       export AUTOSYNC_REEXEC AUTOSYNC_CARRY_WROTE AUTOSYNC_CARRY_ADDED
       rm -f "$NEW_MANIFEST"
       exec bash "$PROJECT_ROOT/scripts/template-autosync.sh" $ORIG_ARGS --force
@@ -383,8 +384,17 @@ fi
 } > "$STAMP"
 rm -f "$NEW_MANIFEST"
 
-N_WROTE=$(( $(echo "$WROTE" | tr ' ' '\n' | grep -c .) + ${AUTOSYNC_CARRY_WROTE:-0} ))
-N_ADDED=$(( $(echo "$ADDED" | tr ' ' '\n' | grep -c .) + ${AUTOSYNC_CARRY_ADDED:-0} ))
+# Merge in whatever the pre-re-exec pass wrote, de-duplicated, so both the
+# commit and the summary cover the entire sync and not just the second pass.
+for _c in ${AUTOSYNC_CARRY_WROTE:-}; do
+  case " $WROTE " in *" $_c "*) ;; *) WROTE="$WROTE $_c" ;; esac
+done
+for _c in ${AUTOSYNC_CARRY_ADDED:-}; do
+  case " $ADDED " in *" $_c "*) ;; *) ADDED="$ADDED $_c" ;; esac
+done
+
+N_WROTE=$(echo "$WROTE" | tr ' ' '\n' | grep -c .)
+N_ADDED=$(echo "$ADDED" | tr ' ' '\n' | grep -c .)
 N_SKIP=$(echo "$SKIPPED" | tr ' ' '\n' | grep -c .)
 
 # ---------------------------------------------------------------- commit/push
