@@ -331,7 +331,7 @@ for s in \
   spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh spec-register-orientation-hook.sh \
   scenario-map-reminder-hook.sh scenario-map-orientation-hook.sh after-specify-hook.sh \
   continuous-execution-hook.sh stop-validation-hook.sh repeat-failure-guard-hook.sh \
-  spec-run-log-hook.sh stack-marker-canary-hook.sh \
+  spec-run-log-hook.sh stack-marker-canary-hook.sh detect-stack.sh prune-dangling-hooks.py \
   archive-spec-history.sh project-maintenance.sh project-freshness.sh \
   sync-core-hooks.py pipeline-trigger-match.py; do
   [ -f "$TEMPLATE/scripts/$s" ] && cp "$TEMPLATE/scripts/$s" "scripts/$s"

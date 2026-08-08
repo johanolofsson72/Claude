@@ -170,6 +170,7 @@ spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-gua
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
+detect-stack.sh prune-dangling-hooks.py
 archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
@@ -394,6 +395,37 @@ if [ -f "$PROJECT_ROOT/scripts/sync-local-llm-hooks.py" ] && [ -f "$TEMPLATE_DIR
       mv "$PROJECT_ROOT/.claude/settings.json.autosync-bak" "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null
       HOOKS_NOTE="$HOOKS_NOTE · local-LLM rewiring FAILED (rolled back)"
     fi
+  fi
+fi
+
+# --------------------------------------------------- prune dangling hook refs
+# settings.json can reference scripts the project never received — the graphify
+# and local-LLM families are owned by other helpers and are stack/opt-in gated,
+# and a wholesale seed brings their wiring along regardless. A hook pointing at a
+# missing script never errors; it silently does nothing while every "is it wired?"
+# audit reports green. Unwire what is not there.
+if [ -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] && command -v python3 >/dev/null 2>&1; then
+  PRUNED=$( (cd "$PROJECT_ROOT" && python3 scripts/prune-dangling-hooks.py 2>/dev/null) | tail -1)
+  case "$PRUNED" in
+    *"removed"*)
+      HOOKS_NOTE="${HOOKS_NOTE:+$HOOKS_NOTE · }$PRUNED"
+      case " $WROTE " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+      ;;
+  esac
+fi
+
+# ------------------------------------------------- stack marker (derive if absent)
+# `.claude/.sync-stack` gates which testing docs this project receives. When it is
+# missing the doc gate has nothing to go on and stamps BOTH the web and the mobile
+# set, so the project carries instructions for a platform it does not ship. Derive
+# it once, from the same detector the canary uses, and only when the answer is
+# unambiguous (detect-stack.sh prints nothing when it cannot tell).
+if [ ! -f "$PROJECT_ROOT/.claude/.sync-stack" ] && [ -f "$PROJECT_ROOT/scripts/detect-stack.sh" ]; then
+  DETECTED=$(bash "$PROJECT_ROOT/scripts/detect-stack.sh" "$PROJECT_ROOT" 2>/dev/null | sed -n '1p')
+  if [ -n "$DETECTED" ]; then
+    printf 'testing=%s\n' "$DETECTED" > "$PROJECT_ROOT/.claude/.sync-stack"
+    ADDED="$ADDED .claude/.sync-stack"
+    say "[stack] no .sync-stack marker — derived testing=$DETECTED from the project's manifests"
   fi
 fi
 
