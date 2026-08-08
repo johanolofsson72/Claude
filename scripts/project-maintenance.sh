@@ -98,7 +98,9 @@ fi
 
 # ------------------------------------------------------------- 5. mutation kill rate
 MUTATION_CMD=""
-if ls ./*.sln >/dev/null 2>&1 || ls ./**/*.csproj >/dev/null 2>&1; then
+# `find`, not a glob: bash globstar is off by default, so `./**/*.csproj` would
+# silently only match one level deep — and would miss src/Foo/Foo.csproj.
+if [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
   MUTATION_CMD="dotnet stryker"
 elif [ -f package.json ] && grep -q '"@stryker-mutator/core"' package.json 2>/dev/null; then
   MUTATION_CMD="npx stryker run"
