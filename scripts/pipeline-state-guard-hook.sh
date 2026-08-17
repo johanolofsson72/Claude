@@ -113,8 +113,27 @@ root = os.environ["PROJECT_ROOT_PATH"]
 row_re = re.compile(r"^-\s+\[([ xX/!])\]\s+(.+?)\s+—\s+(.+?)\s+—\s+(.+?)\s+—.*$")
 id_re = re.compile(r"^\**\s*([0-9]+)\b")  # numeric spec ids only — H1/checkpoint rows are skipped
 
-active = None
-pending = []
+# Lane ownership. Two developers work the register at once, so "the active spec" is
+# per-lane, not global: without this the first "- [/]" row anywhere decides what BOTH
+# developers are allowed to edit, and the one who is not working that row is blocked on
+# artifacts belonging to somebody else's spec.
+#
+# A row's owner is a trailing "@name" tag. SPEC_OWNER (set per machine in
+# .claude/settings.local.json, which is gitignored) names this machine's lane.
+#   unset SPEC_OWNER  → every row is eligible, i.e. exactly the old single-lane behaviour
+#   set               → rows tagged for somebody else are skipped; untagged rows stay
+#                       eligible, so an untagged register keeps working unchanged
+owner_re = re.compile(r"—\s*@([A-Za-z0-9._-]+)\s*$")
+lane = os.environ.get("SPEC_OWNER", "").strip().lower()
+
+# Four buckets, resolved in this priority: my in-progress row, my next row, an unowned
+# in-progress row, the next unowned row. A row assigned to me beats an unowned one even when
+# the unowned one comes first in the register — otherwise a lane with work of its own gets
+# pointed at the top of the shared tail, which on a dependency-ordered register is usually a
+# spec that is blocked behind the OTHER lane's current row.
+# With SPEC_OWNER unset nothing is "mine", so this collapses to first-[/]-else-first-[ ] —
+# byte-for-byte the old single-lane behaviour.
+own_active = own_pending = free_active = free_pending = None
 try:
     with open(reg_path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
@@ -128,16 +147,28 @@ try:
                 # not a spec, no pipeline artifacts required.
                 continue
             spec_id = idm.group(1)
+            om = owner_re.search(line.rstrip())
+            row_owner = om.group(1).lower() if om else ""
+            if lane and row_owner and row_owner != lane:
+                continue  # somebody else's lane
+            mine = bool(lane) and row_owner == lane
+            row = (spec_id, track)
             if status == "/":
-                active = (spec_id, track)
-                break
-            if status == " ":
-                pending.append((spec_id, track))
+                if mine:
+                    if own_active is None:
+                        own_active = row
+                elif free_active is None:
+                    free_active = row
+            elif status == " ":
+                if mine:
+                    if own_pending is None:
+                        own_pending = row
+                elif free_pending is None:
+                    free_pending = row
 except Exception:
     sys.exit(0)
 
-if active is None and pending:
-    active = pending[0]
+active = own_active or own_pending or free_active or free_pending
 if active is None:
     # All done or unparseable register — allow.
     sys.exit(0)

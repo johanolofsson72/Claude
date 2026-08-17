@@ -54,8 +54,61 @@ if [ -n "$FOUND_REG" ]; then
   TOTAL=$((DONE + PROG + BLOCK + TODO))
   [ "$TOTAL" -eq 0 ] && exit 0
 
-  NEXT_LINE=$(grep -m1 -E '^- \[[ /!]\]' "$FOUND_REG" 2>/dev/null | sed -E 's/^- \[[ /!]\] //' || true)
-  [ -z "$NEXT_LINE" ] && NEXT_LINE="(register complete — all ${TOTAL} specs done)"
+  # Lane ownership. Two developers share one register, so "next" is per-lane: a row
+  # carries a trailing "@name" tag and SPEC_OWNER (per machine, .claude/settings.local.json)
+  # says which lane this session is in. Same rule as the two PreToolUse guards, and it has
+  # to stay the same — an orientation line pointing at a row the guards will refuse to
+  # unlock is worse than no orientation line. Unset SPEC_OWNER = every row, as before.
+  # Untagged rows belong to nobody and stay visible in both lanes.
+  LANE=$(printf '%s' "${SPEC_OWNER:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+  # Pick this lane's row, in priority order: my in-progress row → my next row → an unowned
+  # in-progress row → the next unowned row. A row assigned to me beats an unowned one that
+  # sits higher in the register: the order is dependency-driven, so the top of the shared
+  # tail is usually blocked behind the OTHER lane's current row. Same resolution as the two
+  # PreToolUse guards — an orientation line pointing at a row the guards will refuse to
+  # unlock is worse than no orientation line at all.
+  # $1 = "prog" to consider only in-progress rows. Empty LANE → nothing is "mine", which
+  # collapses to first-[/]-else-first-[ ]: the old single-lane behaviour, unchanged.
+  pick_row() {
+    awk -v lane="$LANE" -v only_prog="${1:-}" '
+      # "- [!]" is deliberately NOT here. A held row is one somebody stopped for a reason the
+      # register cannot express as a dependency, and pointing a fresh session at it is how the
+      # decision gets quietly overruled by a banner. pipeline-state-guard and
+      # spec-interview-guard already match only "- [/]" and "- [ ]", so this is the line that
+      # was out of step with them rather than a new rule.
+      /^- \[[ \/]\]/ {
+        inprog = ($0 ~ /^- \[\/\]/)
+        if (only_prog != "" && !inprog) next
+        owner = ""
+        if (match($0, /—[[:space:]]*@[A-Za-z0-9._-]+[[:space:]]*$/)) {
+          owner = substr($0, RSTART, RLENGTH)
+          sub(/^—[[:space:]]*@/, "", owner); gsub(/[[:space:]]/, "", owner)
+          owner = tolower(owner)
+        }
+        if (lane != "" && owner != "" && owner != lane) next
+        mine = (lane != "" && owner == lane)
+        if (mine) { if (inprog) { if (oa == "") oa = $0 } else { if (op == "") op = $0 } }
+        else      { if (inprog) { if (fa == "") fa = $0 } else { if (fp == "") fp = $0 } }
+      }
+      END {
+        if (oa != "") print oa; else if (op != "") print op
+        else if (fa != "") print fa; else if (fp != "") print fp
+      }' "$FOUND_REG" 2>/dev/null
+  }
+
+  NEXT_LINE=$(pick_row | sed -E 's/^- \[[ /!]\] //' || true)
+  if [ -z "$NEXT_LINE" ]; then
+    if [ -n "$LANE" ]; then
+      NEXT_LINE="(no unfinished row owned by @${LANE} — the other lane has the rest; pick one up or tag one)"
+    else
+      NEXT_LINE="(register complete — all ${TOTAL} specs done)"
+    fi
+  fi
+  LANE_NOTE=""
+  [ -n "$LANE" ] && LANE_NOTE="
+Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from this
+  session's guards. Two developers, one register — see 'Två spår' in specs/INDEX.md."
 
   # Big-spec context hygiene: full-track / hardened / checkpoint rows want a
   # fresh session. A hook cannot run /clear (it is a harness built-in), so we
@@ -121,7 +174,7 @@ if [ -n "$FOUND_REG" ]; then
   # rediscovering it. Tail only — the log is never pipeline input.
   RUNLOG_TAIL=""
   if [ "$PROG" -gt 0 ]; then
-    IP_ROW=$(grep -m1 -E '^- \[/\]' "$FOUND_REG" 2>/dev/null | sed -E 's/^- \[.\] *//')
+    IP_ROW=$(pick_row prog | sed -E 's/^- \[.\] *//')
     IP_ID=$(printf '%s' "$IP_ROW" | awk '{print $1}')
     IP_SLUG=$(printf '%s' "$IP_ROW" | awk -F' — ' '{print $2}' | tr -d ' ')
     for cand in "${PROJECT_ROOT}/specs/${IP_ID}-${IP_SLUG}/run-log.md" "${PROJECT_ROOT}/.specify/specs/${IP_ID}-${IP_SLUG}/run-log.md"; do
@@ -143,16 +196,16 @@ ${TAIL_LINES}"
   # otherwise the register collapses to a single line.
   ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
-    MSG="Register: ${DONE}/${TOTAL} done · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
+    MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
     jq -n --arg m "$MSG" '{systemMessage: $m}'
     exit 0
   fi
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
-Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit + push to main, tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
+Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit on the spec's own branch (spec/<id>-<slug>), open a PR into main and merge it, tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   jq -n --arg m "$MSG" '{systemMessage: $m}'
   exit 0
 fi

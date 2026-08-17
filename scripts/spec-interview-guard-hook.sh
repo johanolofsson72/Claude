@@ -143,8 +143,16 @@ if mode != "manual":
 row_re = re.compile(r"^-\s+\[([ xX/!])\]\s+(.+?)\s+—\s+.*$")
 id_re = re.compile(r"^\**\s*([0-9]+)\b")  # numeric spec ids only — H1/checkpoint rows are skipped
 
-active = None
-pending = []
+# Lane ownership — same rule as pipeline-state-guard-hook.sh, and it has to be the same or
+# the two guards disagree about which spec a developer is on. A row's owner is a trailing
+# "@name" tag; SPEC_OWNER names this machine's lane. Unset SPEC_OWNER = old behaviour.
+owner_re = re.compile(r"—\s*@([A-Za-z0-9._-]+)\s*$")
+lane = os.environ.get("SPEC_OWNER", "").strip().lower()
+
+# Priority: my in-progress row → my next row → an unowned in-progress row → the next unowned
+# row. Same resolution as pipeline-state-guard-hook.sh, and it has to stay identical: two
+# guards that disagree about which spec a developer is on block work for opposite reasons.
+own_active = own_pending = free_active = free_pending = None
 try:
     with open(reg_path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
@@ -158,16 +166,27 @@ try:
                 # not a spec, no interview required.
                 continue
             spec_id = idm.group(1)
+            om = owner_re.search(line.rstrip())
+            row_owner = om.group(1).lower() if om else ""
+            if lane and row_owner and row_owner != lane:
+                continue  # somebody else's lane
+            mine = bool(lane) and row_owner == lane
             if status == "/":
-                active = spec_id
-                break
-            if status == " ":
-                pending.append(spec_id)
+                if mine:
+                    if own_active is None:
+                        own_active = spec_id
+                elif free_active is None:
+                    free_active = spec_id
+            elif status == " ":
+                if mine:
+                    if own_pending is None:
+                        own_pending = spec_id
+                elif free_pending is None:
+                    free_pending = spec_id
 except Exception:
     sys.exit(0)
 
-if active is None and pending:
-    active = pending[0]
+active = own_active or own_pending or free_active or free_pending
 if active is None:
     # All done or unparseable register — allow.
     sys.exit(0)
