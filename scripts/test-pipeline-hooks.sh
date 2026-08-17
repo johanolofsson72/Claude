@@ -209,6 +209,60 @@ REG3
 guard_test "edit .json file in marker repo → allow"   "allow"              "$TMP3/data/config.json"
 rm -rf "$TMP3"
 
+echo
+echo "lane ownership (SPEC_OWNER + trailing @owner tags):"
+# Two developers share one register. The lane a machine is in decides which row the guards
+# resolve as "active". The register below is deliberately ordered so that the WRONG answer is
+# visible: 005 is unowned and sits ABOVE david's 007, so a lane that merely filters (instead of
+# preferring its own row) would point david at 005 — which on a dependency-ordered register is
+# the row blocked behind johan's current spec.
+TMP4=$(mktemp -d)
+mkdir -p "$TMP4/.git" "$TMP4/specs/003-search" "$TMP4/src"
+echo '{"name":"x"}' > "$TMP4/package.json"
+cat > "$TMP4/specs/INDEX.md" <<'REG4'
+# Spec register
+
+## Specs
+
+- [/] 003 — search — full track — needs 001 — fuzzy search bar — @johan
+- [ ] 005 — shared — full track — unowned row, higher up
+- [ ] 007 — mfa — full track — needs 001 — second lane's row — @david
+REG4
+# Two of the three rows carry a "needs" field (see scripts/next-rows.sh). It sits between the
+# track and the goal, so a guard that reads the track as "the third em-dash field" keeps
+# working and one that reads it as "everything after the slug" does not. The rows without the
+# field are there on purpose: both shapes have to parse in the same register.
+cat > "$TMP4/specs/003-search/spec.md" <<'SPEC4'
+# Spec 003
+## Clarifications
+- Q: example
+SPEC4
+echo "(allium placeholder)" > "$TMP4/specs/003-search/spec.allium"
+echo "# plan"  > "$TMP4/specs/003-search/plan.md"
+echo "# tasks" > "$TMP4/specs/003-search/tasks.md"
+
+lane_test() {
+  local name="$1" lane="$2" expect="$3"
+  local out
+  out=$(printf '{"tool_input":{"file_path":"%s"}}' "$TMP4/src/app.ts" \
+        | SPEC_OWNER="$lane" bash scripts/pipeline-state-guard-hook.sh 2>&1)
+  if [ "$expect" = "allow" ]; then
+    if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:100})" 1; fi
+    return
+  fi
+  if printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecisionReason | contains(\"$expect\")" >/dev/null 2>&1; then
+    _record "$name" 0
+  else
+    _record "$name (expected deny naming '$expect', got: ${out:0:150})" 1
+  fi
+}
+
+lane_test "no lane → first row (003, complete) → allow"        ""       "allow"
+lane_test "lane johan → own in-progress 003 → allow"           "johan"  "allow"
+lane_test "lane david → own row 007, not unowned 005 → deny"   "david"  "007"
+lane_test "unknown lane → first unowned row 005 → deny"        "patrik" "005"
+rm -rf "$TMP4"
+
 # ─── spec-interview-guard-hook.sh ────────────────────────────────────────
 
 echo
