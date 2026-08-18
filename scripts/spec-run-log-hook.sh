@@ -114,13 +114,15 @@ if [ "${1:-}" = "--note" ]; then
     done
     REG="$ROOT/specs/INDEX.md"
     [ -f "$REG" ] || exit 0
-    ROW=$(grep -m1 -E '^- \[/\]' "$REG" 2>/dev/null || grep -m1 -E '^- \[ \]' "$REG" 2>/dev/null)
-    ID=$(printf '%s' "$ROW" | sed -E 's/^- \[.\] *//' | awk '{print $1}')
-    SLUG=$(printf '%s' "$ROW" | awk -F' — ' '{print $2}' | tr -d ' ')
-    [ -z "$ID" ] && exit 0
-    for cand in "$ROOT/specs/$ID-$SLUG" "$ROOT/.specify/specs/$ID-$SLUG"; do
-      [ -d "$cand" ] && DIR="$cand" && break
-    done
+    # Spec 007m — resolve through the ONE canonical resolver instead of parsing
+    # the register here. This block used to rebuild the path as "$ID-$SLUG",
+    # which is a fifth independent opinion about which spec is active and breaks
+    # on any row whose slug is formatted (bold, parenthesised). The resolver
+    # globs "<id>-*" and is the same code the guards use.
+    DIR_REL=$(bash "$ROOT/scripts/resolve-active-spec.sh" --root "$ROOT" 2>/dev/null \
+              | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
+    [ -z "$DIR_REL" ] && exit 0
+    [ -d "$ROOT/$DIR_REL" ] && DIR="$ROOT/$DIR_REL"
   fi
   [ -n "$DIR" ] && append_line "$DIR" "$NOTE"
   exit 0
@@ -146,4 +148,20 @@ esac
 
 SPEC_DIR=$(spec_dir_of "$FILE")
 [ -n "$SPEC_DIR" ] && append_line "$SPEC_DIR" "$EVENT"
+
+# Spec 007m FR-007m-05 — refresh .specify/feature.json from the register.
+#
+# A pipeline artifact was just written, which is exactly the moment a spec
+# becomes "the active one". Session start covers the usual case; this covers a
+# spec started MID-session, so spec-kit's check-prerequisites.sh cannot spend
+# the rest of the spec pointing at the previous one — the defect register row
+# 007m was opened for. Idempotent: writes only when it disagrees.
+_RL_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+while [ "$_RL_ROOT" != "/" ] && [ -n "$_RL_ROOT" ]; do
+  [ -d "$_RL_ROOT/.git" ] && break
+  _RL_ROOT=$(dirname "$_RL_ROOT")
+done
+if [ -f "$_RL_ROOT/scripts/resolve-active-spec.sh" ]; then
+  bash "$_RL_ROOT/scripts/resolve-active-spec.sh" --root "$_RL_ROOT" --sync-feature-json >/dev/null 2>&1 || true
+fi
 exit 0

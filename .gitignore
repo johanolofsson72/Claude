@@ -18,3 +18,8 @@ CLAUDE.local.md
 
 # Attempt counters for the repeat-failure guard (machine-local, TTL-pruned)
 .claude/state/
+
+# Python bytecode cache — the guards import scripts/spec_active.py (spec 007m),
+# so python3 writes a __pycache__ next to the hooks on every run.
+__pycache__/
+*.pyc

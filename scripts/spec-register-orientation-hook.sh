@@ -172,13 +172,24 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   # the TAIL of its run log so a fresh session knows what already went wrong
   # (escalated interview answer, failed gate, deferred finding) instead of
   # rediscovering it. Tail only — the log is never pipeline input.
+  # Spec 007m — resolve the in-progress spec's directory through the ONE
+  # canonical resolver, and refresh .specify/feature.json from it while here.
+  #
+  # The refresh is the fix for the fourth resolver. spec-kit's
+  # check-prerequisites.sh reads .specify/feature.json, which is written once by
+  # /speckit-specify and never updated — so for the whole of every spec it named
+  # the PREVIOUS spec, and /speckit-analyze would have analysed that spec's
+  # spec.md/plan.md/tasks.md while reporting clean. We deliberately do NOT patch
+  # check-prerequisites.sh or common.sh: `specify init --force` regenerates them,
+  # which is the same clobber trap that reverted spec 004a's fix. Instead we keep
+  # spec-kit's own documented input correct, demoting feature.json from a rival
+  # source of truth to a cache of the register's answer.
   RUNLOG_TAIL=""
   if [ "$PROG" -gt 0 ]; then
-    IP_ROW=$(pick_row prog | sed -E 's/^- \[.\] *//')
-    IP_ID=$(printf '%s' "$IP_ROW" | awk '{print $1}')
-    IP_SLUG=$(printf '%s' "$IP_ROW" | awk -F' — ' '{print $2}' | tr -d ' ')
-    for cand in "${PROJECT_ROOT}/specs/${IP_ID}-${IP_SLUG}/run-log.md" "${PROJECT_ROOT}/.specify/specs/${IP_ID}-${IP_SLUG}/run-log.md"; do
-      if [ -f "$cand" ]; then
+    IP_JSON=$(bash "${PROJECT_ROOT}/scripts/resolve-active-spec.sh" --root "$PROJECT_ROOT" --sync-feature-json 2>/dev/null)
+    IP_DIR=$(printf '%s' "$IP_JSON" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
+    for cand in "${PROJECT_ROOT}/${IP_DIR}/run-log.md"; do
+      if [ -n "$IP_DIR" ] && [ -f "$cand" ]; then
         TAIL_LINES=$(grep -E '^- ' "$cand" 2>/dev/null | tail -5)
         [ -n "$TAIL_LINES" ] && RUNLOG_TAIL="
 Run log (last 5, ${cand#$PROJECT_ROOT/}):
