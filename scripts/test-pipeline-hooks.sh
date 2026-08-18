@@ -593,6 +593,75 @@ grep -q 'mutation gate FAILED' "$LOG" 2>/dev/null \
   && _record "--note writes to the active spec" 0 || _record "--note writes to the active spec" 1
 rm -rf "$RLT"
 
+# ── --note tells the caller WHICH outcome it got (H6s2) ──────────────────────
+#
+# The assertion above ("writes to the active spec") can only see a write that
+# happened. Every way of NOT writing looked the same from outside: exit 0, no
+# output. That is how the resolver-lookup defect it catches survived — in the one
+# script whose entire job is failure memory across /clear, a lost line was
+# indistinguishable from a logged one.
+#
+# So these assert on the exit code AND the stderr text, never on "nothing was
+# written": the untouched build also writes nothing, so an absence-of-write
+# assertion passes against the bug (the H6c/H6m vacuous-assertion trap).
+#
+# Exit grammar is the resolver's own (spec_active.py): 0 resolved · 3 an ANSWER,
+# nothing to log · 4 cannot answer.
+RLN=$(mktemp -d); mkdir -p "$RLN/.git" "$RLN/specs/002-search" "$RLN/bin"
+printf '# R\n\n## Specs\n\n- [/] 002 — search — full track — free-text search\n' > "$RLN/specs/INDEX.md"
+# A copy of the hook with NO resolver beside it — the state a project is in when
+# an autosync is cut short (the .py pass runs after every .sh) or when python3 is
+# absent. The hook must say so, not go quiet.
+cp scripts/spec-run-log-hook.sh "$RLN/bin/spec-run-log-hook.sh"
+
+# $1 name, $2 expected rc, $3 stderr must contain ("" = must be silent), $4.. = argv
+_rl_note() {
+  local name="$1" want_rc="$2" want_err="$3"; shift 3
+  local err rc=0
+  err=$(CLAUDE_PROJECT_DIR="$RLN" bash "$RLN/bin/spec-run-log-hook.sh" "$@" 2>&1 >/dev/null) || rc=$?
+  if [ "$rc" != "$want_rc" ]; then
+    _record "$name (expected exit $want_rc, got $rc)" 1; return
+  fi
+  if [ -z "$want_err" ]; then
+    [ -z "$err" ] && _record "$name" 0 || _record "$name (expected silence, got: ${err:0:80})" 1
+    return
+  fi
+  case "$err" in
+    *"$want_err"*) _record "$name" 0 ;;
+    *) _record "$name (stderr did not name '$want_err', got: ${err:0:100})" 1 ;;
+  esac
+}
+
+_rl_note "--note without a reachable resolver exits 4, not 0"  4 "resolve-active-spec.sh" --note "unreachable resolver"
+_rl_note "--note names the missing resolver on stderr"         4 "cannot resolve"         --note "unreachable resolver"
+_rl_note "--spec pointing at no directory exits 4 and says so" 4 "$RLN/nope"              --note "bad spec dir" --spec "$RLN/nope"
+
+# Every row ticked is an ANSWER, not a failure: exit 3, and still say it out loud
+# so a note that was never recorded cannot pass for one that was.
+printf '# R\n\n## Specs\n\n- [x] 002 — search — full track — free-text search\n' > "$RLN/specs/INDEX.md"
+cp scripts/resolve-active-spec.sh scripts/spec_active.py "$RLN/bin/"
+_rl_note "fully-ticked register → exit 3, not 4, and reports"  3 "no active spec"         --note "nothing active"
+
+# ...and with the resolver reachable beside the hook, the happy path is silent
+# and 0. This is the assertion that keeps the three outcomes distinguishable:
+# without it, "always exit 4" would satisfy every test above.
+printf '# R\n\n## Specs\n\n- [/] 002 — search — full track — free-text search\n' > "$RLN/specs/INDEX.md"
+_rl_note "resolver beside the hook → writes, silent, exit 0"   0 ""                       --note "H6s2 happy path"
+grep -q 'H6s2 happy path' "$RLN/specs/002-search/run-log.md" 2>/dev/null \
+  && _record "--note resolves the hook's OWN sibling, not the project's" 0 \
+  || _record "--note resolves the hook's OWN sibling, not the project's" 1
+
+# append_line answers a failed write with `return 0` on all three of its write
+# paths (header, append, cap rewrite). A read-only spec dir therefore used to
+# produce the same observable as a successful log: exit 0, no output. Same shape
+# as everything else in this block, on the one path the resolver never reaches.
+mkdir -p "$RLN/specs/003-readonly"
+chmod 555 "$RLN/specs/003-readonly"
+_rl_note "a write that failed is reported, not swallowed" 4 "could not write" \
+         --note "into a read-only dir" --spec "$RLN/specs/003-readonly"
+chmod 755 "$RLN/specs/003-readonly"
+rm -rf "$RLN"
+
 echo
 echo "── spec-register-orientation quiet/attention mode ─────"
 echo
@@ -605,6 +674,21 @@ printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — 
 printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — b — full track — y\n' > "$QOT/specs/INDEX.md"
 [ "$(_orient_lines)" -gt 3 ] && _record "full-track next row → attention mode" 0 \
                              || _record "full-track next row → attention mode" 1
+
+# The run-log tail is the whole point of the run log: five lines of failure memory
+# handed to a session that has just been cleared. It is fetched through the same
+# resolver, and used to be looked up under the INSPECTED project's scripts/ rather
+# than beside this hook (H6s2) — so in any project whose scripts/ does not carry
+# the resolver, the tail silently did not appear and --sync-feature-json silently
+# did not run, leaving spec-kit's feature.json pointing at the previous spec:
+# exactly the defect 007m existed to kill, reintroduced through the lookup path.
+mkdir -p "$QOT/specs/004-tail"
+printf '# R\n\n## Specs\n\n- [/] 004 — tail — full track — y\n' > "$QOT/specs/INDEX.md"
+printf '# Run log\n\n- 2026-01-01T00:00Z · mutation gate FAILED at 41%%\n' > "$QOT/specs/004-tail/run-log.md"
+(cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""') \
+  | grep -q 'mutation gate FAILED' \
+  && _record "in-progress row → run-log tail is surfaced" 0 \
+  || _record "in-progress row → run-log tail is surfaced" 1
 rm -rf "$QOT"
 
 echo

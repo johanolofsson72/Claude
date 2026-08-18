@@ -14,6 +14,16 @@
 
 set -u
 
+# H6s2 finding 1 — the resolver is a sibling of THIS FILE, not of the project
+# being oriented. Looked up under "$PROJECT_ROOT/scripts/" it went missing in any
+# project whose scripts/ does not carry it (a truncated autosync: the .py pass
+# runs after every .sh), and both consequences were silent — the run-log tail,
+# which is the whole point of a run log for a freshly-cleared session, simply did
+# not appear, and --sync-feature-json did not run, leaving spec-kit's
+# feature.json naming the PREVIOUS spec. That last one is the defect 007m exists
+# to prevent, re-entering through the lookup path rather than the parser.
+_ORIENT_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+
 DIR="$PWD"
 FOUND_REG=""
 LANG_MARKER=""
@@ -186,7 +196,7 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   # source of truth to a cache of the register's answer.
   RUNLOG_TAIL=""
   if [ "$PROG" -gt 0 ]; then
-    IP_JSON=$(bash "${PROJECT_ROOT}/scripts/resolve-active-spec.sh" --root "$PROJECT_ROOT" --sync-feature-json 2>/dev/null)
+    IP_JSON=$(bash "${_ORIENT_SCRIPT_DIR}/resolve-active-spec.sh" --root "$PROJECT_ROOT" --sync-feature-json 2>/dev/null)
     IP_DIR=$(printf '%s' "$IP_JSON" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
     for cand in "${PROJECT_ROOT}/${IP_DIR}/run-log.md"; do
       if [ -n "$IP_DIR" ] && [ -f "$cand" ]; then
