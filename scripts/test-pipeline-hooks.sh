@@ -406,6 +406,172 @@ _rf "non-verification cmd never counted"    quiet "git status"  "$FAILOUT"
 printf '{"tool_input":{"command":"dotnet test"},"tool_response":{"stdout":"Passed!  - Failed: 0, Passed: 12"}}' \
   | CLAUDE_PROJECT_DIR="$RFT" bash scripts/repeat-failure-guard-hook.sh >/dev/null 2>&1
 _rf "success resets the counter"            quiet "dotnet test" "$FAILOUT"
+# ── H6s: three states, not two ────────────────────────────────────────────
+#
+# The five assertions above can only see whether the hook PRINTED. Both defects
+# H6s fixes are invisible to that: they are about what happens to the COUNTER on
+# a run the hook does not recognize. So these cases assert on the state file.
+#
+# Measured against the pre-H6s build (specs/H6s-.../research.md R-1, R-2):
+#   - a 5-run spiral of unrecognized failures wrote ZERO state files;
+#   - one unparseable payload erased a counter of 2 and silenced the 3rd failure.
+# Both are red cases per H5b — they were observed failing before the fix existed.
+
+_rf_reset() { rm -rf "$RFT/.claude/state/attempts" 2>/dev/null; }
+_rf_send() {  # $1 raw payload json → echoes hook stdout
+  printf '%s' "$1" | CLAUDE_PROJECT_DIR="$RFT" bash scripts/repeat-failure-guard-hook.sh 2>/dev/null
+}
+_rf_out() {   # $1 cmd, $2 stdout → payload json
+  printf '{"tool_input":{"command":%s},"tool_response":{"stdout":%s}}' \
+    "$(printf '%s' "$1" | jq -Rs .)" "$(printf '%s' "$2" | jq -Rs .)"
+}
+# Two counters now live side by side: the failure count ("<fp>") and the
+# unclassified streak ("<fp>.unknown"). Reading them together would hide exactly
+# the distinction H6s exists to make, so they are read separately.
+_rf_count() {
+  local f
+  for f in "$RFT/.claude/state/attempts"/*; do
+    case "$f" in *.unknown) continue ;; esac
+    [ -f "$f" ] && cat "$f"
+  done 2>/dev/null | tr -dc '0-9'
+}
+_rf_ucount() { cat "$RFT/.claude/state/attempts"/*.unknown 2>/dev/null | tr -dc '0-9'; }
+_rf_expect() {  # $1 name, $2 expected failure counter ('' = no state file)
+  local got; got=$(_rf_count)
+  if [ "$got" = "$2" ]; then _record "$1" 0
+  else _record "$1 (expected counter '$2', got '${got:-<none>}')" 1; fi
+}
+_rf_uexpect() {  # $1 name, $2 expected unclassified streak ('' = no state file)
+  local got; got=$(_rf_ucount)
+  if [ "$got" = "$2" ]; then _record "$1" 0
+  else _record "$1 (expected streak '$2', got '${got:-<none>}')" 1; fi
+}
+
+# A real failure that matches NEITHER 'Exit code: [1-9]' NOR any FAIL_RE pattern.
+NOVEL='Determining projects to restore...
+/usr/share/dotnet/sdk/10.0.100/NuGet.targets(174,5): Unable to load the service index for source https://api.nuget.org/v3/index.json.
+  Response status code does not indicate success: 503 (Service Unavailable).'
+
+_rf_reset
+_rf_send "$(_rf_out 'dotnet test' "$NOVEL")" >/dev/null
+_rf_uexpect "unrecognized run #1 counts on the unclassified streak"  "1"
+_rf_expect  "unrecognized run #1 does NOT touch the failure counter" ""
+_rf_send "$(_rf_out 'dotnet test' "$NOVEL")" >/dev/null
+_rf_uexpect "unrecognized run #2 counts"                             "2"
+OUT3=$(_rf_send "$(_rf_out 'dotnet test' "$NOVEL")")
+[ -n "$OUT3" ] && _record "unclassified spiral fires on the 3rd" 0 \
+                || _record "unclassified spiral fires on the 3rd" 1
+case "$OUT3" in
+  *UNCLASSIFIED*) _record "unclassified nudge does not assert a failure" 0 ;;
+  *)              _record "unclassified nudge does not assert a failure" 1 ;;
+esac
+# A classified outcome ends the streak — otherwise one stale unknown run would
+# keep nudging forever on a command that has since started answering clearly.
+_rf_send "$(_rf_out 'dotnet test' "$FAILOUT")" >/dev/null
+_rf_uexpect "a recognized failure clears the unclassified streak"    ""
+_rf_expect  "…and starts the failure counter at 1"                   "1"
+
+# An unparseable payload must not erase what the hook already knew.
+_rf_reset
+_rf_send "$(_rf_out 'dotnet test' "$FAILOUT")" >/dev/null
+_rf_send "$(_rf_out 'dotnet test' "$FAILOUT")" >/dev/null
+_rf_expect "two recognized failures → counter 2"                     "2"
+UNREADABLE='{"tool_input":{"command":"dotnet test"},"tool_response":"<truncated>"}'
+UOUT=$(_rf_send "$UNREADABLE")
+_rf_expect "unparseable payload leaves the counter untouched"        "2"
+[ -z "$UOUT" ] && _record "unparseable payload stays silent" 0 \
+               || _record "unparseable payload stays silent" 1
+OUT3=$(_rf_send "$(_rf_out 'dotnet test' "$FAILOUT")")
+[ -n "$OUT3" ] && _record "3rd real failure still fires after it" 0 \
+                || _record "3rd real failure still fires after it" 1
+
+# Failure wins when both signature sets match the same output.
+_rf_reset
+MIXED='Build succeeded.
+    0 Error(s)
+Failed!  - Failed:     3, Passed:    41, Skipped:     0'
+_rf_send "$(_rf_out 'dotnet test' "$MIXED")" >/dev/null
+_rf_expect "build-ok + tests-failed counts as failure"               "1"
+
+# A tool that says nothing when it passes (tsc --noEmit, eslint, dotnet format).
+_rf_reset
+_rf_send "$(_rf_out 'npx tsc --noEmit' "$FAILOUT")" >/dev/null
+_rf_send "$(_rf_out 'npx tsc --noEmit' "$FAILOUT")" >/dev/null
+_rf_send "$(_rf_out 'npx tsc --noEmit' '')" >/dev/null
+_rf_expect "silent success (readable, empty output) resets"          ""
+
+# A non-.NET success signature must reset too — the tracked command set is eight
+# stacks wide, so a .NET-only positive set would leave those counters stale.
+_rf_reset
+_rf_send "$(_rf_out 'npm test' "$FAILOUT")" >/dev/null
+_rf_send "$(_rf_out 'npm test' 'Tests:       12 passed, 12 total')" >/dev/null
+_rf_expect "jest success signature resets"                           ""
+
+# An interrupted run proved nothing — it must not reset.
+_rf_reset
+_rf_send "$(_rf_out 'dotnet test' "$FAILOUT")" >/dev/null
+_rf_send "$(_rf_out 'dotnet test' "$FAILOUT")" >/dev/null
+_rf_send '{"tool_input":{"command":"dotnet test"},"tool_response":{"stdout":"","interrupted":true}}' >/dev/null
+_rf_expect "interrupted run leaves the counter untouched"            "2"
+
+# A false SUCCESS is the expensive direction: it resets a real spiral. pytest's
+# summary line contains "41 passed in 1.20s", which the positive set matches —
+# only failure-first ordering (FR-005/FR-011) stops it being read as a pass.
+#
+# Note the assertion shape: it seeds the counter with a recognized failure FIRST,
+# so the three verdicts are distinguishable. Asserting "counter is 1" from an
+# empty state cannot tell PASSED (reset) from UNKNOWN (untouched) — both leave no
+# file — and would have passed vacuously while the bug was live.
+_rf_mixed() {  # $1 name, $2 cmd, $3 output — expects FAILED (counter 1 → 2)
+  _rf_reset
+  _rf_send "$(_rf_out "$2" "$FAILOUT")" >/dev/null
+  _rf_send "$(_rf_out "$2" "$3")" >/dev/null
+  _rf_expect "$1" "2"
+}
+_rf_mixed "pytest mixed result counts as failure, not success" \
+          'pytest -q' '3 failed, 41 passed in 1.20s'
+_rf_mixed "cargo mixed result counts as failure, not success" \
+          'cargo test' 'test result: FAILED. 2 passed; 1 failed; 0 ignored'
+
+# A readable object that carries none of the four output fields tells us nothing.
+_rf_reset
+_rf_send "$(_rf_out 'dotnet test' "$FAILOUT")" >/dev/null
+_rf_send '{"tool_input":{"command":"dotnet test"},"tool_response":{"isImage":false}}' >/dev/null
+_rf_expect "object with no output fields → counter untouched"        "1"
+
+# Every stack the command matcher tracks needs a success signature, or that
+# stack's counter never resets (FR-010).
+_rf_stack() {  # $1 label, $2 cmd, $3 success output
+  _rf_reset
+  _rf_send "$(_rf_out "$2" "$FAILOUT")" >/dev/null
+  _rf_send "$(_rf_out "$2" "$3")" >/dev/null
+  _rf_expect "$1 success signature resets" ""
+}
+_rf_stack "pytest"  "pytest"         "41 passed in 1.20s"
+_rf_stack "cargo"   "cargo test"     "test result: ok. 41 passed; 0 failed; 0 ignored"
+_rf_stack "go"      "go test ./..."  "ok  	github.com/x/y	0.512s"
+_rf_stack "flutter" "flutter test"   "All tests passed!"
+_rf_stack "ruff"    "ruff check ."   "All checks passed!"
+_rf_stack "gradle"  "gradlew test"   "BUILD SUCCESSFUL in 3s"
+
+# The TTL prune must reach the streak file too — otherwise yesterday's
+# unclassified run keeps nudging today (FR-021).
+_rf_reset
+_rf_send "$(_rf_out 'dotnet test' "$NOVEL")" >/dev/null
+_rf_uexpect "streak written before the prune check"                  "1"
+find "$RFT/.claude/state/attempts" -name '*.unknown' -exec touch -t 200001010000 {} \; 2>/dev/null
+ATTEMPT_TTL=1 _rf_send "$(_rf_out 'npm test' "$FAILOUT")" >/dev/null
+_rf_uexpect "TTL prunes the unclassified streak file"                ""
+
+# The hook never blocks, on any of the three paths.
+RCS=""
+for p in "$(_rf_out 'dotnet test' "$FAILOUT")" "$(_rf_out 'dotnet test' "$NOVEL")" "$UNREADABLE"; do
+  printf '%s' "$p" | CLAUDE_PROJECT_DIR="$RFT" bash scripts/repeat-failure-guard-hook.sh >/dev/null 2>&1
+  RCS="$RCS$?"
+done
+[ "$RCS" = "000" ] && _record "exits 0 on failed / unknown / unreadable" 0 \
+                   || _record "exits 0 on failed / unknown / unreadable (got $RCS)" 1
+
 rm -rf "$RFT"
 
 echo
