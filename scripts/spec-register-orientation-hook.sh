@@ -196,7 +196,15 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   # source of truth to a cache of the register's answer.
   RUNLOG_TAIL=""
   if [ "$PROG" -gt 0 ]; then
-    IP_JSON=$(bash "${_ORIENT_SCRIPT_DIR}/resolve-active-spec.sh" --root "$PROJECT_ROOT" --sync-feature-json 2>/dev/null)
+    # Spec 007q — the --sync-feature-json flag USED to be on this call, and that
+    # was the defect: this block only runs when PROG>0 (an in-progress "- [/]"
+    # row exists), because it exists to print the run-log tail. At the start of
+    # every spec the row is still "- [ ]", so the refresh never ran and the cache
+    # went on naming the PREVIOUS spec — the very thing H6s2's note above says it
+    # costs, reached by gating instead of by lookup. The refresh now lives in
+    # scripts/sync-feature-json-hook.sh, wired to SessionStart unconditionally.
+    # Do not re-add the flag here; this call is only for the run-log tail.
+    IP_JSON=$(bash "${_ORIENT_SCRIPT_DIR}/resolve-active-spec.sh" --root "$PROJECT_ROOT" 2>/dev/null)
     IP_DIR=$(printf '%s' "$IP_JSON" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
     for cand in "${PROJECT_ROOT}/${IP_DIR}/run-log.md"; do
       if [ -n "$IP_DIR" ] && [ -f "$cand" ]; then

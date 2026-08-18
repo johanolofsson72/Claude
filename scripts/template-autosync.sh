@@ -169,6 +169,7 @@ emit-clarify-reminder.sh emit-analyze-reminder.sh feature-pipeline-detect.sh
 spec_active.py resolve-active-spec.sh test-active-spec-resolution.sh
 spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-guard-hook.sh
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
+sync-feature-json-hook.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
 detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh

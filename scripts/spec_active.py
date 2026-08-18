@@ -171,9 +171,15 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
     active = own_active or own_pending or free_active or free_pending
 
     if active is None:
-        return {"id": None, "slug": "", "track": None, "status": None,
-                "kind": "none", "dir": None, "found": False,
-                "lane": lane, "duplicate_active": duplicate_active}
+        result = {"id": None, "slug": "", "track": None, "status": None,
+                  "kind": "none", "dir": None, "found": False,
+                  "lane": lane, "duplicate_active": duplicate_active}
+        # Spec 007q. "Every row ticked" is an ANSWER (exit 3), and the answer is
+        # "no active spec" — so the cache must name nothing rather than keep
+        # pointing at the last spec that happened to be worked.
+        if sync_feature_json:
+            result["feature_json_synced"] = _sync_feature_json(root, None)
+        return result
 
     ident, kind, track_field, status = active
 
@@ -205,31 +211,60 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
         "duplicate_active": duplicate_active,
     }
 
-    if sync_feature_json and rel_dir:
+    # Spec 007q — no `and rel_dir` guard. A spec whose directory does not exist
+    # yet must CLEAR the cache, not leave it naming the previous spec.
+    if sync_feature_json:
         result["feature_json_synced"] = _sync_feature_json(root, rel_dir)
 
     return result
 
 
-def _sync_feature_json(root: str, rel_dir: str) -> bool:
+def _sync_feature_json(root: str, rel_dir: str | None) -> bool:
     """Point .specify/feature.json at *rel_dir*, writing only on disagreement.
 
     check-prerequisites.sh is deliberately NOT patched — `specify init --force`
     regenerates it, so a patch there is the same clobber trap that reverted spec
     004a's fix. Instead we satisfy spec-kit's own documented second-priority
     input, turning feature.json from a competing source into a cache.
+
+    SPEC 007q — rel_dir=None means "name nothing", NOT "do nothing".
+    ---------------------------------------------------------------
+    This function used to be called only `if sync_feature_json and rel_dir`, so
+    when the active spec had no directory yet — every spec, between the register
+    row going active and /speckit-specify creating the directory — it was never
+    entered, and the cache went on naming the PREVIOUS spec. That is verbatim
+    the defect 007m was opened for, surviving inside 007m's own fix.
+
+    The property this file must have is not freshness (no set of triggers can
+    guarantee that) but: it names the active spec, or it names nothing. Never a
+    different spec. A missed refresh then costs a loud "no feature context" from
+    common.sh instead of a silent, confident pointer at another spec's spec.md.
+
+    "Nothing" is the ABSENT key, not null and not "". common.sh reads this file
+    three different ways depending on what is installed — jq, then python3, then
+    a grep/sed fallback — and an omitted key is the only representation all
+    three agree reads as empty. `null` survives the first two and can leak
+    through the third as a literal.
     """
     path = os.path.join(root, ".specify", "feature.json")
+
+    # Nothing to clear. Creating a file just to say "no answer" would add a
+    # working-tree change on scratch repos that never had one.
+    if rel_dir is None and not os.path.isfile(path):
+        return False
+
     try:
         with open(path, "r", encoding="utf-8") as fh:
             if json.load(fh).get("feature_directory") == rel_dir:
                 return False  # already correct — idempotent, no write
     except (OSError, ValueError):
-        pass
+        pass  # unreadable or corrupt: treat as disagreement and rewrite
+
+    payload = {} if rel_dir is None else {"feature_directory": rel_dir}
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"feature_directory": rel_dir}, fh, indent=2)
+            json.dump(payload, fh, indent=2)
             fh.write("\n")
         return True
     except OSError:

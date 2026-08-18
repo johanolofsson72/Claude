@@ -437,6 +437,24 @@
             "statusMessage": "Checking repeat-failure attempt limit..."
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sync-feature-json-hook.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sync-feature-json-hook.sh\""
+          }
+        ]
       }
     ],
     "PreCompact": [
@@ -491,6 +509,15 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/stack-marker-canary-hook.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sync-feature-json-hook.sh\"",
+            "statusMessage": "Syncing .specify/feature.json with the register..."
           }
         ]
       }

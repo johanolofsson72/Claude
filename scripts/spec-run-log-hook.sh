@@ -226,11 +226,16 @@ while [ "$_RL_ROOT" != "/" ] && [ -n "$_RL_ROOT" ]; do
   [ -d "$_RL_ROOT/.git" ] && break
   _RL_ROOT=$(dirname "$_RL_ROOT")
 done
-# H6s2: the resolver comes from beside this file (SCRIPT_DIR); the register it
-# reads comes from the project (--root). Fixing only the --note call site would
-# leave two opinions about where the code lives inside a file that just grew a
-# comment about not having two opinions.
-if [ -f "$RESOLVER" ]; then
-  bash "$RESOLVER" --root "$_RL_ROOT" --sync-feature-json >/dev/null 2>&1 || true
-fi
+# Spec 007q — the refresh that used to sit here has moved out.
+#
+# H6s2 fixed WHERE this call looked for the resolver. 007q is about WHEN it was
+# reached at all: everything above returns early unless the written basename is
+# one of five, so a spec.md produced by a heredoc, a script, an editor outside
+# the session, or a git checkout refreshed nothing. A refresh bolted to the tail
+# of a LOGGING hook is a refresh nobody audits — which is how it kept both a
+# gating bug and a coverage bug in plain sight.
+#
+# It now has its own file: scripts/sync-feature-json-hook.sh, wired to
+# SessionStart and to PostToolUse for Write/Edit AND Bash. Do not re-add it here;
+# this hook keeps one job, which is the run log.
 exit 0
