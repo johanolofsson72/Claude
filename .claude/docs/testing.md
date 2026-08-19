@@ -242,11 +242,24 @@ await Expect(Page).ToHaveScreenshotAsync("dashboard-mobile.png");
 
 Line coverage proves a line *executed*; it says nothing about whether a test would *notice* if that line were wrong. Mutation testing injects deliberate bugs (flip `>` to `>=`, `&&` to `||`, delete a statement) and checks your tests kill them. The kill rate is the only metric that measures whether tests actually bite — Google, Meta, and AWS all converge on this over coverage %.
 
-- **.NET:** **Stryker.NET** — `dotnet tool install -g dotnet-stryker`, run `dotnet stryker`.
+- **.NET:** **Stryker.NET** — `dotnet tool install -g dotnet-stryker`.
+- **A score counts only once it has reproduced.** Run the gate **three times** and compare
+  *per-mutant* verdicts, not percentages: two runs in one project both reported 90.91% while
+  disagreeing on seven mutants. Equal totals hiding different kills is a coin toss with a
+  confident face. (Reference implementation: `scripts/mutation-gate-repeat.sh 3` in the msroute
+  project — a repo without it should wrap its own runner the same way.)
+- **Two instruments, one gate.** Gate on a **unit-only** project set; keep the wider set (unit +
+  integration) for *attribution* and never tick a register row against it. A mutant "killed" by a
+  hosted test with no stake in the mutated line is arithmetic, not evidence — measured at **38%**
+  of one project's kills before the split.
 - **NEVER in CI per push** (see `github-actions.md` — it's minutes-expensive and was a budget incident). Run it **nightly or on-demand**, and incrementally (changed files) on a branch.
 - **"Nightly" needs a body, not just an intention.** Nothing schedules itself, and an unscheduled nightly gate runs never. `bash scripts/project-maintenance.sh --full` is the local pass that actually executes it (plus the secret/CVE scan and register drift checks), reporting only when it finds something. Attach it to a `/schedule` routine, `/loop 7d`, or crontab — never to a GitHub Action `schedule:` trigger.
 - **Thresholds:** `break: 60, low: 60, high: 80`. Target **~80% kill on critical modules** (auth, money, state machines, parsers). Don't chase 100% — the last 20% buys fragile tests for vanishing return.
-- Flaky tests poison the score (a flaky test "survives" mutants at random) — stabilize flakiness first.
+- **Flaky tests poison the score, and they poison it upward.** Stryker counts a failing test as a
+  kill, so a test failing for its own reasons credits whichever mutant happened to be live. The
+  score comes out *too high*, and fixing the flakiness *lowers* it — one project measured a
+  polluted 86.11% becoming an honest 77.78%. Stabilize flakiness first, and read a drop
+  afterwards as the truth arriving, not as a regression.
 
 ## Verification order
 
@@ -255,4 +268,4 @@ Before anything is declared "done":
 1. `dotnet build` — no compilation errors
 2. `dotnet test` — all unit tests pass (incl. any property-based tests)
 3. `dotnet test --filter "Category=UI"` — all E2E tests pass (functional + destructive + visual-regression)
-4. `dotnet stryker` on the changed critical module(s) — **nightly/on-demand, never in per-push CI** — kill rate ≥ target (80% on critical modules). This is the gate that proves the tests above actually catch bugs.
+4. Stryker on the changed critical module(s), **three runs** — **nightly/on-demand, never in per-push CI** — kill rate ≥ target (80% on critical modules) **and reproduced**: zero mutants differing across the runs. This is the gate that proves the tests above actually catch bugs, and the repeat is what proves the gate itself is a measurement rather than a coin toss.
