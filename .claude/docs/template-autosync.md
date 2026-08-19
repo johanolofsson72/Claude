@@ -43,6 +43,34 @@ Wiring (already in the template's `settings.json`, so `sync-core-hooks.py` propa
 
 Rate-limited to one check per 6 hours per project (`TEMPLATE_AUTOSYNC_INTERVAL`, mtime of `.claude/.template-sync-check`). With a local template clone the check is a local `git rev-parse` — no network. Without one it's a single `git ls-remote`, and the tarball downloads only when the SHA actually moved.
 
+## Three outcomes, not one silence
+
+The hook fails open — every path exits 0, because a template sync problem must never stop a session from
+starting. Failing open is not the same as failing indistinguishably, though, and until H6t it was: a sync
+that completed, a sync killed at the 120 s bound, and a sync that failed for any other reason all exited 0
+without saying anything, and the rate-limit marker was refreshed *before* the sync ran. A sync that always
+exceeded the bound therefore bought itself six hours of quiet, then bought six more, and template updates
+stopped arriving with nothing to indicate it.
+
+| Outcome | What you see | What the marker records |
+|---|---|---|
+| **completed** | the summary of what moved (silent if nothing moved) | `ok` — next check in `TEMPLATE_AUTOSYNC_INTERVAL` (6 h) |
+| **timed out** | one line naming the timeout and the retry | `timeout` — next check in `TEMPLATE_AUTOSYNC_TIMEOUT_BACKOFF` (30 min) |
+| **other failure** | nothing | `ok` — this hook names the timeout and nothing else |
+
+Two details are load-bearing. The exit code is classified **before** the sync's output is matched, because a
+sync killed mid-flight has usually already printed its `[synced]` header — matching output first reports a
+dead run as a completed one. And the marker is written **after** the run, carrying which kind of run it was,
+so a run that never finished cannot charge itself the full six-hour window.
+
+The bound itself is not optional either. Stock macOS ships neither `timeout` nor `gtimeout`, and where
+neither exists the hook runs its own bash watchdog with the same exit-code contract (124) rather than
+running the sync unmeasured.
+
+**Environment overrides:** `TEMPLATE_AUTOSYNC_INTERVAL` (default 21600), `TEMPLATE_AUTOSYNC_TIMEOUT_BACKOFF`
+(default 1800), `TEMPLATE_AUTOSYNC_LIMIT` (default 120 — keep it below the hook's own `timeout` in
+`settings.json`, currently 130).
+
 ## Running it by hand
 
 ```bash

@@ -782,6 +782,279 @@ python3 -m json.tool "$PD/.claude/settings.json" >/dev/null 2>&1 \
   && _record "prune: leaves valid JSON" 0 || _record "prune: leaves valid JSON" 1
 rm -rf "$PD"
 
+# ─── template-autosync-hook.sh (H6t) ──────────────────────────────────────
+#
+# The hook has to tell three outcomes apart: a sync that completed, a sync that
+# was killed at its bound, and a sync that failed for some other reason. Before
+# H6t all three exited 0 in silence, and the rate-limit marker was written
+# *before* the sync ran — so a sync that always timed out bought itself six
+# hours of suppression and template updates simply stopped arriving.
+#
+# The red cases below were observed failing against the untreated hook before
+# the fix was written (H5b): the forced timeout was silent, and the marker was
+# left holding the normal window.
+
+echo
+# Covers: SC-1298 SC-1299 SC-1300 SC-1301 SC-1302 SC-1303 SC-1304 SC-1305 SC-1306
+#         SC-1307 SC-1308 SC-1309 SC-1310 SC-1311 SC-1312 SC-1313 SC-1314
+echo "── template-autosync-hook.sh (H6t) ────────────────────"
+echo
+
+# A throwaway project: real .git, a .claude dir, a non-template origin, and a
+# stub sync whose body the caller chooses. Echoes the sandbox path.
+autosync_sandbox() {
+  local d
+  d=$(mktemp -d)
+  mkdir -p "$d/.claude" "$d/scripts"
+  git -C "$d" init -q .
+  git -C "$d" remote add origin https://example.invalid/someone/other.git
+  cp "$ROOT/scripts/template-autosync-hook.sh" "$d/scripts/"
+  { echo '#!/bin/bash'
+    echo 'echo run >> "$(dirname "$0")/../.sync-runs"'
+    printf '%s\n' "$1"
+  } > "$d/scripts/template-autosync.sh"
+  chmod +x "$d/scripts/template-autosync.sh"
+  printf '%s' "$d"
+}
+
+# How many times the stub sync actually started in this sandbox.
+autosync_runs() {
+  if [ -f "$1/.sync-runs" ]; then wc -l < "$1/.sync-runs" | tr -d ' '; else echo 0; fi
+}
+
+# The marker's kind — "absent", "empty" (legacy), or its recorded word.
+autosync_marker() {
+  if [ ! -f "$1/.claude/.template-sync-check" ]; then echo absent; return; fi
+  local k
+  k=$(head -1 "$1/.claude/.template-sync-check" 2>/dev/null | tr -d ' \t')
+  if [ -n "$k" ]; then echo "$k"; else echo empty; fi
+}
+
+# Run the hook in a sandbox. Extra args are VAR=value env assignments.
+autosync_hook() {
+  local d="$1"; shift
+  ( cd "$d" && env "$@" CLAUDE_PROJECT_DIR="$d" bash "$d/scripts/template-autosync-hook.sh" )
+}
+
+_expect() {   # name, expected, actual
+  if [ "$2" = "$3" ]; then _record "$1" 0; else _record "$1 (expected $2, got $3)" 1; fi
+}
+_expect_has() {   # name, needle, haystack
+  case "$3" in *"$2"*) _record "$1" 0 ;; *) _record "$1 (missing '$2')" 1 ;; esac
+}
+_expect_lacks() {   # name, needle, haystack
+  case "$3" in *"$2"*) _record "$1 (unexpectedly contains '$2')" 1 ;; *) _record "$1" 0 ;; esac
+}
+
+# Longer than any bound this harness or the pre-H6t hook imposes, so "killed at
+# the bound" is what is actually being measured rather than "finished in time".
+# Ignores TERM, so only an escalation to KILL — aimed at the sync itself and
+# not at a wrapper around it — can stop it. Records its own pid so the test can
+# ask whether it actually died rather than whether the hook stopped waiting.
+STUBBORN_SYNC='trap "" TERM
+echo $$ > "$(dirname "$0")/../.sync-pid"
+echo "[synced] template deadbeef — 3 updated, 1 added"
+sleep 30'
+
+# "dead", "alive", or "unknown" — the state of the sync process the stub
+# recorded. Reaps it when it outlived the hook, so one failing assertion does
+# not leave a process behind for the rest of the suite.
+autosync_syncstate() {
+  local p
+  p=$(cat "$1/.sync-pid" 2>/dev/null) || true
+  if [ -z "$p" ]; then echo unknown; return; fi
+  if kill -0 "$p" 2>/dev/null; then kill -9 "$p" 2>/dev/null; echo alive; else echo dead; fi
+}
+
+_expect_under() {   # name, ceiling seconds, actual seconds
+  if [ "$3" -le "$2" ]; then _record "$1" 0
+  else _record "$1 (took ${3}s against a ${2}s ceiling)" 1; fi
+}
+
+SLOW_SYNC='echo "[synced] template deadbeef — 3 updated, 1 added"
+sleep 600'
+
+# RED-1 — a sync killed at the bound says so, once, and still fails open.
+AD=$(autosync_sandbox "$SLOW_SYNC")
+AOUT=$(autosync_hook "$AD" TEMPLATE_AUTOSYNC_LIMIT=2); ARC=$?
+_expect_has   "autosync: a killed sync reports the timeout (SC-1298)"        "timed out"  "$AOUT"
+_expect       "autosync: a killed sync still exits 0 (fail open) (SC-1298)"  0            "$ARC"
+# The killed sync had already printed its header — echoing the captured output
+# would report a dead run as a completed one.
+_expect_lacks "autosync: the timeout message carries no sync output (SC-1308)" "[synced]" "$AOUT"
+# stdout is the SessionStart JSON channel. A stray line anywhere on it — a
+# watchdog's chatter, a shell's job notice — corrupts the whole message, and
+# nothing else in this file would notice.
+_json_ok() { printf '%s' "$1" | python3 -c 'import json,sys; json.loads(sys.stdin.read())' >/dev/null 2>&1; }
+if _json_ok "$AOUT"; then _record "autosync: the timeout message is valid JSON (SC-1307)" 0
+else _record "autosync: the timeout message is valid JSON (SC-1307)" 1; fi
+
+# RED-2 — the killed run does not charge itself the normal six-hour window.
+# Three outcomes must stay distinguishable here: absent / ok / timeout. An
+# assertion that only checks "the sync ran again" passes for a hook that writes
+# no marker at all, which is a different bug.
+_expect "autosync: a killed sync marks the marker as a timeout (SC-1302)" timeout "$(autosync_marker "$AD")"
+_expect "autosync: the killed sync did run once (SC-1302)"                1       "$(autosync_runs "$AD")"
+
+# Inside the backoff window: silent, and the sync is not retried yet.
+AOUT2=$(autosync_hook "$AD" TEMPLATE_AUTOSYNC_LIMIT=2)
+_expect "autosync: inside the backoff window the sync is not retried (SC-1303)" 1 "$(autosync_runs "$AD")"
+_expect "autosync: inside the backoff window the hook is silent (SC-1303)"      "" "$AOUT2"
+
+# Past the backoff window: retried, rather than suppressed for six hours.
+autosync_hook "$AD" TEMPLATE_AUTOSYNC_LIMIT=2 TEMPLATE_AUTOSYNC_TIMEOUT_BACKOFF=0 >/dev/null
+_expect "autosync: past the backoff window the sync is retried (SC-1304)" 2 "$(autosync_runs "$AD")"
+rm -rf "$AD"
+
+# Control — a sync that completes and moved files still reports as before.
+BD=$(autosync_sandbox 'echo "[synced] template deadbeef — 3 updated, 1 added"')
+BOUT=$(autosync_hook "$BD" TEMPLATE_AUTOSYNC_LIMIT=2); BRC=$?
+_expect_has "autosync: a completed sync still reports what moved (SC-1299)" "3 updated, 1 added" "$BOUT"
+_expect     "autosync: a completed sync exits 0 (SC-1299)"                  0     "$BRC"
+_expect     "autosync: a completed sync marks the marker ok (SC-1299)"      ok    "$(autosync_marker "$BD")"
+if _json_ok "$BOUT"; then _record "autosync: the completed message is valid JSON (SC-1307)" 0
+else _record "autosync: the completed message is valid JSON (SC-1307)" 1; fi
+rm -rf "$BD"
+
+# A hook killed from outside — the session ended, or settings.json's own 130 s
+# hook timeout fired — must leave no marker at all, or the run it never
+# finished would still buy the next session's silence. This is the property the
+# whole retry story rests on.
+JD=$(autosync_sandbox "$SLOW_SYNC")
+( cd "$JD" && env TEMPLATE_AUTOSYNC_LIMIT=8 CLAUDE_PROJECT_DIR="$JD" \
+  bash "$JD/scripts/template-autosync-hook.sh" ) >/dev/null 2>&1 &
+JPID=$!
+sleep 2
+kill -TERM "$JPID" 2>/dev/null
+wait "$JPID" 2>/dev/null
+_expect "autosync: a hook killed from outside leaves no marker (SC-1306)" absent "$(autosync_marker "$JD")"
+_expect "autosync: a hook killed from outside had started the sync (SC-1306)" 1 "$(autosync_runs "$JD")"
+rm -rf "$JD"
+
+# Control — a completed sync that moved nothing stays silent.
+CD=$(autosync_sandbox 'echo "[synced] template deadbeef — 0 updated, 0 added"')
+COUT=$(autosync_hook "$CD" TEMPLATE_AUTOSYNC_LIMIT=2)
+_expect "autosync: a no-op sync stays silent (SC-1300)"          "" "$COUT"
+_expect "autosync: a no-op sync marks the marker ok (SC-1300)"   ok "$(autosync_marker "$CD")"
+rm -rf "$CD"
+
+# Control — a non-timeout failure stays silent. H6t names the timeout and
+# nothing else; making every failure loud is a different trade-off.
+DD=$(autosync_sandbox 'echo "boom" >&2
+exit 3')
+DOUT=$(autosync_hook "$DD" TEMPLATE_AUTOSYNC_LIMIT=2); DRC=$?
+_expect "autosync: another failure stays silent (SC-1301)"        "" "$DOUT"
+_expect "autosync: another failure exits 0 (SC-1301)"             0  "$DRC"
+_expect "autosync: another failure marks the marker ok (SC-1301)" ok "$(autosync_marker "$DD")"
+rm -rf "$DD"
+
+# 143 (128+TERM) is in the timeout class for the sake of `timeout`
+# implementations this machine does not have, so nothing else in this file ever
+# produces it. The accepted cost is stated in the spec (A2): a sync that exits
+# 143 under its own power is read as a timeout.
+MD=$(autosync_sandbox 'echo "[synced] partial"
+exit 143')
+MOUT=$(autosync_hook "$MD" TEMPLATE_AUTOSYNC_LIMIT=2)
+_expect_has "autosync: rc 143 is read as a timeout (SC-1312)" "timed out" "$MOUT"
+_expect     "autosync: rc 143 marks the marker as a timeout (SC-1312)" timeout "$(autosync_marker "$MD")"
+rm -rf "$MD"
+
+# The template ships to stock macOS, whose /bin/bash is 3.2. A syntax-only
+# check is cheap and catches the bashism that would otherwise only fail on
+# somebody else's laptop.
+if [ -x /bin/bash ]; then
+  if /bin/bash -n "$ROOT/scripts/template-autosync-hook.sh" 2>/dev/null; then
+    _record "autosync: the hook parses under /bin/bash (3.2) (SC-1314)" 0
+  else
+    _record "autosync: the hook parses under /bin/bash (3.2) (SC-1314)" 1
+  fi
+fi
+
+# Control — a marker left by the pre-H6t hook is an empty file and must read
+# as "ok", i.e. today's behaviour. No migration.
+ED=$(autosync_sandbox 'echo "[synced] template deadbeef — 3 updated, 1 added"')
+: > "$ED/.claude/.template-sync-check"
+EOUT=$(autosync_hook "$ED" TEMPLATE_AUTOSYNC_LIMIT=2)
+_expect "autosync: a legacy empty marker suppresses like a normal one (SC-1305)" 0  "$(autosync_runs "$ED")"
+_expect "autosync: a legacy empty marker keeps the hook silent (SC-1305)"        "" "$EOUT"
+rm -rf "$ED"
+
+# Control — opting out still short-circuits before anything else happens.
+FD=$(autosync_sandbox "$SLOW_SYNC")
+FOUT=$(autosync_hook "$FD" CLAUDE_TEMPLATE_AUTOSYNC=0)
+_expect "autosync: opted out — the sync never runs (SC-1305)"   0      "$(autosync_runs "$FD")"
+_expect "autosync: opted out — no marker is written (SC-1305)"  absent "$(autosync_marker "$FD")"
+_expect "autosync: opted out — silent (SC-1305)"                ""     "$FOUT"
+rm -rf "$FD"
+
+# Control — the template repo is never its own sync target.
+GD=$(autosync_sandbox "$SLOW_SYNC")
+git -C "$GD" remote set-url origin https://github.com/johanolofsson72/Claude.git
+GOUT=$(autosync_hook "$GD" TEMPLATE_AUTOSYNC_LIMIT=2)
+_expect "autosync: the template repo syncs nothing (SC-1299)"        0      "$(autosync_runs "$GD")"
+_expect "autosync: the template repo writes no marker (SC-1299)"     absent "$(autosync_marker "$GD")"
+_expect "autosync: the template repo is silent (SC-1299)"            ""     "$GOUT"
+rm -rf "$GD"
+
+# The bound must exist even where coreutils does not. Stock macOS ships neither
+# `timeout` nor `gtimeout`; without a bound of its own the hook runs the sync
+# unmeasured, and the retry H6t introduces would then be unbounded too.
+GUARD=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+if [ -n "$GUARD" ]; then
+  HD=$(autosync_sandbox "$SLOW_SYNC")
+  NOBIN=$(mktemp -d)
+  for c in bash sh git dirname date stat sed tr sleep rm cat head wc mktemp kill; do
+    p=$(command -v "$c" 2>/dev/null) && ln -sf "$p" "$NOBIN/$c"
+  done
+  HOUT=$(cd "$HD" && "$GUARD" 20 env PATH="$NOBIN" TEMPLATE_AUTOSYNC_LIMIT=2 \
+         CLAUDE_PROJECT_DIR="$HD" bash "$HD/scripts/template-autosync-hook.sh"); HRC=$?
+  _expect       "autosync: bounded even with no timeout binary (SC-1309)"   0           "$HRC"
+  _expect_has   "autosync: reports the timeout without coreutils (SC-1309)" "timed out" "$HOUT"
+  _expect       "autosync: marks the marker as a timeout too (SC-1309)"     timeout     "$(autosync_marker "$HD")"
+  rm -rf "$HD"
+
+  # A watchdog that only signals its wrapper, or only sends TERM, advertises a
+  # bound it does not have. Measured in seconds, because "it reported a
+  # timeout" is true either way — it is the clock that discriminates.
+  KD=$(autosync_sandbox "$STUBBORN_SYNC")
+  KS=$(date +%s)
+  KOUT=$(cd "$KD" && "$GUARD" 40 env PATH="$NOBIN" TEMPLATE_AUTOSYNC_LIMIT=2 \
+         CLAUDE_PROJECT_DIR="$KD" bash "$KD/scripts/template-autosync-hook.sh")
+  KE=$(( $(date +%s) - KS ))
+  _expect_under "autosync: watchdog — a sync ignoring TERM is stopped at the bound (SC-1311)" 15 "$KE"
+  _expect_has   "autosync: watchdog — a sync ignoring TERM reports a timeout (SC-1311)" "timed out" "$KOUT"
+  _expect       "autosync: watchdog — a sync ignoring TERM is actually dead (SC-1311)" dead "$(autosync_syncstate "$KD")"
+  rm -rf "$KD"
+  rm -rf "$NOBIN"
+else
+  printf '  \033[33mSKIP\033[0m  autosync: no-coreutils case (no timeout binary to guard the test)\n'
+fi
+
+# The same claim on the path that normally runs. `timeout N` alone does not
+# bound a sync that ignores TERM — it signals at N and then waits, so a 2 s
+# bound against a 30 s TERM-ignoring sync returns 124 after the full 30 s. This
+# is the assertion that pins `-k`, and it is timed rather than asserted on the
+# message, which is identical either way.
+LD=$(autosync_sandbox "$STUBBORN_SYNC")
+LS=$(date +%s)
+LOUT=$(autosync_hook "$LD" TEMPLATE_AUTOSYNC_LIMIT=2)
+LE=$(( $(date +%s) - LS ))
+_expect_under "autosync: a sync ignoring TERM is stopped at the bound (SC-1310)" 15 "$LE"
+_expect_has   "autosync: a sync ignoring TERM reports a timeout (SC-1310)" "timed out" "$LOUT"
+_expect       "autosync: a sync ignoring TERM is actually dead (SC-1310)" dead "$(autosync_syncstate "$LD")"
+_expect       "autosync: a sync ignoring TERM marks the marker as a timeout (SC-1310)" timeout "$(autosync_marker "$LD")"
+rm -rf "$LD"
+
+# A watchdog that outlives the sync would leave a process behind on every
+# session start, and anything it printed would corrupt the hook's JSON channel.
+ID=$(autosync_sandbox 'echo "[synced] template deadbeef — 3 updated, 1 added"')
+BEFORE=$(pgrep -f "$ID/scripts" 2>/dev/null | wc -l | tr -d ' ')
+autosync_hook "$ID" TEMPLATE_AUTOSYNC_LIMIT=2 >/dev/null
+sleep 3
+AFTER=$(pgrep -f "$ID/scripts" 2>/dev/null | wc -l | tr -d ' ')
+_expect "autosync: a completed sync leaves no watchdog behind (SC-1313)" "$BEFORE" "$AFTER"
+rm -rf "$ID"
+
 # ─── totals ───────────────────────────────────────────────────────────────
 
 echo
