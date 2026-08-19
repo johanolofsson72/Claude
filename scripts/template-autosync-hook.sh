@@ -100,10 +100,12 @@ if [ -n "$TIMEOUT_BIN" ]; then
     "$TIMEOUT_BIN" $KOPT "$LIMIT" bash scripts/template-autosync.sh --quiet ) >"$OUTFILE" 2>&1
   RC=$?
 else
-  # Same shape by hand. The watcher polls instead of sleeping the whole bound
-  # in one call, so that a sync finishing early leaves no long-lived `sleep`
-  # behind; it TERMs and then KILLs, which is what `timeout` does by default;
-  # and it says nothing at all, because stdout here is the hook's JSON channel.
+  # Same shape by hand — meaning the shape `timeout -k` has, not the one it has
+  # by default, because the default is what turned out not to bound anything.
+  # The watcher polls instead of sleeping the whole bound in one call, so a sync
+  # that finishes early leaves no long-lived `sleep` behind; it TERMs and then
+  # KILLs after a grace; and it says nothing at all, because stdout here is the
+  # hook's JSON channel.
   KILLSTAMP="$OUTFILE.killed"
   # `exec` matters: without it SYNC_PID is a wrapper subshell and the signals
   # below reach that instead of the sync, which then survives its own bound.
