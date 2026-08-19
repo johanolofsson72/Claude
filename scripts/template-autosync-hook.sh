@@ -165,7 +165,7 @@ else
 fi
 
 if [ "$VERDICT" = "timeout" ]; then
-  printf '{"systemMessage": "Template auto-sync timed out after %s s and was stopped, so nothing is known about what it did or did not change on disk. It will be retried at a session start more than %s s from now. If this repeats, run scripts/template-autosync.sh by hand to see where it is getting stuck."}\n' \
+  printf '{"systemMessage": "Template auto-sync timed out after %s s and was stopped, so it may have changed some files and not others. It runs again at the first session start after %s s. If it keeps timing out, run scripts/template-autosync.sh by hand to see where it sticks."}\n' \
     "$LIMIT" "$BACKOFF"
   exit 0
 fi
