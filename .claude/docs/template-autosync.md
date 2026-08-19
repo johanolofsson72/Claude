@@ -63,9 +63,13 @@ sync killed mid-flight has usually already printed its `[synced]` header — mat
 dead run as a completed one. And the marker is written **after** the run, carrying which kind of run it was,
 so a run that never finished cannot charge itself the full six-hour window.
 
-The bound itself is not optional either. Stock macOS ships neither `timeout` nor `gtimeout`, and where
-neither exists the hook runs its own bash watchdog with the same exit-code contract (124) rather than
-running the sync unmeasured.
+The bound itself is not optional either, and it needed more than one fix to become real. `timeout N` on
+its own signals at N and then *waits* for the child to die, so a sync that ignores `TERM` is not bounded at
+all — a 2 s bound against a 30 s TERM-ignoring sync returns after the full 30 s. The hook therefore uses
+`timeout -k 5`, probing for `-k` support first so an implementation without it degrades instead of erroring
+out. And stock macOS ships neither `timeout` nor `gtimeout`, so where neither exists the hook runs its own
+bash watchdog — `TERM`, then `KILL` after a grace, aimed at the sync itself rather than at a wrapper around
+it — instead of running the sync unmeasured.
 
 **Environment overrides:** `TEMPLATE_AUTOSYNC_INTERVAL` (default 21600), `TEMPLATE_AUTOSYNC_TIMEOUT_BACKOFF`
 (default 1800), `TEMPLATE_AUTOSYNC_LIMIT` (default 120 — keep it below the hook's own `timeout` in
