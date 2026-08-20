@@ -29,13 +29,34 @@ Wiring (already in the template's `settings.json`, so `sync-core-hooks.py` propa
 
 **Never touched:** `CLAUDE.md`, the project's own hooks and permissions in `settings.json`, `specs/`, `CLAUDE.local.md`, and any source code. Nothing is ever deleted.
 
-**Two policies decide each file:**
+**Three policies decide each file:**
 
 1. **Update-existing-only.** A rule or doc the project doesn't have is not added — a `.NET` project deleted `wordpress.md` on purpose and must not get it back. The exception is the **CORE set** (the enforcement spine: pipeline/register/interview guards, the reminder emitters, the sync helpers, the pipeline rules), which is always installed and always overwritten. Core drift is what silently disables a gate.
 
 2. **The manifest.** Every sync writes `<sha256>  <path>` for each file into `.claude/.template-sync`. Next run, a file is only overwritten when its hash still matches the manifest — proof nobody edited it locally. A locally-modified file is skipped and reported, never clobbered.
 
 **First run has no manifest**, so a differing file is ambiguous: older template copy, or your customization? The worker resolves it against the template's own git history — if the project's exact bytes ever were a template version, it's stale and gets updated ("adopt"); otherwise it's yours and gets skipped. History lookup needs a local template clone; over the tarball path it degrades to the safe answer (skip + report).
+
+3. **The intentional-difference record** (`.claude/.sync-local`). Some files are *supposed* to differ forever — a project's `.claude/docs/testing.md` ends up naming its own gate script and its own solution files, none of which exist in a template-generated project. Reporting those on every run is a permanent false alarm, and a permanent false alarm is worse than none: it is the one line in this output a reader learns to skip, and the next genuinely-stale file gets reported on that same line. So a difference can be *accepted*:
+
+```bash
+scripts/template-autosync.sh --accept-local .claude/docs/testing.md
+```
+
+which writes one line — `<project-sha256>  <template-sha256>  <path>` — and nothing else. No sync, no commit, no push; you commit the record alongside whatever made the difference intentional.
+
+**Two hashes, not one.** A record keyed on the project's bytes alone goes silent and then *stays* silent when the template rewrites that file — the same defect pointed upstream. With both:
+
+| project side | template side | what happens |
+|---|---|---|
+| as accepted | as accepted | silent — no summary line, no `[manual]` entry |
+| changed | — | reported: *the local copy changed since it was accepted* |
+| as accepted | changed | reported: *the template changed under an accepted local difference* |
+| no record | — | reported: differs — merge it, or record it |
+
+That is what stops the record becoming a blindfold. `--check` / `--dry-run` still list accepted differences (and flag records that have gone stale) — silent means silent in the ambient path, not invisible to inspection.
+
+`--accept-local` refuses a path that is missing, that the template does not ship, that is already identical, that it cannot see the template for, or that is in the **CORE set** — CORE files are overwritten unconditionally, so recording one would promise silence *and* let the file be clobbered on the next run. It is also the only thing that ever writes the record: a sync that recorded its own skips would be a rubber stamp, and the failure that causes — a genuinely stale file going quiet — is invisible.
 
 **Stack gate.** `.claude/.sync-stack` with `testing=mobile` means `.claude/docs/testing.md` holds *mobile* content under the canonical name. The sync maps `testing-mobile.md → testing.md` and never stamps the browser version over it — that's the documented failure that left a native app reading "browser back mid-flow" instructions.
 
@@ -93,7 +114,7 @@ The sync commits only the paths it wrote, with `chore(sync): template <sha> — 
 
 ## When you still need `/project-update`
 
-- The summary lists skipped, locally-modified files.
+- The summary lists files that differ and are not recorded as intentional.
 - `CLAUDE.md` needs the template's new critical rules merged in.
 - The tech stack changed, or speckit itself needs reinstalling.
 - A new external skill bundle shipped in the template.
