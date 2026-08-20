@@ -38,9 +38,14 @@ ID GRAMMAR — the whole defect in one table
   007m     -> spec        (letter-suffixed; the case that was silently dropped)
   **364    -> spec        (bold markdown stripped)
   H1       -> checkpoint  (integration-hardening; no pipeline artifacts required)
-  007ab    -> unparseable (REPORTED, never truncated - truncating "007ab" to
+  007ab    -> spec        (MULTI-letter suffix, returned WHOLE. Truncating it to
                            "007a" would resolve to a DIFFERENT REAL SPEC, which
-                           is this spec's own failure mode in miniature)
+                           is this module's own failure mode in miniature. Spec
+                           007m refused the id to guarantee that; spec 007ab
+                           widened the grammar instead, which honours the same
+                           property AND lets the register use the ids it uses.)
+  7-x      -> unparseable (REPORTED, never dropped - silent dropping is the
+                           defect this module exists to fix)
 
 EXIT CODES (CLI) — callers MUST distinguish these (FR-007m-04)
   0  resolved an active row (see kind/found)
@@ -63,9 +68,18 @@ import sys
 #   "- [ ] **364 — inbound-reply (mail / Slack)** — full [hardened] — NOT STARTED"
 ROW_RE = re.compile(r"^-\s+\[([ xX/!])\]\s+(.+?)\s+—\s+(.+?)\s+—\s+(.+?)\s+—.*$")
 
-# NOTE the optional suffix letter. Its absence WAS the defect. Anchored so that
-# "007ab" does not quietly become "007a".
-SPEC_ID_RE = re.compile(r"^\**\s*([0-9]+[a-z]?)\**\s*$")
+# NOTE the suffix letters. Their absence WAS the defect (007m), and allowing
+# only ONE of them was the same defect one register-generation later (007ab):
+# single-letter 007 suffixes ran out at 007z, so the register continued 007aa,
+# 007ab, 007ac — and every one of those classified as unparseable, which made
+# both PreToolUse guards fail closed and deny EVERY source edit for the whole
+# remaining register. `*` rather than `?`, and the anchors are what keep the
+# promise that matters: "007ab" is returned whole or not at all, never quietly
+# truncated to "007a", which is a different real spec.
+#
+# No collision with CHECKPOINT_ID_RE: spec ids are digits-then-letters,
+# checkpoints letters-then-digits.
+SPEC_ID_RE = re.compile(r"^\**\s*([0-9]+[a-z]*)\**\s*$")
 CHECKPOINT_ID_RE = re.compile(r"^\**\s*([A-Za-z]+[0-9]+)\**\s*$")
 
 # Lane ownership. Two developers can work the register at once, so "the active
