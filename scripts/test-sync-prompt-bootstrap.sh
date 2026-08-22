@@ -18,6 +18,20 @@ cd "$(dirname "$0")/.." || exit 1
 SRC="$PWD/scripts/sync-prompt.md"
 [ -f "$SRC" ] || { echo "FAIL: sync-prompt.md not found"; exit 1; }
 
+# This tests a TEMPLATE artifact. A synced project also carries a scripts/
+# sync-prompt.md, but that copy is never the one /project-update executes -- Step 4
+# curls the file fresh from GitHub -- and autosync's copy loop globs *.sh and *.py,
+# so the project's copy is a stale snapshot by design. Running the assertions
+# against it reports failures about a file nobody uses. Run here only when this IS
+# the template repo; anywhere else, say so and pass.
+case "$(git remote get-url origin 2>/dev/null)" in
+  *johanolofsson72/Claude*) ;;
+  *)
+    echo "SKIP — not the template repo. scripts/sync-prompt.md here is a stale local"
+    echo "       copy; /project-update fetches the authoritative one from GitHub."
+    exit 0 ;;
+esac
+
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
