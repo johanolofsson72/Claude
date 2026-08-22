@@ -76,7 +76,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 
 **Rules (auto-loaded, path-scoped via YAML frontmatter):**
 - `.claude/rules/dotnet.md` — .NET code rules (paths: `**/*.cs`, `**/*.csproj`)
-- `.claude/rules/frontend.md` — frontend rules
+- `.claude/rules/frontend.md` — frontend rules; the design-tooling section names the three in-session tools and keeps them apart: `frontend-design` (the BLOCKING gate), `/design` (optional upstream artboards, research preview), `/design-sync` (two-way bridge to a Claude Design design-system project). Pre-2026-08 copies claim Claude Design is not a Claude Code skill and that the flow is one-way — both were true once and are not now; overwrite that section.
 - `.claude/rules/security.md` — security rules for C#
 - `.claude/rules/specs.md` — spec/task rules: scenario-map source, risk-tiered destructive sizing (input-domain, not a flat quota), unit+integration+PBT+VRT, mutation-kill gate (paths: `**/spec*.md`, `**/tasks*.md`, etc.)
 - `.claude/rules/tests.md` — browser/E2E test rules: functional coverage inventory + risk-tiered destructive + the other test layers (paths: `**/*Test*.cs`, `**/*test*.ts`, etc.)
@@ -134,6 +134,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `scripts/tla-hook.sh` — PostToolUse hook script for TLA+ auto-trigger
 - `scripts/allium-hook.sh` — PostToolUse hook that blocks if spec lacks .allium companion
 - `scripts/tlc-cleanup.sh` — TLC process cleanup (kills orphaned Java/TLC processes after execution)
+- `scripts/test-template-clone-refresh.sh` — test harness for the template-clone refresh in `template-autosync.sh`. A local template clone is preferred over the GitHub tarball and used to be copied from without ever being fetched, so a developer who followed Step -1 and cloned the template pinned their autosync to that commit forever, silently. Covers all four clone states (equal / behind → fast-forward / ahead → untouched / diverged → warn), dirty-and-behind, a foreign repo parked at the path, and a non-git directory. Run: `bash scripts/test-template-clone-refresh.sh`. LOCAL only, never CI.
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
 - `scripts/spec-md-coverage-reminder-hook.sh` — Deterministic replacement for the legacy `type:"prompt"` spec-completeness hook. Never blocks (only emits `systemMessage`), detects carve-out phrases ("carved to", "out-of-scope", "deferred to", "tracked in", etc.) and suppresses the destructive-test reminder when tests are explicitly deferred to another slice. Fixes the false-positive blocks observed in projects when slicing specs.
 - `scripts/scenario-map-reminder-hook.sh` — PostToolUse advisory (never blocks). Fires when a spec/tasks file gains interactive behaviour but `specs/SCENARIOS.md` has no rows for it; instructs Claude to START a scenario interview (capture happy/edge/adversarial/error/offline cases) rather than just jotting a note. Silent on template/scratch repos (no language marker). Pairs with `.claude/rules/scenarios.md`.
@@ -219,6 +220,7 @@ For each file in the template:
   - `sync-core-hooks.py` — the core script hooks: pipeline reminders, spec-register guard/orientation, pipeline state guard, spec-md-coverage, continuous-execution, stop-validation, and the tech-stack hooks (tla, allium, sqlite, ui-design, test-coverage). Gated by script-presence so a project only gets hooks whose scripts it has (Step 5c, below).
   Together these three own 100% of the template's script-backed hooks. Inline hooks (sensitive-file blocker, PreCompact, etc.) are identical across projects and copied with the settings adopt; project-specific hooks the template does not ship are preserved verbatim by all three helpers.
 - UNION of permissions.deny — combine both lists (the helpers never touch `permissions`)
+- `outputStyle` — set `"outputStyle": "Proactive"` when the project has no such key; leave an existing value alone. The built-in Proactive style (v2.1.237+) modifies the **system prompt**, whereas CLAUDE.md only adds a user message after it — so it is the strongest available place for the autonomy contract in `.claude/rules/continuous-execution.md`. Do **not** set `Concise`: it works against the per-finding surfacing required by `.claude/rules/validation-followup.md` and against the per-spec status summary.
 - Preserve project-specific hooks and permissions
 - NOTE: the template uses hook types that may not exist in the project:
   - `type: "prompt"` — LLM evaluation (for spec validation)
