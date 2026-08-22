@@ -124,7 +124,13 @@ if [ -n "$FOUND_REG" ]; then
   # damage is only a stray replacement character in the banner — but python3 is
   # already required by resolve-active-spec.sh two lines below, so there is no reason
   # to accept even that. cut stays as the fallback for a box without python3.
-  ORIENT_ROW_MAX="${ORIENT_ROW_MAX:-240}"
+  # 800, not 240. The first cut at 240 was sized against a pathological row (9096
+  # chars) and it punished the ordinary case: on msroute the NEXT row is 1632 chars
+  # of actual brief and the banner cut it at "…what **changed in the rep", so the
+  # thing that announces the spec no longer said what the spec was. A row is meant
+  # to be a one-line goal; when it is not, the reader still needs the brief. 800
+  # carries a real brief and still cuts a 9096-char essay by 91%.
+  ORIENT_ROW_MAX="${ORIENT_ROW_MAX:-800}"
   if [ "${#NEXT_LINE}" -gt "$ORIENT_ROW_MAX" ]; then
     _ORIENT_FULL_LEN="${#NEXT_LINE}"
     if command -v python3 >/dev/null 2>&1; then
