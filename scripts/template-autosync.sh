@@ -145,9 +145,11 @@ is_core() {
 # which fires before one. Spec 007ak's block was deleted twice for want of the second
 # caller; two copies of the sentence would put this very fix back on a drift path.
 core_refusal_text() {
-  printf "'%s' is CORE machinery, which this sync overwrites unconditionally.\n" "$1"
-  printf 'Recording it as an intentional local difference would promise silence AND let\n'
-  printf 'the file be clobbered on the next run. Land the change in the template instead.\n'
+  printf "'%s' is CORE machinery. This sync overwrites it unconditionally:\n" "$1"
+  printf 'manifest or not, local edit or not. A change that lives only in this project\n'
+  printf 'is deleted by the next sync, and recording it as an intentional difference\n'
+  printf 'would only promise a silence that same sync would break. Land the change in\n'
+  printf 'the template instead.\n'
 }
 
 # ------------------------------------------------------------ --is-core (spec 007ao)
