@@ -108,6 +108,17 @@ if [ -n "$FOUND_REG" ]; then
   }
 
   NEXT_LINE=$(pick_row | sed -E 's/^- \[[ /!]\] //' || true)
+  # Bound it. A register row is SUPPOSED to be "NNN — slug — track — short one-line
+  # goal", but rows grow: on one real project the next row was 9096 characters and
+  # this banner came to 13 KB — about 3 200 tokens, charged at every session start,
+  # first thing in context. The same banner carries a canary telling the reader that
+  # INDEX.md is too big to read whole; pasting the biggest row into it made this hook
+  # the single largest contributor to the cost it was warning about. The row's head
+  # is what orients you; the rest is in the file, which the banner names.
+  ORIENT_ROW_MAX="${ORIENT_ROW_MAX:-240}"
+  if [ "${#NEXT_LINE}" -gt "$ORIENT_ROW_MAX" ]; then
+    NEXT_LINE="$(printf '%s' "$NEXT_LINE" | cut -c1-"$ORIENT_ROW_MAX")… [row truncated — $((${#NEXT_LINE})) chars; read it in the register]"
+  fi
   if [ -z "$NEXT_LINE" ]; then
     if [ -n "$LANE" ]; then
       NEXT_LINE="(no unfinished row owned by @${LANE} — the other lane has the rest; pick one up or tag one)"
@@ -208,7 +219,9 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
     IP_DIR=$(printf '%s' "$IP_JSON" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
     for cand in "${PROJECT_ROOT}/${IP_DIR}/run-log.md"; do
       if [ -n "$IP_DIR" ] && [ -f "$cand" ]; then
-        TAIL_LINES=$(grep -E '^- ' "$cand" 2>/dev/null | tail -5)
+        # Same bound, same reason: run-log entries are specified as one line each
+        # but are written by hand, and a paragraph-long one is charged every session.
+        TAIL_LINES=$(grep -E '^- ' "$cand" 2>/dev/null | tail -5 | cut -c1-200)
         [ -n "$TAIL_LINES" ] && RUNLOG_TAIL="
 Run log (last 5, ${cand#$PROJECT_ROOT/}):
 ${TAIL_LINES}"
@@ -223,7 +236,21 @@ ${TAIL_LINES}"
   # the full block prints only when something is actually actionable (checkpoint
   # due / fresh-context banner / size canary / a blocked or in-flight row);
   # otherwise the register collapses to a single line.
-  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}"
+  # .claude/rules/spec-register.md: "- [/] — in progress (only one spec carries
+  # this at a time)". spec_active.py already computes duplicate_active and nothing
+  # ever surfaced it, so a register with 33 in-progress rows looked normal in the
+  # totals while "the active spec" — which all three PreToolUse guards key off —
+  # was whichever one happened to sort first.
+  DUP_WARN=""
+  if [ "$PROG" -gt 1 ]; then
+    DUP_WARN="
+⚠ ${PROG} rows are marked in-progress \`- [/]\`, but the register allows ONE at a time.
+  All three pipeline guards resolve \"the active spec\" from the first of them, so the
+  rest are invisible to the gates. Tick the finished ones \`- [x]\`, return the
+  not-actually-started ones to \`- [ ]\`, and leave exactly one \`- [/]\`."
+  fi
+
+  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
     MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
     jq -n --arg m "$MSG" '{systemMessage: $m}'
@@ -232,9 +259,9 @@ ${TAIL_LINES}"
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${LANE_NOTE}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
-Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit on the spec's own branch (spec/<id>-<slug>), open a PR into main and merge it, tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
+Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   jq -n --arg m "$MSG" '{systemMessage: $m}'
   exit 0
 fi
