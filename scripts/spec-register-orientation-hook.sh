@@ -115,9 +115,24 @@ if [ -n "$FOUND_REG" ]; then
   # INDEX.md is too big to read whole; pasting the biggest row into it made this hook
   # the single largest contributor to the cost it was warning about. The row's head
   # is what orients you; the rest is in the file, which the banner names.
+  #
+  # Truncate by CHARACTERS, not bytes. `cut -c` is character-aware only in a UTF-8
+  # locale; under LC_ALL=C — which a hook can easily inherit — it counts bytes and
+  # will split a multibyte character in half. These registers are written in Swedish
+  # and full of em-dashes, so that boundary is hit routinely. jq --arg does not fail
+  # on the dangling bytes (it substitutes U+FFFD and still emits valid JSON), so the
+  # damage is only a stray replacement character in the banner — but python3 is
+  # already required by resolve-active-spec.sh two lines below, so there is no reason
+  # to accept even that. cut stays as the fallback for a box without python3.
   ORIENT_ROW_MAX="${ORIENT_ROW_MAX:-240}"
   if [ "${#NEXT_LINE}" -gt "$ORIENT_ROW_MAX" ]; then
-    NEXT_LINE="$(printf '%s' "$NEXT_LINE" | cut -c1-"$ORIENT_ROW_MAX")… [row truncated — $((${#NEXT_LINE})) chars; read it in the register]"
+    _ORIENT_FULL_LEN="${#NEXT_LINE}"
+    if command -v python3 >/dev/null 2>&1; then
+      _ORIENT_HEAD=$(ORIENT_ROW_MAX="$ORIENT_ROW_MAX" NEXT_LINE="$NEXT_LINE" python3 -c \
+        'import os,sys; sys.stdout.write(os.environ["NEXT_LINE"][:int(os.environ["ORIENT_ROW_MAX"])])' 2>/dev/null)
+    fi
+    [ -n "${_ORIENT_HEAD:-}" ] || _ORIENT_HEAD=$(printf '%s' "$NEXT_LINE" | cut -c1-"$ORIENT_ROW_MAX")
+    NEXT_LINE="${_ORIENT_HEAD}… [row truncated — ${_ORIENT_FULL_LEN} chars; read it in the register]"
   fi
   if [ -z "$NEXT_LINE" ]; then
     if [ -n "$LANE" ]; then
