@@ -60,6 +60,38 @@ That is what stops the record becoming a blindfold. `--check` / `--dry-run` stil
 
 **Stack gate.** `.claude/.sync-stack` with `testing=mobile` means `.claude/docs/testing.md` holds *mobile* content under the canonical name. The sync maps `testing-mobile.md → testing.md` and never stamps the browser version over it — that's the documented failure that left a native app reading "browser back mid-flow" instructions.
 
+## Where the template comes from (and the one-time bootstrap)
+
+The sync resolves the template in this order: `CLAUDE_TEMPLATE_DIR` → a local clone at `~/repos/Claude` (or `~/repos/claude`) →
+the GitHub tarball. A local clone wins, and until 2026-08-22 it was **used without ever being fetched**. Since `sync-prompt.md`
+Step -1 tells every developer to clone the template, following that instruction pinned your autosync to the commit you cloned —
+silently, forever. The stamp matched the frozen SHA on every run, so the hook reported a clean sync and nothing said the source
+was months old.
+
+It now fetches and then decides by the clone's relationship to `origin/main`:
+
+| State | What happens |
+|---|---|
+| equal | nothing |
+| behind, clean tree | fast-forwarded to `origin/main`, and it says so |
+| behind, uncommitted changes | left alone (your work wins) with a warning that the source is stale |
+| ahead | left alone — the template author's unpushed commits are exactly what their projects should receive |
+| diverged | left alone, warned; reconcile by hand |
+
+A clone of some *other* repo parked at that path is never fetched, and no network means "use it as-is". Every path fails open.
+
+> **One-time bootstrap.** A project still running the pre-2026-08-22 `template-autosync.sh` cannot receive this fix through a
+> stale clone — the old script is what refuses to fetch, so it would have to update itself through the very path that is broken.
+> Pull the template clone once by hand and the loop closes for good:
+>
+> ```bash
+> git -C ~/repos/Claude pull --ff-only
+> ```
+>
+> Developers with **no** local clone were never affected: the tarball path always fetched.
+
+Covered by `scripts/test-template-clone-refresh.sh` (16 assertions across all six cases).
+
 ## Cost
 
 Rate-limited to one check per 6 hours per project (`TEMPLATE_AUTOSYNC_INTERVAL`, mtime of `.claude/.template-sync-check`). With a local template clone the check is a local `git rev-parse` — no network. Without one it's a single `git ls-remote`, and the tarball downloads only when the SHA actually moved.

@@ -120,10 +120,83 @@ TEMPLATE_DIR=""
 TEMPLATE_SHA=""
 TEMPLATE_TMP=""
 
+# A local clone is preferred over the tarball, and until this existed it was also
+# never refreshed: resolve_local_template took `rev-parse HEAD` as the template's
+# SHA and copied whatever bytes happened to be checked out. sync-prompt.md Step -1
+# tells every developer to clone the template to ~/repos/Claude, so the moment they
+# follow that instruction their autosync pins itself to the commit they cloned --
+# silently, forever. The stamp then matches the frozen SHA on every run, so the
+# hook reports a clean sync and nothing ever says the source is months stale.
+#
+# So: fetch, then decide by relationship to origin/main. Four states, and only one
+# of them is the bug:
+#
+#   equal     nothing to do.
+#   behind    the stale-clone bug. Fast-forward it (clean trees only) and say so.
+#   ahead     the template author's own machine, mid-work. Leave it alone -- those
+#             unpushed commits are exactly what their other projects should receive.
+#   diverged  local commits AND upstream commits. Ambiguous, so touch nothing and
+#             warn; rewriting someone's clone and ignoring their commits are both
+#             wrong, and a human can tell which one they meant.
+#
+# Fails open in every direction: no network, no git, not a clone, a clone of some
+# other repo living at that path -- all of them fall back to "use it as-is", which
+# is precisely the behaviour that existed before.
+refresh_local_template() {
+  _c="$1"
+  git -C "$_c" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  case "$(git -C "$_c" remote get-url origin 2>/dev/null)" in
+    *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) ;;
+    *) return 0 ;;   # a different repo parked at that path: not ours to fetch
+  esac
+
+  # Bounded, because this runs from SessionStart. A fetch that hangs on a dead
+  # network must not become the session's startup cost.
+  _to=""
+  if command -v timeout  >/dev/null 2>&1; then _to="timeout 20"
+  elif command -v gtimeout >/dev/null 2>&1; then _to="gtimeout 20"; fi
+  $_to git -C "$_c" fetch --quiet origin main >/dev/null 2>&1 || {
+    warn "[note] template clone at $_c could not be fetched (offline?) -- using it as-is"
+    return 0
+  }
+
+  _head=$(git -C "$_c" rev-parse HEAD 2>/dev/null)          || return 0
+  _up=$(git -C "$_c" rev-parse origin/main 2>/dev/null)     || return 0
+  [ "$_head" = "$_up" ] && return 0
+
+  _behind=0; _ahead=0
+  git -C "$_c" merge-base --is-ancestor "$_head" "$_up" 2>/dev/null && _behind=1
+  git -C "$_c" merge-base --is-ancestor "$_up" "$_head" 2>/dev/null && _ahead=1
+
+  if [ "$_behind" -eq 1 ]; then
+    if [ -n "$(git -C "$_c" status --porcelain 2>/dev/null | head -1)" ]; then
+      # Dirty AND behind: the uncommitted work is deliberate (the -dirty- SHA below
+      # exists for exactly that case), so it wins -- but say the source is stale,
+      # because that is the part nobody would otherwise notice.
+      warn "[warn] template clone at $_c is behind origin/main and has uncommitted changes."
+      warn "       Syncing from the working tree as-is. Commit or stash, then re-run to fast-forward."
+      return 0
+    fi
+    if git -C "$_c" merge --ff-only --quiet origin/main >/dev/null 2>&1; then
+      warn "[ok] template clone fast-forwarded to origin/main -- the files below come from the newer template"
+    else
+      warn "[warn] template clone at $_c is behind origin/main but would not fast-forward."
+      warn "       Syncing from the stale checkout. Fix the clone with: git -C $_c pull --ff-only"
+    fi
+    return 0
+  fi
+
+  [ "$_ahead" -eq 1 ] && return 0   # author's machine, mid-work: their commits are the point
+
+  warn "[warn] template clone at $_c has diverged from origin/main (local commits AND upstream commits)."
+  warn "       Nothing was changed. Syncing from the local checkout; reconcile it by hand."
+}
+
 resolve_local_template() {
   for cand in "${CLAUDE_TEMPLATE_DIR:-}" "$HOME/repos/Claude" "$HOME/repos/claude"; do
     [ -n "$cand" ] || continue
     if [ -f "$cand/scripts/sync-prompt.md" ] && [ -d "$cand/.claude/rules" ]; then
+      refresh_local_template "$cand"
       TEMPLATE_DIR="$cand"
       TEMPLATE_SHA=$(git -C "$cand" rev-parse --short=12 HEAD 2>/dev/null || echo "local-unknown")
       # A dirty working tree means the files being copied are NOT what the SHA
@@ -243,6 +316,7 @@ repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
 detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh
 speckit-extension-policy.sh
 archive-spec-history.sh test-archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
+test-template-clone-refresh.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
 template-autosync.sh template-autosync-hook.sh"
@@ -590,6 +664,46 @@ if [ ! -f "$PROJECT_ROOT/.claude/settings.json" ] && [ -f "$TEMPLATE_DIR/.claude
   warn "       but no specs/INDEX.md, spec-register-guard will block source edits until"
   warn "       you create the register (the deny message explains how)."
 fi
+# -------------------------------------------------- outputStyle (add-if-absent)
+# The hook helpers below rewire `hooks` and nothing else, so a settings key the
+# template adopts reaches a project only through /project-update's prose merge --
+# which most projects never run, because autosync exists precisely so they do not
+# have to. outputStyle is the first such key, and it is worth carrying: a built-in
+# output style modifies the SYSTEM PROMPT, where CLAUDE.md only adds a user message
+# after it, so "Proactive" states the autonomy contract in .claude/rules/
+# continuous-execution.md one layer above everything else that argues for it.
+#
+# Add-if-absent, never overwrite: a project that already names an outputStyle made
+# a choice, and silently replacing someone's chosen voice is not a sync, it is a
+# hijack. Idempotent, and a parse failure leaves the file untouched.
+if [ -f "$PROJECT_ROOT/.claude/settings.json" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ] \
+   && [ "$MODE_CHECK" -eq 0 ] && command -v python3 >/dev/null 2>&1; then
+  if python3 - "$PROJECT_ROOT/.claude/settings.json" "$TEMPLATE_DIR/.claude/settings.json" <<'PYEOF'
+import json, sys
+proj, tmpl = sys.argv[1], sys.argv[2]
+try:
+    p = json.load(open(proj, encoding="utf-8"))
+    t = json.load(open(tmpl, encoding="utf-8"))
+except Exception:
+    sys.exit(1)                      # unreadable: leave it alone
+want = t.get("outputStyle")
+if not want or p.get("outputStyle"):
+    sys.exit(1)                      # nothing to add, or the project already chose
+p["outputStyle"] = want
+tmp = proj + ".outputstyle-tmp"
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(p, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+json.load(open(tmp, encoding="utf-8"))   # must still parse before it replaces anything
+import os; os.replace(tmp, proj)
+PYEOF
+  then
+    STYLE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["outputStyle"])' "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null)
+    warn "[note] settings.json had no outputStyle — set to \"$STYLE\" from the template."
+    case " $WROTE $ADDED " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+  fi
+fi
+
 if [ -f "$PROJECT_ROOT/scripts/sync-core-hooks.py" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ] \
    && command -v python3 >/dev/null 2>&1; then
   cp "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.autosync-bak" 2>/dev/null
