@@ -59,13 +59,18 @@ actually ship rather than against a draft you are about to restructure. Skip on 
 > proceed with implementation anyway? (yes/no)"*. That is precisely the anti-pattern `.claude/rules/continuous-execution.md`
 > forbids — a permission-check mid-pipeline on work the developer already authorized. **Do not ask it.** Instead:
 >
-> - **Read the unchecked items and judge them.** An unchecked item that names a real gap — a missing acceptance criterion, an
->   unanswered authorization question, an absent error state — is a **finding**, and findings are surfaced individually for an
->   explicit fix/defer/dismiss decision per `.claude/rules/validation-followup.md`. That is a legitimate stop and it carries far
->   more information than "proceed anyway?".
-> - **An unchecked item that is merely unticked bookkeeping is not a finding.** Tick it if it is satisfied, note it, and continue.
-> - **Never answer the prompt to yourself and record it as a decision.** Either there is a finding (surface it) or there is not
->   (continue). The one thing that must not happen is the pipeline stopping to ask the developer for permission it already has.
+> - **Read the unchecked items and judge them.** Tick the ones already satisfied.
+> - **Record the rest; do not stop for them.** An unchecked item that names a real gap — a missing acceptance criterion, an
+>   unanswered authorization question, an absent error state — goes into the spec and into `<spec-dir>/run-log.md`, and is
+>   reported in the **per-spec status summary**. That summary is the one stop this pipeline has (`.claude/rules/spec-register.md`),
+>   and it is where the developer sees what was left unchecked — after the work, not instead of it.
+> - **Never relay the prompt, in any form.** Not as a yes/no question, and not converted into an `AskUserQuestion`. There is no
+>   version of this gate that is allowed to halt the run.
+>
+> This is enforced deterministically, not just in prose: `scripts/speckit-extension-policy.sh` rewrites the STOP block in
+> `speckit-implement/SKILL.md` (and the `_[Wait for user response]_` line in `speckit-specify/SKILL.md`) after every
+> `specify init`, stamping a marker so re-runs are no-ops. It fires on the verbatim upstream text and, when spec-kit changes its
+> wording, warns instead of half-editing — at which point this rule is what governs.
 >
 > The stop lives in spec-kit's own SKILL.md, which `specify init --force` regenerates on every update, so patching that file does
 > not survive — the same lesson the git extension taught. This rule is the durable override.
