@@ -60,6 +60,41 @@ That is what stops the record becoming a blindfold. `--check` / `--dry-run` stil
 
 **Stack gate.** `.claude/.sync-stack` with `testing=mobile` means `.claude/docs/testing.md` holds *mobile* content under the canonical name. The sync maps `testing-mobile.md → testing.md` and never stamps the browser version over it — that's the documented failure that left a native app reading "browser back mid-flow" instructions.
 
+## The CORE set is not yours to edit (and now something says so)
+
+The unconditional-overwrite policy above has a consequence that is easy to state and was, for a long
+time, never stated at the moment it mattered: **a project's copy of a CORE file is the template's
+copy.** A line you add to `scripts/template-autosync.sh` or `.claude/rules/feature-pipeline.md` in a
+project is not risky, it is already lost — the only open question is how many hours until the next
+SessionStart collects it.
+
+That is measured, not asserted. Across every commit msroute ever made to a CORE file outside a sync,
+the lines that survive today are exactly the lines the template also has: twelve cases, no exceptions.
+One spec there spent itself shipping 59 lines into `template-autosync.sh`; a sync deleted them the next
+morning, a later spec restored them by hand knowing exactly why they had gone, and a second sync
+deleted them again nineteen hours after that.
+
+Two things now close that gap:
+
+```bash
+scripts/template-autosync.sh --is-core scripts/spec_active.py
+# exit 0 — the template owns it (and the refusal text lands on stdout)
+# exit 1 — it is yours
+# exit 2 — cannot answer
+```
+
+and `scripts/core-machinery-guard-hook.sh`, a `PreToolUse` guard that asks exactly that question
+before every `Edit` / `Write` / `MultiEdit` and **denies** the ones aimed at a CORE file, naming the
+template path to open instead. It is quiet everywhere it has no business speaking: your own scripts and
+rules, a project with no sync script, anywhere outside a git repository, and the template repository
+itself — which is, after all, where it keeps telling everyone to go. It fails **open**: if the
+classifier cannot answer, the edit proceeds, because a guard that blocks all script editing when
+something upstream breaks is a guard that gets deleted along with the protection it was carrying.
+
+`ALLOW_CORE_MACHINERY_EDIT=1` is the deliberate way through, for the case that is genuinely legitimate
+— repairing work a sync deleted, before the fix has landed upstream. It is loud rather than silent, and
+the change still has to reach the template afterwards or the next sync takes it back.
+
 ## Where the template comes from (and the one-time bootstrap)
 
 The sync resolves the template in this order: `CLAUDE_TEMPLATE_DIR` → a local clone at `~/repos/Claude` (or `~/repos/claude`) →
@@ -134,9 +169,10 @@ scripts/template-autosync.sh --dry-run    # same, with the file list
 scripts/template-autosync.sh              # sync + commit + push
 scripts/template-autosync.sh --no-commit  # sync, leave it unstaged
 scripts/template-autosync.sh --force      # ignore the "already at this SHA" stamp
+scripts/template-autosync.sh --is-core <path>   # 0 = the template owns it · 1 = yours · 2 = cannot answer
 ```
 
-Environment: `CLAUDE_TEMPLATE_AUTOSYNC=0` disables it for a project · `CLAUDE_TEMPLATE_DIR` points at a local template clone · `CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1` bypasses the rate limit.
+Environment: `CLAUDE_TEMPLATE_AUTOSYNC=0` disables it for a project · `CLAUDE_TEMPLATE_DIR` points at a local template clone · `CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1` bypasses the rate limit · `ALLOW_CORE_MACHINERY_EDIT=1` overrides the core-machinery guard for one session · `TEMPLATE_AUTOSYNC_NAME_LIMIT` caps the `[changed]` file list (default 20, `0` turns it off).
 
 ## Commits
 

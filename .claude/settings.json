@@ -128,6 +128,11 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-interview-guard-hook.sh\"",
             "statusMessage": "Checking spec interview (15-25 questions)..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/core-machinery-guard-hook.sh\"",
+            "statusMessage": "Checking template-owned core machinery..."
           }
         ]
       },

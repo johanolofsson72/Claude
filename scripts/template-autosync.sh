@@ -38,6 +38,7 @@
 # Usage:
 #   template-autosync.sh [--check] [--dry-run] [--force] [--no-commit] [--quiet]
 #   template-autosync.sh --accept-local <path>...
+#   template-autosync.sh --is-core <project-relative-path>
 #     --check         report drift and exit 0 without writing anything
 #     --dry-run       same as --check but also prints the file list it would write
 #     --force         sync even when the template SHA matches the stamp
@@ -49,6 +50,11 @@
 #                     identical to it, or is in the CORE set (which this sync
 #                     overwrites unconditionally, so silence there is a promise
 #                     it would break on its very next run).
+#     --is-core       ask whether <path> is CORE machinery and exit immediately.
+#                     0 = yes (the refusal text is written to stdout), 1 = no,
+#                     2 = cannot answer. Writes nothing, resolves no template and
+#                     makes no network call, so a PreToolUse hook can afford it
+#                     before every edit.
 #
 # Exit codes: 0 = up to date / synced / not applicable, 1 = hard error.
 # Fails open by design: this runs from a SessionStart hook and must never
@@ -60,6 +66,7 @@ TEMPLATE_REPO_URL="https://github.com/johanolofsson72/Claude.git"
 TEMPLATE_TARBALL="https://codeload.github.com/johanolofsson72/Claude/tar.gz/refs/heads/main"
 
 MODE_CHECK=0; MODE_DRYRUN=0; FORCE=0; DO_COMMIT=1; QUIET=0; MODE_ACCEPT=0; ACCEPT_PATHS=""
+MODE_IS_CORE=0; IS_CORE_PATH=""
 ORIG_ARGS="$*"   # kept for the self-update re-exec below (flags contain no spaces)
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -78,6 +85,12 @@ while [ $# -gt 0 ]; do
         shift
       done
       ;;
+    --is-core)
+      MODE_IS_CORE=1
+      # One path, and only if it is not the next flag — so `--is-core --quiet` is a
+      # missing argument (exit 2) rather than a silent "not CORE".
+      if [ $# -gt 1 ]; then case "$2" in --*) ;; *) IS_CORE_PATH="$2"; shift ;; esac; fi
+      ;;
     -h|--help)   grep -E '^#( |$)' "$0" | sed -e 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 1 ;;
   esac
@@ -94,6 +107,81 @@ say()  { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*"; }
 # greps it for "[synced]". --quiet suppresses chatter, never this.
 tell() { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
+
+# ------------------------------------------------------------------- CORE sets
+# Enforcement machinery: always overwritten, manifest or not. These are the
+# files whose drift silently disables a gate — exactly what bit cv.
+CORE_SCRIPTS="pipeline-trigger-match.sh pipeline-trigger-match.py emit-pipeline-reminder.sh
+emit-clarify-reminder.sh emit-analyze-reminder.sh feature-pipeline-detect.sh
+spec_active.py resolve-active-spec.sh test-active-spec-resolution.sh
+spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-guard-hook.sh
+spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
+sync-feature-json-hook.sh
+scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
+repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
+detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh
+speckit-extension-policy.sh
+archive-spec-history.sh test-archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
+test-template-clone-refresh.sh test-sync-count-honesty.sh
+core-machinery-guard-hook.sh test-core-machinery-guard.sh
+project-maintenance.sh project-freshness.sh
+sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
+template-autosync.sh template-autosync-hook.sh"
+
+CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
+spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
+security.md project-workflow.md github-actions.md allium.md"
+
+is_core() {
+  case "$2" in
+    scripts) printf '%s\n' $CORE_SCRIPTS | grep -qx "$1" ;;
+    rules)   printf '%s\n' $CORE_RULES   | grep -qx "$1" ;;
+    *) return 1 ;;
+  esac
+}
+
+# The one place this project says this well, and now it has two callers: the
+# --accept-local refusal below, which fires AFTER a doomed edit, and --is-core above,
+# which fires before one. Spec 007ak's block was deleted twice for want of the second
+# caller; two copies of the sentence would put this very fix back on a drift path.
+core_refusal_text() {
+  printf "'%s' is CORE machinery, which this sync overwrites unconditionally.\n" "$1"
+  printf 'Recording it as an intentional local difference would promise silence AND let\n'
+  printf 'the file be clobbered on the next run. Land the change in the template instead.\n'
+}
+
+# ------------------------------------------------------------ --is-core (spec 007ao)
+# Answers "who owns this file" and nothing else: no sync, no commit, no template, no
+# network. It sits here, above even the project-root walk, because every early exit
+# below this line is `exit 0` — and in this mode 0 means CORE, so borrowing any of
+# them would answer the question wrongly and confidently. Cost matters too: the
+# script reaches arg parsing in 6 ms and template resolution in 1.015 s, with the
+# clone fetch bounded at 20 s (007ao research.md M7), and scripts/core-machinery-
+# guard-hook.sh calls this before every Edit.
+#
+# The path is PROJECT-RELATIVE. Resolving an absolute one would need the root walk
+# this block exists to precede, and a caller that has a file path has already walked
+# to the root to find this script.
+#   0 = CORE, refusal text on stdout · 1 = not CORE · 2 = cannot answer
+if [ "$MODE_IS_CORE" -eq 1 ]; then
+  case "$IS_CORE_PATH" in
+    "")  warn "[is-core] no path given."; exit 2 ;;
+    /*)  warn "[is-core] '$IS_CORE_PATH' is absolute; pass a path relative to the project root."; exit 2 ;;
+  esac
+  IS_CORE_REL=${IS_CORE_PATH#./}
+  # Exactly one segment under each directory. `.claude/skills/x/scripts/detect-stack.sh`
+  # is somebody else's file that happens to share a basename, and the sync would never
+  # touch it — so neither does this answer.
+  case "$IS_CORE_REL" in
+    scripts/*/*|.claude/rules/*/*) exit 1 ;;
+    scripts/*)                     IS_CORE_CLASS=scripts ;;
+    .claude/rules/*)               IS_CORE_CLASS=rules ;;
+    *)                             exit 1 ;;
+  esac
+  is_core "$(basename "$IS_CORE_REL")" "$IS_CORE_CLASS" || exit 1
+  core_refusal_text "$IS_CORE_REL"
+  exit 0
+fi
 
 # ---------------------------------------------------------------- project root
 DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -302,37 +390,6 @@ matches_template_history() {
   return 1
 }
 
-# ------------------------------------------------------------------- CORE sets
-# Enforcement machinery: always overwritten, manifest or not. These are the
-# files whose drift silently disables a gate — exactly what bit cv.
-CORE_SCRIPTS="pipeline-trigger-match.sh pipeline-trigger-match.py emit-pipeline-reminder.sh
-emit-clarify-reminder.sh emit-analyze-reminder.sh feature-pipeline-detect.sh
-spec_active.py resolve-active-spec.sh test-active-spec-resolution.sh
-spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-guard-hook.sh
-spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
-sync-feature-json-hook.sh
-scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
-repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
-detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh
-speckit-extension-policy.sh
-archive-spec-history.sh test-archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
-test-template-clone-refresh.sh test-sync-count-honesty.sh
-project-maintenance.sh project-freshness.sh
-sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
-template-autosync.sh template-autosync-hook.sh"
-
-CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
-spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
-security.md project-workflow.md github-actions.md allium.md"
-
-is_core() {
-  case "$2" in
-    scripts) printf '%s\n' $CORE_SCRIPTS | grep -qx "$1" ;;
-    rules)   printf '%s\n' $CORE_RULES   | grep -qx "$1" ;;
-    *) return 1 ;;
-  esac
-}
-
 # ------------------------------------------------------------------ stack gate
 # testing=mobile means .claude/docs/testing.md holds the MOBILE content under
 # the canonical name. Stamping the web doc over it is the documented failure
@@ -386,9 +443,12 @@ if [ "$MODE_ACCEPT" -eq 1 ]; then
       exit 1
     fi
     if is_core "$(basename "$REL")" "$CLS"; then
-      warn "[accept-local] refused: '$REL' is CORE machinery, which this sync overwrites"
-      warn "               unconditionally. Recording it would promise silence AND let the file be"
-      warn "               clobbered on the next run. Land the change in the template instead."
+      # One subshell, so _first survives the loop; the prefix appears once and the
+      # continuations align under it, exactly as this refusal has always read.
+      core_refusal_text "$REL" | { _first=1; while IFS= read -r _l; do
+        if [ "$_first" -eq 1 ]; then warn "[accept-local] refused: $_l"; _first=0
+        else warn "               $_l"; fi
+      done; }
       exit 1
     fi
     if [ "$(sha_of "$DEST")" = "$(sha_of "$SRC")" ]; then
@@ -1003,6 +1063,65 @@ fi
 [ -n "$HOOKS_NOTE" ] && SUMMARY="$SUMMARY · $HOOKS_NOTE"
 SUMMARY="$SUMMARY · $COMMIT_NOTE"
 tell "[synced] $SUMMARY"
+
+# ------------------------------------------------------- what moved (spec 007ak)
+# The counts above answer "did anything move". They cannot answer "which of MY rules
+# and guards moved", which is the question a session that just had its enforcement
+# layer rewritten underneath it actually has — and until this block that answer was
+# recoverable nowhere. A writing run printed no per-file line in ANY mode: the only
+# per-file listing lives inside --check --dry-run, which exits before the copy loop
+# touches anything, so dropping --quiet from the SessionStart hook would have bought
+# three lines of machinery chatter and zero names (007ak research.md M0, M2). The
+# fallback of pointing at this sync's own commit is worse than it looks: five of this
+# project's nine sync commits do not contain a file for every unit they counted, and
+# the most recent one counted `scripts/spec_active.py` — which all three BLOCKING
+# guards resolve the active spec through — while the commit shows only a stamp,
+# because the template had caught up with bytes the project already had (M6).
+#
+# Bounded, because a first sync is 93 files / 4.5 KB against a largest-ever release of
+# 19 (M4, M5) and this text is forwarded verbatim into a session's context. Ordered by
+# what changed the session's own behaviour, because under a bound the order is what
+# decides which names survive.
+NAME_LIMIT="${TEMPLATE_AUTOSYNC_NAME_LIMIT:-20}"
+# A fat-fingered override must not become `[: xyz: integer expression expected` inside
+# the very message this block exists to make readable. 0 is a real answer — a project
+# that wants the old counts-only message sets it and gets exactly that.
+case "$NAME_LIMIT" in ''|*[!0-9]*) NAME_LIMIT=20 ;; esac
+
+if [ "$NAME_LIMIT" -gt 0 ]; then
+  MOVED=$(
+    { for _f in $WROTE; do printf 'update\t%s\n' "$_f"; done
+      for _f in $ADDED;  do printf 'add\t%s\n'    "$_f"; done
+    } | awk -F'\t' '{
+          p = $2
+          if (p == ".claude/settings.json")  r = 0   # the hook wiring itself
+          else if (p ~ /^\.claude\/rules\//) r = 1   # the BLOCKING rules
+          else if (p ~ /^scripts\//)          r = 2   # the guards those rules cite
+          else                                r = 3
+          printf "%d\t%s\t%s\n", r, p, $1
+        }' \
+      | LC_ALL=C sort -t"$(printf '\t')" -k1,1n -k2,2 \
+      | awk -F'\t' '{ printf "%-7s%s\n", $3, $2 }'
+  )
+  # LC_ALL=C so the alphabetical half of the order does not depend on whose machine
+  # ran the sync; %-7s reproduces the two column widths --check --dry-run prints,
+  # rather than spelling either verb twice.
+  MOVED_N=$(printf '%s\n' "$MOVED" | grep -c .)
+  if [ "$MOVED_N" -gt 0 ]; then
+    tell "[changed] files this sync wrote, enforcement first:"
+    printf '%s\n' "$MOVED" | head -n "$NAME_LIMIT" | while IFS= read -r _line; do
+      tell "          $_line"
+    done
+    # The remainder is counted from the RENDERED list, never from N_WROTE + N_ADDED:
+    # those two agreeing is exactly what M6 shows cannot be assumed. It names the cap
+    # rather than an artefact — the cap is the whole reason the line exists, and it is
+    # true at any limit, where "this is a bulk sync" would be a guess once somebody
+    # lowers the bound.
+    if [ "$MOVED_N" -gt "$NAME_LIMIT" ]; then
+      tell "          … and $((MOVED_N - NAME_LIMIT)) more, not named — capped at $NAME_LIMIT (TEMPLATE_AUTOSYNC_NAME_LIMIT)"
+    fi
+  fi
+fi
 
 # Spec 007an. The gap between what this sync wrote and what the repository recorded
 # is not a presentation problem to be smoothed over by picking the nicer number —
