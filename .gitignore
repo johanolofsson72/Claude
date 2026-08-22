@@ -23,3 +23,10 @@ CLAUDE.local.md
 # so python3 writes a __pycache__ next to the hooks on every run.
 __pycache__/
 *.pyc
+
+# Agent worktrees. `isolation: worktree` agents check out under here, and git
+# records each one as a gitlink (mode 160000) if it is not ignored — which then
+# shows as permanently modified as that worktree's HEAD moves, so the tree is
+# never clean and the noise hides real changes. scripts/prune-agent-worktrees.sh
+# removes abandoned ones; this keeps them out of the index in the first place.
+.claude/worktrees/
