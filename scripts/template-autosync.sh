@@ -316,7 +316,7 @@ repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
 detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh
 speckit-extension-policy.sh
 archive-spec-history.sh test-archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
-test-template-clone-refresh.sh
+test-template-clone-refresh.sh test-sync-count-honesty.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
 template-autosync.sh template-autosync-hook.sh"
