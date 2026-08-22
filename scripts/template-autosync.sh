@@ -880,6 +880,70 @@ N_WROTE=$(echo "$WROTE" | tr ' ' '\n' | grep -c .)
 N_ADDED=$(echo "$ADDED" | tr ' ' '\n' | grep -c .)
 N_SKIP=$(echo "$REPORTED" | tr ' ' '\n' | grep -c .)
 
+# ------------------------------------------- what was WRITTEN vs what was RECORDED
+# Spec 007an. $WROTE and $ADDED are this script's record of its own activity against
+# the WORKING TREE. That is not what changed in the repository, and the two part
+# company in two measured ways: a write can land on bytes identical to HEAD (the
+# hook helpers rewrite .claude/settings.json in sequence and it comes back where it
+# started), and a write can land on a path git ignores (`git add` skips those
+# silently, exit 0). Across msroute's history 11 of 17 auto-messaged sync commits
+# claimed more than they carried, and never fewer.
+#
+# STAGED_COUNT_IS_THE_HEADLINE — the marker scripts/test-sync-count-honesty.sh
+# --history looks for to decide whether a given commit was made by a fixed script.
+# Deliberately a behavioural marker and not a version number: a number has to be
+# remembered and bumped by hand, and drifts from the behaviour it claims to mark.
+#
+# So the headline reports what the REPOSITORY recorded — the number a developer can
+# check against the commit — and $WROTE/$ADDED are kept as the cross-check. Keeping
+# both is the point: on 2026-08-08 the self-update re-exec dropped its file list and
+# committed 1 of 14 written files, and the write count is the only number that would
+# have shown it. A headline that only counted the commit would have called that run
+# a healthy one-file sync.
+STAMP_REL=".claude/.template-sync"
+
+# Everything the sync believes it wrote, de-duplicated.
+WRITTEN_ALL=$(printf '%s %s' "$WROTE" "$ADDED" | tr ' ' '\n' | grep -v '^$' | sort -u)
+
+# Why did a written file leave no trace? Asked in this order on purpose: an ignored
+# file has no HEAD blob, so testing for HEAD-identity first would label every .pyc
+# as the mysterious third case. The third case is not dead code — it is what will
+# surface the next cause nobody has met yet, and per the project's conservative-
+# under-uncertainty principle it says less rather than guessing.
+unrecorded_reason() {
+  _p="$1"
+  if git -C "$PROJECT_ROOT" check-ignore -q -- "$_p" 2>/dev/null; then
+    printf 'ignored by git'; return
+  fi
+  # An untracked path has no HEAD blob, and a vanished file hashes to nothing —
+  # both leave _h empty, so the emptiness test has to come first or "" = "" would
+  # read as a match and label them a round-trip.
+  _h=$(git -C "$PROJECT_ROOT" rev-parse "HEAD:$_p" 2>/dev/null)
+  if [ -n "$_h" ] && [ "$_h" = "$(git -C "$PROJECT_ROOT" hash-object -- "$PROJECT_ROOT/$_p" 2>/dev/null)" ]; then
+    printf 'rewritten, bytes identical to HEAD'
+  else
+    printf 'not recorded'
+  fi
+}
+
+# Count what git holds staged, split by git's own status letters rather than by
+# which of this script's two lists a path sat in. Commit 0a30a77 had the total
+# right and the split wrong; one source for both makes that impossible instead of
+# merely unlikely.
+staged_names() {   # $1 = M or A
+  git -C "$PROJECT_ROOT" diff --cached --name-only --diff-filter="$1" 2>/dev/null \
+    | grep -v -x -F "$STAMP_REL"
+}
+
+N_UPD=0; N_NEW=0; STAGED_ALL=""; RECONCILED=0
+recount_staged() {
+  STAGED_UPD=$(staged_names M); STAGED_NEW=$(staged_names A)
+  N_UPD=$(printf '%s\n' "$STAGED_UPD" | grep -c . 2>/dev/null); N_UPD=${N_UPD:-0}
+  N_NEW=$(printf '%s\n' "$STAGED_NEW" | grep -c . 2>/dev/null); N_NEW=${N_NEW:-0}
+  STAGED_ALL=$(printf '%s\n%s\n' "$STAGED_UPD" "$STAGED_NEW" | grep -v '^$' | sort -u)
+  RECONCILED=1
+}
+
 # ---------------------------------------------------------------- commit/push
 COMMIT_NOTE="not committed"
 if [ "$DO_COMMIT" -eq 1 ] && [ $((N_WROTE + N_ADDED)) -gt 0 ]; then
@@ -887,10 +951,27 @@ if [ "$DO_COMMIT" -eq 1 ] && [ $((N_WROTE + N_ADDED)) -gt 0 ]; then
      || [ -f "$PROJECT_ROOT/.git/MERGE_HEAD" ] || [ -f "$PROJECT_ROOT/.git/CHERRY_PICK_HEAD" ]; then
     COMMIT_NOTE="commit skipped (rebase/merge in progress) — files staged for you"
     git -C "$PROJECT_ROOT" add -- $WROTE $ADDED .claude/.template-sync 2>/dev/null
+    recount_staged
   else
     git -C "$PROJECT_ROOT" add -- $WROTE $ADDED .claude/.template-sync 2>/dev/null
-    MSG="chore(sync): template $TEMPLATE_SHA — $N_WROTE updated, $N_ADDED added"
-    if git -C "$PROJECT_ROOT" commit -q -m "$MSG" -m "Deterministic template sync (scripts/rules/docs/agents + core-hook wiring).
+    recount_staged
+
+    # Three outcomes, decided by what git recorded rather than by what was written.
+    if [ $((N_UPD + N_NEW)) -eq 0 ]; then
+      # Nothing but possibly the stamp. Committing the stamp alone is still right
+      # when the template SHA moved — a stale stamp makes the next run re-sync from
+      # scratch — but it is a SHA advance, not a file count. This is what 7c4a6a9
+      # and 9b72263 are, and they both claim "1 updated" over an empty diff.
+      if [ -n "$(git -C "$PROJECT_ROOT" diff --cached --name-only -- "$STAMP_REL" 2>/dev/null)" ]; then
+        MSG="chore(sync): template $TEMPLATE_SHA — 0 updated, 0 added (stamp advance)"
+      else
+        COMMIT_NOTE="nothing to commit — no file changed"
+        MSG=""
+      fi
+    else
+      MSG="chore(sync): template $TEMPLATE_SHA — $N_UPD updated, $N_NEW added"
+    fi
+    if [ -n "$MSG" ] && git -C "$PROJECT_ROOT" commit -q -m "$MSG" -m "Deterministic template sync (scripts/rules/docs/agents + core-hook wiring).
 Locally-modified files skipped: $N_SKIP. CLAUDE.md and project-specific settings untouched — run /project-update for those." 2>/dev/null; then
       SHORT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)
       COMMIT_NOTE="committed $SHORT"
@@ -904,16 +985,45 @@ Locally-modified files skipped: $N_SKIP. CLAUDE.md and project-specific settings
       else
         COMMIT_NOTE="$COMMIT_NOTE (no upstream — not pushed)"
       fi
-    else
+    elif [ -n "$MSG" ]; then
       COMMIT_NOTE="commit failed — files left staged"
     fi
   fi
 fi
 
-SUMMARY="template $TEMPLATE_SHA → $N_WROTE updated, $N_ADDED added, $N_SKIP skipped (locally modified)"
+# The headline is what the repository recorded. When nothing was staged (--no-commit,
+# or a run with nothing to do) there is no index to read, so fall back to the write
+# counts and say plainly that they describe writes — an unlabelled number is exactly
+# the ambiguity this spec exists to remove.
+if [ "$RECONCILED" -eq 1 ]; then
+  SUMMARY="template $TEMPLATE_SHA → $N_UPD updated, $N_NEW added, $N_SKIP skipped (locally modified)"
+else
+  SUMMARY="template $TEMPLATE_SHA → $N_WROTE written, $N_ADDED created, $N_SKIP skipped (locally modified)"
+fi
 [ -n "$HOOKS_NOTE" ] && SUMMARY="$SUMMARY · $HOOKS_NOTE"
 SUMMARY="$SUMMARY · $COMMIT_NOTE"
 tell "[synced] $SUMMARY"
+
+# Spec 007an. The gap between what this sync wrote and what the repository recorded
+# is not a presentation problem to be smoothed over by picking the nicer number —
+# it is the signal. Silence when they agree: this text is forwarded verbatim into
+# every session start, and a block that fires when there is nothing to report is a
+# regression of its own.
+if [ "$RECONCILED" -eq 1 ] && [ -n "$WRITTEN_ALL" ]; then
+  UNRECORDED=""
+  for _w in $WRITTEN_ALL; do
+    case "
+$STAGED_ALL
+" in *"
+$_w
+"*) ;; *) UNRECORDED="$UNRECORDED $_w" ;; esac
+  done
+  N_UNREC=$(printf '%s' "$UNRECORDED" | tr ' ' '\n' | grep -c .)
+  if [ "$N_UNREC" -gt 0 ]; then
+    tell "[written] $N_UNREC file(s) were written but the repository recorded no change:"
+    for _w in $UNRECORDED; do tell "          $_w — $(unrecorded_reason "$_w")"; done
+  fi
+fi
 # Everything here is forwarded verbatim into a session by template-autosync-hook.sh,
 # which is why a file that is SUPPOSED to differ must not appear: the false line
 # would arrive bundled with the real news, on the one occasion somebody is reading.
