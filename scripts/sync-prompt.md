@@ -9,25 +9,79 @@ in the project you want to update.
 
 The Claude template repo lives on the developer's local machine. **The exact path varies per developer** — Johan's macOS box has it at `/Users/jool/repos/Claude`, David's Linux box at `/home/david/repos/Claude`, others elsewhere. Resolve it once at the top of the run; never hardcode.
 
-### Step -1: Resolve $TEMPLATE (MANDATORY — first thing to do)
+### Step -1: Resolve AND refresh $TEMPLATE (MANDATORY — first thing to do)
 
-Run this probe before reading any template files. It walks the developer's common project roots and stops at the first directory that contains the two files that together unambiguously identify the Claude template:
+Run this before reading any template file. It does three things, and all three matter:
+
+1. **Finds** the template clone by walking the developer's common project roots for the two files that together identify it unambiguously.
+2. **Clones it** if there is none — so a machine that has never seen the template still completes `/project-update` in one command.
+3. **Refreshes it** against `origin/main` — because the clone is what every later step reads from, and a clone that is behind makes this entire sync deliver stale content while reporting success.
+
+Point 3 is not optional bookkeeping. `/project-update` fetches *these instructions* fresh from GitHub, but the **files** come off the local clone. Without the refresh the two disagree: current instructions, months-old content, and nothing says so. This block is the reason `/project-update` on its own is sufficient — no `git pull` beforehand, on any machine, from any starting state.
 
 ```bash
-for CAND in "$HOME/repos/Claude" "$HOME/Projects/Claude" "$HOME/Code/Claude" "$HOME/code/Claude" "$HOME/src/Claude" "$HOME/dev/Claude" "/Users/jool/repos/Claude"; do
+set -u
+TEMPLATE_URL="https://github.com/johanolofsson72/Claude.git"
+
+TEMPLATE=""
+for CAND in "${CLAUDE_TEMPLATE_DIR:-}" "$HOME/repos/Claude" "$HOME/repos/claude" \
+            "$HOME/Projects/Claude" "$HOME/Code/Claude" "$HOME/code/Claude" \
+            "$HOME/src/Claude" "$HOME/dev/Claude"; do
+  [ -n "$CAND" ] || continue
   if [ -f "$CAND/CLAUDE.md" ] && [ -f "$CAND/.claude/skills/sync-template/SKILL.md" ]; then
-    TEMPLATE="$CAND"
-    break
+    TEMPLATE="$CAND"; break
   fi
 done
 
-if [ -z "${TEMPLATE:-}" ]; then
-  echo "[ERROR] Could not locate the Claude template repo on this machine."
-  echo "        Clone it first:"
-  echo "        git clone https://github.com/johanolofsson72/Claude.git \$HOME/repos/Claude"
-  exit 1
+# No clone anywhere: make one. /project-update must work on a fresh machine.
+if [ -z "$TEMPLATE" ]; then
+  echo "[INFO] No template clone found — cloning to \$HOME/repos/Claude"
+  mkdir -p "$HOME/repos"
+  if git clone --quiet "$TEMPLATE_URL" "$HOME/repos/Claude" 2>/dev/null; then
+    TEMPLATE="$HOME/repos/Claude"
+    echo "[OK] Cloned the template."
+  else
+    echo "[ERROR] Could not clone the template (offline, or no access to $TEMPLATE_URL)."
+    echo "        Fix connectivity and re-run /project-update."
+    exit 1
+  fi
 fi
-echo "[OK] Template at: $TEMPLATE"
+
+# Refresh it. Behind is the case that silently poisons the whole sync; the other
+# states are somebody's deliberate work and are left exactly as they are.
+if git -C "$TEMPLATE" rev-parse --git-dir >/dev/null 2>&1; then
+  case "$(git -C "$TEMPLATE" remote get-url origin 2>/dev/null)" in
+    *johanolofsson72/Claude*)
+      if git -C "$TEMPLATE" fetch --quiet origin main 2>/dev/null; then
+        HEAD_SHA=$(git -C "$TEMPLATE" rev-parse HEAD)
+        UP_SHA=$(git -C "$TEMPLATE" rev-parse origin/main)
+        if [ "$HEAD_SHA" = "$UP_SHA" ]; then
+          echo "[OK] Template clone is current with origin/main."
+        elif git -C "$TEMPLATE" merge-base --is-ancestor "$HEAD_SHA" "$UP_SHA" 2>/dev/null; then
+          if [ -n "$(git -C "$TEMPLATE" status --porcelain 2>/dev/null | head -1)" ]; then
+            echo "[WARN] Template clone is BEHIND origin/main and has uncommitted changes."
+            echo "       Syncing from the working tree as-is. Commit or stash there, then re-run."
+          elif git -C "$TEMPLATE" merge --ff-only --quiet origin/main 2>/dev/null; then
+            echo "[OK] Template clone fast-forwarded to origin/main — this sync uses the newest template."
+          else
+            echo "[WARN] Template clone is behind but would not fast-forward. Syncing from the stale checkout."
+            echo "       Fix by hand: git -C $TEMPLATE pull --ff-only"
+          fi
+        elif git -C "$TEMPLATE" merge-base --is-ancestor "$UP_SHA" "$HEAD_SHA" 2>/dev/null; then
+          echo "[OK] Template clone is AHEAD of origin/main (unpushed local work) — using it as-is."
+        else
+          echo "[WARN] Template clone has DIVERGED from origin/main. Nothing changed; using the local checkout."
+          echo "       Reconcile by hand before trusting this sync."
+        fi
+      else
+        echo "[WARN] Could not fetch the template clone (offline?) — using it as-is."
+      fi
+      ;;
+    *) echo "[WARN] $TEMPLATE is not a clone of the template repo — using it as-is." ;;
+  esac
+fi
+
+echo "[OK] Template at: $TEMPLATE ($(git -C "$TEMPLATE" rev-parse --short=12 HEAD 2>/dev/null || echo 'not a git clone'))"
 ```
 
 After this point, **every reference to `/Users/jool/repos/Claude` in this document is an example only** — substitute `$TEMPLATE` when you execute. If you see a literal `/Users/jool/...` path in any command below, treat it as `$TEMPLATE/...` (the same suffix after the `/Claude` segment).
@@ -135,6 +189,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `scripts/allium-hook.sh` — PostToolUse hook that blocks if spec lacks .allium companion
 - `scripts/tlc-cleanup.sh` — TLC process cleanup (kills orphaned Java/TLC processes after execution)
 - `scripts/test-template-clone-refresh.sh` — test harness for the template-clone refresh in `template-autosync.sh`. A local template clone is preferred over the GitHub tarball and used to be copied from without ever being fetched, so a developer who followed Step -1 and cloned the template pinned their autosync to that commit forever, silently. Covers all four clone states (equal / behind → fast-forward / ahead → untouched / diverged → warn), dirty-and-behind, a foreign repo parked at the path, and a non-git directory. Run: `bash scripts/test-template-clone-refresh.sh`. LOCAL only, never CI.
+- `scripts/test-sync-prompt-bootstrap.sh` — extracts the Step -1 bash block out of `sync-prompt.md` and runs it against real git repos. That block is why `/project-update` alone is sufficient: it finds the template clone, clones one when there is none, and refreshes it against `origin/main` before any later step reads a file from it. It lives inside markdown, where nothing else would notice it breaking. 16 assertions: fresh clone, behind+clean → fast-forward, behind+dirty → local work wins with a warning, ahead → untouched, diverged → warn, foreign repo → never fetched. Run: `bash scripts/test-sync-prompt-bootstrap.sh`. LOCAL only, never CI.
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
 - `scripts/spec-md-coverage-reminder-hook.sh` — Deterministic replacement for the legacy `type:"prompt"` spec-completeness hook. Never blocks (only emits `systemMessage`), detects carve-out phrases ("carved to", "out-of-scope", "deferred to", "tracked in", etc.) and suppresses the destructive-test reminder when tests are explicitly deferred to another slice. Fixes the false-positive blocks observed in projects when slicing specs.
 - `scripts/scenario-map-reminder-hook.sh` — PostToolUse advisory (never blocks). Fires when a spec/tasks file gains interactive behaviour but `specs/SCENARIOS.md` has no rows for it; instructs Claude to START a scenario interview (capture happy/edge/adversarial/error/offline cases) rather than just jotting a note. Silent on template/scratch repos (no language marker). Pairs with `.claude/rules/scenarios.md`.

@@ -80,13 +80,11 @@ It now fetches and then decides by the clone's relationship to `origin/main`:
 
 A clone of some *other* repo parked at that path is never fetched, and no network means "use it as-is". Every path fails open.
 
-> **One-time bootstrap.** A project still running the pre-2026-08-22 `template-autosync.sh` cannot receive this fix through a
-> stale clone — the old script is what refuses to fetch, so it would have to update itself through the very path that is broken.
-> Pull the template clone once by hand and the loop closes for good:
->
-> ```bash
-> git -C ~/repos/Claude pull --ff-only
-> ```
+> **If a project looks frozen, run `/project-update`.** A project still on the pre-2026-08-22 `template-autosync.sh` cannot
+> receive this fix automatically — the old script is what refuses to fetch, so it would have to update itself through the very
+> path that is broken. `/project-update` closes that loop in one command: it fetches its instructions from GitHub, and their
+> Step -1 clones the template if the machine has none and fast-forwards the clone before reading anything from it. After that run
+> the project carries the new script and the automatic path is self-maintaining again.
 >
 > Developers with **no** local clone were never affected: the tarball path always fetched.
 
