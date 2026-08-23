@@ -1148,7 +1148,36 @@ staged_names() {   # $1 = M, A or D
     | grep -v -x -F "$STAMP_REL"
 }
 
+# Spec 007au. The same index, asked which WAY the lines moved. `--numstat` measured at 13 ms
+# against this project, identical to the `--name-only` above it — so the number the headline
+# was missing costs nothing to fetch, and there was never a budget argument for going without.
+#
+# Taken here rather than at the point of use so it is captured at the same instant, from the
+# same index, as the counts it sits beside: a movement figure that could disagree with its own
+# file counts would be spec 007an's defect wearing a plus sign.
+#
+# The stamp is dropped once, here, so every consumer inherits that rather than re-deriving it.
+# A stamp advance is a SHA moving over bytes the project already had — no code changed, and a
+# `+19/-20` about the manifest would be the emptiest true statement the sync could make.
+staged_numstat() {
+  git -C "$PROJECT_ROOT" diff --cached --numstat 2>/dev/null \
+    | awk -F'\t' -v stamp="$STAMP_REL" 'NF >= 3 && $3 != stamp'
+}
+
+# Binary files render as `-<TAB>-<TAB>path`, and a rename renders `old => new` in field 3.
+# Neither is arithmetic: the `-` would make `n += $1` a silent no-op in awk but `$((...))` a
+# hard error in shell, so the numeric guard is explicit rather than trusted to a coercion.
+sum_numstat() {   # $1 = numstat text, $2 = field (1 = insertions, 2 = deletions)
+  printf '%s\n' "$1" | awk -F'\t' -v f="$2" '$f ~ /^[0-9]+$/ { n += $f } END { print n + 0 }'
+}
+
 N_UPD=0; N_NEW=0; STAGED_ALL=""; RECONCILED=0
+STAGED_NUMSTAT=""; MOVED_INS=0; MOVED_DEL=0
+# STAGED_DEL is read by the [changed] block ~200 lines below, which runs on every path
+# including the ones where recount_staged never does (--no-commit, --dry-run, a run with
+# nothing to stage). Under `set -u` an unset read there is not an empty string, it is a fatal
+# error in the reporting tail of a sync that has already committed and pushed.
+STAGED_DEL=""
 recount_staged() {
   STAGED_UPD=$(staged_names M); STAGED_NEW=$(staged_names A); STAGED_DEL=$(staged_names D)
   N_UPD=$(printf '%s\n' "$STAGED_UPD" | grep -c . 2>/dev/null); N_UPD=${N_UPD:-0}
@@ -1157,9 +1186,13 @@ recount_staged() {
   # path leave a trace in the index?", and a staged deletion plainly did — without this, a
   # file the graphify helper removes is reported under `[written] ... not recorded`, which is
   # a false accusation about a change git recorded correctly. The counters are a separate
-  # question ("N updated, M created"), and giving deletions a headline of their own is the
-  # direction spec 007au is opened for — not something to smuggle in here.
+  # question ("N updated, M created"); spec 007au gives deletions their own verb in the
+  # [changed] block instead, driven by STAGED_DEL below rather than by $WROTE — which folds
+  # both directions into one list and so cannot answer.
   STAGED_ALL=$(printf '%s\n%s\n%s\n' "$STAGED_UPD" "$STAGED_NEW" "$STAGED_DEL" | grep -v '^$' | sort -u)
+  STAGED_NUMSTAT=$(staged_numstat)
+  MOVED_INS=$(sum_numstat "$STAGED_NUMSTAT" 1)
+  MOVED_DEL=$(sum_numstat "$STAGED_NUMSTAT" 2)
   RECONCILED=1
 }
 
@@ -1221,6 +1254,23 @@ if [ "$RECONCILED" -eq 1 ]; then
   SUMMARY="template $TEMPLATE_SHA → $N_UPD updated, $N_NEW added, $N_SKIP skipped (locally modified)"
 else
   SUMMARY="template $TEMPLATE_SHA → $N_WROTE written, $N_ADDED created, $N_SKIP skipped (locally modified)"
+  # Nothing was staged, so there is no index to measure. The files are on disk either way and
+  # the working tree answers the same question — labelled by the "written/created" wording this
+  # arm already carries, which is what keeps it from claiming the repository recorded anything.
+  UNSTAGED_NUMSTAT=$(git -C "$PROJECT_ROOT" diff --numstat 2>/dev/null \
+    | awk -F'\t' -v stamp="$STAMP_REL" 'NF >= 3 && $3 != stamp')
+  MOVED_INS=$(sum_numstat "$UNSTAGED_NUMSTAT" 1)
+  MOVED_DEL=$(sum_numstat "$UNSTAGED_NUMSTAT" 2)
+fi
+# Spec 007au. `2 updated, 0 added` was the whole truth about commit 5f376d6, and the whole
+# truth was that it removed 59 lines from this file and added none. The counts answer "how
+# many", never "which way", and the difference between those two questions is the difference
+# between a template release and an amputation.
+#
+# Silent at zero rather than `+0/-0`: a stamp advance and a no-op run both land here, and a
+# movement figure over an empty diff is the kind of true-but-empty line readers learn to skip.
+if [ "$((MOVED_INS + MOVED_DEL))" -gt 0 ]; then
+  SUMMARY="$SUMMARY · +$MOVED_INS/-$MOVED_DEL lines"
 fi
 [ -n "$HOOKS_NOTE" ] && SUMMARY="$SUMMARY · $HOOKS_NOTE"
 SUMMARY="$SUMMARY · $COMMIT_NOTE"
@@ -1337,11 +1387,34 @@ NAME_LIMIT="${TEMPLATE_AUTOSYNC_NAME_LIMIT:-20}"
 case "$NAME_LIMIT" in ''|*[!0-9]*) NAME_LIMIT=20 ;; esac
 
 if [ "$NAME_LIMIT" -gt 0 ]; then
+  # Spec 007au, the half 007ar left open. `fold_helper_writes` folds the helpers' `+ name` AND
+  # `- name` lines into $WROTE — correctly, because `git add` must see a vanished path to stage
+  # its removal — so $WROTE carries no direction and this block used to call every one of them
+  # an `update`, deletions included. The truth is in STAGED_DEL, which recount_staged already
+  # computes and until now spent only on STAGED_ALL.
+  #
+  # When nothing was staged (--no-commit, --dry-run) STAGED_DEL is empty, no row can match, and
+  # every path keeps `update`. That is the right answer rather than a missing branch — the
+  # direction genuinely is not knowable there, and guessing it from $WROTE is the defect.
+  #
+  # Space-delimited with a leading AND trailing space, so `index()` below cannot let
+  # `scripts/graphify-a.sh` match `scripts/graphify-ab.sh` — the same idiom, and the same trap,
+  # as the eight $WROTE-append sites. Safe on the delimiter because every path reaching $WROTE
+  # came through the sync's own deliberately narrow basename rule (no `/`, no space) or a
+  # template-relative path that has neither.
+  #
+  # The verb is decided in awk rather than in the shell loop for a hard reason: bash 3.2 — which
+  # `#!/bin/bash` still selects on macOS — cannot parse a `case` whose pattern begins with a
+  # quote when it sits inside `$( )`, and fails at parse time, which would take the whole script
+  # down rather than one block. The [written] reconciliation below uses the shell `case` idiom
+  # safely only because it is NOT inside a command substitution.
+  DELETED_LOOKUP=" $(printf '%s' "$STAGED_DEL" | tr '\n' ' ') "
   MOVED=$(
     { for _f in $WROTE; do printf 'update\t%s\n' "$_f"; done
       for _f in $ADDED;  do printf 'add\t%s\n'    "$_f"; done
-    } | awk -F'\t' '{
+    } | awk -F'\t' -v deleted="$DELETED_LOOKUP" '{
           p = $2
+          if ($1 == "update" && index(deleted, " " p " ") > 0) $1 = "delete"
           if (p == ".claude/settings.json")  r = 0   # the hook wiring itself
           else if (p ~ /^\.claude\/rules\//) r = 1   # the BLOCKING rules
           else if (p ~ /^scripts\//)          r = 2   # the guards those rules cite
@@ -1368,6 +1441,111 @@ if [ "$NAME_LIMIT" -gt 0 ]; then
     if [ "$MOVED_N" -gt "$NAME_LIMIT" ]; then
       tell "          … and $((MOVED_N - NAME_LIMIT)) more, not named — capped at $NAME_LIMIT (TEMPLATE_AUTOSYNC_NAME_LIMIT)"
     fi
+  fi
+fi
+
+# ------------------------------------------------------- CORE going backwards (spec 007au)
+# [changed] says what moved. This says which of it moved BACKWARDS, and only for the files
+# the template owns outright.
+#
+# Where the line sits was the open question on the register row, and it is settled by
+# measurement rather than by taste (research.md M3/M4). Across every sync commit this project
+# has, "net-negative on a CORE file" fires seven times and is right twice — 33%. Magnitude
+# does not save it: the largest false positive is -41, bigger than the -35 true positive.
+# Ratio does not save it either, and is in fact inverted — the true positive 5d9234b is
+# +10/-45 (0.22) while the false positive 65228d9 is +9/-50 (0.18), so every threshold that
+# catches the regression catches the refactor first. A 33%-precision warning shipped into
+# ~34 projects at every session start is the line readers learn to skip.
+#
+# What DOES separate them: a template release writes content the project has never held; a
+# revert writes content it held before. Tested against all seven events, that flags both
+# regressions, names the commit being restored to, and goes silent on all three legitimate
+# refactors. Zero false positives.
+#
+# Two stages, in this order because the precise test costs 68 ms per file and must not run
+# nineteen times on a bulk sync. Net-negative is a poor verdict but a perfect pre-filter — it
+# has full recall over what stage 2 cares about and costs nothing, being read out of a
+# --numstat already taken. On 15 of 17 measured syncs stage 2 never runs at all.
+#
+# Reports. Does not refuse, does not revert, does not touch the exit code. By the time this
+# line is reached the overwrite is on disk AND committed, so a refusal here would not prevent
+# the damage — it would only hide it, and leave a dirty CORE file behind, which is the state
+# spec 007ao exists to keep everyone out of. The commit is what makes it revertable; this
+# block is what makes it noticed.
+# This block renders AFTER the commit block, so when the sync committed, HEAD *is* the sync's own
+# commit and its post-image is the very content being asked about — the search would match itself
+# on its first line and name the sync as the thing being reverted to. Measured on a fixture: it
+# reported `chore(sync): template e59ebd34e2d5`, i.e. itself, which is useless and confidently
+# phrased. So the history searched is the history predating this commit.
+#
+# An empty range means the sync's commit is the repository's root: no earlier content exists for
+# anything to be restored to, so the question does not arise and the block is skipped whole.
+REVERT_RANGE="HEAD"
+if [ -n "$SYNC_COMMIT" ]; then
+  if git -C "$PROJECT_ROOT" rev-parse -q --verify "$SYNC_COMMIT^" >/dev/null 2>&1; then
+    REVERT_RANGE="$SYNC_COMMIT^"
+  else
+    REVERT_RANGE=""
+  fi
+fi
+
+if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ] && [ -n "$REVERT_RANGE" ]; then
+  REVERTED=""
+  # Stage 1. Field 3 is the path; a rename renders `old => new` there and is dropped by the
+  # basename split below rather than being asked about, which is correct — the sync does not
+  # rename, so anything of that shape is drift and not a revert.
+  CANDIDATES=$(printf '%s\n' "$STAGED_NUMSTAT" \
+    | awk -F'\t' '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && ($1 - $2) < 0 { print $3 }')
+  for _p in $CANDIDATES; do
+    # The same classification --is-core uses, asked of the same lists, including its refusal
+    # of nested paths. A second definition of CORE living here would drift from that one the
+    # first time either changed — and it nearly did: `.claude/settings.json` is overwritten by
+    # this sync but is NOT in either CORE list, so an earlier draft that special-cased it here
+    # would have been inventing membership the rest of the script disagrees with.
+    case "$_p" in
+      scripts/*/*|.claude/rules/*/*) continue ;;
+      scripts/*)                     _class=scripts ;;
+      .claude/rules/*)               _class=rules ;;
+      *)                             continue ;;
+    esac
+    is_core "${_p##*/}" "$_class" || continue
+
+    # Stage 2. The blob the sync is about to commit, against every blob this path has held.
+    _new=$(git -C "$PROJECT_ROOT" rev-parse ":$_p" 2>/dev/null) || continue
+    [ -n "$_new" ] || continue
+
+    # One process for the whole history of one path. Field 4 of a --raw line is the POST-image
+    # blob — the content the path HELD AS OF that commit, which is exactly what "restored to"
+    # has to name. Field 3, the pre-image, is the content it held going *into* the commit, so
+    # matching on it reports the commit that DESTROYED that content rather than the one that
+    # had it: a smoke test on a two-commit fixture named "project v2 (the local fix)", the
+    # version being amputated, as the thing being restored to. Exactly backwards, and it reads
+    # plausibly enough to ship.
+    #
+    # This cannot false-positive on a healthy file: _new is the STAGED blob, which by
+    # construction differs from HEAD's (git staged a change), so the current content cannot
+    # match itself.
+    _hit=$(git -C "$PROJECT_ROOT" log --format='commit %H' --raw --no-abbrev "$REVERT_RANGE" -- "$_p" 2>/dev/null \
+      | awk -v want="$_new" '
+          /^commit / { c = $2; next }
+          /^:/       { if ($4 == want) { print c; exit } }')
+    [ -n "$_hit" ] || continue
+
+    _mv=$(printf '%s\n' "$STAGED_NUMSTAT" | awk -F'\t' -v p="$_p" '$3 == p { printf "+%s/-%s", $1, $2; exit }')
+    _sub=$(git -C "$PROJECT_ROOT" log -1 --format='%s' "$_hit" 2>/dev/null | cut -c1-60)
+    _short=$(git -C "$PROJECT_ROOT" rev-parse --short "$_hit" 2>/dev/null)
+    REVERTED="$REVERTED$_p — $_mv lines, restored to $_short (\"$_sub\")
+"
+  done
+
+  # Silent when nothing matched, which is the common case and the whole point: this text is
+  # forwarded verbatim into every session start.
+  if [ -n "$REVERTED" ]; then
+    tell "[reverted] CORE file(s) given content this project already had — the template may be undoing local work:"
+    printf '%s' "$REVERTED" | while IFS= read -r _line; do
+      [ -n "$_line" ] && tell "           $_line"
+    done
+    tell "           Check before building on it: \`git show HEAD -- <path>\`, and land the fix in the template, not here."
   fi
 fi
 
