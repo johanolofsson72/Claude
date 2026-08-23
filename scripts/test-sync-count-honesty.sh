@@ -109,7 +109,12 @@ fixture_mode() {
   : > "$tmpl/scripts/sync-prompt.md"
   printf 'tests v2\n'   > "$tmpl/.claude/rules/tests.md"    # round-trip subject
   printf 'specs v2\n'   > "$tmpl/.claude/rules/specs.md"    # honest control
-  printf 'compiled\n'   > "$tmpl/.claude/skills/demo/thing.pyc"   # ignored subject
+  # Spec 007aq. The ignored subject used to be .claude/skills/demo/thing.pyc, and the sync
+  # now refuses to copy compiled python at all — so that fixture stopped reproducing the
+  # cause, and this harness's own "really was written to disk" check is what said so. The
+  # subject has to be a file the sync still WRITES and the project still IGNORES; those are
+  # two different properties and the .pyc only stopped having the first one.
+  printf 'scratch\n'    > "$tmpl/.claude/skills/demo/notes.local"   # ignored subject
   git -C "$tmpl" init -q 2>/dev/null
   git -C "$tmpl" add -A 2>/dev/null
   git -C "$tmpl" -c user.email=t@t -c user.name=t commit -qm fixture 2>/dev/null
@@ -118,7 +123,7 @@ fixture_mode() {
   mkdir -p "$proj/scripts" "$proj/.claude"
   git -C "$proj" init -q
   git -C "$proj" config user.email t@t; git -C "$proj" config user.name t
-  printf '*.pyc\n' > "$proj/.gitignore"
+  printf '*.local\n' > "$proj/.gitignore"
 
   mkdir -p "$proj/.claude/rules"
   # (1) ROUND-TRIP: HEAD already holds the template's bytes. tests.md is a CORE
@@ -178,18 +183,18 @@ fixture_mode() {
     bad "the round-tripped write (.claude/rules/tests.md) is not reported at all"
   fi
 
-  if printf '%s\n' "$out" | grep -q 'thing.pyc'; then
-    if printf '%s\n' "$out" | grep 'thing.pyc' | grep -qi 'ignored'; then
+  if printf '%s\n' "$out" | grep -q 'notes.local'; then
+    if printf '%s\n' "$out" | grep 'notes.local' | grep -qi 'ignored'; then
       ok "the gitignored write is named, with the ignored reason"
     else
       bad "the gitignored write is named but its reason is wrong or missing"
     fi
   else
-    bad "the gitignored write (.claude/skills/demo/thing.pyc) is not reported at all"
+    bad "the gitignored write (.claude/skills/demo/notes.local) is not reported at all"
   fi
 
   # The file really was written — otherwise "not recorded" would be trivially true.
-  [ -f "$proj/.claude/skills/demo/thing.pyc" ] \
+  [ -f "$proj/.claude/skills/demo/notes.local" ] \
     && ok "the ignored file really was written to disk" \
     || bad "the ignored file was never written — fixture does not reproduce the cause"
 }
@@ -294,13 +299,13 @@ stamp_advance_case() {
   mkdir -p "$tmpl/scripts" "$tmpl/.claude/rules" "$tmpl/.claude/skills/demo"
   : > "$tmpl/scripts/sync-prompt.md"
   printf 'tests v2\n' > "$tmpl/.claude/rules/tests.md"
-  printf 'compiled\n' > "$tmpl/.claude/skills/demo/thing.pyc"
+  printf 'scratch\n' > "$tmpl/.claude/skills/demo/notes.local"   # see spec 007aq above
   git -C "$tmpl" init -q 2>/dev/null; git -C "$tmpl" add -A 2>/dev/null
   git -C "$tmpl" -c user.email=t@t -c user.name=t commit -qm fixture 2>/dev/null
 
   mkdir -p "$proj/.claude/rules"
   git -C "$proj" init -q; git -C "$proj" config user.email t@t; git -C "$proj" config user.name t
-  printf '*.pyc\n'   > "$proj/.gitignore"
+  printf '*.local\n' > "$proj/.gitignore"
   printf 'tests v2\n' > "$proj/.claude/rules/tests.md"     # HEAD already has template bytes
   git -C "$proj" add -A; git -C "$proj" commit -qm base
   printf 'scribbled\n' > "$proj/.claude/rules/tests.md"    # dirty: the sync will restore it
