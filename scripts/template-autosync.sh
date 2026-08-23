@@ -1159,8 +1159,11 @@ staged_names() {   # $1 = M, A or D
 # The stamp is dropped once, here, so every consumer inherits that rather than re-deriving it.
 # A stamp advance is a SHA moving over bytes the project already had — no code changed, and a
 # `+19/-20` about the manifest would be the emptiest true statement the sync could make.
-staged_numstat() {
-  git -C "$PROJECT_ROOT" diff --cached --numstat 2>/dev/null \
+# Takes the diff selector, so the staged question and the working-tree question share one
+# definition of "which rows count". They differed by a `--cached` and nothing else, and spec 007ay
+# is an open row about precisely this shape of duplication in precisely this file.
+numstat() {   # $@ = extra git-diff arguments (--cached for the index, nothing for the worktree)
+  git -C "$PROJECT_ROOT" diff --numstat "$@" 2>/dev/null \
     | awk -F'\t' -v stamp="$STAMP_REL" 'NF >= 3 && $3 != stamp'
 }
 
@@ -1190,7 +1193,7 @@ recount_staged() {
   # [changed] block instead, driven by STAGED_DEL below rather than by $WROTE — which folds
   # both directions into one list and so cannot answer.
   STAGED_ALL=$(printf '%s\n%s\n%s\n' "$STAGED_UPD" "$STAGED_NEW" "$STAGED_DEL" | grep -v '^$' | sort -u)
-  STAGED_NUMSTAT=$(staged_numstat)
+  STAGED_NUMSTAT=$(numstat --cached)
   MOVED_INS=$(sum_numstat "$STAGED_NUMSTAT" 1)
   MOVED_DEL=$(sum_numstat "$STAGED_NUMSTAT" 2)
   RECONCILED=1
@@ -1257,8 +1260,7 @@ else
   # Nothing was staged, so there is no index to measure. The files are on disk either way and
   # the working tree answers the same question — labelled by the "written/created" wording this
   # arm already carries, which is what keeps it from claiming the repository recorded anything.
-  UNSTAGED_NUMSTAT=$(git -C "$PROJECT_ROOT" diff --numstat 2>/dev/null \
-    | awk -F'\t' -v stamp="$STAMP_REL" 'NF >= 3 && $3 != stamp')
+  UNSTAGED_NUMSTAT=$(numstat)
   MOVED_INS=$(sum_numstat "$UNSTAGED_NUMSTAT" 1)
   MOVED_DEL=$(sum_numstat "$UNSTAGED_NUMSTAT" 2)
 fi
