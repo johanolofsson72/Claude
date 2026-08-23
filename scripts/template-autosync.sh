@@ -35,6 +35,25 @@
 #   would be a rubber stamp, and the failure that causes — a genuinely stale
 #   file going quiet — is invisible.
 #
+# Retraction — the third verb (spec 007aw):
+#   This sync adds and updates. It never removes, which is a deliberate choice,
+#   but until 007aw it also never SAID so: the manifest is rebuilt from what the
+#   copy loop saw, so a path the template stopped shipping fell out of it in
+#   silence, on the one run where the fact was still observable. So the loop now
+#   records what it VISITED, and a path in the previous manifest that it never
+#   visited — and that is still on disk — is an ORPHAN. Orphans are carried
+#   forward in the stamp as
+#
+#       # orphan <first-seen-date> <relpath>
+#
+#   and re-reported until the file is gone, at which point the line drops itself.
+#   VISITED and not a manifest diff, because that diff measured 33% precision on
+#   this project's history; VISITED and not the template's filesystem, because
+#   007aq's build-output filter skips paths that are still sitting on it.
+#
+#   Reports, never deletes. Deleting is a large power for a script that runs
+#   unattended at SessionStart, commits and pushes.
+#
 # Usage:
 #   template-autosync.sh [--check] [--dry-run] [--force] [--no-commit] [--quiet]
 #   template-autosync.sh --accept-local <path>...
@@ -500,6 +519,11 @@ WROTE=""; SKIPPED=""; ADDED=""; ADOPTED=""
 # are the two ways a recorded difference comes back, and STALE is a record whose
 # subject has gone away.
 INTENTIONAL=""; LOCAL_MOVED=""; TMPL_MOVED=""; STALE=""; SEEN_RECORDS=""
+# Spec 007aw. Every path the copy loop VISITED, which is not the same set as the paths it wrote
+# and not the same set as the manifest keeps. It is the only thing that can answer "did the
+# template stop shipping this", because the manifest is regenerated from what the loop saw and so
+# forgets a retracted path on the very run that could have noticed it.
+VISITED=""
 NEW_MANIFEST=$(mktemp 2>/dev/null || mktemp -t manifest)
 
 # The template's mode is the template's to choose. Git records ONE permission bit per
@@ -549,6 +573,22 @@ copy_file() {
   DEST="$PROJECT_ROOT/$REL"
   BASE=$(basename "$REL")
   SRC_HASH=$(sha_of "$SRC")
+
+  # Spec 007aw. Recorded HERE, at the top, before any branching — so it holds every path the
+  # template still ships regardless of what this call decides to do with it. That is the whole
+  # discrimination: the three shapes that reach a `return 0` below without writing a manifest line
+  # (a .sync-local record, a SKIPPED file with no OLD_HASH, a non-CORE file the project deleted)
+  # are exactly the false positives a manifest-generation diff produces — measured at 33%
+  # precision on this project's own history and again on constructed data (research.md M2, M3).
+  # Recording before the branches makes them structurally excluded, rather than a list of
+  # exceptions that has to be maintained beside the branches that produce them.
+  #
+  # No `case ... in *" $REL "*` dedup, deliberately. The six loops are disjoint and the mobile gate
+  # renames rather than duplicating, so each path arrives once; and this is only ever read as a
+  # membership test, where a duplicate would be harmless anyway. Spec 007ay is an open row about
+  # that idiom being hand-written at eight sites — a ninth, for a guarantee this variable does not
+  # need, is the wrong direction.
+  VISITED="$VISITED $REL"
 
   if [ -f "$DEST" ]; then
     CUR_HASH=$(sha_of "$DEST")
@@ -729,6 +769,76 @@ if [ -f "$LOCAL_RECORD" ]; then
   done
 fi
 
+# ------------------------------------------- paths the template stopped shipping (spec 007aw)
+# This sync adds files and updates files. It has no third verb, and until now it did not merely
+# fail to remove a retracted path — it failed to MENTION one, and then destroyed the evidence.
+#
+# The manifest is rebuilt from what the copy loop saw, so a path the template no longer ships is
+# never iterated, never written to NEW_MANIFEST, and silently absent from the stamp after the next
+# write. Reproduced end to end (research.md M0): the run reports `0 written, 0 created, 0 skipped`
+# — indistinguishable from a healthy no-op — while the manifest line disappears and the file stays
+# on disk. And the window is exactly ONE run (M4): on the next sync the previous generation has
+# forgotten it too, and the orphan is undetectable from the manifest forever.
+#
+# Asked of VISITED and not of a manifest-generation diff, because that diff measures 33% precision
+# (M2: three events across 35 stamp commits, one of them real). Asked of VISITED and not of the
+# template's filesystem either, which is the tempting one-liner and is wrong in the case that
+# opened this row: 007aq excludes build output with a `continue` placed BEFORE copy_file, and does
+# not delete anything, so the three .pyc are still sitting on the template's disk. "On the
+# template's disk" and "shipped" are different questions.
+#
+# The previous generation is read straight from $STAMP, which is not overwritten until the stamp
+# block far below — no snapshotting needed.
+#
+# The field test is deliberately NOT `$1 ~ /^[0-9a-f]{64}$/`: sha_of falls back to `cksum` when
+# neither sha256sum nor shasum exists, which prints a decimal, and a 64-hex assumption would
+# silently disable this whole block on such a machine. `!~ /=/` drops the sha= / synced= / source=
+# header lines, including a source= path that contains a space.
+#
+# The candidate set is the manifest body UNION the orphan lines already recorded, and the union is
+# not a nicety — without it this block reproduces the very defect it exists to fix, one level up.
+# A path is written to the manifest body only while the template still ships it, so the run that
+# first reports an orphan is also the run that stops the body mentioning it. Ask the body alone on
+# the NEXT run and the path is gone from it, the record is not carried forward, and the orphan
+# evaporates exactly as it does today (measured: AC-2 failed this way on the first draft). An
+# existing `# orphan` line is itself the claim "once written, no longer shipped", so it is a
+# first-class source that gets re-tested every run — still unvisited? still on disk? — rather than
+# a note that is only ever written. That re-test is also what lets a record DROP when the template
+# resumes shipping a path: it becomes visited, and falls out with no special case.
+ORPHAN_NEW=""; ORPHAN_STANDING=""; ORPHAN_LINES=""
+if [ -f "$STAMP" ]; then
+  ORPHAN_TODAY=$(date -u '+%Y-%m-%d')
+  ORPHAN_CANDIDATES=$(
+    { awk 'NF == 2 && $1 !~ /^#/ && $1 !~ /=/ { print $2 }' "$STAMP" 2>/dev/null
+      awk '$1 == "#" && $2 == "orphan" { print $4 }' "$STAMP" 2>/dev/null
+    } | grep -v '^$' | LC_ALL=C sort -u
+  )
+  for _m in $ORPHAN_CANDIDATES; do
+    # Still shipped — the loop reached it, whatever it then decided to do.
+    case " $VISITED " in *" $_m "*) continue ;; esac
+    # Already resolved. The sync wrote this path once, so it was there; if it is gone the developer
+    # has already acted, and a line about a condition nobody can act on is the permanent false
+    # alarm .sync-local needed a STALE bucket to catch.
+    [ -f "$PROJECT_ROOT/$_m" ] || continue
+
+    # Field 4 is the path: `# orphan <first-seen> <path>`. Carrying the ORIGINAL date is what makes
+    # the standing line worth printing — "since when" is the only thing it adds over a count.
+    _seen=$(awk -v p="$_m" '$1 == "#" && $2 == "orphan" && $4 == p { print $3; exit }' "$STAMP" 2>/dev/null)
+    if [ -n "$_seen" ]; then
+      ORPHAN_STANDING="$ORPHAN_STANDING $_m"
+    else
+      _seen="$ORPHAN_TODAY"
+      ORPHAN_NEW="$ORPHAN_NEW $_m"
+    fi
+    # Composed NOW, into a variable, because `> "$STAMP"` truncates the file before the block body
+    # runs — reading the old stamp from inside that redirect would read an empty file.
+    ORPHAN_LINES="$ORPHAN_LINES# orphan $_seen $_m
+"
+  done
+fi
+N_ORPHAN_NEW=$(echo "$ORPHAN_NEW" | tr ' ' '\n' | grep -c .)
+N_ORPHAN_STANDING=$(echo "$ORPHAN_STANDING" | tr ' ' '\n' | grep -c .)
+
 # Reported = the three buckets a reader can act on. INTENTIONAL is deliberately not
 # among them: the whole point of the record is that a settled difference stops
 # costing anybody a line.
@@ -747,6 +857,12 @@ if [ "$MODE_CHECK" -eq 1 ]; then
   COUNTS="[check] would update:$(echo "$WROTE" | tr ' ' '\n' | grep -c .) · add:$(echo "$ADDED" | tr ' ' '\n' | grep -c .) · skip (locally edited):$(echo "$REPORTED" | tr ' ' '\n' | grep -c .)"
   [ "$N_INTENTIONAL" -gt 0 ] && COUNTS="$COUNTS · intentional:$N_INTENTIONAL"
   [ "$N_STALE" -gt 0 ] && COUNTS="$COUNTS · stale:$N_STALE"
+  # Spec 007aw. New and standing together: --check answers "what is the state of this project",
+  # not "what changed this run", and an orphan is equally real either way. The stamp is NOT
+  # written on this path, so a check never consumes a discovery — the next real sync still reports
+  # it as new.
+  [ $((N_ORPHAN_NEW + N_ORPHAN_STANDING)) -gt 0 ] \
+    && COUNTS="$COUNTS · orphaned:$((N_ORPHAN_NEW + N_ORPHAN_STANDING))"
   say "$COUNTS"
   if [ "$MODE_DRYRUN" -eq 1 ]; then
     for x in $WROTE;       do say "  update $x"; done
@@ -756,6 +872,8 @@ if [ "$MODE_CHECK" -eq 1 ]; then
     for x in $LOCAL_MOVED; do say "  CHECK  $x (the local copy changed since it was accepted — merge, or re-run --accept-local)"; done
     for x in $TMPL_MOVED;  do say "  CHECK  $x (the template changed under an accepted local difference — merge, then --accept-local)"; done
     for x in $STALE;       do say "  stale  $x (recorded as an intentional difference, but no longer differs — drop the line)"; done
+    for x in $ORPHAN_NEW      ; do say "  orphan $x (the template no longer ships this — nothing is deleted for you)"; done
+    for x in $ORPHAN_STANDING ; do say "  orphan $x (the template no longer ships this — already recorded)"; done
     # No direction asserted: the sync knows these bytes differ and nothing else.
     # Claiming the project is behind is what 007w measured backwards.
     for x in $SKIPPED;     do say "  SKIP   $x (differs from the template — merge it with /project-update, or record it with --accept-local)"; done
@@ -1077,6 +1195,22 @@ fi
   printf '# manifest: sha256 of each file as written by the sync — a project file\n'
   printf '# whose hash no longer matches was edited locally and is never overwritten.\n'
   sort -k2 "$NEW_MANIFEST"
+  # Spec 007aw. Paths this sync once wrote that the template no longer ships. Carried forward
+  # EXPLICITLY, because this stamp is regenerated wholesale on every run — an orphan line survives
+  # only because these four lines re-emit it, and it is dropped the moment its file leaves the
+  # disk. Self-clearing by construction: there is no flag to unset and no line to hand-edit (a
+  # hand-edit would not survive the next regeneration anyway).
+  #
+  # The leading `#` is load-bearing, not decoration. manifest_hash is `grep -F "  $1"` — TWO
+  # spaces — so an unprefixed `orphan  <path>` would match it and hand back the literal string
+  # `orphan` as that file's hash. Prefixed, the line carries one space before the path, four
+  # fields, and a `#` first field, so it is invisible to manifest_hash and to every `NF == 2`
+  # reader in this script. Asserted, not trusted: see the manifest-collision test.
+  if [ -n "$ORPHAN_LINES" ]; then
+    printf '# orphan: paths this sync once wrote that the template no longer ships. Nothing is\n'
+    printf '# deleted for you; a line disappears when its file does.\n'
+    printf '%s' "$ORPHAN_LINES"
+  fi
 } > "$STAMP"
 rm -f "$NEW_MANIFEST"
 
@@ -1672,6 +1806,31 @@ $_w
     for _w in $UNRECORDED; do tell "          $_w — $(unrecorded_reason "$_w")"; done
   fi
 fi
+# ------------------------------------------ the template's third verb (spec 007aw)
+# Placed here, beside [manual], because these are the two blocks about what the sync deliberately
+# did NOT touch — everything above them reports what it did.
+#
+# Called [orphaned] and not [retracted] on purpose: [reverted] already exists three blocks up and
+# means something else entirely (a CORE file given content this project already had). Two tags one
+# letter apart, in the same screen of session-start text, describing different conditions, is a
+# readability defect shipped deliberately. [orphaned] also names the right subject — the state of
+# the file sitting in this project, rather than the template's action.
+#
+# LOUD ONCE, QUIET AFTER, NEVER SILENT. The full block fires on the run where there is genuinely
+# news; a standing orphan costs one line. Both halves of that are deliberate. Silence is what let
+# the .pyc run for months, and a full block repeating every session across ~34 projects is how a
+# reader learns to skip the place the next real finding will appear — the failure 007au measured
+# and rejected by name at this very same 33% precision.
+if [ "$N_ORPHAN_NEW" -gt 0 ]; then
+  tell "[orphaned] $N_ORPHAN_NEW file(s) this sync once wrote that the template no longer ships:"
+  for _o in $ORPHAN_NEW; do tell "           $_o"; done
+  tell "           Nothing was deleted. Remove what this project does not need; each line clears"
+  tell "           itself when its file goes. Recorded in .claude/.template-sync."
+fi
+if [ "$N_ORPHAN_STANDING" -gt 0 ]; then
+  tell "[orphaned] $N_ORPHAN_STANDING standing orphan(s) from earlier syncs — named in .claude/.template-sync"
+fi
+
 # Everything here is forwarded verbatim into a session by template-autosync-hook.sh,
 # which is why a file that is SUPPOSED to differ must not appear: the false line
 # would arrive bundled with the real news, on the one occasion somebody is reading.
