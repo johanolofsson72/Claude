@@ -518,6 +518,44 @@ if [ "$MODE_ACCEPT" -eq 1 ]; then
 fi
 
 WROTE=""; SKIPPED=""; ADDED=""; ADOPTED=""
+
+# ---------------------------------------------------- recording what this sync wrote
+# Spec 007ay. $WROTE and $ADDED are space-delimited path lists, and appending to one
+# correctly is load-bearing three times over: they become the argument list for
+# `git add`, the counts in the headline's cross-check, and the file names in the
+# [changed] block.
+#
+# The leading and trailing spaces in the membership test are the whole mechanism —
+# they make the pattern match a WHOLE space-delimited field, so an already-recorded
+# `scripts/graphify-ab.sh` cannot suppress `scripts/graphify-a.sh`. Get that spacing
+# wrong and the append is skipped: a file dropped from `git add` with no error and no
+# output. Before this spec the idiom was hand-written at EIGHT sites, which is eight
+# chances to get it wrong; worse, it had already drifted into two silently different
+# variants — five testing the union, three testing $WROTE alone, with nothing at any
+# site saying which was deliberate.
+#
+# Both lists are tested, always. A file this sync CREATED is not also a file it
+# UPDATED, and the [changed] renderer walks the two lists independently — so a path
+# in both renders twice, with opposite verbs. Measured (007ay research.md M1): a
+# project seeded with settings.json reported `add .claude/settings.json` and
+# `update .claude/settings.json` four lines apart, in the same block.
+#
+# `return 0` is explicit, not decoration: three call sites are the last statement of
+# an `if` body, and a `case` falling through with the status of its last test would
+# change that block's result — the same trap fold_helper_writes documents below.
+# The empty-argument guard keeps a call site with an unset variable from appending a
+# blank field, which would reach `git add` as a stray empty argument.
+record_write() {
+  [ -n "${1:-}" ] || return 0
+  case " $WROTE $ADDED " in *" $1 "*) ;; *) WROTE="$WROTE $1" ;; esac
+  return 0
+}
+
+record_add() {
+  [ -n "${1:-}" ] || return 0
+  case " $WROTE $ADDED " in *" $1 "*) ;; *) ADDED="$ADDED $1" ;; esac
+  return 0
+}
 # Spec 007af. INTENTIONAL is the only bucket that is never reported; the other two
 # are the two ways a recorded difference comes back, and STALE is a record whose
 # subject has gone away.
@@ -930,7 +968,7 @@ HOOKS_NOTE=""
 # exist yet ("File does NOT exist in this project → copy from template").
 if [ ! -f "$PROJECT_ROOT/.claude/settings.json" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ]; then
   atomic_copy "$TEMPLATE_DIR/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json"
-  ADDED="$ADDED .claude/settings.json"
+  record_add .claude/settings.json
   HOOKS_NOTE="settings.json seeded from template (project had none)"
   warn "[note] $PROJECT_ROOT had no .claude/settings.json — seeded from the template."
   warn "       Enforcement hooks are now ACTIVE here. If this project has source code"
@@ -973,7 +1011,7 @@ PYEOF
   then
     STYLE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["outputStyle"])' "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null)
     warn "[note] settings.json had no outputStyle — set to \"$STYLE\" from the template."
-    case " $WROTE $ADDED " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+    record_write .claude/settings.json
   fi
 fi
 
@@ -986,7 +1024,7 @@ if [ -f "$PROJECT_ROOT/scripts/sync-core-hooks.py" ] && [ -f "$TEMPLATE_DIR/.cla
       HOOKS_NOTE="hooks unchanged"
     else
       HOOKS_NOTE="hooks rewired"
-      WROTE="$WROTE .claude/settings.json"
+      record_write .claude/settings.json
     fi
     rm -f "$PROJECT_ROOT/.claude/settings.json.autosync-bak"
   else
@@ -1034,7 +1072,7 @@ fold_helper_writes() {
   _helper="$1"; _out="$2"; _n=0
   for _name in $(printf '%s\n' "$_out" | sed -n 's/^  [+-] \([^/ ]*\)$/\1/p'); do
     _n=$((_n + 1))
-    case " $WROTE $ADDED " in *" scripts/$_name "*) ;; *) WROTE="$WROTE scripts/$_name" ;; esac
+    record_write "scripts/$_name"
   done
 
   # Cross-checked against the helper's own count. A format drift that parsed nothing would
@@ -1085,7 +1123,7 @@ if [ -f "$PROJECT_ROOT/scripts/sync-local-llm-hooks.py" ] && [ -f "$TEMPLATE_DIR
     if [ $? -eq 0 ] && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
       if ! cmp -s "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.autosync-bak"; then
         HOOKS_NOTE="$HOOKS_NOTE + local-LLM rewired"
-        case " $WROTE " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+        record_write .claude/settings.json
       fi
       # Outside the cmp test on purpose: a run can rewire nothing and still mirror a script.
       fold_helper_writes sync-local-llm-hooks.py "$LLM_OUT"
@@ -1116,7 +1154,7 @@ if [ -f "$PROJECT_ROOT/scripts/sync-core-hooks.py" ] && [ -f "$TEMPLATE_DIR/.cla
   if (cd "$PROJECT_ROOT" && python3 scripts/sync-core-hooks.py "$TEMPLATE_DIR/.claude/settings.json" >/dev/null 2>&1) \
      && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
     cmp -s "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.order-bak" \
-      || case " $WROTE $ADDED " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+      || record_write .claude/settings.json
     rm -f "$PROJECT_ROOT/.claude/settings.json.order-bak"
   else
     mv "$PROJECT_ROOT/.claude/settings.json.order-bak" "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null
@@ -1138,7 +1176,7 @@ if [ -f "$PROJECT_ROOT/scripts/sync-graphify-wiring.py" ] && [ -f "$TEMPLATE_DIR
   GFY_OUT=$( (cd "$PROJECT_ROOT" && python3 scripts/sync-graphify-wiring.py "$TEMPLATE_DIR/.claude/settings.json" 2>/dev/null) )
   if [ $? -eq 0 ] && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
     cmp -s "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.order-bak" \
-      || case " $WROTE $ADDED " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+      || record_write .claude/settings.json
     fold_helper_writes sync-graphify-wiring.py "$GFY_OUT"
     rm -f "$PROJECT_ROOT/.claude/settings.json.order-bak"
   else
@@ -1157,7 +1195,7 @@ if [ -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] && command -v python3 
   case "$PRUNED" in
     *"removed"*)
       HOOKS_NOTE="${HOOKS_NOTE:+$HOOKS_NOTE · }$PRUNED"
-      case " $WROTE " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+      record_write .claude/settings.json
       ;;
   esac
 fi
@@ -1171,7 +1209,7 @@ if [ -f "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" ]; then
   POL=$(bash "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" --repo "$PROJECT_ROOT" 2>/dev/null | head -1)
   if [ -n "$POL" ]; then
     say "[speckit] $POL"
-    case " $WROTE " in *" .specify/extensions/.registry "*) ;; *) WROTE="$WROTE .specify/extensions/.registry" ;; esac
+    record_write .specify/extensions/.registry
   fi
 fi
 
@@ -1185,7 +1223,7 @@ if [ ! -f "$PROJECT_ROOT/.claude/.sync-stack" ] && [ -f "$PROJECT_ROOT/scripts/d
   DETECTED=$(bash "$PROJECT_ROOT/scripts/detect-stack.sh" "$PROJECT_ROOT" 2>/dev/null | sed -n '1p')
   if [ -n "$DETECTED" ]; then
     printf 'testing=%s\n' "$DETECTED" > "$PROJECT_ROOT/.claude/.sync-stack"
-    ADDED="$ADDED .claude/.sync-stack"
+    record_add .claude/.sync-stack
     say "[stack] no .sync-stack marker — derived testing=$DETECTED from the project's manifests"
   fi
 fi
@@ -1268,12 +1306,21 @@ fi
 
 # Merge in whatever the pre-re-exec pass wrote, de-duplicated, so both the
 # commit and the summary cover the entire sync and not just the second pass.
-for _c in ${AUTOSYNC_CARRY_WROTE:-}; do
-  case " $WROTE " in *" $_c "*) ;; *) WROTE="$WROTE $_c" ;; esac
-done
-for _c in ${AUTOSYNC_CARRY_ADDED:-}; do
-  case " $ADDED " in *" $_c "*) ;; *) ADDED="$ADDED $_c" ;; esac
-done
+#
+# Spec 007ay. These used to dedup each list against ITSELF, which let a path pass 1
+# recorded in $ADDED enter $WROTE again here if pass 2 also touched it — the same
+# double-render the union helpers exist to stop, on the re-exec path. Measured (M3):
+# a settings.json seeded by pass 1 and rewired by pass 2 rendered as both `add` and
+# `update`. The staged set is unaffected either way — `git add` receives $WROTE and
+# $ADDED together — so this is a reporting fix, like the rest of the spec.
+#
+# One known imprecision, accepted rather than engineered around: when pass 1 CREATED a
+# file and pass 2 UPDATED it, pass 2's record_write wins the union and the file renders
+# as `update` though the sync as a whole created it. One line with the less precise
+# verb beats two lines with contradictory ones, and promoting the path between lists to
+# recover the verb is more machinery than a re-exec-only cosmetic warrants.
+for _c in ${AUTOSYNC_CARRY_WROTE:-}; do record_write "$_c"; done
+for _c in ${AUTOSYNC_CARRY_ADDED:-}; do record_add   "$_c"; done
 
 N_WROTE=$(echo "$WROTE" | tr ' ' '\n' | grep -c .)
 N_ADDED=$(echo "$ADDED" | tr ' ' '\n' | grep -c .)
