@@ -609,8 +609,59 @@ done
 # skills are what bootstrap and update a project, a stale copy reproduces bugs
 # that were fixed months earlier. `find`, not a glob: skills carry nested files
 # (ui-ux-pro-max/data/*.csv, project-wizard/install.sh).
+#
+# Spec 007aq. That `find` is the only recursive loop in this script — the other five are
+# flat globs over *.sh/*.py/*.md and cannot reach a subdirectory — which makes it the only
+# one that walks the template's WORKING TREE rather than a list of files the template means
+# to ship. It shipped three compiled __pycache__/*.cpython-314.pyc to every project for
+# months. They land on a path the project gitignores, so `git add` refuses them and they
+# were committed never, in any project, once.
+#
+# The rule is: the sync copies what the template would SHIP, and a path the template's own
+# git ignores is not template content, whatever is sitting on its disk. That authority
+# already exists and is already right — asked across all 41 skills files it names exactly
+# those three and nothing else — and it needs no list anybody has to keep current as new
+# build-output shapes appear.
+#
+# Two ways to write this that look correct and are silently no-ops:
+#   --no-index is mandatory. The three .pyc are TRACKED (they entered before .gitignore
+#     learned about __pycache__/, and git's ignore rules do not apply to a path already in
+#     the index). Plain check-ignore skips tracked paths and would report nothing at all.
+#     --no-index asks the question this loop actually has — what shape of path is this —
+#     rather than what the index currently holds.
+#   -gt 1, not -ne 0. check-ignore exits 1 when NOTHING matched and 0 when something did,
+#     so a clean template is the non-zero case. Treating non-zero as failure would send
+#     every well-behaved template down the fallback branch.
+# One process for the whole list, over stdin: this runs unattended at SessionStart and 41
+# subprocesses per sync is a cost with no payer.
 if [ -d "$TEMPLATE_DIR/.claude/skills" ]; then
-  for rel in $(cd "$TEMPLATE_DIR/.claude/skills" && find . -type f 2>/dev/null | sed 's#^\./##'); do
+  SKILL_FILES=$(cd "$TEMPLATE_DIR/.claude/skills" && find . -type f 2>/dev/null | sed 's#^\./##')
+
+  SKILL_IGNORED=$(printf '%s\n' "$SKILL_FILES" | grep -v '^$' | sed 's#^#.claude/skills/#' \
+                    | git -C "$TEMPLATE_DIR" check-ignore --no-index --stdin 2>/dev/null)
+  SKILL_IGNORED_STATUS=$?   # captured on the next line, never read across a comment block
+  # Exit >1 means the question could not be asked at all — a template resolved by tarball
+  # rather than clone has no .git and this exits 128. Fall back to the one shape python
+  # creates unprompted, because it writes a __pycache__ next to any .py it imports,
+  # including inside an extracted archive somebody ran a skill from. Deliberately not a
+  # general build-output list: a list needs maintaining, and would be wrong the first time
+  # a skill ships a legitimate binary.
+  if [ "$SKILL_IGNORED_STATUS" -gt 1 ]; then
+    SKILL_IGNORED=$(printf '%s\n' "$SKILL_FILES" | grep -v '^$' | sed 's#^#.claude/skills/#' \
+                      | grep -E '(^|/)__pycache__/|\.py[co]$')
+  fi
+
+  for rel in $SKILL_FILES; do
+    # Excluded HERE, before copy_file, and nowhere else. $WROTE and $ADDED are written only
+    # by copy_file and they feed all four downstream consumers — the new manifest, the
+    # `git add` argument list, the [changed] name block and the [written] reconciliation
+    # block. Skipping the copy and then filtering a report would reproduce the defect in
+    # the report.
+    case "
+$SKILL_IGNORED
+" in *"
+.claude/skills/$rel
+"*) continue ;; esac
     copy_file "$TEMPLATE_DIR/.claude/skills/$rel" ".claude/skills/$rel" skills
   done
 fi
