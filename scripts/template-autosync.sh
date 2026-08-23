@@ -617,39 +617,42 @@ done
 # months. They land on a path the project gitignores, so `git add` refuses them and they
 # were committed never, in any project, once.
 #
-# The rule is: the sync copies what the template would SHIP, and a path the template's own
-# git ignores is not template content, whatever is sitting on its disk. That authority
-# already exists and is already right — asked across all 41 skills files it names exactly
-# those three and nothing else — and it needs no list anybody has to keep current as new
-# build-output shapes appear.
+# The rule is: the sync copies what the template would SHIP. Two things are not content, and
+# a path matching EITHER is skipped.
 #
-# Two ways to write this that look correct and are silently no-ops:
-#   --no-index is mandatory. The three .pyc are TRACKED (they entered before .gitignore
-#     learned about __pycache__/, and git's ignore rules do not apply to a path already in
-#     the index). Plain check-ignore skips tracked paths and would report nothing at all.
-#     --no-index asks the question this loop actually has — what shape of path is this —
-#     rather than what the index currently holds.
-#   -gt 1, not -ne 0. check-ignore exits 1 when NOTHING matched and 0 when something did,
-#     so a clean template is the non-zero case. Treating non-zero as failure would send
-#     every well-behaved template down the fallback branch.
-# One process for the whole list, over stdin: this runs unattended at SessionStart and 41
-# subprocesses per sync is a cost with no payer.
+#   1. Compiled python, always. `__pycache__/` as a path segment, `.pyc`/`.pyo` as a suffix.
+#      Unconditional rather than a fallback, because python writes these next to any .py it
+#      imports and the template does not get a say: it is equally build output on a template
+#      that gitignored it, one that forgot to, and one extracted from a tarball with no git
+#      at all. Making it conditional bought a hole — a .pyc the template had not gitignored
+#      shipped anyway — for no benefit anybody could name.
+#   2. Anything the template's own git disowns. The generalisation, so the next .DS_Store or
+#      .pytest_cache/ needs no edit here. Additive: it can only remove more, never restore
+#      something rule 1 rejected.
+#
+# --no-index is mandatory and is the trap. The three .pyc were TRACKED — they entered with
+# the skill, before this repo's .gitignore learned about __pycache__/, and git's ignore rules
+# do not apply to a path already in the index, which is exactly why only those three survived.
+# check-ignore SKIPS tracked paths, so without --no-index it reports nothing at all and rule 2
+# becomes a silent no-op that reviews clean. --no-index asks the question this loop actually
+# has — what shape of path is this — rather than what the index currently holds.
+#
+# No exit code is read, and that is deliberate rather than an oversight. check-ignore exits 1
+# when nothing matched and 128 when it could not be asked (the tarball case, no .git), and
+# BOTH produce empty output — so both are already the right answer for an additive list. An
+# exit-code test here would be three branches where the code has one behaviour, and the
+# tempting spelling of it (-ne 0) is wrong, because a clean template is the exit-1 case.
+#
+# One process for the whole list, over stdin: this runs unattended at SessionStart, and one
+# subprocess per file would be 41 of them per sync with nobody to pay for it.
 if [ -d "$TEMPLATE_DIR/.claude/skills" ]; then
   SKILL_FILES=$(cd "$TEMPLATE_DIR/.claude/skills" && find . -type f 2>/dev/null | sed 's#^\./##')
+  SKILL_PATHS=$(printf '%s\n' "$SKILL_FILES" | grep -v '^$' | sed 's#^#.claude/skills/#')
 
-  SKILL_IGNORED=$(printf '%s\n' "$SKILL_FILES" | grep -v '^$' | sed 's#^#.claude/skills/#' \
-                    | git -C "$TEMPLATE_DIR" check-ignore --no-index --stdin 2>/dev/null)
-  SKILL_IGNORED_STATUS=$?   # captured on the next line, never read across a comment block
-  # Exit >1 means the question could not be asked at all — a template resolved by tarball
-  # rather than clone has no .git and this exits 128. Fall back to the one shape python
-  # creates unprompted, because it writes a __pycache__ next to any .py it imports,
-  # including inside an extracted archive somebody ran a skill from. Deliberately not a
-  # general build-output list: a list needs maintaining, and would be wrong the first time
-  # a skill ships a legitimate binary.
-  if [ "$SKILL_IGNORED_STATUS" -gt 1 ]; then
-    SKILL_IGNORED=$(printf '%s\n' "$SKILL_FILES" | grep -v '^$' | sed 's#^#.claude/skills/#' \
-                      | grep -E '(^|/)__pycache__/|\.py[co]$')
-  fi
+  SKILL_IGNORED=$(
+    printf '%s\n' "$SKILL_PATHS" | grep -E '(^|/)__pycache__/|\.py[co]$'
+    printf '%s\n' "$SKILL_PATHS" | git -C "$TEMPLATE_DIR" check-ignore --no-index --stdin 2>/dev/null
+  )
 
   for rel in $SKILL_FILES; do
     # Excluded HERE, before copy_file, and nowhere else. $WROTE and $ADDED are written only
