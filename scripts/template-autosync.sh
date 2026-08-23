@@ -1246,6 +1246,7 @@ tell "[synced] $SUMMARY"
 # In .git/ rather than under .claude/, because .gitignore is not in the synced set: a
 # .claude/ marker would be ignored in the one project whose ignore file was edited and
 # untracked forever in the other thirty-odd.
+#
 # A stamp advance is not a rewrite. When the template SHA moves over bytes the project
 # already had, the commit carries `.claude/.template-sync` and nothing else — there is no
 # code to verify, and an obligation raised over one is exactly the line readers learn to
