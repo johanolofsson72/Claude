@@ -501,6 +501,21 @@ WROTE=""; SKIPPED=""; ADDED=""; ADOPTED=""
 INTENTIONAL=""; LOCAL_MOVED=""; TMPL_MOVED=""; STALE=""; SEEN_RECORDS=""
 NEW_MANIFEST=$(mktemp 2>/dev/null || mktemp -t manifest)
 
+# The template's mode is the template's to choose. Git records ONE permission bit per
+# file (100644 / 100755), so the exec bit is the whole of what a mode difference can mean
+# in a commit, and mirroring it is a complete account of what the sync can affect.
+#
+# `[ -x ]` and `chmod +x`/`-x` are POSIX. Deliberately NOT `stat`, whose format flag
+# differs between macOS (-f '%Lp') and Linux (-c '%a'), and not `chmod --reference`, which
+# is GNU-only — neither is worth carrying for the fuller mode git discards anyway.
+exec_bit_differs() {   # exec_bit_differs <src> <dst>
+  if [ -x "$1" ]; then [ ! -x "$2" ]; else [ -x "$2" ]; fi
+}
+
+mirror_exec_bit() {    # mirror_exec_bit <src> <dst>
+  if [ -x "$1" ]; then chmod +x "$2" 2>/dev/null; else chmod -x "$2" 2>/dev/null; fi
+}
+
 # Write via temp + rename, never `cp` onto a live path.
 #
 # This sync overwrites scripts/template-autosync.sh — itself — while bash is
@@ -511,11 +526,20 @@ NEW_MANIFEST=$(mktemp 2>/dev/null || mktemp -t manifest)
 # instead: the running process keeps its original inode open and finishes
 # cleanly, while the next exec picks up the new file. Same reasoning protects any
 # hook script that happens to be executing during a sync.
+#
+# The two arms disagreed about whose mode wins: `cp` into a temp file that does not exist
+# takes the SOURCE's mode, while `cp` over an existing destination keeps the DESTINATION's.
+# The same sync therefore produced two different modes depending on which arm it took, and
+# neither arm recorded which. Mirroring after both is what makes them agree.
 atomic_copy() {
   _dst="$2"
-  cp "$1" "$_dst.autosync-tmp.$$" 2>/dev/null && mv -f "$_dst.autosync-tmp.$$" "$_dst" 2>/dev/null && return 0
+  if cp "$1" "$_dst.autosync-tmp.$$" 2>/dev/null && mv -f "$_dst.autosync-tmp.$$" "$_dst" 2>/dev/null; then
+    mirror_exec_bit "$1" "$_dst"
+    return 0
+  fi
   rm -f "$_dst.autosync-tmp.$$" 2>/dev/null
   cp "$1" "$_dst"   # last-resort fallback (e.g. a filesystem without rename)
+  mirror_exec_bit "$1" "$_dst"
 }
 
 # copy_file <template-abs> <project-rel> <class> [<template-rel>]
@@ -536,7 +560,18 @@ copy_file() {
         SEEN_RECORDS="$SEEN_RECORDS $REL"
       fi
       printf '%s  %s\n' "$SRC_HASH" "$REL" >> "$NEW_MANIFEST"
-      return 0                                  # identical, nothing to do
+      # Bytes agreeing is not the same as files agreeing. This early return is the only
+      # path that reaches a file whose content is already correct, so it is the only place
+      # an EXISTING mode divergence can be seen at all — without this, deleting the chmod
+      # loop would stop new churn and freeze every instance of the old churn in place.
+      # The $WROTE entry is outside the MODE_CHECK guard on purpose: --check/--dry-run then
+      # list a pending correction under `update` with no extra code. No difference means no
+      # entry, so a sync over an agreeing project still reports 0 updated and writes nothing.
+      if exec_bit_differs "$SRC" "$DEST"; then
+        [ "$MODE_CHECK" -eq 1 ] || mirror_exec_bit "$SRC" "$DEST"
+        WROTE="$WROTE $REL"
+      fi
+      return 0                                  # identical content; mode reconciled above
     fi
     OLD_HASH=$(manifest_hash "$REL")
     if [ "$CUR_HASH" != "$OLD_HASH" ] && ! is_core "$BASE" "$CLASS"; then
@@ -727,14 +762,14 @@ if [ "$MODE_CHECK" -eq 1 ]; then
   exit 0
 fi
 
-# chmod ONLY what this sync wrote. A blanket `chmod +x scripts/*.sh` also flips
-# the mode bit on the project's own scripts, producing mode-change diffs in files
-# the sync does not own — unexplained churn in someone else's repo.
-for _f in $WROTE $ADDED; do
-  case "$_f" in
-    scripts/*.sh|scripts/*.py) chmod +x "$PROJECT_ROOT/$_f" 2>/dev/null ;;
-  esac
-done
+# No chmod pass here. A blanket `chmod +x` over everything written under scripts/ used to
+# live at this point, narrowed to what the sync wrote so it would not flip the mode on the
+# project's own scripts. The narrowing was the right answer to the wrong question: the sync
+# has no basis for deciding a .sh must be executable, and the template had already decided
+# by committing it 644 or 755. It shipped three CORE files non-executable — including this
+# script — and the loop made all three 755 in every project it touched. atomic_copy now
+# carries the template's mode (it always did, on its primary arm), and the wiring helpers
+# copy with shutil.copy2, which preserves mode. Nothing needs a chmod here.
 
 # ------------------------------------------------------------- self-update
 # A project runs its OWN copy of this script, so the CORE_SCRIPTS list in memory
