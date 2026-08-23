@@ -122,7 +122,9 @@ else
   # to run, and template-sync-verify.sh remains the only thing that ever runs it.
   DERIVED=""
   DERIVED_FROM=""
-  DETECT="$PROJECT_ROOT/scripts/detect-verify-command.sh"
+  # Sibling first — see the note in template-sync-verify.sh: these three ship as one piece.
+  DETECT="$(dirname "$0")/detect-verify-command.sh"
+  [ -f "$DETECT" ] || DETECT="$PROJECT_ROOT/scripts/detect-verify-command.sh"
   if [ -f "$DETECT" ]; then
     DERIVED=$(bash "$DETECT" "$PROJECT_ROOT" 2>/dev/null | sed -n '1p')
     DERIVED_FROM=$(bash "$DETECT" "$PROJECT_ROOT" 2>/dev/null | sed -n '2p')

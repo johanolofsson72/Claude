@@ -98,8 +98,15 @@ COMMAND=""
 DERIVED=""
 PROVENANCE=""
 EVIDENCE=""
-if [ -z "$COMMAND" ] && [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ]; then
-  DETECTED=$(bash "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" 2>/dev/null)
+# Resolved as a SIBLING, not through $PROJECT_ROOT/scripts/. The detector, this script and the
+# reminder are one piece of CORE machinery that ships together, so the copy that answers must be
+# the copy that was installed alongside this one — a project part-way through adopting the
+# template can have the running script from one place and nothing at all under scripts/.
+DETECT="$(dirname "$0")/detect-verify-command.sh"
+[ -f "$DETECT" ] || DETECT="$PROJECT_ROOT/scripts/detect-verify-command.sh"
+
+if [ -z "$COMMAND" ] && [ -f "$DETECT" ]; then
+  DETECTED=$(bash "$DETECT" "$PROJECT_ROOT" 2>/dev/null)
   COMMAND=$(printf '%s\n' "$DETECTED" | sed -n '1p')
   PROVENANCE=$(printf '%s\n' "$DETECTED" | sed -n '2p')
   EVIDENCE=$(printf '%s\n' "$DETECTED" | sed -n '3p')
@@ -111,9 +118,8 @@ if [ -z "$COMMAND" ]; then
   printf 'layout, so there is nothing to run.\n\n'
   printf 'Outstanding: %s (template %s, %s)\n\n' \
     "${COMMIT:-unknown}" "${TEMPLATE:-unknown}" "${SYNCED:-unknown}"
-  if [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ]; then
-    CANDIDATES=$(bash "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" \
-      --candidates 2>/dev/null | head -5)
+  if [ -f "$DETECT" ]; then
+    CANDIDATES=$(bash "$DETECT" "$PROJECT_ROOT" --candidates 2>/dev/null | head -5)
     if [ -n "$CANDIDATES" ]; then
       printf 'What is here, none of it unambiguous enough to pick for you:\n\n'
       printf '%s\n' "$CANDIDATES" | sed 's/^/    /'
