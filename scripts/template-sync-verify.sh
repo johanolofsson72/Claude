@@ -31,7 +31,9 @@ HISTORY_LINES=20
 
 case "${1:-}" in
   -h|--help)
-    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+    # Everything from the shebang to the first non-comment line. A hard line range drifts
+    # the first time the header is edited, and the drift is silent.
+    awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
     exit 0 ;;
   "") ;;
   *)
@@ -124,13 +126,15 @@ fi
   printf 'synced=%s\n' "$SYNCED"
   printf 'pushed=%s\n' "$PUSHED"
   printf 'result=failed\n'
+  # The command's OWN exit code, kept rather than flattened into this script's 1: it is the
+  # first thing anyone reading the marker wants, and a test runner's code carries meaning
+  # that the word "failed" does not.
   printf 'exit=%s\n' "$RC"
   printf 'failed=%s\n' "$NOW"
-  # The command's own exit code, kept rather than flattened into this script's 1: it is
-  # the first thing anyone reading the marker wants, and a test runner's code carries
-  # meaning that "failed" does not.
+  # Bounded at the END. The last lines are where a runner puts its verdict; a head-bounded
+  # tail would faithfully record twenty lines of build chatter.
   tail -n "$TAIL_LINES" "$LOG" 2>/dev/null | tr -d '\r' | sed 's/^/tail /'
-  sed -n 's/^file /file /p' "$MARKER" 2>/dev/null
+  grep '^file ' "$MARKER" 2>/dev/null
 } > "$MARKER.tmp" 2>/dev/null && mv -f "$MARKER.tmp" "$MARKER"
 
 rm -f "$LOG"
