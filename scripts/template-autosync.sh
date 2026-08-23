@@ -1199,21 +1199,91 @@ recount_staged() {
   RECONCILED=1
 }
 
+# ------------------------------------------------------------------ staging (spec 007av)
+# `git add` was issued twice below and read back neither way: not `$?`, not the advice
+# `2>/dev/null` swallowed. The next statement was recount_staged, which asks the index what it
+# holds and never asks whether git put it there.
+#
+# It has THREE outcomes, and two of them are opposites (research.md M0, git 2.53.0):
+#
+#   0    every pathspec legal            everything staged
+#   1    a pathspec git ignores          EVERYTHING ELSE STAGED — the job finished, with a complaint
+#   >=2  index.lock held, or a pathspec  NOTHING STAGED — the index is untouched
+#        matching no file
+#
+# So a boolean test on `$?` is wrong in one direction or the other: it either refuses a run that
+# worked or waves through a run that did nothing. Hence three classes, not two.
+#
+# What the unread fatal cost, reproduced end to end (M3): a developer has work staged, one path in
+# $WROTE matches no file (fold_helper_writes folds helper DELETIONS into it on purpose, which is
+# right for a tracked path and fatal for one this project never committed), git stages nothing,
+# recount_staged counts the DEVELOPER's index, and the sync commits and pushes it under
+# `chore(sync): template abc — 0 updated, 1 added` while the file it actually wrote is absent from
+# the commit. Same family as 007ad, 007ai and 007at: reporting a success nothing verified.
+#
+# Both routes are live. The sync runs from SessionStart, which is exactly when another git process
+# is most likely to be mid-index-write, and losing that race is the fatal class.
+#
+# recount_staged is deliberately NOT called on the fatal class. There is nothing new in the index,
+# and re-reading it would only re-measure somebody else's staging as if it were this sync's —
+# which is the defect, not the diagnosis. Leaving RECONCILED at 0 also drops the headline into its
+# existing write-count arm, whose "written/created" wording is already the true sentence for a run
+# that recorded nothing.
+STAGE_RC=0; STAGE_ERR=""
+stage_all() {
+  # Captured, not discarded — the exit code says WHICH class, git's own text says why (a held
+  # lock reads differently from an unmatched path, and the sync cannot tell them apart alone).
+  # Assigned on its own line so `$?` is git's status: inside `if OUT=$(...)` it would be the
+  # substitution's, which is the trap the LLM_OUT/GFY_OUT comments above already record.
+  #
+  # $WROTE and $ADDED stay unquoted — the word-splitting is what makes them an argument list, and
+  # the sync's basename rule is what makes that safe. A spaced path would land in the fatal class
+  # (measured under bash) and now gets reported instead of silently mangled.
+  STAGE_ERR=$( { git -C "$PROJECT_ROOT" add -- $WROTE $ADDED "$STAMP_REL" 2>&1 >/dev/null; } )
+  STAGE_RC=$?
+  # First line only. git writes a paragraph for a held lock, and this text is forwarded verbatim
+  # into a session start — the same bound the 007at marker's `tail` lines carry.
+  STAGE_ERR=$(printf '%s\n' "$STAGE_ERR" | sed -n '1p')
+  [ "$STAGE_RC" -ge 2 ] || recount_staged
+}
+
 # ---------------------------------------------------------------- commit/push
 COMMIT_NOTE="not committed"
 SYNC_COMMIT=""; SYNC_PUSHED=no
 if [ "$DO_COMMIT" -eq 1 ] && [ $((N_WROTE + N_ADDED)) -gt 0 ]; then
   if [ -d "$PROJECT_ROOT/.git/rebase-merge" ] || [ -d "$PROJECT_ROOT/.git/rebase-apply" ] \
      || [ -f "$PROJECT_ROOT/.git/MERGE_HEAD" ] || [ -f "$PROJECT_ROOT/.git/CHERRY_PICK_HEAD" ]; then
-    COMMIT_NOTE="commit skipped (rebase/merge in progress) — files staged for you"
-    git -C "$PROJECT_ROOT" add -- $WROTE $ADDED .claude/.template-sync 2>/dev/null
-    recount_staged
+    # Spec 007av. Assigned AFTER the staging it describes, not before: "files staged for you" was
+    # written one line above the `git add` that was supposed to do the staging, so on the fatal
+    # class it promised a developer something that had not happened — and it is the only thing
+    # they are told on this arm.
+    stage_all
+    if [ "$STAGE_RC" -ge 2 ]; then
+      COMMIT_NOTE="commit skipped (rebase/merge in progress) — and git staged nothing"
+    else
+      COMMIT_NOTE="commit skipped (rebase/merge in progress) — files staged for you"
+    fi
   else
-    git -C "$PROJECT_ROOT" add -- $WROTE $ADDED .claude/.template-sync 2>/dev/null
-    recount_staged
+    stage_all
 
+    # Spec 007av. The fatal class first, because everything below it reads an index this run did
+    # not build. Refusing the COMMIT is not refusing the sync: every file is written, the report
+    # still prints, the script still exits 0, and the SessionStart hook's contract — a template
+    # problem never stops a session starting — is untouched.
+    #
+    # This is the one place in the script where a refusal genuinely prevents damage rather than
+    # hiding it. 007au's revert block reports instead of refusing precisely because by the time it
+    # runs the overwrite is already on disk. Here the commit IS the damage: it takes an index
+    # somebody else staged, names it a sync, and pushes it.
+    #
+    # SYNC_COMMIT stays empty, which is what already gates the 007at verification obligation (no
+    # commit, nothing to verify) and what keeps the 007au revert block's range at HEAD, correctly,
+    # since HEAD did not move. Both fall out with no code of their own.
+    if [ "$STAGE_RC" -ge 2 ]; then
+      COMMIT_NOTE="NOT committed — git staged nothing"
+      MSG=""
     # Three outcomes, decided by what git recorded rather than by what was written.
-    if [ $((N_UPD + N_NEW)) -eq 0 ]; then
+    elif [ $((N_UPD + N_NEW)) -eq 0 ]; then
       # Nothing but possibly the stamp. Committing the stamp alone is still right
       # when the template SHA moved — a stale stamp makes the next run re-sync from
       # scratch — but it is a SHA advance, not a file count. This is what 7c4a6a9
@@ -1277,6 +1347,37 @@ fi
 [ -n "$HOOKS_NOTE" ] && SUMMARY="$SUMMARY · $HOOKS_NOTE"
 SUMMARY="$SUMMARY · $COMMIT_NOTE"
 tell "[synced] $SUMMARY"
+
+# ------------------------------------------------------- what git made of the staging (spec 007av)
+# Silent on exit 0, which is the overwhelmingly common case and the whole discipline of this
+# reporting tail: the text is forwarded verbatim into every session start, so a block that speaks
+# when there is nothing to report is a regression of its own.
+#
+# Two very different sentences, because the two non-zero classes are opposites (M0). Collapsing
+# them into one "git add failed" line would be the same mistake as testing `$?` as a boolean, just
+# moved into the prose.
+#
+# git's own text is passed through and never parsed. It is LOCALIZED — on the machine this was
+# measured on it arrives in Swedish (M1) — so a branch reading it would make the sync behave
+# differently depending on the developer's locale. The exit code decides; the sentence informs.
+#
+# This does not restate the 007an [written] block. That one answers "which written paths left no
+# trace in the index"; this answers "did git accept the staging at all". On a fatal both fire and
+# they say different things — [written] can only reach its deliberately-vague `not recorded`
+# bucket, which is exactly the answer the exit code makes precise.
+if [ "$STAGE_RC" -eq 1 ]; then
+  tell "[stage] git refused a path but staged everything else — the commit above is complete."
+  [ -n "$STAGE_ERR" ] && tell "        git said: $STAGE_ERR"
+  tell "        A path the template ships that this project's .gitignore covers. Fix it in the"
+  tell "        template — forcing it past the ignore rule would commit what the project declined."
+elif [ "$STAGE_RC" -ge 2 ]; then
+  tell "[stage] git staged NOTHING (exit $STAGE_RC) — no commit was made and nothing was pushed."
+  [ -n "$STAGE_ERR" ] && tell "        git said: $STAGE_ERR"
+  tell "        The files this sync wrote are on disk and uncommitted; the index was left as found."
+  tell "        Usually a held .git/index.lock, or a path that matches no file. Check \`git status\`"
+  tell "        and commit by hand. This sync will not: the index it would have committed is not"
+  tell "        one it built."
+fi
 
 # ------------------------------------------ the obligation this sync leaves (spec 007at)
 # What the sync just did is rewrite this project's enforcement machinery, commit it and
