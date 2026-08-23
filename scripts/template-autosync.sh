@@ -1524,6 +1524,53 @@ staged_names() {   # $1 = M, A or D
     | grep -v -x -F "$STAMP_REL"
 }
 
+# Spec 007bb. The index is not this sync's to describe. `git add` is handed a precise argument list
+# and `git commit` used to be handed none, so what the commit recorded was that list PLUS whatever
+# the developer already had staged — and the sync runs at SessionStart, which is exactly when that
+# is most likely. Measured (research.md M0): a staged `devwork.txt` went into the commit, was
+# counted as one of `0 updated, 2 added` under a template SHA, was named in the 007at verification
+# obligation, and was pushed. It has happened here already: 10f9e1b carried a staged deletion of
+# .claude/graphify-fire.log.errors under `19 updated, 0 added` (M3).
+#
+# So every question this script asks the index is narrowed to the paths the sync itself wrote.
+# BOTH halves are needed and neither is sufficient:
+#
+#   git's list alone  — includes strangers (the defect).
+#   $WROTE/$ADDED alone — includes paths git will NOT take. 007av's complaint class is precisely a
+#                       healthy run holding one (git add exits 1, stages everything else), and
+#                       `git commit -- <such a path>` is FATAL (M4c/M4d). Building the commit's
+#                       pathspec from the script's own list would turn that healthy run into a
+#                       failed commit.
+#
+# The intersection is what makes the pathspec safe: every element came out of `git diff --cached`,
+# so every element is a path git has already accepted.
+#
+# The lookup keeps the leading AND trailing space of the `record_write` idiom, and for the identical
+# reason: without it `scripts/graphify-a.sh` matches `scripts/graphify-ab.sh`. Getting that wrong
+# here does not merely mis-report — it drops a file from a commit. Safe on the delimiter because
+# every path reaching $WROTE came through the sync's own basename rule (no `/`, no space) or a
+# template-relative path that has neither.
+#
+# Both directions live in one function rather than in two, and the argument is not a convenience:
+# the delicate part is the two spaces in the pattern, and a second hand-written copy of that idiom
+# is exactly what spec 007ay was opened to remove from this file. It also has to be a FUNCTION
+# defined at top level — bash 3.2 (which `#!/bin/bash` still selects on macOS) cannot parse a
+# `case` inside a `$( )`, which the [held] block below needs. Measured: a syntax error at parse
+# time, taking the whole script down rather than one block.
+owned_by_sync() {   # $1 = "keep" (default) — emit the sync's own paths; "drop" — emit everything else
+  _keep="${1:-keep}"
+  while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    case " $WROTE $ADDED " in
+      *" $_p "*) [ "$_keep" = keep ] && printf '%s\n' "$_p" ;;
+      *)         [ "$_keep" = keep ] || printf '%s\n' "$_p" ;;
+    esac
+  done
+  # Explicit: the last `[ ]` in a case arm decides the loop's status, and a caller reading it would
+  # be reading which branch the final path happened to take.
+  return 0
+}
+
 # Spec 007au. The same index, asked which WAY the lines moved. `--numstat` measured at 13 ms
 # against this project, identical to the `--name-only` above it — so the number the headline
 # was missing costs nothing to fetch, and there was never a budget argument for going without.
@@ -1539,8 +1586,19 @@ staged_names() {   # $1 = M, A or D
 # definition of "which rows count". They differed by a `--cached` and nothing else, and spec 007ay
 # is an open row about precisely this shape of duplication in precisely this file.
 numstat() {   # $@ = extra git-diff arguments (--cached for the index, nothing for the worktree)
+  # Spec 007bb. Narrowed to the sync's own paths on the same terms as owned_by_sync above, in this
+  # awk rather than in a second pass. Without it the `+N/-M lines` figure counted the developer's
+  # lines and credited them to a template SHA — measured at `+1/-0` for a run that wrote nothing at
+  # all (research.md M1). Both call sites need it: the staged one feeds the headline beside the
+  # counts, and the worktree one (the --no-commit / --dry-run arm) is measured over a tree that is
+  # dirty for reasons of its own.
+  #
+  # A rename renders `old => new` in field 3 and so matches nothing and is dropped. The sync does
+  # not rename, and the direction of the error is the safe one: it under-reports our own movement
+  # rather than crediting a stranger's.
   git -C "$PROJECT_ROOT" diff --numstat "$@" 2>/dev/null \
-    | awk -F'\t' -v stamp="$STAMP_REL" 'NF >= 3 && $3 != stamp'
+    | awk -F'\t' -v stamp="$STAMP_REL" -v own=" $WROTE $ADDED " \
+        'NF >= 3 && $3 != stamp && index(own, " " $3 " ") > 0'
 }
 
 # Binary files render as `-<TAB>-<TAB>path`, and a rename renders `old => new` in field 3.
@@ -1557,8 +1615,18 @@ STAGED_NUMSTAT=""; MOVED_INS=0; MOVED_DEL=0
 # nothing to stage). Under `set -u` an unset read there is not an empty string, it is a fatal
 # error in the reporting tail of a sync that has already committed and pushed.
 STAGED_DEL=""
+# Spec 007bb, read by the commit below and initialised here for the same `set -u` reason.
+STAGED_STAMP=""; COMMIT_PATHS=""
 recount_staged() {
-  STAGED_UPD=$(staged_names M); STAGED_NEW=$(staged_names A); STAGED_DEL=$(staged_names D)
+  # Spec 007bb. Filtered at the source, so every consumer inherits the narrowing rather than each
+  # re-deriving it — the same judgement the numstat capture above records. This does NOT walk back
+  # spec 007an: git is still the authority on whether a change was RECORDED, which is the whole of
+  # that finding and of the STAGED_COUNT_IS_THE_HEADLINE marker. What changes is which paths the
+  # question is asked about. Counting a file the sync never wrote as `1 added` under a template SHA
+  # was never a measurement of the repository — it was a measurement of somebody else's index.
+  STAGED_UPD=$(staged_names M | owned_by_sync)
+  STAGED_NEW=$(staged_names A | owned_by_sync)
+  STAGED_DEL=$(staged_names D | owned_by_sync)
   N_UPD=$(printf '%s\n' "$STAGED_UPD" | grep -c . 2>/dev/null); N_UPD=${N_UPD:-0}
   N_NEW=$(printf '%s\n' "$STAGED_NEW" | grep -c . 2>/dev/null); N_NEW=${N_NEW:-0}
   # Deletions join STAGED_ALL but NOT the two counters. STAGED_ALL answers "did this written
@@ -1572,6 +1640,17 @@ recount_staged() {
   STAGED_NUMSTAT=$(numstat --cached)
   MOVED_INS=$(sum_numstat "$STAGED_NUMSTAT" 1)
   MOVED_DEL=$(sum_numstat "$STAGED_NUMSTAT" 2)
+
+  # The stamp is excluded from STAGED_ALL and from the counts everywhere else, so it has to be
+  # asked for separately — and it is asked HERE rather than in the commit block that used to ask,
+  # so the pathspec and the counts are read from the same index at the same instant. A stamp that
+  # was staged when the arm was chosen and absent when the commit was built would be spec 007an's
+  # defect wearing a pathspec.
+  STAGED_STAMP=$(git -C "$PROJECT_ROOT" diff --cached --name-only -- "$STAMP_REL" 2>/dev/null)
+
+  # What the commit is allowed to record. Every element came out of `git diff --cached`, which is
+  # what keeps 007av's complaint class from becoming a fatal commit (owned_by_sync's comment).
+  COMMIT_PATHS=$(printf '%s\n%s\n' "$STAGED_ALL" "$STAGED_STAMP" | grep -v '^$' | sort -u)
   RECONCILED=1
 }
 
@@ -1673,7 +1752,7 @@ if [ "$DO_COMMIT" -eq 1 ] && { [ $((N_WROTE + N_ADDED)) -gt 0 ] || [ "$STAMP_REW
       # when the template SHA moved — a stale stamp makes the next run re-sync from
       # scratch — but it is a SHA advance, not a file count. This is what 7c4a6a9
       # and 9b72263 are, and they both claim "1 updated" over an empty diff.
-      if [ -n "$(git -C "$PROJECT_ROOT" diff --cached --name-only -- "$STAMP_REL" 2>/dev/null)" ]; then
+      if [ -n "$STAGED_STAMP" ]; then
         MSG="chore(sync): template $TEMPLATE_SHA — 0 updated, 0 added (stamp advance)"
       else
         COMMIT_NOTE="nothing to commit — no file changed"
@@ -1682,8 +1761,17 @@ if [ "$DO_COMMIT" -eq 1 ] && { [ $((N_WROTE + N_ADDED)) -gt 0 ] || [ "$STAMP_REW
     else
       MSG="chore(sync): template $TEMPLATE_SHA — $N_UPD updated, $N_NEW added"
     fi
-    if [ -n "$MSG" ] && git -C "$PROJECT_ROOT" commit -q -m "$MSG" -m "Deterministic template sync (scripts/rules/docs/agents + core-hook wiring).
-Locally-modified files skipped: $N_SKIP. CLAUDE.md and project-specific settings untouched — run /project-update for those." 2>/dev/null; then
+    # Spec 007bb. The pathspec. `git commit` with none of it records the INDEX, which is the sync's
+    # staging plus whatever the developer left there — see owned_by_sync. $COMMIT_PATHS is
+    # word-split deliberately, exactly like the `git add` above it and safe on the same guarantee.
+    #
+    # The emptiness test is not defensive padding: an empty pathspec is not "commit nothing", it is
+    # `git commit` with no pathspec at all — the defect, reached by accident. Whenever $MSG is
+    # non-empty one of $STAGED_ALL or $STAGED_STAMP is too, so this can only fire if that ever
+    # stops being true, and then it refuses instead of committing a stranger.
+    if [ -n "$MSG" ] && [ -n "$COMMIT_PATHS" ] \
+       && git -C "$PROJECT_ROOT" commit -q -m "$MSG" -m "Deterministic template sync (scripts/rules/docs/agents + core-hook wiring).
+Locally-modified files skipped: $N_SKIP. CLAUDE.md and project-specific settings untouched — run /project-update for those." -- $COMMIT_PATHS 2>/dev/null; then
       SHORT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)
       COMMIT_NOTE="committed $SHORT"
       SYNC_COMMIT="$SHORT"
@@ -1762,6 +1850,49 @@ elif [ "$STAGE_RC" -ge 2 ]; then
   tell "        Usually a held .git/index.lock, or a path that matches no file. Check \`git status\`"
   tell "        and commit by hand. This sync will not: the index it would have committed is not"
   tell "        one it built."
+fi
+
+# The bound shared by every block below that renders file names — [held] here, [changed] further
+# down. Hoisted out of [changed] by spec 007bb, which added the earlier consumer; sanitised once
+# rather than at each, because a fat-fingered override must not become `[: xyz: integer expression
+# expected` inside the very message the bound exists to make readable. 0 is a real answer — a
+# project that wants the old counts-only message sets it and gets exactly that.
+NAME_LIMIT="${TEMPLATE_AUTOSYNC_NAME_LIMIT:-20}"
+case "$NAME_LIMIT" in ''|*[!0-9]*) NAME_LIMIT=20 ;; esac
+
+# ------------------------------------------ what the commit deliberately left (spec 007bb)
+# The other half of the pathspec. A sync that quietly declines to carry something is one step from
+# a sync that quietly loses it, so the paths the commit walked past are named rather than merely
+# not-committed.
+#
+# Only after a commit was actually made. On every other arm — --no-commit, a rebase in progress,
+# 007av's fatal class — nothing was committed, so nothing was "left behind by a commit", and the
+# block would be describing the sync's OWN staged files as strangers. [stage] already owns the
+# fatal arm and says something truer about it.
+#
+# The index is read AND subtracted from, not merely read. On this arm the commit has already taken
+# every path the sync owned, so what remains is the strangers and the subtraction changes nothing —
+# which is the point: the block is correct because of what it asks, not because of where it sits.
+# A block that is right for the wrong reason stops being right the first time somebody moves it.
+#
+# The wording is deliberate. NOT "skipped", NOT "ignored" — both read as loss, and nothing was
+# lost: the paths are exactly where the developer put them. And no instruction, because staging
+# something and leaving it there is a thing developers do on purpose.
+if [ -n "$SYNC_COMMIT" ]; then
+  HELD=$(git -C "$PROJECT_ROOT" diff --cached --name-only 2>/dev/null \
+    | grep -v -x -F "$STAMP_REL" | owned_by_sync drop)
+  N_HELD=$(printf '%s\n' "$HELD" | grep -c .)
+  if [ "$N_HELD" -gt 0 ]; then
+    tell "[held] $N_HELD path(s) were already staged and are not this sync's — left staged, untouched:"
+    printf '%s\n' "$HELD" | head -n "$NAME_LIMIT" | while IFS= read -r _h; do
+      tell "       $_h"
+    done
+    # Counted from the rendered list and naming the cap, for the reason the [changed] block records:
+    # the bound is the whole point of the line, and it is true at any limit.
+    if [ "$N_HELD" -gt "$NAME_LIMIT" ]; then
+      tell "       … and $((N_HELD - NAME_LIMIT)) more, not named — capped at $NAME_LIMIT (TEMPLATE_AUTOSYNC_NAME_LIMIT)"
+    fi
+  fi
 fi
 
 # ------------------------------------------ the obligation this sync leaves (spec 007at)
@@ -1903,11 +2034,6 @@ fi
 # 19 (M4, M5) and this text is forwarded verbatim into a session's context. Ordered by
 # what changed the session's own behaviour, because under a bound the order is what
 # decides which names survive.
-NAME_LIMIT="${TEMPLATE_AUTOSYNC_NAME_LIMIT:-20}"
-# A fat-fingered override must not become `[: xyz: integer expression expected` inside
-# the very message this block exists to make readable. 0 is a real answer — a project
-# that wants the old counts-only message sets it and gets exactly that.
-case "$NAME_LIMIT" in ''|*[!0-9]*) NAME_LIMIT=20 ;; esac
 
 if [ "$NAME_LIMIT" -gt 0 ]; then
   # Spec 007au, the half 007ar left open. `fold_helper_writes` folds the helpers' `+ name` AND
