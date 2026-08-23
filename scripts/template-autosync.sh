@@ -363,13 +363,12 @@ STAMP="$PROJECT_ROOT/.claude/.template-sync"
 # Spec 007ax. Declared here rather than beside the stamp write, because `set -u` is on and the
 # commit gate reads it on every path — including the ones that return before the stamp is composed.
 STAMP_REWRITTEN=0
-STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | head -1)
-if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
-  say "[ok] already at template $TEMPLATE_SHA"
-  exit 0
-fi
 
 # --------------------------------------------------------------------- hashing
+# Spec 007az moved this block above the stamp comparison below. It used to sit after it, which
+# was fine while only the sync path hashed anything — and stopped being fine the moment the
+# `[ok] already at template` path needed to hash too. Nothing between the old position and this
+# one calls any of the three, so the move carries no behaviour.
 sha_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" 2>/dev/null | cut -d' ' -f1
   elif command -v shasum   >/dev/null 2>&1; then shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1
@@ -381,6 +380,127 @@ sha_stdin() {
   else cksum 2>/dev/null | cut -d' ' -f1; fi
 }
 manifest_hash() { grep -F "  $1" "$STAMP" 2>/dev/null | head -1 | cut -d' ' -f1; }
+
+# ------------------------------------------------ CORE divergence (spec 007az)
+# Spec 007ao made this script refuse a project that tries to WRITE into a CORE file, and tell the
+# author to land the change in the template instead. Nothing checked that they did.
+#
+# Spec 007as landed a fix in msroute's CORE copy, wrote "needs template propagation" in its own
+# run-log, and shipped. Eighteen hours later a sync deleted all 35 net lines of it. The run-log is
+# not pipeline input and SessionStart surfaces it only while the row is `- [/]`, so from the moment
+# the row was ticked the note was addressed to nobody.
+#
+# 007at and 007au both report at the DESTROYING sync — correctly, and too late to matter. The
+# interval before it is what this is for: it opens when someone edits a CORE file, closes at the
+# next template release, and is bounded by nothing. During it the stamp comparison below exits
+# before a single file is hashed, so every session start says `[ok]` while the work sits there
+# waiting to be overwritten.
+#
+# The comparison is free. For a CORE file the manifest hash IS the template's hash — copy_file
+# writes $SRC_HASH on every arm that emits a manifest line — so no resolve, clone or fetch is
+# needed to answer it. Verified 58/58 on this project (spec research.md M2).
+#
+# Measured before it was designed rather than after (M4): across all 42 stamped projects on the
+# author's machine it fires on ONE, naming two files, both genuine. Compare the heuristic 007au
+# had to REJECT at 33% precision as "the line readers learn to skip". If that ratio ever moves,
+# the block is wrong and the fix is to delete it — not to add a threshold, which is exactly how
+# the 33% version nearly shipped.
+
+# Paths on stdin, one per line -> `<sha>  <path>` for each readable one.
+#
+# One process, not one per file: 0.024 s against 1.475 s over 58 files (M5), and this runs
+# unattended at every session start of every project. 1.5 s is the tax that gets a feature
+# deleted rather than fixed — the same reasoning the skills loop already records for its single
+# `git check-ignore`.
+#
+# Same three backends as sha_of, in the same order, so a manifest written by one is never
+# compared against a hash produced by another. The cksum arm falls back to a per-file loop rather
+# than going silent: a wrong-algorithm comparison would report every CORE file as divergent, and
+# silence would drop the real ones. It is correct on every backend and the 1.5 s is only ever
+# paid on a machine with neither sha256sum nor shasum, which is not a machine in this fleet.
+sha_many() {
+  if command -v sha256sum >/dev/null 2>&1;  then tr '\n' '\0' | xargs -0 sha256sum 2>/dev/null
+  elif command -v shasum >/dev/null 2>&1;   then tr '\n' '\0' | xargs -0 shasum -a 256 2>/dev/null
+  else
+    while IFS= read -r _f; do
+      [ -n "$_f" ] && printf '%s  %s\n' "$(sha_of "$_f")" "$_f"
+    done
+  fi
+}
+
+# The CORE paths whose current bytes differ from what the manifest records, one per line.
+core_divergence() {
+  [ -f "$STAMP" ] || return 0
+
+  # Membership comes from the same two variables is_core reads — never a second list, because a
+  # second definition of CORE drifts from the first the moment either changes (the trap 007au
+  # records where it classifies revert candidates). Filtered in one awk rather than by calling
+  # is_core per path: 114 of msroute's manifest lines are CORE-SHAPED and only 58 are CORE, and a
+  # subprocess each would cost precisely what sha_many exists to avoid.
+  _core_paths=$(
+    printf '%s\n' $CORE_SCRIPTS | sed 's#^#scripts/#'
+    printf '%s\n' $CORE_RULES   | sed 's#^#.claude/rules/#'
+  )
+
+  _want=$(printf '%s\n' "$_core_paths" \
+    | awk 'NR == FNR { core[$0]; next } NF == 2 && ($2 in core) { print $1 "  " $2 }' - "$STAMP")
+  [ -n "$_want" ] || return 0
+
+  # A path the manifest names but the project no longer has produces no line here, so it is never
+  # reported — a CORE file the project deleted is re-added by the next sync and there is no
+  # divergence to speak of. That is FR-003 satisfied by construction rather than by a branch that
+  # could be got wrong. The converse, a CORE file present with no manifest line, is absent from
+  # $_want for the same structural reason: no evidence, no claim.
+  #
+  # The guard is not defensive tidiness. GNU xargs runs its utility once on empty input unless -r,
+  # BSD xargs does not, and sha256sum with no arguments reads stdin — so the portable spelling of
+  # "hash nothing" is a hang on one of the two platforms, at session start, unattended.
+  _paths=$(printf '%s\n' "$_want" | awk '{ print $2 }')
+  [ -n "$_paths" ] || return 0
+  _have=$(printf '%s\n' "$_paths" | sha_many)
+
+  # Both streams are `<sha>  <path>`, so they concatenate around a sentinel instead of needing a
+  # process substitution. The script is bash and could use one; nothing else in it does.
+  { printf '%s\n' "$_want"; printf '%s\n' '--'; printf '%s\n' "$_have"; } \
+    | awk '$0 == "--" { seen = 1; next }
+           seen == 0  { want[$2] = $1; next }
+           ($2 in want) && want[$2] != $1 { print $2 }'
+}
+
+# Silent on empty input. This text is forwarded verbatim into every session start, and a block
+# that fires with nothing to report is what trains readers to skip the block.
+#
+# Past tense on the finding, timeless on the contract, because one wording has to be true on two
+# paths in different states: on the early exit the files still differ, on the sync path the copy
+# loop has already overwritten them by the time anything renders. "These differ" is false in the
+# second case; "these will be overwritten" is false in it too.
+#
+# It names paths and stops. Not "you are about to lose work" — M4's own true positive is a case
+# where nothing was lost, because the template had independently fixed the same bug. The block
+# reports what it can prove and lets the developer read the diff.
+report_owed() {
+  [ -n "$1" ] || return 0
+  tell "[owed] this sync found CORE file(s) differing from the bytes the template shipped:"
+  printf '%s\n' "$1" | while IFS= read -r _p; do
+    [ -n "$_p" ] && tell "         $_p"
+  done
+  tell "       CORE is overwritten unconditionally — a change that lives only here does not"
+  tell "       survive. Land it in the template, push, then sync."
+}
+
+STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | head -1)
+if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
+  say "[ok] already at template $TEMPLATE_SHA"
+  # Rendered here rather than collected for later, because on this path there is no later.
+  report_owed "$(core_divergence)"
+  exit 0
+fi
+
+# Measured BEFORE the copy loops, because the copy loops are what destroy the evidence: a CORE
+# file that diverged is overwritten by copy_file and would hash equal to the manifest by the time
+# any report block runs. Rendered much further down, with the others, so nothing that reads this
+# script's output sees the block order change.
+OWED=$(core_divergence)
 
 # ------------------------------------------------- the intentional-difference record
 # `<project-sha256>  <template-sha256>  <relpath>`, one line per accepted difference.
@@ -1893,6 +2013,21 @@ if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ] && [ -n "$REVERT_RANGE" ]
     tell "           Check before building on it: \`git show HEAD -- <path>\`, and land the fix in the template, not here."
   fi
 fi
+
+# Spec 007az. After [reverted], not before: that block says what this sync DESTROYED, this one
+# says what the project still owes the template, and destroyed-then-owed is the order the
+# developer has to act in.
+#
+# They overlap on exactly one shape — a net-negative CORE overwrite whose prior blob is in the
+# project's history — and there the two lines say different things about the same file: one names
+# the commit to recover from, the other names where the fix has to go.
+#
+# Everywhere else this block is carrying cases [reverted] cannot reach, and the boundary is not
+# where it first looks. That block's stage 1 keeps only overwrites that are NET-NEGATIVE in lines,
+# which is the local-change-ADDED-lines case. The two it drops before stage 2 ever runs are the
+# local change that REMOVED lines (restoring them is net-positive) and the one that REPLACED them
+# 1:1 (net zero). Both measured: [reverted] silent, this block fires (spec 007az research.md M7).
+report_owed "$OWED"
 
 # Spec 007an. The gap between what this sync wrote and what the repository recorded
 # is not a presentation problem to be smoothed over by picking the nicer number —
