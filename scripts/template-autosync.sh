@@ -126,7 +126,8 @@ test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
-template-autosync.sh template-autosync-hook.sh"
+template-autosync.sh template-autosync-hook.sh
+template-sync-verify.sh template-sync-verify-hook.sh"
 
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
@@ -1164,6 +1165,7 @@ recount_staged() {
 
 # ---------------------------------------------------------------- commit/push
 COMMIT_NOTE="not committed"
+SYNC_COMMIT=""; SYNC_PUSHED=no
 if [ "$DO_COMMIT" -eq 1 ] && [ $((N_WROTE + N_ADDED)) -gt 0 ]; then
   if [ -d "$PROJECT_ROOT/.git/rebase-merge" ] || [ -d "$PROJECT_ROOT/.git/rebase-apply" ] \
      || [ -f "$PROJECT_ROOT/.git/MERGE_HEAD" ] || [ -f "$PROJECT_ROOT/.git/CHERRY_PICK_HEAD" ]; then
@@ -1193,10 +1195,12 @@ if [ "$DO_COMMIT" -eq 1 ] && [ $((N_WROTE + N_ADDED)) -gt 0 ]; then
 Locally-modified files skipped: $N_SKIP. CLAUDE.md and project-specific settings untouched — run /project-update for those." 2>/dev/null; then
       SHORT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)
       COMMIT_NOTE="committed $SHORT"
+      SYNC_COMMIT="$SHORT"
       BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
       if git -C "$PROJECT_ROOT" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
         if git -C "$PROJECT_ROOT" push -q origin "$BRANCH" 2>/dev/null; then
           COMMIT_NOTE="$COMMIT_NOTE, pushed to $BRANCH"
+          SYNC_PUSHED=yes
         else
           COMMIT_NOTE="$COMMIT_NOTE, push FAILED (offline or rejected)"
         fi
@@ -1221,6 +1225,74 @@ fi
 [ -n "$HOOKS_NOTE" ] && SUMMARY="$SUMMARY · $HOOKS_NOTE"
 SUMMARY="$SUMMARY · $COMMIT_NOTE"
 tell "[synced] $SUMMARY"
+
+# ------------------------------------------ the obligation this sync leaves (spec 007at)
+# What the sync just did is rewrite this project's enforcement machinery, commit it and
+# push it, on the strength of an exit code that means "the copy loop finished". Twice in
+# two days that shipped a red main: 0a30a77 took seven of spec 007ak's tests down and the
+# next spec ran a full pipeline on top of them and reported green, and 5d9234b reverted
+# spec 007as under the message "3 updated, 0 added".
+#
+# It cannot check. The bound is 120 s from a hook whose contract is that a template
+# problem never stops a session starting, and a real suite is tens of seconds warm and a
+# build cold. And it must not: the declared command is a string in a repository file, and
+# running one unattended is a trust boundary this deliberately does not cross
+# (scripts/template-sync-verify.sh is the only thing that executes it, on a human's
+# explicit invocation).
+#
+# So it records what it has not checked, and scripts/template-sync-verify-hook.sh says so
+# at every session start until somebody discharges it.
+#
+# In .git/ rather than under .claude/, because .gitignore is not in the synced set: a
+# .claude/ marker would be ignored in the one project whose ignore file was edited and
+# untracked forever in the other thirty-odd.
+if [ -n "$SYNC_COMMIT" ]; then
+  VERIFY_MARKER="$PROJECT_ROOT/.git/template-sync-unverified"
+
+  # Supersede, never stack. One marker, newest SHA first, so "how many are outstanding" is
+  # a read rather than a parse — and so a `result=failed` recorded against bytes this run
+  # has just rewritten is dropped rather than carried forward as a failure nobody can
+  # reproduce.
+  PREV_COMMITS=""
+  [ -r "$VERIFY_MARKER" ] && PREV_COMMITS=$(sed -n 's/^commits=//p' "$VERIFY_MARKER" 2>/dev/null | head -1)
+  ALL_COMMITS="$SYNC_COMMIT"
+  for _c in $PREV_COMMITS; do
+    case " $ALL_COMMITS " in *" $_c "*) ;; *) ALL_COMMITS="$ALL_COMMITS $_c" ;; esac
+  done
+
+  # Asked of git rather than assembled from $WROTE and $ADDED. Spec 007an's whole finding
+  # is that those two are the sync's record of its own activity and not what the
+  # repository recorded, and a reminder built from the wrong one would name files the
+  # commit does not contain.
+  {
+    printf '# Template sync commits this branch has not been verified against (spec 007at).\n'
+    printf '# Written by scripts/template-autosync.sh · discharged by scripts/template-sync-verify.sh\n'
+    printf 'commit=%s\n' "$SYNC_COMMIT"
+    printf 'commits=%s\n' "$ALL_COMMITS"
+    printf 'template=%s\n' "$TEMPLATE_SHA"
+    printf 'synced=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'pushed=%s\n' "$SYNC_PUSHED"
+    printf 'result=pending\n'
+    git -C "$PROJECT_ROOT" diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null | sed 's/^/file /'
+  } > "$VERIFY_MARKER.tmp" 2>/dev/null \
+    && mv -f "$VERIFY_MARKER.tmp" "$VERIFY_MARKER" 2>/dev/null \
+    || rm -f "$VERIFY_MARKER.tmp" 2>/dev/null   # an unwritable .git/ is not worth a word: the
+                                                # sync's own work succeeded, and bookkeeping
+                                                # about it must not make a session worse.
+
+  VERIFY_CMD=""
+  VERIFY_DECL="$PROJECT_ROOT/.claude/.template-sync-verify"
+  [ -r "$VERIFY_DECL" ] && VERIFY_CMD=$(grep -v '^[[:space:]]*#' "$VERIFY_DECL" 2>/dev/null \
+    | grep -v '^[[:space:]]*$' | head -1)
+
+  tell "[verify] $SYNC_COMMIT is unverified — nothing has checked this project since."
+  if [ -n "$VERIFY_CMD" ]; then
+    tell "         run scripts/template-sync-verify.sh   ($VERIFY_CMD)"
+  else
+    tell "         this project declares no regression command. Put one in"
+    tell "         .claude/.template-sync-verify, then run scripts/template-sync-verify.sh"
+  fi
+fi
 
 # ------------------------------------------------------- what moved (spec 007ak)
 # The counts above answer "did anything move". They cannot answer "which of MY rules
