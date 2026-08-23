@@ -839,6 +839,69 @@ if [ -f "$PROJECT_ROOT/scripts/sync-core-hooks.py" ] && [ -f "$TEMPLATE_DIR/.cla
   fi
 fi
 
+# ------------------------------------- fold in what the wiring helpers wrote
+# sync-local-llm-hooks.py and sync-graphify-wiring.py mirror their own script
+# families as a side effect of wiring, outside the copy loop above — so those
+# writes do not enter $WROTE on their own and would escape the commit, leaving
+# the repo permanently dirty with files identical to the template.
+#
+# Spec 007ar. This used to be inferred: a sweep of `git status --porcelain -- scripts`
+# folded every dirty path matching the two families into $WROTE. That asks git WHAT IS
+# DIRTY, not WHAT DID I WRITE, and the sync runs unattended at SessionStart — when a
+# developer's tree is at its dirtiest. Measured, it committed an in-flight edit to a
+# graphify script in a run that simultaneously reported the same file under `[manual]
+# files that differ from the template and are left alone`, under a message crediting the
+# template; and it committed an UNTRACKED project-only scratch file the template has
+# never shipped, creating that file's entire git history. The copy loop's decision to
+# keep its hands off a locally-edited file was undone three hundred lines later by a loop
+# that never asked who wrote it.
+#
+# Both helpers already print exactly what they wrote — `  + name` per file copied,
+# `  - name` per file deleted, basenames, sorted, silent when nothing moved — and that
+# output was being discarded with `>/dev/null`. So: read the report, do not guess from
+# the working tree.
+#
+# Deletions are folded in like copies. The graphify block below calls its helper with NO
+# delete-guard (unlike the local-LLM one, which refuses to run when its delete set is
+# non-empty), and `git add` on a vanished path stages its removal. Folding `+` alone
+# would recreate the escaping-writes bug on the deletion side.
+#
+# The basename pattern is deliberately narrow — no `/`, no space. Both helpers glob
+# scripts/<pattern> non-recursively and print `p.name`, so that is the only shape they
+# can produce; anything else is drift and is dropped rather than word-split into
+# `git add`, which is how the old sweep handed git a mangled argument for any path
+# containing a space.
+#
+# fold_helper_writes <helper-name> <helper-stdout>
+fold_helper_writes() {
+  _helper="$1"; _out="$2"; _n=0
+  for _name in $(printf '%s\n' "$_out" | sed -n 's/^  [+-] \([^/ ]*\)$/\1/p'); do
+    _n=$((_n + 1))
+    case " $WROTE $ADDED " in *" scripts/$_name "*) ;; *) WROTE="$WROTE scripts/$_name" ;; esac
+  done
+
+  # Cross-checked against the helper's own count. A format drift that parsed nothing would
+  # leave the repository dirty with the helper's writes and say nothing — the exact bug this
+  # fold exists to prevent, returning with no symptom. Same lesson as 007at: a sync that
+  # reports success it did not verify.
+  # head -1 before the arithmetic: a helper emitting two summary lines would otherwise make
+  # the comparison below a `[: too many arguments` on stderr — a report about drift that
+  # fails noisily on the very drift it was reporting. Summed with shell arithmetic rather
+  # than an awk call, and only once there is something to sum, so the no-summary case never
+  # reaches the sum at all.
+  _counts=$(printf '%s\n' "$_out" \
+    | sed -n 's/^scripts: copied \([0-9][0-9]*\), deleted \([0-9][0-9]*\)$/\1 \2/p' | head -1)
+  if [ -n "$_counts" ]; then
+    _claimed=$(( ${_counts%% *} + ${_counts##* } ))
+    if [ "$_claimed" -ne "$_n" ]; then
+      tell "[sync] $_helper reported $_claimed script write(s), $_n parsed — output format drift"
+    fi
+  fi
+  # Explicit: this is the last statement in an `if` body at both call sites, and a
+  # fall-through status from the test above would change that block's result.
+  return 0
+}
+
 # The local-LLM hook family is owned by its own helper (core-hooks deliberately
 # ignores it), so wiring changes there — e.g. adding `if` filters — do not
 # propagate without this. The helper treats the template as source of truth and
@@ -856,12 +919,19 @@ if [ -f "$PROJECT_ROOT/scripts/sync-local-llm-hooks.py" ] && [ -f "$TEMPLATE_DIR
     HOOKS_NOTE="$HOOKS_NOTE · local-LLM wiring skipped (project-only scripts would be deleted:$EXTRA)"
   else
     cp "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.autosync-bak" 2>/dev/null
-    if (cd "$PROJECT_ROOT" && python3 scripts/sync-local-llm-hooks.py "$TEMPLATE_DIR/.claude/settings.json" >/dev/null 2>&1) \
-       && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
+    # stdout captured rather than discarded — it is the helper's report of the scripts it
+    # mirrored (007ar). `$?` after a plain assignment from a command substitution is the
+    # substitution's own status, so the condition below tests exactly what it tested before.
+    # stderr keeps its `2>/dev/null`: the failure path writes there and the rollback branch
+    # is what handles it.
+    LLM_OUT=$( (cd "$PROJECT_ROOT" && python3 scripts/sync-local-llm-hooks.py "$TEMPLATE_DIR/.claude/settings.json" 2>/dev/null) )
+    if [ $? -eq 0 ] && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
       if ! cmp -s "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.autosync-bak"; then
         HOOKS_NOTE="$HOOKS_NOTE + local-LLM rewired"
         case " $WROTE " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
       fi
+      # Outside the cmp test on purpose: a run can rewire nothing and still mirror a script.
+      fold_helper_writes sync-local-llm-hooks.py "$LLM_OUT"
       rm -f "$PROJECT_ROOT/.claude/settings.json.autosync-bak"
     else
       mv "$PROJECT_ROOT/.claude/settings.json.autosync-bak" "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null
@@ -905,28 +975,19 @@ fi
 if [ -f "$PROJECT_ROOT/scripts/sync-graphify-wiring.py" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ] \
    && command -v python3 >/dev/null 2>&1; then
   cp "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.order-bak" 2>/dev/null
-  if (cd "$PROJECT_ROOT" && python3 scripts/sync-graphify-wiring.py "$TEMPLATE_DIR/.claude/settings.json" >/dev/null 2>&1) \
-     && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
+  # Captured for the same reason as the local-LLM call above (007ar). This is also the block
+  # that can DELETE — it has no delete-guard — so its `- name` lines are the ones that make
+  # the deletion arm of fold_helper_writes load-bearing rather than defensive.
+  GFY_OUT=$( (cd "$PROJECT_ROOT" && python3 scripts/sync-graphify-wiring.py "$TEMPLATE_DIR/.claude/settings.json" 2>/dev/null) )
+  if [ $? -eq 0 ] && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
     cmp -s "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.order-bak" \
       || case " $WROTE $ADDED " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+    fold_helper_writes sync-graphify-wiring.py "$GFY_OUT"
     rm -f "$PROJECT_ROOT/.claude/settings.json.order-bak"
   else
     mv "$PROJECT_ROOT/.claude/settings.json.order-bak" "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null
   fi
 fi
-
-# ------------------------------------- pick up the helper-owned script mirrors
-# sync-local-llm-hooks.py and sync-graphify-wiring.py mirror their own script
-# families as a side effect of wiring, outside the copy loop above — so those
-# writes never entered $WROTE and silently escaped the commit, leaving the repo
-# permanently dirty with files identical to the template. Same class of bug as
-# the re-exec dropping its file list; fold them in before staging.
-for _f in $(git -C "$PROJECT_ROOT" status --porcelain -- scripts 2>/dev/null | awk '{print $2}'); do
-  case "$_f" in
-    scripts/local-llm-*|scripts/graphify-*|scripts/sync-local-llm-hooks.py|scripts/sync-graphify-wiring.py)
-      case " $WROTE $ADDED " in *" $_f "*) ;; *) WROTE="$WROTE $_f" ;; esac ;;
-  esac
-done
 
 # --------------------------------------------------- prune dangling hook refs
 # settings.json can reference scripts the project never received — the graphify
@@ -1046,17 +1107,23 @@ unrecorded_reason() {
 # which of this script's two lists a path sat in. Commit 0a30a77 had the total
 # right and the split wrong; one source for both makes that impossible instead of
 # merely unlikely.
-staged_names() {   # $1 = M or A
+staged_names() {   # $1 = M, A or D
   git -C "$PROJECT_ROOT" diff --cached --name-only --diff-filter="$1" 2>/dev/null \
     | grep -v -x -F "$STAMP_REL"
 }
 
 N_UPD=0; N_NEW=0; STAGED_ALL=""; RECONCILED=0
 recount_staged() {
-  STAGED_UPD=$(staged_names M); STAGED_NEW=$(staged_names A)
+  STAGED_UPD=$(staged_names M); STAGED_NEW=$(staged_names A); STAGED_DEL=$(staged_names D)
   N_UPD=$(printf '%s\n' "$STAGED_UPD" | grep -c . 2>/dev/null); N_UPD=${N_UPD:-0}
   N_NEW=$(printf '%s\n' "$STAGED_NEW" | grep -c . 2>/dev/null); N_NEW=${N_NEW:-0}
-  STAGED_ALL=$(printf '%s\n%s\n' "$STAGED_UPD" "$STAGED_NEW" | grep -v '^$' | sort -u)
+  # Deletions join STAGED_ALL but NOT the two counters. STAGED_ALL answers "did this written
+  # path leave a trace in the index?", and a staged deletion plainly did — without this, a
+  # file the graphify helper removes is reported under `[written] ... not recorded`, which is
+  # a false accusation about a change git recorded correctly. The counters are a separate
+  # question ("N updated, M created"), and giving deletions a headline of their own is the
+  # direction spec 007au is opened for — not something to smuggle in here.
+  STAGED_ALL=$(printf '%s\n%s\n%s\n' "$STAGED_UPD" "$STAGED_NEW" "$STAGED_DEL" | grep -v '^$' | sort -u)
   RECONCILED=1
 }
 
