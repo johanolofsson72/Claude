@@ -138,7 +138,8 @@ spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-remi
 sync-feature-json-hook.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
-detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh
+detect-stack.sh detect-verify-command.sh test-detect-verify-command.sh
+prune-dangling-hooks.py prune-agent-worktrees.sh
 speckit-extension-policy.sh
 archive-spec-history.sh test-archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
@@ -1844,8 +1845,41 @@ if [ -n "$SYNC_COMMIT" ]; then
   if [ -n "$VERIFY_CMD" ]; then
     tell "         run scripts/template-sync-verify.sh   ($VERIFY_CMD)"
   else
-    tell "         this project declares no regression command. Put one in"
-    tell "         .claude/.template-sync-verify, then run scripts/template-sync-verify.sh"
+    # Spec 007ba. "Declare a command" was the whole message here, and 41 of the 42 projects
+    # carrying this obligation could not answer it — so it was a line to skip, at every session
+    # start, forever. Derive one from the project's own manifests instead, and when that is not
+    # possible say what WAS found, so the chore is a copy-paste rather than an investigation.
+    #
+    # Derived, never written: .claude/.template-sync-verify keeps its single meaning — a human
+    # chose this. See detect-verify-command.sh's header.
+    VERIFY_DERIVED=""
+    VERIFY_FROM=""
+    if [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ]; then
+      VERIFY_DERIVED=$(bash "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" 2>/dev/null | sed -n '1p')
+      VERIFY_FROM=$(bash "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" 2>/dev/null | sed -n '2p')
+    fi
+
+    if [ -n "$VERIFY_DERIVED" ]; then
+      tell "         no declaration — derived from this project: $VERIFY_DERIVED"
+      [ -n "$VERIFY_FROM" ] && tell "         ($VERIFY_FROM)"
+      tell "         run scripts/template-sync-verify.sh, or declare your own in"
+      tell "         .claude/.template-sync-verify"
+    else
+      VERIFY_CANDIDATES=""
+      [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ] && VERIFY_CANDIDATES=$(bash \
+        "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" --candidates 2>/dev/null | head -5)
+      if [ -n "$VERIFY_CANDIDATES" ]; then
+        tell "         no declaration, and more than one thing this could mean:"
+        printf '%s\n' "$VERIFY_CANDIDATES" | while IFS= read -r _c; do
+          [ -n "$_c" ] && tell "           $_c"
+        done
+        tell "         put the one you mean in .claude/.template-sync-verify"
+      else
+        tell "         no declaration, and no test project or test script was found."
+        tell "         Put the command that proves this project works in"
+        tell "         .claude/.template-sync-verify"
+      fi
+    fi
   fi
 fi
 

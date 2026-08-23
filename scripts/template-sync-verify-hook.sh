@@ -113,9 +113,45 @@ if [ -n "$COMMAND" ]; then
   BODY="$BODY
 Run: scripts/template-sync-verify.sh   ($COMMAND)"
 else
-  BODY="$BODY
-This project declares no regression command. Put one in .claude/.template-sync-verify
+  # Spec 007ba. This arm used to be the entire message for 41 of the 42 projects carrying an
+  # obligation, and it asked them for a config chore rather than for the thing the reminder is
+  # about. A reminder nobody can answer is a reminder everyone learns to skip — which is exactly
+  # what 007at removed the rate limit to prevent.
+  #
+  # Derives, never writes, and still executes nothing: the derived string is printed for a human
+  # to run, and template-sync-verify.sh remains the only thing that ever runs it.
+  DERIVED=""
+  DERIVED_FROM=""
+  DETECT="$PROJECT_ROOT/scripts/detect-verify-command.sh"
+  if [ -f "$DETECT" ]; then
+    DERIVED=$(bash "$DETECT" "$PROJECT_ROOT" 2>/dev/null | sed -n '1p')
+    DERIVED_FROM=$(bash "$DETECT" "$PROJECT_ROOT" 2>/dev/null | sed -n '2p')
+  fi
+
+  if [ -n "$DERIVED" ]; then
+    BODY="$BODY
+No declaration — derived from this project's own layout: $DERIVED
+  ($DERIVED_FROM)
+Run: scripts/template-sync-verify.sh   — it will use that command, and will refuse to
+mark anything verified unless the run shows that tests actually executed. To choose a
+different command, put it in .claude/.template-sync-verify (first non-comment line)."
+  else
+    CANDIDATES=""
+    [ -f "$DETECT" ] && CANDIDATES=$(bash "$DETECT" "$PROJECT_ROOT" --candidates 2>/dev/null \
+      | head -5 | sed 's/^/  /')
+    if [ -n "$CANDIDATES" ]; then
+      BODY="$BODY
+No declaration, and more than one thing it could mean:
+$CANDIDATES
+Put the one you mean in .claude/.template-sync-verify (first non-comment line), then run
+scripts/template-sync-verify.sh."
+    else
+      BODY="$BODY
+No declaration, and no test project or test script was found in this repository.
+Put the command that proves this project still works in .claude/.template-sync-verify
 (first non-comment line), then run scripts/template-sync-verify.sh."
+    fi
+  fi
 fi
 
 # Same escaping as template-autosync-hook.sh: quotes, then newlines to \n. jq is not
