@@ -126,8 +126,11 @@ else
   DETECT="$(dirname "$0")/detect-verify-command.sh"
   [ -f "$DETECT" ] || DETECT="$PROJECT_ROOT/scripts/detect-verify-command.sh"
   if [ -f "$DETECT" ]; then
-    DERIVED=$(bash "$DETECT" "$PROJECT_ROOT" 2>/dev/null | sed -n '1p')
-    DERIVED_FROM=$(bash "$DETECT" "$PROJECT_ROOT" 2>/dev/null | sed -n '2p')
+    # Once, then sliced. Two invocations would pay the whole search twice on the session-start
+    # path for one string apiece.
+    DETECTED=$(bash "$DETECT" "$PROJECT_ROOT" 2>/dev/null)
+    DERIVED=$(printf '%s\n' "$DETECTED" | sed -n '1p')
+    DERIVED_FROM=$(printf '%s\n' "$DETECTED" | sed -n '2p')
   fi
 
   if [ -n "$DERIVED" ]; then

@@ -1855,8 +1855,10 @@ if [ -n "$SYNC_COMMIT" ]; then
     VERIFY_DERIVED=""
     VERIFY_FROM=""
     if [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ]; then
-      VERIFY_DERIVED=$(bash "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" 2>/dev/null | sed -n '1p')
-      VERIFY_FROM=$(bash "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" 2>/dev/null | sed -n '2p')
+      # Once, then sliced — the search is not cheap enough to run twice for two strings.
+      VERIFY_DETECTED=$(bash "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" 2>/dev/null)
+      VERIFY_DERIVED=$(printf '%s\n' "$VERIFY_DETECTED" | sed -n '1p')
+      VERIFY_FROM=$(printf '%s\n' "$VERIFY_DETECTED" | sed -n '2p')
     fi
 
     if [ -n "$VERIFY_DERIVED" ]; then
