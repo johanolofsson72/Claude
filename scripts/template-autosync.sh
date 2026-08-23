@@ -442,26 +442,24 @@ core_divergence() {
     printf '%s\n' $CORE_RULES   | sed 's#^#.claude/rules/#'
   )
 
+  # This guard is not defensive tidiness, and it is the ONLY thing standing between an empty
+  # manifest and a hang. GNU xargs runs its utility once on empty input unless -r, BSD xargs does
+  # not, and sha256sum with no arguments reads stdin — so the portable spelling of "hash nothing"
+  # blocks forever on one of the two platforms, at session start, unattended.
   _want=$(printf '%s\n' "$_core_paths" \
     | awk 'NR == FNR { core[$0]; next } NF == 2 && ($2 in core) { print $1 "  " $2 }' - "$STAMP")
   [ -n "$_want" ] || return 0
 
-  # A path the manifest names but the project no longer has produces no line here, so it is never
-  # reported — a CORE file the project deleted is re-added by the next sync and there is no
-  # divergence to speak of. That is FR-003 satisfied by construction rather than by a branch that
-  # could be got wrong. The converse, a CORE file present with no manifest line, is absent from
-  # $_want for the same structural reason: no evidence, no claim.
-  #
-  # The guard is not defensive tidiness. GNU xargs runs its utility once on empty input unless -r,
-  # BSD xargs does not, and sha256sum with no arguments reads stdin — so the portable spelling of
-  # "hash nothing" is a hang on one of the two platforms, at session start, unattended.
-  _paths=$(printf '%s\n' "$_want" | awk '{ print $2 }')
-  [ -n "$_paths" ] || return 0
-  _have=$(printf '%s\n' "$_paths" | sha_many)
+  # A path the manifest names but the project no longer has produces no line from sha_many, so it
+  # is never reported — a CORE file the project deleted is re-added by the next sync and there is
+  # no divergence to speak of. That is FR-003 satisfied by construction rather than by a branch
+  # that could be got wrong. The converse, a CORE file present with no manifest line, is absent
+  # from $_want for the same structural reason: no evidence, no claim.
+  _have=$(printf '%s\n' "$_want" | awk '{ print $2 }' | sha_many)
 
   # Both streams are `<sha>  <path>`, so they concatenate around a sentinel instead of needing a
   # process substitution. The script is bash and could use one; nothing else in it does.
-  { printf '%s\n' "$_want"; printf '%s\n' '--'; printf '%s\n' "$_have"; } \
+  printf '%s\n--\n%s\n' "$_want" "$_have" \
     | awk '$0 == "--" { seen = 1; next }
            seen == 0  { want[$2] = $1; next }
            ($2 in want) && want[$2] != $1 { print $2 }'
