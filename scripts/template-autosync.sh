@@ -360,6 +360,9 @@ if ! resolve_local_template; then
 fi
 
 STAMP="$PROJECT_ROOT/.claude/.template-sync"
+# Spec 007ax. Declared here rather than beside the stamp write, because `set -u` is on and the
+# commit gate reads it on every path — including the ones that return before the stamp is composed.
+STAMP_REWRITTEN=0
 STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | head -1)
 if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
   say "[ok] already at template $TEMPLATE_SHA"
@@ -1188,6 +1191,38 @@ if [ ! -f "$PROJECT_ROOT/.claude/.sync-stack" ] && [ -f "$PROJECT_ROOT/scripts/d
 fi
 
 # ------------------------------------------------------------------ the stamp
+# Spec 007ax. Composed into a sibling temp and moved into place only when it has something to say.
+#
+# The two statements this sits between used to disagree. The stamp was rewritten unconditionally
+# here, and the commit gate below asked `[ $((N_WROTE + N_ADDED)) -gt 0 ]` — so a run that wrote no
+# project file rewrote the stamp and then declined to commit it, ending with the one file the sync
+# unambiguously owns left modified in the developer's tree. Measured (research.md M0), and it does
+# not heal: the early exit at the top compares the template SHA against the ON-DISK stamp, which
+# already carries the new one, so the run that dirtied the file is the last run that looks at it.
+# Reverting is worse than useless — it restores the old SHA, so the next SessionStart rewrites it
+# again, every session, indefinitely (M2).
+#
+# `synced=` is excluded from the comparison and `source=` is NOT, which is the whole decision:
+#
+#   - `synced=` changes on every run by construction and is read by NOTHING (M5 — `sha=` is read
+#     twice in this script, `synced=` never). A run whose only change is a clock reading has
+#     nothing to record, and committing one would be the emptiest true statement the sync could
+#     make — the judgement the `numstat` comment below already records against a `+19/-20` about
+#     the manifest. This is not hypothetical: `--force` against an up-to-date project produces
+#     exactly that diff and left it dirty (M3).
+#   - `source=` says whether these bytes came from a local clone or from GitHub. That is provenance
+#     a reader of the stamp is entitled to, so a change in it is news.
+#
+# Everything else — `sha=`, the manifest body, the 007aw orphan lines — is news. The orphan case is
+# the one that matters most and the one an obvious "only commit when the sha moves" fix would miss:
+# when the template STOPS shipping a path, this block records the retraction and its first-seen
+# date on a run that writes no file at all (M7), and the old gate left that record uncommitted.
+#
+# A sibling temp rather than mktemp: same directory means `mv -f` is a rename and not a
+# cross-filesystem copy, which is the idiom atomic_copy already uses in this file. A /tmp temp
+# would degrade silently to a non-atomic copy on a project whose repo is on another filesystem —
+# precisely what an unattended SessionStart run is least able to notice.
+STAMP_NEW="$STAMP.autosync-tmp.$$"
 {
   printf 'sha=%s\n' "$TEMPLATE_SHA"
   printf 'synced=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -1211,8 +1246,25 @@ fi
     printf '# deleted for you; a line disappears when its file does.\n'
     printf '%s' "$ORPHAN_LINES"
   fi
-} > "$STAMP"
+} > "$STAMP_NEW"
 rm -f "$NEW_MANIFEST"
+
+# Everything except the clock. Compared against the file ON DISK rather than against HEAD: it needs
+# no git, it works in a project with no commits, and it answers the question actually being asked —
+# did THIS run change anything? A HEAD baseline would also read a developer's uncommitted stamp as
+# news on every subsequent run, which is the loop this spec exists to end.
+stamp_news() { grep -v '^synced=' "$1" 2>/dev/null; }
+
+if [ -f "$STAMP" ] && [ "$(stamp_news "$STAMP_NEW")" = "$(stamp_news "$STAMP")" ]; then
+  # Nothing to say. Leave the stamp exactly as found — an untouched file is a clean tree, and a
+  # clean tree needs no commit and no cleanup. A missing stamp is news by construction, which is
+  # what the -f test buys: the first sync into a project always writes.
+  rm -f "$STAMP_NEW"
+else
+  mv -f "$STAMP_NEW" "$STAMP" 2>/dev/null || cp "$STAMP_NEW" "$STAMP"
+  rm -f "$STAMP_NEW"
+  STAMP_REWRITTEN=1
+fi
 
 # Merge in whatever the pre-re-exec pass wrote, de-duplicated, so both the
 # commit and the summary cover the entire sync and not just the second pass.
@@ -1384,7 +1436,16 @@ stage_all() {
 # ---------------------------------------------------------------- commit/push
 COMMIT_NOTE="not committed"
 SYNC_COMMIT=""; SYNC_PUSHED=no
-if [ "$DO_COMMIT" -eq 1 ] && [ $((N_WROTE + N_ADDED)) -gt 0 ]; then
+# Spec 007ax. The stamp is the second way this sync has something of its own to commit, and it used
+# to be the missing one. `$STAMP_REWRITTEN` is 1 only when the stamp gained news (see the stamp
+# block above), so a `--force` run that changed nothing still falls through here exactly as before.
+#
+# Nothing INSIDE this block needed changing to accept the new case, which is the sign the case was
+# always meant to be here: stage_all already passes "$STAMP_REL" to `git add` unconditionally,
+# recount_staged already excludes the stamp from N_UPD/N_NEW, and the `(stamp advance)` arm below
+# already tests `git diff --cached` for the stamp before committing. That arm has produced three
+# commits in this project's history and was simply unreachable for a run that wrote no file.
+if [ "$DO_COMMIT" -eq 1 ] && { [ $((N_WROTE + N_ADDED)) -gt 0 ] || [ "$STAMP_REWRITTEN" -eq 1 ]; }; then
   if [ -d "$PROJECT_ROOT/.git/rebase-merge" ] || [ -d "$PROJECT_ROOT/.git/rebase-apply" ] \
      || [ -f "$PROJECT_ROOT/.git/MERGE_HEAD" ] || [ -f "$PROJECT_ROOT/.git/CHERRY_PICK_HEAD" ]; then
     # Spec 007av. Assigned AFTER the staging it describes, not before: "files staged for you" was
