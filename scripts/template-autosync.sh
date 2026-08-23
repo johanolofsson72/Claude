@@ -500,7 +500,25 @@ fi
 # file that diverged is overwritten by copy_file and would hash equal to the manifest by the time
 # any report block runs. Rendered much further down, with the others, so nothing that reads this
 # script's output sees the block order change.
-OWED=$(core_divergence)
+#
+# Inherited rather than re-measured after a self-update re-exec, and that is not an optimisation —
+# re-measuring is WRONG there, which the first run of this code proved by accusing the sync of
+# editing itself. Pass 1 writes the new template-autosync.sh and re-execs; the stamp is not
+# rewritten until the very end, so pass 2 opens with the NEW bytes on disk and the OLD hash in
+# the manifest. That is the exact signature of a local edit, and it is the sync's own write.
+#
+# The same reasoning as the line above, one process further out: pass 1's measurement was taken
+# before anything had been written, so pass 1 is the only pass that ever saw the truth. The
+# re-exec is just a copy loop that happened in a previous process, and $WROTE/$ADDED already
+# cross it by the same route.
+#
+# AUTOSYNC_REEXEC is the discriminator, not the emptiness of the carried value — "pass 1 found
+# nothing" and "there was no pass 1" are different states and only one of them may re-measure.
+if [ "${AUTOSYNC_REEXEC:-0}" -eq 1 ]; then
+  OWED="${AUTOSYNC_CARRY_OWED-}"
+else
+  OWED=$(core_divergence)
+fi
 
 # ------------------------------------------------- the intentional-difference record
 # `<project-sha256>  <template-sha256>  <relpath>`, one line per accepted difference.
@@ -1069,7 +1087,13 @@ if [ "${AUTOSYNC_REEXEC:-0}" -eq 0 ]; then
       AUTOSYNC_REEXEC=1
       AUTOSYNC_CARRY_WROTE="$WROTE"
       AUTOSYNC_CARRY_ADDED="$ADDED"
-      export AUTOSYNC_REEXEC AUTOSYNC_CARRY_WROTE AUTOSYNC_CARRY_ADDED
+      # Spec 007az. Carried for the opposite reason to the two above: those would be LOST across
+      # the re-exec, this one would be FABRICATED. Pass 2 cannot re-derive it, because by then
+      # this pass has already written the file the question is about. Newline-separated, unlike
+      # the space-separated lists, because that is what core_divergence emits and report_owed
+      # consumes.
+      AUTOSYNC_CARRY_OWED="$OWED"
+      export AUTOSYNC_REEXEC AUTOSYNC_CARRY_WROTE AUTOSYNC_CARRY_ADDED AUTOSYNC_CARRY_OWED
       rm -f "$NEW_MANIFEST"
       exec bash "$PROJECT_ROOT/scripts/template-autosync.sh" $ORIG_ARGS --force
       ;;
