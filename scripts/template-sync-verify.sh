@@ -104,13 +104,22 @@ NOW=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 if [ "$RC" -eq 0 ]; then
   rm -f "$MARKER"
-  printf '%s verified %s (template %s) — %s\n' "$NOW" "${COMMIT:-unknown}" "${TEMPLATE:-unknown}" "$COMMAND" >> "$HISTORY"
+  # Every outstanding SHA, not just the newest. One run of the suite verifies the tree as it
+  # stands, which is all of them — and a history line naming one of three is the same kind of
+  # partial truth this whole mechanism exists to stop.
+  printf '%s verified %s (template %s) — %s\n' \
+    "$NOW" "${COMMITS:-${COMMIT:-unknown}}" "${TEMPLATE:-unknown}" "$COMMAND" >> "$HISTORY"
   # Bounded: this file answers "when was this branch last checked", which needs the last
   # few entries and never the first ones.
   if [ "$(grep -c . "$HISTORY" 2>/dev/null)" -gt "$HISTORY_LINES" ]; then
     tail -n "$HISTORY_LINES" "$HISTORY" > "$HISTORY.tmp" 2>/dev/null && mv -f "$HISTORY.tmp" "$HISTORY"
   fi
-  printf '\nverified %s — the obligation is discharged.\n' "${COMMIT:-unknown}"
+  N_DISCHARGED=$(printf '%s\n' $COMMITS | grep -c .)
+  if [ "${N_DISCHARGED:-1}" -gt 1 ]; then
+    printf '\nverified %s — %s outstanding sync commits discharged.\n' "$COMMITS" "$N_DISCHARGED"
+  else
+    printf '\nverified %s — the obligation is discharged.\n' "${COMMIT:-unknown}"
+  fi
   rm -f "$LOG"
   exit 0
 fi
