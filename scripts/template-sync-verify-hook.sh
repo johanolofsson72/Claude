@@ -82,10 +82,12 @@ COMMAND=""
 DECL="$PROJECT_ROOT/.claude/.template-sync-verify"
 [ -r "$DECL" ] && COMMAND=$(grep -v '^[[:space:]]*#' "$DECL" 2>/dev/null | grep -v '^[[:space:]]*$' | head -1)
 
+# The word "unverified" is in both arms on purpose: it is what the sync's own [verify] block
+# says, what the marker is named after, and what someone greps a transcript for later.
 if [ "$N" -eq 1 ]; then
-  HEAD_LINE="A template sync committed to this branch and nothing has checked the project since."
+  HEAD_LINE="1 template-sync commit on this branch is unverified — nothing has checked this project since."
 else
-  HEAD_LINE="$N template syncs have committed to this branch and nothing has checked the project since."
+  HEAD_LINE="$N template-sync commits on this branch are unverified — nothing has checked this project since."
 fi
 
 BODY="$HEAD_LINE

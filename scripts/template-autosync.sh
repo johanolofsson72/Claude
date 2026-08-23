@@ -1273,7 +1273,10 @@ if [ -n "$SYNC_COMMIT" ]; then
     printf 'synced=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     printf 'pushed=%s\n' "$SYNC_PUSHED"
     printf 'result=pending\n'
-    git -C "$PROJECT_ROOT" diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null | sed 's/^/file /'
+    # --root, because a project's FIRST sync commit can be the repository's root commit and
+    # diff-tree says nothing at all about one without it. Silently empty, which would have
+    # shipped a reminder that names no files on exactly the run that seeds a project.
+    git -C "$PROJECT_ROOT" diff-tree --no-commit-id --name-only -r --root HEAD 2>/dev/null | sed 's/^/file /'
   } > "$VERIFY_MARKER.tmp" 2>/dev/null \
     && mv -f "$VERIFY_MARKER.tmp" "$VERIFY_MARKER" 2>/dev/null \
     || rm -f "$VERIFY_MARKER.tmp" 2>/dev/null   # an unwritable .git/ is not worth a word: the
