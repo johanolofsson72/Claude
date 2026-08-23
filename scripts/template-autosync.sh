@@ -1246,6 +1246,18 @@ tell "[synced] $SUMMARY"
 # In .git/ rather than under .claude/, because .gitignore is not in the synced set: a
 # .claude/ marker would be ignored in the one project whose ignore file was edited and
 # untracked forever in the other thirty-odd.
+# A stamp advance is not a rewrite. When the template SHA moves over bytes the project
+# already had, the commit carries `.claude/.template-sync` and nothing else — there is no
+# code to verify, and an obligation raised over one is exactly the line readers learn to
+# skip. Asked of git rather than of $WROTE and $ADDED, for spec 007an's reason: those are
+# the sync's record of its own activity, not of what the repository recorded.
+VERIFY_CARRIED=""
+if [ -n "$SYNC_COMMIT" ]; then
+  VERIFY_CARRIED=$(git -C "$PROJECT_ROOT" diff-tree --no-commit-id --name-only -r --root HEAD 2>/dev/null \
+    | grep -v -x -F "$STAMP_REL")
+  [ -n "$VERIFY_CARRIED" ] || SYNC_COMMIT=""
+fi
+
 if [ -n "$SYNC_COMMIT" ]; then
   VERIFY_MARKER="$PROJECT_ROOT/.git/template-sync-unverified"
 
@@ -1273,10 +1285,12 @@ if [ -n "$SYNC_COMMIT" ]; then
     printf 'synced=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     printf 'pushed=%s\n' "$SYNC_PUSHED"
     printf 'result=pending\n'
-    # --root, because a project's FIRST sync commit can be the repository's root commit and
-    # diff-tree says nothing at all about one without it. Silently empty, which would have
-    # shipped a reminder that names no files on exactly the run that seeds a project.
-    git -C "$PROJECT_ROOT" diff-tree --no-commit-id --name-only -r --root HEAD 2>/dev/null | sed 's/^/file /'
+    # --root (in VERIFY_CARRIED above), because a project's FIRST sync commit can be the
+    # repository's root commit and diff-tree says nothing at all about one without it —
+    # silently, on exactly the run that seeds a project and where knowing what arrived
+    # matters most. The stamp is filtered out there too: it is in every sync commit and
+    # tells a reader nothing.
+    printf '%s\n' "$VERIFY_CARRIED" | sed 's/^/file /'
   } > "$VERIFY_MARKER.tmp" 2>/dev/null \
     && mv -f "$VERIFY_MARKER.tmp" "$VERIFY_MARKER" 2>/dev/null \
     || rm -f "$VERIFY_MARKER.tmp" 2>/dev/null   # an unwritable .git/ is not worth a word: the
