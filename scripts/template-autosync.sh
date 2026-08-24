@@ -404,6 +404,12 @@ if ! resolve_local_template; then
 fi
 
 STAMP="$PROJECT_ROOT/.claude/.template-sync"
+# Spec 007bf hoisted this from below the copy loop, where it sat next to the block that first
+# needed it. The stranded-writes detector runs at the `[ok] already at template` early exit, which
+# is ~1000 lines above that, and this is a constant with no reader in between — so the hoist
+# carries no behaviour and the alternative (a second spelling of the same literal) is how the two
+# copies of a path drift apart.
+STAMP_REL=".claude/.template-sync"
 # Spec 007ax. Declared here rather than beside the stamp write, because `set -u` is on and the
 # commit gate reads it on every path — including the ones that return before the stamp is composed.
 STAMP_REWRITTEN=0
@@ -530,11 +536,132 @@ report_owed() {
   tell "       survive. Land it in the template, push, then sync."
 }
 
+# ------------------------------------------- stranded writes (spec 007bf)
+# Four arms of this script write to the working tree and do not commit: --no-commit,
+# --ignore-in-progress during a rebase/merge/cherry-pick, 007av's fatal staging class (a held
+# index.lock, an unmatched pathspec), and a commit that fails outright. The first two are the
+# developer's choice; the second two are nobody's.
+#
+# On every one of them the stamp is still rewritten with the new template SHA — and the early exit
+# at the top of this script reads the stamp. So the run that strands the files is the last run that
+# ever looks at them: from then on every session start prints `[ok] already at template` and
+# nothing else, forever (research.md M1, M2b, M3, M8).
+#
+# The worst instance is the CREATED file. A CORE rule the project did not have yet is written
+# untracked — `??` in git status, invisible to `git diff`, absent from every clone — and CORE rules
+# are the files that make this project's pipeline blocking. The sync creates one, files the receipt
+# saying the project is current, and leaves it where a clone will not find it.
+#
+# Two fixes were measured and rejected before this one:
+#
+#   Hold the stamp back until the commit succeeds.  WORSE (M7). The next sync re-enters the copy
+#   loop, finds the bytes already correct, writes nothing, records nothing — and commits the STAMP
+#   ALONE under `0 updated, 0 added (stamp advance)`, asserting the project is at template X while
+#   the files that would make that true sit uncommitted beside it. It adds a commit and fixes
+#   nothing.
+#
+#   Have a later sync re-write and commit them.  Structurally impossible from the copy loop (M1b:
+#   the bytes are already correct, so --force writes nothing either), and committing paths this
+#   process did not write is 007av's defect, 007bb's and 007bd's at once.
+#
+# So: report, do not act. The family's posture, and the only one with a measurement behind it.
+#
+# Emits "<kind>\t<path>" per line, untracked before modified, each sorted — untracked is the larger
+# problem and a fixed order is what the tests assert on. Empty output is the healthy answer and the
+# common one: measured across all 42 stamped projects on the author's machine, zero manifest paths
+# are dirty (M5). That is the property that lets this block be trusted rather than skipped, and it
+# is the same bar 007az set for [owed] and 007au failed at 33% precision.
+stranded_writes() {
+  # Every guard fails SILENT. This runs unattended at every session start, its contract is that a
+  # template problem never stops a session starting, and a detector that cannot answer must not
+  # guess. A project with no commits in particular cannot strand anything against a HEAD it has
+  # not got — that is not a finding, it is a project on its first day.
+  [ -n "$PROJECT_ROOT" ] && [ -f "$STAMP" ] || return 0
+  git -C "$PROJECT_ROOT" rev-parse --verify -q HEAD >/dev/null 2>&1 || return 0
+
+  # The manifest's path column, plus the stamp itself. The stamp has no manifest line of its own —
+  # it is the file the manifest lives in — and it belongs here because 007ax established that a
+  # stamp left dirty is the same event as the files it claims to have shipped.
+  _paths=$(awk '!/^#/ && NF == 2 { print $2 }' "$STAMP" 2>/dev/null)
+  [ -n "$_paths" ] || return 0
+  _paths="$_paths
+$STAMP_REL"
+
+  # Two processes, not one per path. ~172 paths on this project and this is on the session-start
+  # path of 42 of them; a subprocess per file is the 1.5-second tax that gets a feature deleted
+  # rather than fixed (the same reasoning sha_many already records).
+  #
+  # `git diff HEAD` covers staged AND unstaged in one answer, which is both cheaper and more
+  # correct than asking twice: an index entry is not a commit, so a staged-but-uncommitted write is
+  # every bit as stranded as an unstaged one.
+  #
+  # $_paths is word-split into a pathspec deliberately, exactly like stage_all's `git add` and
+  # 007bb's $COMMIT_PATHS, and safe on the same guarantee — every path this sync writes is a
+  # template path with no spaces in it.
+  _mod=$(git -C "$PROJECT_ROOT" diff --name-only HEAD -- $_paths 2>/dev/null)
+  # --exclude-standard is load-bearing, not tidiness. `git add` refuses an ignored path silently
+  # (007an measured it, 007aq is the __pycache__ case), so an ignored write was never going to be
+  # committed by anyone — naming it would be this block reporting a file the project deliberately
+  # excludes, which is precisely the false line that teaches readers to skip the block.
+  _unt=$(git -C "$PROJECT_ROOT" ls-files --others --exclude-standard -- $_paths 2>/dev/null)
+
+  # Per-path work happens ONLY for what those two returned, which on a healthy project is nothing.
+  _keep() {
+    _p="$1"
+    [ -f "$PROJECT_ROOT/$_p" ] || return 1     # a deleted manifest path is report_orphans' business
+    [ "$_p" = "$STAMP_REL" ] && return 0      # no manifest line of its own; see above
+    # Clause 4, and the whole difference between "the sync reports its own unfinished work" and
+    # "the sync has opinions about the developer's tree": keep the path only if its bytes on disk
+    # are the bytes the manifest says this sync wrote. A developer who edited a template file
+    # afterwards has moved it off that hash, and the sync then says nothing — the dirt is theirs,
+    # and copy_file already has a name for it (`skip (locally edited)`).
+    _mh=$(manifest_hash "$_p")
+    [ -n "$_mh" ] && [ "$_mh" = "$(sha_of "$PROJECT_ROOT/$_p")" ]
+  }
+
+  { printf '%s\n' "$_unt" | grep -v '^$' | sort | while IFS= read -r _p; do
+      _keep "$_p" && printf 'untracked\t%s\n' "$_p"
+    done
+    printf '%s\n' "$_mod" | grep -v '^$' | sort | while IFS= read -r _p; do
+      _keep "$_p" && printf 'modified\t%s\n' "$_p"
+    done
+  }
+  # Explicit, because the healthy path ends on a `grep` that found nothing and would otherwise
+  # hand back 1. Nothing reads this status today; a function whose success code says "there is
+  # nothing wrong here" is a trap for whoever adds `set -e` or an `&&` to a call site.
+  return 0
+}
+
+# Silent on empty input, for the reason report_owed is: this text is forwarded verbatim into every
+# session start of every project, and a block that fires with nothing to report is what trains a
+# reader to skip the place the next real finding will appear.
+#
+# `tell`, not `say`, so --quiet does not swallow it. 007be measured what that costs: a block
+# printed with `say` reaches a session start as complete silence.
+#
+# It names paths and one command. Not "you are about to lose work" — nothing here knows that, and
+# report_owed's own true positive was a case where nothing was lost. Not "commit them now" either:
+# the state that stranded these may still be live, and telling a developer mid-rebase to commit is
+# the advice 007bd removed from this script in the form of an actual `git add`.
+report_stranded() {
+  [ -n "$1" ] || return 0
+  tell "[stranded] file(s) this sync wrote that the repository does not hold:"
+  printf '%s\n' "$1" | while IFS="$(printf '\t')" read -r _k _p; do
+    [ -n "$_p" ] && tell "$(printf '             %-10s %s' "$_k" "$_p")"
+  done
+  tell "           The stamp already names this template, so no later sync writes them again or"
+  tell "           mentions them. \`git add -- <path>\` when your tree is in a state to take them."
+}
+
 STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | head -1)
 if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
   say "[ok] already at template $TEMPLATE_SHA"
   # Rendered here rather than collected for later, because on this path there is no later.
   report_owed "$(core_divergence)"
+  # Spec 007bf. THE call site. This line is the entire output of a stranded project — the stamp
+  # names the new template, so every run lands here and says `[ok]` over files the repository has
+  # never seen. After [owed] because [owed] asks for a decision and this asks for a command.
+  report_stranded "$(stranded_writes)"
   exit 0
 fi
 
@@ -1163,6 +1290,15 @@ if [ "$MODE_CHECK" -eq 1 ]; then
     # Claiming the project is behind is what 007w measured backwards.
     for x in $SKIPPED;     do say "  SKIP   $x (differs from the template — merge it with /project-update, or record it with --accept-local)"; done
   fi
+  # Spec 007bf. --check and --dry-run are the modes a developer runs BEFORE anything happens, and
+  # they are the ones that must not be missing a warning that is free here. Sibling row 007bg is
+  # open because [owed] is built and rendered at two sites out of four and neither is this one;
+  # this block ships with its check-mode rendering rather than needing a spec to add it later.
+  #
+  # 007be's deferral routes through this same block (it sets MODE_CHECK/MODE_DRYRUN and falls in
+  # here), so a sync deferred mid-rebase in an already-stranded project reports both — which is the
+  # right pair of sentences for that developer to read together.
+  report_stranded "$(stranded_writes)"
   exit 0
 fi
 
@@ -1596,7 +1732,7 @@ N_SKIP=$(echo "$REPORTED" | tr ' ' '\n' | grep -c .)
 # committed 1 of 14 written files, and the write count is the only number that would
 # have shown it. A headline that only counted the commit would have called that run
 # a healthy one-file sync.
-STAMP_REL=".claude/.template-sync"
+# ($STAMP_REL was declared beside $STAMP — spec 007bf needed it ~1000 lines earlier.)
 
 # Everything the sync believes it wrote, de-duplicated.
 WRITTEN_ALL=$(printf '%s %s' "$WROTE" "$ADDED" | tr ' ' '\n' | grep -v '^$' | sort -u)
@@ -2431,4 +2567,11 @@ if [ "$N_SKIP" -gt 0 ]; then
   for x in $LOCAL_MOVED; do tell "         $x — the local copy changed since it was accepted as intentional"; done
   for x in $TMPL_MOVED;  do tell "         $x — the template changed under an accepted local difference"; done
 fi
+
+# Spec 007bf. Last, and after the commit block, which is what makes it a self-check rather than
+# another opinion: on a healthy sync the files were just committed, so the detector re-reads HEAD,
+# finds nothing, and this is silent by construction. When it is NOT silent here, the run that
+# stranded the files is the run that says so — instead of the developer learning it never, or once,
+# from 007av's [stage] block scrolling past in a session they were not reading.
+report_stranded "$(stranded_writes)"
 exit 0
