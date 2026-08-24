@@ -505,7 +505,28 @@ core_divergence() {
   # no divergence to speak of. That is FR-003 satisfied by construction rather than by a branch
   # that could be got wrong. The converse, a CORE file present with no manifest line, is absent
   # from $_want for the same structural reason: no evidence, no claim.
-  _have=$(printf '%s\n' "$_want" | awk '{ print $2 }' | sha_many)
+  #
+  # Spec 007bg. The `cd` is the whole of that spec's first half and it is not defensive tidiness.
+  # The manifest's path column is PROJECT-RELATIVE, and sha_many execs sha256sum/shasum on those
+  # paths — so without this, the hashes come from whatever directory the caller happened to be
+  # standing in. Nothing else in this script sets the process cwd; the five `cd "$PROJECT_ROOT"`
+  # sites are all subshells around python helpers and none outlives its own `)`.
+  #
+  # It survived unnoticed because the one caller anybody exercises — the SessionStart hook — runs
+  # with cwd already at the project root, so the function is correct on the only path it is ever
+  # watched on. Measured (007bg research.md M1): from an unrelated directory sha_many hashes
+  # nothing and the join yields no lines; from ANOTHER SYNCED PROJECT it hashes that project's CORE
+  # files, which sit at the template's bytes and therefore match — so the sync reports "no
+  # divergence" about a repository it never looked at, with total confidence. That second shape is
+  # not exotic: every project in this fleet holds these same files at these same bytes.
+  #
+  # A subshell around the hashing step alone, rather than absolutising the paths, because the
+  # OUTPUT has to stay project-relative — report_owed prints it, the manifest is keyed on it, and a
+  # developer pastes it into `git show`. sha_many echoes back the relative paths it was given, so
+  # anchoring the cwd changes the answer without changing the vocabulary, and nothing needs
+  # stripping back off. One subshell for the whole stream, not one per path: sha_many is a single
+  # xargs over all 58 CORE paths and that is the entire reason it exists.
+  _have=$(cd "$PROJECT_ROOT" && printf '%s\n' "$_want" | awk '{ print $2 }' | sha_many)
 
   # Both streams are `<sha>  <path>`, so they concatenate around a sentinel instead of needing a
   # process substitution. The script is bash and could use one; nothing else in it does.
@@ -1290,10 +1311,28 @@ if [ "$MODE_CHECK" -eq 1 ]; then
     # Claiming the project is behind is what 007w measured backwards.
     for x in $SKIPPED;     do say "  SKIP   $x (differs from the template — merge it with /project-update, or record it with --accept-local)"; done
   fi
+  # Spec 007bg. THE call site this spec exists for. One call, three exits: --check, --dry-run, and
+  # 007be's deferral all route through this block. With the two that already existed (the `[ok]`
+  # early exit and the end of a full sync) that is three call sites covering all five exits.
+  #
+  # Before this, [owed] fired on exactly one of the four exits that run BEFORE the copy loop, and on
+  # the one exit where it can no longer be acted on — a correlation that was exact and inverted
+  # (research.md M6). --dry-run was the worst of them: it NAMED the doomed files, under the verb
+  # `update`, indistinguishable from the 138 files a routine sync legitimately brings up to date, in
+  # a list capped at 20 lines — so the two that mattered could sit inside the elision.
+  #
+  # Free, in the literal sense: $OWED was measured ~550 lines above, before the copy loops, on every
+  # run that is not the early exit — including this one, which reached that line and then discarded
+  # the value.
+  #
+  # Above report_stranded, matching the early exit's order rather than disagreeing with it: [owed]
+  # asks for a decision, [stranded] asks for a command. Below the [deferred] block, because the
+  # stake only reads once you know a future sync is coming — and on that path the pairing is the
+  # point, since [deferred] says "the next session start syncs them for real" and this says which
+  # files that sentence is about.
+  report_owed "$OWED"
   # Spec 007bf. --check and --dry-run are the modes a developer runs BEFORE anything happens, and
-  # they are the ones that must not be missing a warning that is free here. Sibling row 007bg is
-  # open because [owed] is built and rendered at two sites out of four and neither is this one;
-  # this block ships with its check-mode rendering rather than needing a spec to add it later.
+  # they are the ones that must not be missing a warning that is free here.
   #
   # 007be's deferral routes through this same block (it sets MODE_CHECK/MODE_DRYRUN and falls in
   # here), so a sync deferred mid-rebase in an already-stranded project reports both — which is the
