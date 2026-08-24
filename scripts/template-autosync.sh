@@ -62,6 +62,11 @@
 #     --dry-run       same as --check but also prints the file list it would write
 #     --force         sync even when the template SHA matches the stamp
 #     --no-commit     write files but leave them unstaged
+#     --ignore-in-progress
+#                     sync even while a rebase, merge or cherry-pick is in
+#                     progress. Without it such a run DEFERS: it writes nothing
+#                     at all — no file, no manifest, no stamp — says so, and
+#                     leaves the work for the next session start (spec 007be).
 #     --quiet         only print the one-line summary
 #     --accept-local  record <path> as an intentional local difference and exit.
 #                     Writes nothing else: no sync, no commit, no push. Refuses a
@@ -86,6 +91,11 @@ TEMPLATE_TARBALL="https://codeload.github.com/johanolofsson72/Claude/tar.gz/refs
 
 MODE_CHECK=0; MODE_DRYRUN=0; FORCE=0; DO_COMMIT=1; QUIET=0; MODE_ACCEPT=0; ACCEPT_PATHS=""
 MODE_IS_CORE=0; IS_CORE_PATH=""
+# Spec 007be. IGNORE_IN_PROGRESS is the escape hatch out of the deferral gate below; DEFERRED is
+# what the gate sets and the report block reads. Both are declared here rather than beside the gate
+# because `set -u` is on and the report block runs on --check and --dry-run too, which never reach
+# the gate at all.
+IGNORE_IN_PROGRESS=0; DEFERRED=0; IN_PROGRESS_OP=""
 ORIG_ARGS="$*"   # kept for the self-update re-exec below (flags contain no spaces)
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -93,6 +103,7 @@ while [ $# -gt 0 ]; do
     --dry-run)   MODE_CHECK=1; MODE_DRYRUN=1 ;;
     --force)     FORCE=1 ;;
     --no-commit) DO_COMMIT=0 ;;
+    --ignore-in-progress) IGNORE_IN_PROGRESS=1 ;;
     --quiet)     QUIET=1 ;;
     --accept-local)
       MODE_ACCEPT=1
@@ -224,6 +235,38 @@ case "$ORIGIN" in
   *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*)
     say "[skip] this IS the template repo"; exit 0 ;;
 esac
+
+# ------------------------------------------------- is git mid-operation? (spec 007be)
+# One answer, two callers: the deferral gate below the --accept-local block, and 007bd's
+# commit arm ~1500 lines down, which is now reachable only under --ignore-in-progress. Both
+# used to be — and the second one was — a hand-written four-marker `if`; spec 007ay is this
+# project's record of what an idiom copied to N sites costs, and N=2 is where that starts.
+#
+# $IN_PROGRESS_OP carries the operation's NAME, not just a boolean, because the deferral block
+# says which one is in progress. 007bd's `[mid-rebase]` block keeps its generic wording — it is
+# not this spec's block to reword — but telling a developer mid-cherry-pick that "a rebase/merge"
+# is in progress is mildly false, and the variable is free.
+#
+# rebase-merge and rebase-apply are both "rebase": they are the interactive and the am-based
+# backend for the same operation, and the difference is git's business rather than the reader's.
+#
+# The markers are paths under .git/, inherited from 007bd. The project-root walk above requires
+# `-d "$DIR/.git"`, so a linked worktree (whose .git is a FILE) never becomes $PROJECT_ROOT and
+# the question never arises. If that walk ever learns about worktrees, this is the one place that
+# has to learn with it.
+operation_in_progress() {
+  if [ -d "$PROJECT_ROOT/.git/rebase-merge" ] || [ -d "$PROJECT_ROOT/.git/rebase-apply" ]; then
+    IN_PROGRESS_OP="rebase"
+  elif [ -f "$PROJECT_ROOT/.git/MERGE_HEAD" ]; then
+    IN_PROGRESS_OP="merge"
+  elif [ -f "$PROJECT_ROOT/.git/CHERRY_PICK_HEAD" ]; then
+    IN_PROGRESS_OP="cherry-pick"
+  else
+    IN_PROGRESS_OP=""
+    return 1
+  fi
+  return 0
+}
 
 # ------------------------------------------------------------- template source
 # Preference: explicit env var → local clone → GitHub tarball (David's path).
@@ -654,6 +697,45 @@ if [ "$MODE_ACCEPT" -eq 1 ]; then
   exit 0
 fi
 
+# --------------------------------------- defer while git is mid-operation (spec 007be)
+# 007bd stopped this sync STAGING into a half-finished rebase. It still wrote, and the write is
+# the half nothing ever argued for — 007bd's own test says so: "Withholding the write would be a
+# different spec." This is that spec.
+#
+# Two measurements decided it. First, the run that makes those writes is the LAST run that ever
+# looks at them (research.md M1): it writes the stamp too, the stamp already names the new
+# template SHA, so the next session start short-circuits at "already at template X" and exits
+# above the copy loop. The rules stay untracked indefinitely. The stamp is a receipt for work the
+# sync declined to finish.
+#
+# Second, the obvious alternative — write to disk, skip the manifest and the stamp — is WORSE than
+# today (M3). The next run finds the files identical to the template, takes the copy loop's
+# CUR_HASH = SRC_HASH early return (which records no $WROTE entry), and therefore stages and
+# commits ONLY the stamp: `0 updated, 0 added (stamp advance)` beside two uncommitted files the
+# same sync put there, with the manifest now recording their hashes so no future run touches them
+# either. 007bb and 007ax's defect rebuilt from parts.
+#
+# So the exit goes BEFORE the copy loop, and it is not a fifth early-exit path. MODE_CHECK is
+# already threaded through every subsystem this has to turn off, because --check and --dry-run
+# needed exactly that: the copy loop's two `[ "$MODE_CHECK" -eq 1 ] ||` guards suppress every
+# atomic_copy, the check block does `rm -f "$NEW_MANIFEST"`, and its `exit 0` sits above the
+# self-update, the hook re-wiring, the outputStyle seed, the extension policy, the stack marker,
+# the stamp, stage_all and the commit. A second way to say "write nothing" would be a second
+# thing to keep in step with the first.
+#
+# `[ "$MODE_CHECK" -eq 0 ]` is not redundant. A developer who typed --check or --dry-run asked for
+# a report; nothing was withheld from them, and a [deferred] block on that run would be reporting
+# a decision the gate did not make.
+#
+# Placed after the --accept-local block on purpose: recording an intentional difference writes one
+# uncommitted record file and is a deliberate act the developer just typed, not a sync arriving
+# unasked from a hook. --is-core exits even higher.
+if [ "$IGNORE_IN_PROGRESS" -eq 0 ] && [ "$MODE_CHECK" -eq 0 ] && operation_in_progress; then
+  DEFERRED=1
+  MODE_CHECK=1
+  MODE_DRYRUN=1
+fi
+
 WROTE=""; SKIPPED=""; ADDED=""; ADOPTED=""
 
 # ---------------------------------------------------- recording what this sync wrote
@@ -1024,6 +1106,31 @@ REPORTED="$SKIPPED$LOCAL_MOVED$TMPL_MOVED"
 
 if [ "$MODE_CHECK" -eq 1 ]; then
   rm -f "$NEW_MANIFEST"
+
+  # -------------------------------------------------- the deferral, said out loud (spec 007be)
+  # First, above the [check] lines, because on a deferred run the deferral IS the headline and
+  # the counts are its detail.
+  #
+  # `tell`, not `say`, and that is load-bearing rather than stylistic: the SessionStart hook always
+  # passes --quiet, which is exactly what `say` suppresses. Measured with the unchanged hook
+  # (research.md M4), a deferral printed with `say` reaches the developer as complete silence —
+  # the same silence as before, one layer further away. The [check] lines below keep `say`,
+  # correctly: a developer who typed --check is not being interrupted.
+  #
+  # Silent when nothing was withheld (FR-007be-07). Mid-operation against an up-to-date template
+  # the run is a no-op either way, and this text is forwarded verbatim into every session start.
+  #
+  # No file list of its own. --dry-run's list renders directly underneath on a manual run and is
+  # suppressed by --quiet from the hook, which is the right split — a first sync into a project
+  # would otherwise name 140 files into a session start.
+  if [ "$DEFERRED" -eq 1 ]; then
+    N_WAITING=$(( $(echo "$WROTE" | tr ' ' '\n' | grep -c .) + $(echo "$ADDED" | tr ' ' '\n' | grep -c .) ))
+    [ "$N_WAITING" -gt 0 ] || exit 0
+    tell "[deferred] a $IN_PROGRESS_OP is in progress, so this sync wrote NOTHING — not the files,"
+    tell "           not the manifest, not the stamp. $N_WAITING file(s) are waiting."
+    tell "           The stamp is unchanged, so the next session start syncs them for real."
+    tell "           \`scripts/template-autosync.sh --ignore-in-progress\` to sync anyway."
+  fi
   N_INTENTIONAL=$(echo "$INTENTIONAL" | tr ' ' '\n' | grep -c .)
   N_STALE=$(echo "$STALE" | tr ' ' '\n' | grep -c .)
   say "[check] template $TEMPLATE_SHA vs project $([ -n "$STAMP_SHA" ] && echo "$STAMP_SHA" || echo "never synced")"
@@ -1721,8 +1828,10 @@ IN_PROGRESS_ARM=0
 # already tests `git diff --cached` for the stamp before committing. That arm has produced three
 # commits in this project's history and was simply unreachable for a run that wrote no file.
 if [ "$DO_COMMIT" -eq 1 ] && { [ $((N_WROTE + N_ADDED)) -gt 0 ] || [ "$STAMP_REWRITTEN" -eq 1 ]; }; then
-  if [ -d "$PROJECT_ROOT/.git/rebase-merge" ] || [ -d "$PROJECT_ROOT/.git/rebase-apply" ] \
-     || [ -f "$PROJECT_ROOT/.git/MERGE_HEAD" ] || [ -f "$PROJECT_ROOT/.git/CHERRY_PICK_HEAD" ]; then
+  # Spec 007be. Reached only under --ignore-in-progress now: without it the gate above the copy
+  # loop turned this run into a report and exited long before here. The arm and everything 007bd
+  # built on it are unchanged — the flag is what reaches them.
+  if operation_in_progress; then
     # Spec 007bd. This arm no longer stages, and that reverses spec 007ax's FR-007ax-08, which
     # staged deliberately so that "the developer finishes the rebase and finds the stamp already in
     # the index". Measured (007bd research.md M1), they do not. What they find depends on which kind
