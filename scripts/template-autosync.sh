@@ -1705,6 +1705,12 @@ stage_all() {
 # ---------------------------------------------------------------- commit/push
 COMMIT_NOTE="not committed"
 SYNC_COMMIT=""; SYNC_PUSHED=no
+# Spec 007bd. Read by the [held] gate and the [mid-rebase] block ~180 lines below, both of which run
+# on every path including the ones that never reach the commit block at all (--dry-run, --no-commit,
+# a run with nothing to do). Initialised here for the reason STAGED_DEL is: under `set -u` an unset
+# read down there is not an empty string, it is a fatal error in the reporting tail of a sync that
+# has already written every file it was asked to.
+IN_PROGRESS_ARM=0
 # Spec 007ax. The stamp is the second way this sync has something of its own to commit, and it used
 # to be the missing one. `$STAMP_REWRITTEN` is 1 only when the stamp gained news (see the stamp
 # block above), so a `--force` run that changed nothing still falls through here exactly as before.
@@ -1717,16 +1723,35 @@ SYNC_COMMIT=""; SYNC_PUSHED=no
 if [ "$DO_COMMIT" -eq 1 ] && { [ $((N_WROTE + N_ADDED)) -gt 0 ] || [ "$STAMP_REWRITTEN" -eq 1 ]; }; then
   if [ -d "$PROJECT_ROOT/.git/rebase-merge" ] || [ -d "$PROJECT_ROOT/.git/rebase-apply" ] \
      || [ -f "$PROJECT_ROOT/.git/MERGE_HEAD" ] || [ -f "$PROJECT_ROOT/.git/CHERRY_PICK_HEAD" ]; then
-    # Spec 007av. Assigned AFTER the staging it describes, not before: "files staged for you" was
-    # written one line above the `git add` that was supposed to do the staging, so on the fatal
-    # class it promised a developer something that had not happened — and it is the only thing
-    # they are told on this arm.
-    stage_all
-    if [ "$STAGE_RC" -ge 2 ]; then
-      COMMIT_NOTE="commit skipped (rebase/merge in progress) — and git staged nothing"
-    else
-      COMMIT_NOTE="commit skipped (rebase/merge in progress) — files staged for you"
-    fi
+    # Spec 007bd. This arm no longer stages, and that reverses spec 007ax's FR-007ax-08, which
+    # staged deliberately so that "the developer finishes the rebase and finds the stamp already in
+    # the index". Measured (007bd research.md M1), they do not. What they find depends on which kind
+    # of stop they are in, and the two answers are opposites:
+    #
+    #   conflict stop, resolved   `git rebase --continue` exits 0 and COMMITS the sync's staged
+    #   (the common one)          files into the DEVELOPER's commit, under the DEVELOPER's message
+    #                             — pushed under their name where there is an upstream. Measured on
+    #                             rebase, on `merge --continue`, and on `cherry-pick --continue`,
+    #                             which put a template file straight onto main.
+    #
+    #   --exec / edit / break     exits 1, "you have staged changes in your working tree", and the
+    #                             rebase does not advance. git's own advice then points at
+    #                             `git commit --amend` — i.e. at the case above.
+    #
+    # So staging here was never the favour it reads as. It is spec 007bb's defect mirrored: there
+    # the sync's commit carried the developer's work, here the developer's commit carries the sync's.
+    #
+    # And not staging costs nothing new (M2/M3). A tracked file this sync rewrites blocks
+    # `--continue` whether or not it is staged, because the WRITE blocks it and the write happens on
+    # this arm either way — the control measured that any dirty tracked file does the same with no
+    # sync involved at all. Staging does not remove that block. It removes the visibility of it, by
+    # turning a stopped rebase into a silent absorption in exactly the case where the developer is
+    # least likely to be watching their index.
+    #
+    # One note now, not two, because there is one outcome: the two branches that were here existed
+    # only to report which class `stage_all` had landed in, and nothing is staged to land.
+    IN_PROGRESS_ARM=1
+    COMMIT_NOTE="commit skipped (rebase/merge in progress) — nothing staged, nothing committed"
   else
     stage_all
 
@@ -1865,20 +1890,28 @@ case "$NAME_LIMIT" in ''|*[!0-9]*) NAME_LIMIT=20 ;; esac
 # a sync that quietly loses it, so the paths the commit walked past are named rather than merely
 # not-committed.
 #
-# Only after a commit was actually made. On every other arm — --no-commit, a rebase in progress,
-# 007av's fatal class — nothing was committed, so nothing was "left behind by a commit", and the
-# block would be describing the sync's OWN staged files as strangers. [stage] already owns the
-# fatal arm and says something truer about it.
+# Two arms, and they reach the same sentence from opposite directions. After a commit, every path
+# the sync owned has just left the index, so what remains is the strangers. On spec 007bd's
+# rebase/merge arm the sync staged nothing at all, so what is in the index is the strangers because
+# nothing else was ever put there. Either way the block's claim — already staged, not this sync's,
+# left untouched — is literally true, which is why it needed a wider gate rather than new wording.
 #
-# The index is read AND subtracted from, not merely read. On this arm the commit has already taken
-# every path the sync owned, so what remains is the strangers and the subtraction changes nothing —
-# which is the point: the block is correct because of what it asks, not because of where it sits.
-# A block that is right for the wrong reason stops being right the first time somebody moves it.
+# Not the other two arms, and the reason differs for each. On --no-commit the developer has asked
+# this script to leave git alone, and a block reporting on their index is the script not doing that.
+# On 007av's fatal class [stage] already says "the index was left as found"; a second block would
+# restate it one paragraph later, and this text is forwarded verbatim into every session start.
+#
+# The index is read AND subtracted from, not merely read — and on BOTH arms the subtraction is a
+# no-op, for opposite reasons: after a commit the sync's paths have already left the index, and on
+# the rebase arm they were never put in it. That is the point rather than an argument for dropping
+# it: the block is correct because of what it asks, not because of where it sits, which is what let
+# spec 007bd reuse it by widening one gate. A block that is right for the wrong reason stops being
+# right the first time somebody moves it — and this one has now been moved.
 #
 # The wording is deliberate. NOT "skipped", NOT "ignored" — both read as loss, and nothing was
 # lost: the paths are exactly where the developer put them. And no instruction, because staging
 # something and leaving it there is a thing developers do on purpose.
-if [ -n "$SYNC_COMMIT" ]; then
+if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then
   HELD=$(git -C "$PROJECT_ROOT" diff --cached --name-only 2>/dev/null \
     | grep -v -x -F "$STAMP_REL" | owned_by_sync drop)
   N_HELD=$(printf '%s\n' "$HELD" | grep -c .)
@@ -1893,6 +1926,28 @@ if [ -n "$SYNC_COMMIT" ]; then
       tell "       … and $((N_HELD - NAME_LIMIT)) more, not named — capped at $NAME_LIMIT (TEMPLATE_AUTOSYNC_NAME_LIMIT)"
     fi
   fi
+fi
+
+# ------------------------------------ where this sync's own work went instead (spec 007bd)
+# [held] above says what the sync did not touch. This says where its own writes are, and it exists
+# because the arm's behaviour CHANGED: a developer who knew the old one finds nothing staged and has
+# no way to tell a deliberate decision from a regression. Silence is the wrong answer to a reversal.
+#
+# No count and no file list. [changed] already names every path this sync wrote, and repeating them
+# is the same text twice in a message that goes into every session start — and a stamp-advance run
+# mid-rebase writes no file at all, so a list here would render empty on precisely the arm that most
+# needs the explanation.
+#
+# The instruction is deliberate, and it is the opposite call from [held]'s — which correctly offers
+# none, because those paths are the developer's own deliberate act and need no advice. These are the
+# sync's, and they can block the developer's own `git rebase --continue`. Telling them the one
+# command that clears it (verified mid-rebase and mid-conflict, research.md M4) is this script
+# cleaning up after itself in words, which is the only way it is allowed to clean up here at all.
+if [ "$IN_PROGRESS_ARM" -eq 1 ]; then
+  tell "[mid-rebase] a rebase/merge is in progress, so this sync staged nothing and committed nothing."
+  tell "       Its files are written to the working tree only — \`git status\` shows them."
+  tell "       Staging them would fold them into your next \`git rebase --continue\` commit, which is"
+  tell "       not this script's call to make. \`git stash push -- <path>\` if a dirty tree blocks it."
 fi
 
 # ------------------------------------------ the obligation this sync leaves (spec 007at)
