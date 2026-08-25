@@ -21,7 +21,8 @@
 #
 # Scenario map: SC-1428, SC-1429, SC-1430, SC-1443, SC-1445 (specs/SCENARIOS.md, row H7b).
 #
-# Exit: 0 all expectations met · 1 an expectation failed · 2 the harness itself broke.
+# Exit: 0 all expectations met · 1 an expectation failed · 2 the harness itself broke, OR a precondition
+#       could not be met (no register to narrow the grammar against) — SC-1683.
 
 set -uo pipefail
 
