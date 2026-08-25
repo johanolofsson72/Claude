@@ -20,7 +20,7 @@
 # Exit: 0 all expectations met · 1 an expectation failed · 2 the harness broke.
 # Three states on purpose (spec 007l): "the suite is red" and "the harness fell over" are different facts.
 #
-# Scenario map: SC-1437..SC-1442 (row H7b) and SC-1678..SC-1682 (row H7t) in specs/SCENARIOS.md.
+# Scenario map: SC-1437..SC-1442 (row H7b) and SC-1678..SC-1682, SC-1684 (row H7t) in specs/SCENARIOS.md.
 
 set -u
 
@@ -370,6 +370,31 @@ if want core; then
       *"$NEEDLE"*) bad "the CORE arm leaked the command string into its deny reason" ;;
       *)           ok  "the CORE arm's output holds no part of the command string" ;;
     esac
+  fi
+fi
+
+# --------------------------------------------------------------- OWNED (SC-1684, row H7t)
+#
+# The six files this family is made of were project-local for four days, during which four template syncs
+# reverted the REST of their row and left them standing only because the template did not own them. That
+# is not protection, it is an accident with a shelf life — and the same fact kept them out of every other
+# project. They are CORE upstream now, and this check is what notices if a future sync drops them again:
+# asked of THIS repo's own classifier, so it fails here the moment the list arrives without them.
+if want owned; then
+  echo "FIXTURE owned — the Bash-layer family is CORE, asked of this repo's own classifier"
+  SYNC="$SCRIPT_DIR/template-autosync.sh"
+  if [ ! -f "$SYNC" ]; then
+    echo "  ----  no template-autosync.sh in this repo — nothing owns these files here, so nothing to check"
+  else
+    for f in bash_write_targets.py bash-write-guard-hook.sh bash-write-detect-hook.sh \
+             test-bash-write-guard.sh validate-register-ids.sh test-register-ids.sh \
+             core-machinery-guard-hook.sh; do
+      if bash "$SYNC" --is-core "scripts/$f" >/dev/null 2>&1; then
+        ok "scripts/$f is CORE — the sync carries it"
+      else
+        bad "scripts/$f is NOT CORE: the template does not own it, so hardening it here is already lost"
+      fi
+    done
   fi
 fi
 
