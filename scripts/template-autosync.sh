@@ -168,7 +168,7 @@ test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
 bash_write_targets.py bash-write-guard-hook.sh bash-write-detect-hook.sh test-bash-write-guard.sh
 validate-register-ids.sh test-register-ids.sh
-project-maintenance.sh project-freshness.sh
+project-maintenance.sh project-freshness.sh test-project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
 template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh"
