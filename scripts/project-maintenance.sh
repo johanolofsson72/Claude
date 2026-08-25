@@ -19,6 +19,11 @@
 #   bash scripts/project-maintenance.sh --full     # also run the mutation pass (slow)
 #   bash scripts/project-maintenance.sh --quiet    # findings only, no clean-run line
 #
+# MAINTENANCE_WORKTREE_GRACE_HOURS=N  how long an agent worktree may sit untouched
+#   before it is reported as abandoned (default 24). Agent worktrees are not locked,
+#   so recency of writes is the only signal that one is still in use; the window keeps
+#   a healthy in-progress agent run from producing a finding.
+#
 # Wire it to a recurring run WITHOUT touching CI minutes:
 #   /schedule  — a cloud routine, e.g. weekly Monday 08:00:
 #                "run bash scripts/project-maintenance.sh and report only if it exits non-zero"
@@ -38,7 +43,9 @@ for arg in "$@"; do
   case "$arg" in
     --full)  FULL=1 ;;
     --quiet) QUIET=1 ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    # Print the whole leading comment block, not a hardcoded line range: this header
+    # has grown twice now, and a range silently truncates --help when it does.
+    -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "$0"; exit 0 ;;
     *) echo "unknown flag: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -131,6 +138,112 @@ if [ -d .claude/state/attempts ]; then
   STALE=$(find .claude/state/attempts -type f -mtime +1 2>/dev/null | wc -l | tr -d ' ')
   case "$STALE" in (''|*[!0-9]*) STALE=0 ;; esac
   [ "$STALE" -gt 0 ] && find .claude/state/attempts -type f -mtime +1 -delete 2>/dev/null
+fi
+
+# ------------------------------------------------- 4b. abandoned agent worktrees
+# WHY. scripts/prune-agent-worktrees.sh was written because agent worktrees
+# (.claude/worktrees/agent-*, created by `isolation: worktree`) accumulate disk AND
+# strand agent memory -- a subagent writes to ITS worktree's .claude/agent-memory/ and
+# nothing merges it back. Nothing ever ran it, which is the same defect this whole
+# script exists to end: see the header, "nightly ran never".
+#
+# Measured across ~/repos on 2026-08-26: 7 abandoned worktrees in 4 projects, 733 MB,
+# the oldest 149 days, holding 6 memory files that existed nowhere else -- one of them
+# a security-scanner adversarial review in a checkout twelve days dead.
+#
+# REPORT-ONLY, deliberately. Not one agent worktree in that fleet was locked, so
+# nothing here can tell a live agent from a dead one with certainty, and an unattended
+# job that deletes checkouts on that guess is a bad trade for 733 MB. Section 4 above
+# is not a precedent: an attempt-state file is a byte-sized counter with nothing
+# salvageable inside, and a worktree is the opposite on both counts.
+#
+# The grace window is the honest substitute for a lock. A worktree written to recently
+# is presumed live and stays out of the report entirely, so a healthy agent run in
+# progress never produces a finding -- which is what keeps this section from becoming
+# the noise the header's attention-mode rule warns about.
+if [ -d .claude/worktrees ]; then
+  GRACE_H=${MAINTENANCE_WORKTREE_GRACE_HOURS:-24}
+  case "$GRACE_H" in (''|*[!0-9]*) GRACE_H=24 ;; esac
+
+  WT_N=0; WT_KB=0; WT_OLDEST=0; WT_MEM=0
+  WT_NOW=$(date +%s 2>/dev/null); case "$WT_NOW" in (''|*[!0-9]*) WT_NOW=0 ;; esac
+
+  # Does this host's find understand a RELATIVE -newermt at all? It matters more than it
+  # looks: a find that cannot parse the expression prints to stderr and matches nothing,
+  # which is indistinguishable from "no recent writes" -- so every worktree on the machine
+  # would be declared abandoned at once. That is the noisiest possible failure for a
+  # recurring job, and it would arrive looking like a real finding.
+  #
+  # The control is a hundred-year window, which must match the directory that is certainly
+  # there. Empty means the option did not evaluate, not that the directory is old.
+  if [ -z "$(find .claude/worktrees -maxdepth 0 -newermt "-876000 hours" -print 2>/dev/null)" ]; then
+    add "[SETUP] this host's \`find\` cannot evaluate a relative \`-newermt\`, so a live agent worktree cannot be told from an abandoned one — worktree reporting skipped rather than guessed. Sweep by hand: bash scripts/prune-agent-worktrees.sh --dry-run"
+  else
+
+    for wt in .claude/worktrees/agent-*; do
+      [ -d "$wt" ] || continue
+
+      # Live #1 -- something was written in here inside the window. The heavy directories
+      # are pruned so this stays milliseconds (18 ms on a 190 MB worktree, worst case: a
+      # full walk that finds nothing), and -quit stops the positive case at the first hit.
+      if [ -n "$(find "$wt" \( -name node_modules -o -name .git -o -name bin -o -name obj \
+                               -o -name dist -o -name .stryker-tmp \) -prune \
+                 -o -newermt "-${GRACE_H} hours" -print -quit 2>/dev/null)" ]; then
+        continue
+      fi
+
+      # Live #2 -- a lock naming a process that still exists. In practice the harness does
+      # not lock what it creates, so this rarely fires; it stays because
+      # prune-agent-worktrees.sh honours it, and disagreeing about liveness with the very
+      # tool this finding tells you to run would be worse than the cost of asking.
+      WT_LOCK=$(git worktree list --porcelain 2>/dev/null | awk -v w="$PWD/$wt" '
+        $1=="worktree"{cur=$2} $1=="locked"{if(cur==w){$1="";print;exit}}')
+      if [ -n "$WT_LOCK" ]; then
+        WT_PID=$(printf '%s' "$WT_LOCK" | sed -n 's/.*pid \([0-9][0-9]*\).*/\1/p')
+        if [ -n "$WT_PID" ] && kill -0 "$WT_PID" 2>/dev/null; then continue; fi
+      fi
+
+      WT_N=$((WT_N + 1))
+
+      # Everything below degrades rather than aborts. The secrets and CVE sections above
+      # matter more than this one and must not be taken down by a `du` that failed.
+      WT_SZ=$(du -sk "$wt" 2>/dev/null | cut -f1)
+      case "$WT_SZ" in (''|*[!0-9]*) WT_SZ=0 ;; esac
+      WT_KB=$((WT_KB + WT_SZ))
+
+      # BSD form first (macOS), GNU second (Linux, Git Bash). If both fail the age is
+      # omitted from the finding rather than printed as garbage.
+      WT_MT=$(stat -f %m "$wt" 2>/dev/null || stat -c %Y "$wt" 2>/dev/null)
+      case "$WT_MT" in (''|*[!0-9]*) WT_MT=0 ;; esac
+      if [ "$WT_MT" -gt 0 ] && [ "$WT_NOW" -gt "$WT_MT" ]; then
+        WT_AGE=$(( (WT_NOW - WT_MT) / 86400 ))
+        [ "$WT_AGE" -gt "$WT_OLDEST" ] && WT_OLDEST=$WT_AGE
+      fi
+
+      # Memory that exists ONLY in here. MEMORY.md index fragments are excluded because
+      # the sweep merges those rather than salvaging them, so counting them would
+      # overstate what is actually at risk.
+      while read -r wt_f; do
+        [ -n "$wt_f" ] || continue
+        wt_rel=${wt_f#*/.claude/agent-memory/}
+        case "$wt_rel" in MEMORY.md|*/MEMORY.md) continue ;; esac
+        [ -f ".claude/agent-memory/$wt_rel" ] || WT_MEM=$((WT_MEM + 1))
+      done < <(find "$wt/.claude/agent-memory" -type f 2>/dev/null)
+    done
+
+    if [ "$WT_N" -gt 0 ]; then
+      if [ ! -f scripts/prune-agent-worktrees.sh ]; then
+        add "[SETUP] $WT_N abandoned agent worktree(s) under .claude/worktrees/ but scripts/prune-agent-worktrees.sh is missing — run /project-update to restore it."
+      else
+        WT_AGE_TXT=""
+        [ "$WT_OLDEST" -gt 0 ] && WT_AGE_TXT=", oldest $WT_OLDEST days"
+        add "[WORKTREES] $WT_N abandoned agent worktree(s) under .claude/worktrees/ — $((WT_KB / 1024)) MB${WT_AGE_TXT}, untouched for over ${GRACE_H}h.
+  $WT_MEM agent-memory file(s) exist only inside them; removing the worktrees takes that with them.
+  Sweep (salvages memory first, removes only what is provably safe):
+    bash scripts/prune-agent-worktrees.sh --dry-run"
+      fi
+    fi
+  fi
 fi
 
 # ------------------------------------------------------------- 5. mutation kill rate
