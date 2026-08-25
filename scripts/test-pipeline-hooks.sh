@@ -675,6 +675,15 @@ printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — 
 [ "$(_orient_lines)" -gt 3 ] && _record "full-track next row → attention mode" 0 \
                              || _record "full-track next row → attention mode" 1
 
+# SC-1444 — the hook must read the TRACK FIELD, not the row's prose. A register row whose SLUG
+# contains the word "checkpoint" must not fire the /clear banner and must not suppress the every-5
+# integration-checkpoint alarm. A slug must not be able to switch off a gate: this row is spec-only
+# with "checkpoint" in its slug, so the hook must stay in quiet mode exactly as any other spec-only
+# row would. This probe has been lost to a template sync twice; it lives here so it stops being.
+printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] H9z — id-grammar-checkpoint-drift — spec-only — y\n' > "$QOT/specs/INDEX.md"
+[ "$(_orient_lines)" -eq 1 ] && _record "SC-1444 checkpoint in the SLUG does not fire the banner" 0 \
+                             || _record "SC-1444 checkpoint in the SLUG does not fire the banner" 1
+
 # The run-log tail is the whole point of the run log: five lines of failure memory
 # handed to a session that has just been cleared. It is fetched through the same
 # resolver, and used to be looked up under the INSPECTED project's scripts/ rather

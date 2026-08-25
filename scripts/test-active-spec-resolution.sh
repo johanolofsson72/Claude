@@ -161,6 +161,8 @@ want() { [ -z "$FILTER" ] || [ "$FILTER" = "$1" ]; }
 # 007z; the pre-fix guards skip 007z entirely, land on 008, find 008's homework
 # in order, and allow the edit.
 if want failopen; then
+  # SC-1432 (first half) — a letter-led id on a full / spec-only track: the guards must demand
+  # THAT row's artifacts rather than fail open onto a later numeric row.
   echo "FIXTURE failopen — active letter-suffixed spec has zero artifacts; a later numeric spec is complete"
   ROOT=$(make_fixture failopen '# Spec register
 
@@ -188,6 +190,8 @@ fi
 # the one thing the numeric-only regex got right, and the fix must not lose it
 # while teaching the parser about letter suffixes.
 if want checkpoint; then
+  # SC-1431 — a `— checkpoint —` track row is active; all three guards allow, because a
+  # checkpoint owes no pipeline artifacts.
   echo "FIXTURE checkpoint — an H-row is a checkpoint, not a spec, and needs no artifacts"
   ROOT=$(make_fixture checkpoint '# Spec register
 
@@ -238,6 +242,8 @@ fi
 # be allowed — otherwise the fix would simply block everything and the failopen
 # fixture would pass for the wrong reason.
 if want satisfied; then
+  # SC-1432 (second half) — the same id shape, artifacts present: allowed. Both arms are needed,
+  # or "demands that row's artifacts" is indistinguishable from "denies letter-led rows".
   echo "FIXTURE satisfied — a letter-suffixed spec with complete artifacts is allowed"
   ROOT=$(make_fixture satisfied '# Spec register
 
@@ -293,6 +299,9 @@ fi
 # root block work for opposite reasons; .claude/rules/spec-register.md requires
 # them to agree.
 echo
+# SC-1435 — register at the repo root with the language marker in a subdirectory: spec-register-guard
+# ALLOWS. SC-1436 — a code project with genuinely no register: it denies, naming the REPO-ROOT path
+# rather than the language marker's. The two arms below are those two scenarios.
 echo "FIXTURE nested-marker — register at the repo root, .csproj in a subdirectory"
 NESTED="$WORK/nested"
 mkdir -p "$NESTED/.git" "$NESTED/src/App" "$NESTED/specs"

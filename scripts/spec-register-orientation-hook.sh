@@ -154,11 +154,31 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
 
   # Big-spec context hygiene: full-track / hardened / checkpoint rows want a
   # fresh session. A hook cannot run /clear (it is a harness built-in), so we
-  # print a loud reminder per .claude/rules/spec-hardening.md. Case-insensitive
-  # match on the next row's text.
+  # print a loud reminder per .claude/rules/spec-hardening.md.
+  #
+  # MATCHED ON THE TRACK FIELD, NOT THE ROW'S TEXT (SC-1444). This used to lower-case
+  # the WHOLE row and glob it, so the word "checkpoint" anywhere — in a slug, in the
+  # one-line goal — did two wrong things at once: it fired this banner on a row that is
+  # not full-track, and it silenced the every-5 integration-checkpoint alarm below,
+  # whose `case` reads the same variable. A downstream project's own slug contained the
+  # word, which is how it was found; the fix has now been lost to a sync TWICE, which is
+  # why it lives upstream rather than only in the project that needed it.
+  #
+  # A slug must not be able to switch off a gate. The register row format is
+  # `id — slug — track — goal`, so field 3 is the track and is the only field either
+  # decision may read.
   NEXT_LC=$(printf '%s' "$NEXT_LINE" | tr '[:upper:]' '[:lower:]')
+
+  # Field 3, em-dash separated. When the row does not parse into >= 3 fields the
+  # fallback is the WHOLE line — deliberately the old behaviour, because the two
+  # decisions downstream fail in opposite directions and both are safe that way: an
+  # unnecessary /clear reminder costs a sentence, and a checkpoint-due alarm that fires
+  # when it need not is noise, while missing either is the hygiene loss the banner and
+  # the cadence exist to prevent. Failing toward the reminder, never away from it.
+  NEXT_TRACK=$(printf '%s' "$NEXT_LC" | awk -F' — ' 'NF >= 3 { print $3; found = 1 } END { if (!found) print "" }')
+  [ -z "$NEXT_TRACK" ] && NEXT_TRACK="$NEXT_LC"
   CLEAR_BANNER=""
-  case "$NEXT_LC" in
+  case "$NEXT_TRACK" in
     *hardened*|*checkpoint*|*"full track"*|*"full-track"*)
       CLEAR_BANNER="
 ▶ START THIS SPEC IN A FRESH SESSION — run /clear now.
@@ -172,7 +192,7 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   # If DONE is a nonzero multiple of 5 and the next row is NOT already a checkpoint,
   # flag that a checkpoint row is due before the next feature spec.
   CHECKPOINT_DUE=""
-  case "$NEXT_LC" in
+  case "$NEXT_TRACK" in
     *checkpoint*) : ;;  # already on a checkpoint row — nothing to flag
     *)
       if [ "$DONE" -gt 0 ] && [ $((DONE % 5)) -eq 0 ]; then
