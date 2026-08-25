@@ -170,6 +170,46 @@ same "no commit was made"                  "$(git -C "$P" log --oneline | wc -l 
 same "nothing was staged"                  "$(git -C "$P" diff --cached --name-only | wc -l | tr -d ' ')" "0"
 has  "the files are on disk as before"     "$(cat "$P/.claude/rules/demo-rule.md")" "rule v2"
 
+echo "== AC-11 (spec 007bh): a settings.json the sync merged into is named at the early exit =="
+# The manifest is copy_file's record and copy_file never touches .claude/settings.json, so before
+# 007bh this file was the one write the detector could not see — measured at 42 unseen paths of 141
+# on a fresh project. It is where every enforcement hook lives, which makes the failure mode a
+# project that reports itself synced and enforces nothing.
+build ac11
+printf '{\n  "hooks": {}\n}\n' > "$T/.claude/settings.json"
+git -C "$T" add -A; git -C "$T" commit -qm settings
+sync "$P" "$T" --no-commit --quiet >/dev/null 2>&1
+OUT=$(sync "$P" "$T")
+has  "the run lands on the early exit"     "$OUT" "[ok] already at template"
+has  "…and names settings.json"            "$OUT" ".claude/settings.json"
+has  "…as untracked"                       "$OUT" "untracked  .claude/settings.json"
+hasnt "and never calls it a retraction"    "$OUT" "orphan"
+
+echo "== AC-12 (spec 007bh): the record is not a manifest line =="
+# The register row's first option, refused by measurement: report_orphans tests manifest paths
+# against \$VISITED, so a manifest path the copy loop never visits IS a retracted path by that
+# block's definition — and the sync starts announcing that the template dropped settings.json.
+same "no manifest line for settings.json"  "$(awk 'NF == 2 && $2 == ".claude/settings.json"' "$P/.claude/.template-sync" | wc -l | tr -d ' ')" "0"
+same "one wrote record for it"             "$(awk '$1 == "#" && $2 == "wrote" && $4 == ".claude/settings.json"' "$P/.claude/.template-sync" | wc -l | tr -d ' ')" "1"
+same "the header is not read as a record"  "$(awk '$1 == "#" && $2 == "wrote" { print $4 }' "$P/.claude/.template-sync" | grep -c 'sha256' | tr -d ' ')" "0"
+
+echo "== AC-13 (spec 007bh, FR-9): the stamp-preserving modes read it and leave it alone =="
+BEFORE_STAMP=$(cat "$P/.claude/.template-sync")
+OUT=$(sync "$P" "$T" --check)
+has  "--check still reports it"            "$OUT" ".claude/settings.json"
+same "…and did not touch the stamp"        "$(cat "$P/.claude/.template-sync")" "$BEFORE_STAMP"
+OUT=$(sync "$P" "$T" --dry-run)
+has  "--dry-run still reports it"          "$OUT" ".claude/settings.json"
+same "…and did not touch the stamp"        "$(cat "$P/.claude/.template-sync")" "$BEFORE_STAMP"
+
+echo "== AC-14 (spec 007bh): a developer edit afterwards is not named =="
+# AC-05's guarantee, asked of the new record. This is 007bf's measured 100% precision, which is the
+# only reason the block is worth reading — a path is named when the sync's own bytes are still
+# there, and goes silent the moment the developer's are on top.
+printf '{\n  "hooks": {},\n  "env": { "MINE": "1" }\n}\n' > "$P/.claude/settings.json"
+OUT=$(sync "$P" "$T")
+hasnt "the developer's settings.json is not named" "$OUT" "settings.json"
+
 echo
 echo "passed: $PASS   failed: $FAIL"
 [ "$FAIL" -eq 0 ]

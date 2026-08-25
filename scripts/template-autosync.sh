@@ -16,6 +16,17 @@
 #   not prose) are overwritten even without a manifest entry — that is the
 #   spine that must not drift.
 #
+#   The manifest is copy_file's record and ONLY that. Spec 007bh: the sync has
+#   four other write routes (the settings.json seed + six merge sites, the two
+#   wiring helpers' own scripts/ copies, .specify/extensions/.registry, and
+#   .claude/.sync-stack), and none of them may enter the manifest — every reader
+#   of it assumes copy_file semantics, so a line for settings.json makes
+#   report_orphans announce that the template retracted the file every hook
+#   lives in (measured). Those paths get `# wrote <sha256> <path>` instead: a
+#   separate namespace recording the bytes the sync LEFT at a path it did not
+#   author end to end, read only to answer "is my own write still uncommitted",
+#   never to justify an overwrite.
+#
 # Intentional differences — the record (.claude/.sync-local, spec 007af):
 #   Some project files are SUPPOSED to differ from the template forever, and
 #   reporting those on every run is a permanent false alarm — the one line in
@@ -429,7 +440,53 @@ sha_stdin() {
   elif command -v shasum   >/dev/null 2>&1; then shasum -a 256 2>/dev/null | cut -d' ' -f1
   else cksum 2>/dev/null | cut -d' ' -f1; fi
 }
-manifest_hash() { grep -F "  $1" "$STAMP" 2>/dev/null | head -1 | cut -d' ' -f1; }
+# Spec 007bh. Field-exact, and it was `grep -F "  $1"` — a SUBSTRING match on two spaces — until
+# this spec put a second hash record in the same file. Two things were wrong with the old body and
+# only one of them was known:
+#
+#   - 007af named the prefix collision when it deliberately did NOT copy this idiom for .sync-local:
+#     `.claude/docs/git.md` matches the line for `.claude/docs/git.md.orig`, so a lookup that decides
+#     whether a file gets overwritten could answer with a neighbour's hash. Latent, but real.
+#   - 007aw's orphan lines are safe from it only because they carry ONE space before the path. That
+#     is a correctness argument resting on a whitespace convention, three functions away from the
+#     code that has to honour it — the load-bearing-whitespace shape 007ay was opened to delete. This
+#     spec adds a second `#`-prefixed record, so leaving it would double a trap that is one extra
+#     space away from handing a caller the literal string `wrote` as a file's hash.
+#
+# `NF == 2` is what confines the lookup to the manifest body: every other line in the stamp is a
+# header (`sha=`, two fields but `$2` is never a path), a comment, or a four-field `#` record.
+# `exit` reproduces the old `head -1` — first match wins — rather than the last.
+manifest_hash() { awk -v p="$1" 'NF == 2 && $2 == p { print $1; exit }' "$STAMP" 2>/dev/null; }
+
+# Spec 007bh. The manifest is `copy_file`'s record and only that — the two `printf` statements
+# inside it are the only things that have ever written to the body. The sync has four other write
+# routes (the settings.json seed + six merge sites, `fold_helper_writes`' two wiring helpers,
+# `.specify/extensions/.registry`, `.claude/.sync-stack`), and every path they touch is recorded in
+# $WROTE/$ADDED, handed to `git add`, counted in the headline and named in [changed] — while being
+# invisible to the one block whose job is to notice it was never committed. Measured on a fresh
+# project: [stranded] named 99 of 141 dirty paths, missing settings.json and 41 helper-written
+# scripts (research.md M0).
+#
+# A manifest line was the obvious fix and is refused by measurement (M3): report_orphans tests
+# manifest paths against $VISITED, which copy_file records, so a manifest path the copy loop never
+# visits IS a retracted path by that block's definition — and the sync starts announcing, every
+# session, that the template stopped shipping the file every hook lives in. The manifest has had one
+# writer for its whole life and all six of its readers quietly assume copy_file semantics.
+#
+# So: a separate namespace, in the same file, in 007aw's `# orphan` shape — four fields, `#` first,
+# single spaces. `$2` discriminates it from the orphan record, which is why both readers test it.
+wrote_hash()  { awk -v p="$1" '$1 == "#" && $2 == "wrote" && $4 == p { print $3; exit }' "$STAMP" 2>/dev/null; }
+wrote_paths() { awk '$1 == "#" && $2 == "wrote" { print $4 }' "$STAMP" 2>/dev/null; }
+
+# The hash this sync recorded for a path, from whichever record holds it. Manifest first because it
+# is the larger set and the older contract; the wrote record answers for the paths copy_file never
+# sees. A path can never be in both — the derivation that builds the wrote record excludes anything
+# already in the new manifest — so the order is for cost, not for precedence.
+recorded_hash() {
+  _rh=$(manifest_hash "$1")
+  [ -n "$_rh" ] || _rh=$(wrote_hash "$1")
+  printf '%s' "$_rh"
+}
 
 # ------------------------------------------------ CORE divergence (spec 007az)
 # Spec 007ao made this script refuse a project that tries to WRITE into a CORE file, and tell the
@@ -603,7 +660,22 @@ stranded_writes() {
   # The manifest's path column, plus the stamp itself. The stamp has no manifest line of its own —
   # it is the file the manifest lives in — and it belongs here because 007ax established that a
   # stamp left dirty is the same event as the files it claims to have shipped.
-  _paths=$(awk '!/^#/ && NF == 2 { print $2 }' "$STAMP" 2>/dev/null)
+  #
+  # Spec 007bh: plus the wrote record, which holds every path the sync writes OUTSIDE copy_file.
+  # Without it this block answers for one of five write routes and calls it "what this sync wrote"
+  # — 70% recall, measured, with .claude/settings.json among the misses (research.md M0/M1). The
+  # union is taken here rather than at the three call sites because all three want the same answer,
+  # and because the record is read from the stamp it works at the `[ok]` early exit, which runs
+  # ~200 lines above $WROTE/$ADDED and is where a stranded project comes to rest.
+  #
+  # sort -u because the two records are disjoint by construction but the pathspec below must not
+  # depend on that staying true — a duplicated path would make `git diff` report it twice and this
+  # block name it twice.
+  _paths=$(
+    { awk '!/^#/ && NF == 2 { print $2 }' "$STAMP" 2>/dev/null
+      wrote_paths
+    } | grep -v '^$' | LC_ALL=C sort -u
+  )
   [ -n "$_paths" ] || return 0
   _paths="$_paths
 $STAMP_REL"
@@ -633,10 +705,15 @@ $STAMP_REL"
     [ "$_p" = "$STAMP_REL" ] && return 0      # no manifest line of its own; see above
     # Clause 4, and the whole difference between "the sync reports its own unfinished work" and
     # "the sync has opinions about the developer's tree": keep the path only if its bytes on disk
-    # are the bytes the manifest says this sync wrote. A developer who edited a template file
-    # afterwards has moved it off that hash, and the sync then says nothing — the dirt is theirs,
-    # and copy_file already has a name for it (`skip (locally edited)`).
-    _mh=$(manifest_hash "$_p")
+    # are the bytes this sync recorded writing. A developer who edited a template file afterwards
+    # has moved it off that hash, and the sync then says nothing — the dirt is theirs, and copy_file
+    # already has a name for it (`skip (locally edited)`).
+    #
+    # Spec 007bh widened WHICH record answers, not what the clause means. A wrote-record path is
+    # held to exactly the same test as a manifest path, which is what keeps 007bf's measured 100%
+    # precision intact while recall goes to 100%: settings.json is named when the sync's merge is
+    # still the bytes on disk, and goes silent the moment a developer adds a hook of their own.
+    _mh=$(recorded_hash "$_p")
     [ -n "$_mh" ] && [ "$_mh" = "$(sha_of "$PROJECT_ROOT/$_p")" ]
   }
 
@@ -1685,6 +1762,74 @@ fi
 # cross-filesystem copy, which is the idiom atomic_copy already uses in this file. A /tmp temp
 # would degrade silently to a non-atomic copy on a project whose repo is on another filesystem —
 # precisely what an unattended SessionStart run is least able to notice.
+# ------------------------------------------- the wrote record (spec 007bh)
+# Every path this run wrote OUTSIDE copy_file, with the hash of the bytes it left there.
+#
+# DERIVED, never listed. Membership is: in $WROTE or $ADDED, absent from the new manifest, present
+# on disk. A hand-maintained list of the four known routes would be a list of exceptions living
+# beside the code that produces them — the shape copy_file rejected when it recorded $VISITED before
+# its branches instead of after them — and it would be wrong the day a fifth route is added, which
+# is exactly how this defect came to exist.
+#
+# Placed HERE and nowhere else: below all four routes (the settings.json seed at ~1461, the three
+# wiring helpers, .specify/extensions/.registry, .claude/.sync-stack) and immediately above the
+# stamp that has to carry it. The self-update re-exec sits ~100 lines ABOVE the first of them, so
+# pass 1 never performs a write of this class before handing off and nothing needs carrying across
+# it (research.md M6) — unlike $WROTE/$ADDED, which do.
+#
+# The `-f` test is what drops the deletions fold_helper_writes folds into $WROTE on purpose: a path
+# the helpers removed has no bytes to hash. An uncommitted deletion is outside this record's reach
+# and outside 007bf's, which already skips missing paths.
+# Composed in a FUNCTION rather than inline in the `$( )` below, and that is not style: bash 3.2 —
+# which `#!/bin/bash` still selects on macOS — cannot parse a `case` inside a command substitution
+# and fails at PARSE time, which takes the whole script down rather than one block. The [changed]
+# renderer records the same trap ~600 lines down and solves it by deciding in awk; a function body
+# is parsed when the function is defined, so the idiom is available here unchanged.
+compose_wrote_lines() {
+  # The set difference in ONE awk, not one per path. $WROTE holds ~138 paths on a routine full sync
+  # and every one of them IS in the manifest, so asking per-path would spend 138 processes to learn
+  # nothing — the 1.5-second session-start tax this file has already refused twice by name (sha_many,
+  # stranded_writes). What survives is only what copy_file did not record, which is 0 on a quiet
+  # project and 42 on a project's first sync.
+  _unmanifested=$(
+    printf '%s\n' $WROTE $ADDED \
+      | grep -v '^$' \
+      | LC_ALL=C sort -u \
+      | awk 'NR == FNR { if (NF == 2) seen[$2]; next } !($0 in seen)' "$NEW_MANIFEST" -
+  )
+  for _wp in $_unmanifested; do
+    # A path with no bytes cannot be recorded. This is also what silently drops the DELETIONS
+    # fold_helper_writes folds into $WROTE on purpose.
+    [ -f "$PROJECT_ROOT/$_wp" ] || continue
+    printf '# wrote %s %s\n' "$(sha_of "$PROJECT_ROOT/$_wp")" "$_wp"
+  done
+
+  # Carried forward, and RE-TESTED — the same posture 007aw's orphan record takes, for the same
+  # reason: this stamp is regenerated wholesale every run, so a record survives only because these
+  # lines re-emit it, and it must be a claim that is asked again rather than a note that is only
+  # ever written.
+  #
+  # Without the carry the record evaporates on exactly the run after the one that strands a file.
+  # The six settings.json sites call record_write only when `cmp` says the bytes moved, so a second
+  # sync over an already-merged file records nothing — and a file stranded by run 1 would be
+  # unreportable from run 2 onward, which is the defect this spec exists to fix wearing a hat.
+  #
+  # Two drop conditions, both meaning "this record is no longer true": the file is gone, or its
+  # bytes have moved off what we recorded. The second is the developer editing it, and the silence
+  # that follows is clause 4's silence — deliberate, not a gap.
+  #
+  # Hash and path come out of the SAME awk pass, so a carried line costs one sha_of and nothing
+  # else; wrote_hash exists for _keep, which asks about one path at a time.
+  awk '$1 == "#" && $2 == "wrote" { print $3, $4 }' "$STAMP" 2>/dev/null | while read -r _ch _cp; do
+    [ -n "$_cp" ] || continue
+    case " $WROTE $ADDED " in *" $_cp "*) continue ;; esac   # this run already re-stated it
+    [ -f "$PROJECT_ROOT/$_cp" ] || continue
+    [ "$_ch" = "$(sha_of "$PROJECT_ROOT/$_cp")" ] || continue
+    printf '# wrote %s %s\n' "$_ch" "$_cp"
+  done
+}
+WROTE_LINES=$(compose_wrote_lines | LC_ALL=C sort -u -k4)
+
 STAMP_NEW="$STAMP.autosync-tmp.$$"
 {
   printf 'sha=%s\n' "$TEMPLATE_SHA"
@@ -1708,6 +1853,23 @@ STAMP_NEW="$STAMP.autosync-tmp.$$"
     printf '# orphan: paths this sync once wrote that the template no longer ships. Nothing is\n'
     printf '# deleted for you; a line disappears when its file does.\n'
     printf '%s' "$ORPHAN_LINES"
+  fi
+  # Spec 007bh. Last, because it is the newest record and a stable position keeps the stamp's own
+  # diffs readable; nothing reads the ordering (research.md M4 audits all ten readers). Single
+  # spaces and a leading `#` for the same reason the orphan lines have them — invisible to every
+  # `NF == 2` reader — and manifest_hash is now field-exact besides, so the shape is asserted twice
+  # rather than resting on the whitespace alone.
+  #
+  # These lines ARE stamp news (stamp_news excludes only `synced=`), and that is correct: a changed
+  # record means the sync wrote outside copy_file this run, so there is genuinely something to
+  # commit. Carry-forward re-emits byte-identical lines, so a run that changes nothing still leaves
+  # the stamp untouched and 007ax's rule holds.
+  if [ -n "$WROTE_LINES" ]; then
+    printf '# wrote: sha256 of each file this sync wrote OUTSIDE the copy loop — the settings.json\n'
+    printf '# merge, the wiring helpers, the stack marker. The sync did not author these bytes end\n'
+    printf '# to end and never overwrites them on this record; it is read only to answer "is my own\n'
+    printf '# write still uncommitted". A line drops when its file goes or its bytes move.\n'
+    printf '%s\n' "$WROTE_LINES"
   fi
 } > "$STAMP_NEW"
 rm -f "$NEW_MANIFEST"
