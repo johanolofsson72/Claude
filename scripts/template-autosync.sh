@@ -285,6 +285,14 @@ TEMPLATE_DIR=""
 TEMPLATE_SHA=""
 TEMPLATE_TMP=""
 
+# Spec 007bi. The template-relative paths whose bytes on disk are not their committed bytes,
+# newline-delimited, and the directory holding the committed bytes for exactly those paths.
+# Declared here rather than beside the functions that fill them because `set -u` is on and
+# copy_file reads both on EVERY path, including the overwhelming majority of runs where no
+# file diverges and neither is ever assigned.
+EOL_DIVERGED=""
+EOL_STAGE=""
+
 # A local clone is preferred over the tarball, and until this existed it was also
 # never refreshed: resolve_local_template took `rev-parse HEAD` as the template's
 # SHA and copied whatever bytes happened to be checked out. sync-prompt.md Step -1
@@ -357,6 +365,151 @@ refresh_local_template() {
   warn "       Nothing was changed. Syncing from the local checkout; reconcile it by hand."
 }
 
+# ------------------------------------------- byte divergence in the clone (spec 007bi)
+# `resolve_local_template` copies the clone's WORKING TREE and takes TEMPLATE_SHA from HEAD, and
+# guards the gap between them with `git status --porcelain`. That guard asks the wrong question.
+# `git status` answers "does the content differ, after the conversions git would apply on check-in".
+# This script applies no conversions: it hashes raw bytes with `sha_of` and copies them with `cp`.
+#
+# So git is entitled to call a worktree clean whose bytes are not the blob's bytes, and it does.
+# The shape that produces it is not a developer typing CRLF — it is a file whose CRLF bytes were
+# committed THROUGH git. `git add` normalises CRLF->LF into the index and records the CRLF file's
+# stat data, so the index entry reads up-to-date, status never re-reads the content, and the state
+# is stable until something makes git rewrite the file. Measured (research.md M1): status empty,
+# `git diff --stat` empty, `git diff --quiet` exit 0, and the worktree sha nowhere near the blob's.
+#
+# The damage is not to this run. The sync copies those bytes into the project and records THEIR
+# hash in the manifest; the moment git touches the project's copy — any checkout, stash or clean —
+# the file normalises to LF, and the manifest now holds a hash that nothing on disk can ever match
+# again. `copy_file` reads that as a local edit and reports
+#
+#     .claude/skills/demo/SKILL.md — merge with /project-update, or record it with --accept-local
+#
+# on every future template release, forever, about a file nobody has touched. Measured end to end
+# across three template releases (M4): the file stayed frozen at version one while its LF-authored
+# control updated normally, and the stale hash re-emitted itself into the manifest every run.
+#
+# `git ls-files --eol` is the only oracle that sees it, and it is one process for the whole
+# repository: 0.04 s against 188 files, versus 6.90 s to hash each file against its HEAD blob
+# (M2). The rule is the plain column inequality, and it needs no exclusion list — a binary reports
+# `-text` on both sides and an empty file reports `none` on both, so both are silent for free.
+# Measured 3/3 precision and 3/3 recall against direct byte comparison, over CRLF-authored,
+# mixed-eol, `text eol=crlf`, binary, empty and clean files (M3).
+#
+# Anything `git status` already reports is SUBTRACTED. Two reasons, and the second is the one that
+# is easy to miss. The developer's uncommitted content is authoritative — taking the index there
+# would delete work they can explain, and the `-dirty-` suffix already covers it. And
+# `stage_committed_bytes` reads the INDEX: for a path with staged-but-uncommitted content the
+# index and HEAD differ, so shipping it would be a different bug in the same shape. `git status`
+# reports every staged change, so the subtraction is what makes the word "committed" true.
+#
+# Fails open in every direction, like everything else in this neighbourhood: no git, no `--eol`
+# support, not a repository, a clone of some other repo — all produce an empty set, which is
+# exactly the behaviour that existed before.
+eol_divergent_paths() {
+  _c="$1"
+  # The caller's `git status --porcelain` output, not a second call of our own. FR-2 is "one git
+  # process for the whole clone" and it is meant literally: resolve_local_template already has this
+  # answer for the -dirty- test two lines above, and a `rev-parse --git-dir` guard is redundant
+  # because `ls-files --eol` fails on a non-repository anyway. Three processes became one by
+  # deleting two, which is the only way this path could afford to exist at every session start.
+  # cut -c4- strips porcelain's XY status columns. The sed handles the one shape that is not a
+  # bare path: a rename arrives as `R  old -> new`, which would match nothing and subtract nothing.
+  # Only the NEW path can be on disk to diverge, so keeping the right-hand side is the whole fix.
+  # (A filename genuinely containing " -> " would be mangled — porcelain quotes those, and this
+  # inherits the same limits as every other path handler in this script.)
+  _dirty=$(printf '%s\n' "$2" | cut -c4- | sed 's/.* -> //')
+
+  # core.quotePath=false so a non-ASCII path arrives literally rather than C-quoted; a quoted path
+  # would not match anything downstream and would be handed to checkout-index as a filename that
+  # does not exist.
+  _eol=$(git -C "$_c" -c core.quotePath=false ls-files --eol 2>/dev/null) || return 0
+  [ -n "$_eol" ] || return 0
+
+  # -F'\t' because that is what separates the attribute columns from the path, and the path is the
+  # one field that can contain spaces. A path containing a literal newline would defeat this — as
+  # it already defeats $WROTE, $ADDED, $VISITED and $SKIPPED, every one of which is a delimited
+  # shell string. Inherited, not introduced.
+  printf '%s\n' "$_eol" | awk -F'\t' 'NF > 1 {
+      n = split($1, col, " ")
+      if (n >= 2) {
+        i = col[1]; w = col[2]
+        sub(/^i\//, "", i); sub(/^w\//, "", w)
+        if (i != w) print $2
+      }
+    }' | while IFS= read -r _p; do
+      [ -n "$_p" ] || continue
+      # Newline-delimited membership, the idiom the skills loop already uses. A space-delimited
+      # test would be wrong for any path containing a space, and the whole point of the -F'\t'
+      # parse above is that those survive.
+      case "
+$_dirty
+" in *"
+$_p
+"*) continue ;; esac
+      printf '%s\n' "$_p"
+    done
+}
+
+# The committed bytes for those paths, written somewhere copy_file can reach them.
+#
+# ONE process regardless of how many paths diverge. A `git show :path` loop is the obvious
+# alternative and is rejected for the same reason M2 rejects per-file hashing: on a clone made
+# with `core.autocrlf=true` every text file diverges, so the loop becomes ~188 processes at every
+# session start of every project, forever. `xargs -0` splits only above ARG_MAX, which 188 paths
+# of ~40 bytes is nowhere near.
+#
+# The two `-c` overrides are load-bearing, not defensive. `checkout-index` applies checkout-time
+# conversion by default, so on a clone configured `core.autocrlf=true` it would write the CRLF
+# straight back out and this function would faithfully reproduce the divergence it exists to
+# remove. Measured (M5): with them, the staged bytes equal the committed bytes exactly, nested
+# directories are created, and — the one that would have been expensive to get wrong — the
+# executable bit is preserved (M6). scripts/*.sh are executable and copy_file calls
+# `exec_bit_differs "$SRC" "$DEST"`, so a staging directory that dropped +x would have this sync
+# quietly strip the executable bit off every hook in every project.
+#
+# On any failure EOL_STAGE stays empty and copy_file falls back to the worktree. It never removes
+# a path from the copy loop: a path copy_file does not visit is absent from $VISITED, and
+# report_orphans then announces that the template retracted a file it still ships (007bh, M3).
+stage_committed_bytes() {
+  _c="$1"; _paths="$2"
+  [ -n "$_paths" ] || return 0
+  _stage=$(mktemp -d 2>/dev/null || mktemp -d -t claude-eol) || return 0
+  if printf '%s\n' "$_paths" | tr '\n' '\0' \
+     | xargs -0 git -C "$_c" -c core.autocrlf=false -c core.eol=lf \
+             checkout-index -f --prefix="$_stage/" -- >/dev/null 2>&1; then
+    EOL_STAGE="$_stage"
+  else
+    rm -rf "$_stage"
+  fi
+}
+
+# Called from inside resolve_local_template, which runs BEFORE the mode branching, before the stamp
+# comparison and before the `[ok] already at template` early exit. So one call site reaches --check,
+# --dry-run, the early exit and a full sync — the coverage 007bg had to add three call sites to get
+# for [owed], free here because of where the question is asked.
+#
+# `warn`, matching every other message emitted from this neighbourhood, and unlike `say` not
+# silenced by --quiet: a correctness warning that --quiet hides is a correctness warning nobody
+# gets. Every path enumerated with the count in the headline, after report_owed — its nearest
+# sibling and the other block that reports on the TEMPLATE's health rather than the project's.
+report_eol_divergence() {
+  _c="$1"; _paths="$2"
+  [ -n "$_paths" ] || return 0
+  # No `|| echo 0` fallback: grep -c exits 1 on zero matches and would then print its own 0 AND
+  # the fallback's, giving a two-line count. Unreachable behind the guard above — which is precisely
+  # why it would have survived to the day the guard changed.
+  _n=$(printf '%s\n' "$_paths" | grep -c .)
+  warn "[eol] $_n file(s) in the template clone differ from their committed bytes by line endings only:"
+  printf '%s\n' "$_paths" | while IFS= read -r _p; do
+    [ -n "$_p" ] && warn "      $_p"
+  done
+  warn "      git status calls this clean, so the bytes on disk are not the bytes TEMPLATE_SHA"
+  warn "      describes. Syncing the committed bytes instead — otherwise every project records a"
+  warn "      hash its own git will normalise away, and stops updating the file forever."
+  warn "      Fix the clone with: git -C $_c add --renormalize ."
+}
+
 resolve_local_template() {
   for cand in "${CLAUDE_TEMPLATE_DIR:-}" "$HOME/repos/Claude" "$HOME/repos/claude"; do
     [ -n "$cand" ] || continue
@@ -367,8 +520,21 @@ resolve_local_template() {
       # A dirty working tree means the files being copied are NOT what the SHA
       # describes. Stamping the clean SHA would make the next run think it is
       # up to date and skip the (still uncommitted) changes forever.
-      if [ -n "$(git -C "$cand" status --porcelain 2>/dev/null | head -1)" ]; then
+      # One `git status --porcelain` for two consumers (spec 007bi): the -dirty- test and the
+      # subtraction inside eol_divergent_paths. The `| head -1` it used to carry was an efficiency
+      # that stopped being available the moment a second consumer needed the whole list — and the
+      # alternative, a second call, is the added cost SC-06 caps at one process.
+      _st=$(git -C "$cand" status --porcelain 2>/dev/null)
+      if [ -n "$_st" ]; then
         TEMPLATE_SHA="$TEMPLATE_SHA-dirty-$(date -u '+%Y%m%d%H%M%S')"
+      fi
+      # Spec 007bi. Below the -dirty- test, and deliberately not part of it: after the substitution
+      # the copied bytes ARE the bytes this SHA describes, so annotating it would be the opposite of
+      # honest. -dirty- keeps meaning what it has always meant — uncommitted CONTENT.
+      EOL_DIVERGED=$(eol_divergent_paths "$cand" "$_st")
+      if [ -n "$EOL_DIVERGED" ]; then
+        stage_committed_bytes "$cand" "$EOL_DIVERGED"
+        report_eol_divergence "$cand" "$EOL_DIVERGED"
       fi
       return 0
     fi
@@ -391,7 +557,11 @@ resolve_remote_template() {
   [ -n "$TEMPLATE_DIR" ] && [ -d "$TEMPLATE_DIR/.claude/rules" ]
 }
 
-cleanup() { [ -n "$TEMPLATE_TMP" ] && rm -rf "$TEMPLATE_TMP"; }
+cleanup() {
+  [ -n "$TEMPLATE_TMP" ] && rm -rf "$TEMPLATE_TMP"
+  [ -n "$EOL_STAGE" ] && rm -rf "$EOL_STAGE"   # spec 007bi
+  return 0
+}
 trap cleanup EXIT
 
 if ! resolve_local_template; then
@@ -1057,6 +1227,26 @@ copy_file() {
   SRC="$1"; REL="$2"; CLASS="$3"; SRCREL="${4:-$2}"
   DEST="$PROJECT_ROOT/$REL"
   BASE=$(basename "$REL")
+
+  # Spec 007bi. Above SRC_HASH, so everything downstream — the hash, the manifest line, atomic_copy,
+  # exec_bit_differs — reads the committed bytes without knowing anything about line endings. That
+  # is the point of substituting here rather than teaching four consumers about eol.
+  #
+  # Keyed on $SRCREL, not $REL. Five of the six copy loops let SRCREL default to REL because the
+  # template path and the project path coincide; the mobile gate is the one place they differ
+  # (.claude/docs/testing-mobile.md -> .claude/docs/testing.md) and it passes SRCREL explicitly,
+  # which is what SRCREL was introduced for. Keying on REL would read the wrong file on a mobile
+  # project — and there is no mobile project in this fleet to catch it.
+  #
+  # The [ -f ] is the fallback arm with no extra branch: if stage_committed_bytes failed, the file
+  # is not there and SRC stays as it was.
+  case "
+$EOL_DIVERGED
+" in *"
+$SRCREL
+"*) [ -n "$EOL_STAGE" ] && [ -f "$EOL_STAGE/$SRCREL" ] && SRC="$EOL_STAGE/$SRCREL" ;;
+  esac
+
   SRC_HASH=$(sha_of "$SRC")
 
   # Spec 007aw. Recorded HERE, at the top, before any branching — so it holds every path the

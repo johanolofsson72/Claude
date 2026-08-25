@@ -213,6 +213,27 @@ if [ "$VERDICT" = "deferred" ]; then
   exit 0
 fi
 
+# Spec 007bi. Above BOTH gates below, for the same reason 007be's deferral branch is above the
+# first one: the [eol] note is emitted during template resolution, before the sync knows whether it
+# will write anything, and both gates would drop it.
+#
+#   - The [synced] gate drops it whenever the stamp already matches and the sync takes the
+#     `[ok] already at template` early exit.
+#   - The "0 updated, 0 added" gate drops it in the steady state of exactly the clone this note
+#     exists for: the divergent bytes were copied on some earlier run, so a later sync legitimately
+#     writes nothing and reports 0/0 — and the warning that the template clone is producing hashes
+#     no project can ever match goes to nobody.
+#
+# So the note reaches --check and --dry-run (where a developer is already looking for trouble) and
+# not SessionStart (where nobody runs --check). Forwarded before either gate, with the sync's own
+# text: the block already names the files and the one command that fixes the clone.
+case "$OUT" in
+  *"[eol]"*)
+    printf '{"systemMessage": "Template auto-sync: the template clone is byte-divergent.\\n%s"}\n' "$(as_json "$OUT")"
+    exit 0
+    ;;
+esac
+
 case "$OUT" in
   *"[synced]"*) ;;                   # the sync ran
   *) exit 0 ;;                       # up to date / skipped — stay silent
