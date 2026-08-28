@@ -252,5 +252,109 @@ OUT=$(run "$D")
 expect_contains "C13 space in a memory filename — counted, not split" \
   "2 agent-memory file(s) exist only inside them" "$OUT"
 
+# ===================================================================================================
+# The mutation section (section 5). Added after a measured audit found three defects in twelve lines,
+# on the only command a default project has that asks for a mutation run at all.
+#
+# Every case here rigs `dotnet` on PATH: a stub that prints a chosen score and returns a chosen exit
+# code. Nothing compiles, nothing mutates, and the suite still finishes in about a second. What is under
+# test is the SENTENCE the section produces, because that sentence is the whole of what a developer
+# hears about mutation coverage on a project with no rotation of its own.
+# ===================================================================================================
+
+mkfix_mut() { # mkfix_mut <name> <break or "none">
+  d=$(mkfix "$1")
+  mkdir -p "$d/bin" "$d/proj"
+  printf '<Project Sdk="Microsoft.NET.Sdk"></Project>\n' > "$d/proj/App.csproj"
+  if [ "$2" = "none" ]; then
+    printf '%s\n' '{ "stryker-config": { "project": "App.csproj", "mutate": ["**/*.cs"] } }' > "$d/stryker-config.json"
+  else
+    printf '{ "stryker-config": { "project": "App.csproj", "mutate": ["**/*.cs"], "thresholds": { "high": 85, "low": 80, "break": %s } } }\n' "$2" > "$d/stryker-config.json"
+  fi
+  printf '%s' "$d"
+}
+
+# The stub is written per case rather than parameterised through the environment, because `run()` passes
+# env through to project-maintenance.sh and NOT to the tool it invokes two layers down. An earlier draft
+# of these cases did it the other way and every case printed the same output — four green assertions
+# about one execution.
+mk_dotnet() { # mk_dotnet <dir> <score or "none"> <exit code>
+  if [ "$2" = "none" ]; then
+    printf '%s\n' '#!/bin/bash' 'echo "MSBUILD : error MSB1003: no project file"' "exit $3" > "$1/bin/dotnet"
+  else
+    printf '%s\n' '#!/bin/bash' 'echo "Stryker.NET"' "echo \"The final mutation score is $2 %\"" "exit $3" > "$1/bin/dotnet"
+  fi
+  chmod +x "$1/bin/dotnet"
+}
+
+run_full() { ( cd "$1" && PATH="$1/bin:$PATH" bash "$MAINT" --full 2>&1 ); }
+
+# --- C14: a score that PASSES the config's own break is not a finding --------------------------------
+# The defect this replaces: the comparison was a hardcoded 80 while the config said 79, so a run at 79.5
+# passed its own gate and was reported as failing anyway. A config that states its threshold is the
+# authority on its threshold.
+D=$(mkfix_mut c14 79); mk_dotnet "$D" 79.50 0
+OUT=$(run_full "$D")
+expect_absent "C14 79.50 against break 79 — passes its own gate, no finding" "[MUTATION]" "$OUT"
+
+# --- C15: and the 80 default still applies when the config states no break ---------------------------
+D=$(mkfix_mut c15 none); mk_dotnet "$D" 79.50 0
+OUT=$(run_full "$D")
+expect_contains "C15 no break in the config — the 80 default applies" \
+  "this config states no break" "$OUT"
+
+# --- C16: a break failure is a GATE failure, not a tool crash ----------------------------------------
+# Stryker exits non-zero when the score is under `break`, i.e. on the exact outcome the gate exists to
+# produce. Reporting it as "failed to complete" plus fifteen lines of tail describes a crash and buries
+# a finding.
+D=$(mkfix_mut c16 79); mk_dotnet "$D" 70.00 1
+OUT=$(run_full "$D")
+expect_contains "C16 exit 1 with a score — reported as a gate failure" "GATE FAILED" "$OUT"
+expect_absent   "C16 exit 1 with a score — NOT reported as a crash" "failed to complete" "$OUT"
+
+# --- C17: a real crash still reads as a crash --------------------------------------------------------
+# The other half of C16, and the reason the branch keys on the SCORE rather than on the exit code: a
+# tool that never produced a number did not fail a gate.
+D=$(mkfix_mut c17 79); mk_dotnet "$D" none 2
+OUT=$(run_full "$D")
+expect_contains "C17 exit 2 with no score — still a crash" "failed to complete — no score" "$OUT"
+
+# --- C18: the number is labelled with its provenance -------------------------------------------------
+# Stryker prints (Killed + Timeout) / valid. A Timeout is not a kill, so the strict score is this or
+# lower and never higher. Printing the generous number under the label "kill rate" against a strict
+# target is a claim about a measurement nobody made.
+D=$(mkfix_mut c18 79); mk_dotnet "$D" 70.00 1
+OUT=$(run_full "$D")
+expect_contains "C18 the score is named as Stryker's own" "Stryker's own score" "$OUT"
+expect_contains "C18 and the timeout caveat travels with it" "A Timeout is not a kill" "$OUT"
+
+# --- C19: the section states its own coverage --------------------------------------------------------
+# A bare `dotnet stryker` reads the config in the working directory. Reported without the ratio, one
+# gate reads as a suite — on the project this was measured against, one of forty-five.
+D=$(mkfix_mut c19 79); mk_dotnet "$D" 70.00 1
+mkdir -p "$D/tests"
+printf '{}\n' > "$D/tests/stryker-config.other.json"
+printf '{}\n' > "$D/tests/stryker-config.third.json"
+OUT=$(run_full "$D")
+expect_contains "C19 coverage is stated, not implied" "1 of 3 config(s)" "$OUT"
+
+# --- C20: exit 0 with no score is unclassifiable, and says so ----------------------------------------
+# Not a pass. A run this section cannot classify must never be reported in the shape of a clean one.
+D=$(mkfix_mut c20 79)
+printf '%s\n' '#!/bin/bash' 'echo "nothing useful"' 'exit 0' > "$D/bin/dotnet"; chmod +x "$D/bin/dotnet"
+OUT=$(run_full "$D")
+expect_contains "C20 exit 0 with no score — reported as unclassifiable, never as clean" \
+  "cannot be classified" "$OUT"
+
+# --- C21: the maintenance pass never starts a sweep --------------------------------------------------
+# A maintenance pass that silently launches a multi-hour run across every gate is a worse defect than
+# the one it fixes. Asserted against the source, with comments stripped, because the file discusses the
+# rule at length and an assertion that cannot tell a discussion from a call would forbid the discussion.
+if ! sed 's/#.*//' "$MAINT" | grep -q 'rerun-refused\|mutation-rotation\|--include-unmeasured'; then
+  ok "C21 the maintenance pass invokes no sweep of its own"
+else
+  bad "C21 the maintenance pass invokes no sweep" "no sweep invocation" "a sweep script is called"
+fi
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

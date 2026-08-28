@@ -256,22 +256,98 @@ elif [ -f package.json ] && grep -q '"@stryker-mutator/core"' package.json 2>/de
   MUTATION_CMD="npx stryker run"
 fi
 
+# THREE THINGS THIS SECTION USED TO GET WRONG, all measured on a real project (2026-08-28) and all
+# fixed below. They mattered because this is the ONLY command in a default project that asks for a
+# mutation run at all, so whatever it says is the whole of what the developer hears.
+#
+#   1. THE NUMBER WAS STRYKER'S, THE LABEL WAS NOT. Stryker prints (Killed + Timeout) / valid; a Timeout
+#      is not a kill. On one measured gate that gap was 2.31 points in the flattering direction (strict
+#      97.69, Stryker 100.00). This section is generic template code and should NOT reimplement a strict
+#      scorer -- but printing the generous number as "kill rate" against a strict target is a claim about
+#      a measurement nobody made. It is now labelled with its provenance.
+#
+#   2. THE THRESHOLD WAS HARDCODED 80 WHILE THE CONFIG CARRIED ITS OWN. That project's root config has
+#      `break: 79`, so a run at 79.5 PASSED its own gate and was reported as a finding, and a run at 79.0
+#      failed nothing and was reported the same way. A config that states its threshold is the authority
+#      on its threshold; 80 is the fallback for a config that states none.
+#
+#   3. A GATE FAILURE WAS REPORTED AS A TOOL CRASH. Stryker exits non-zero when the score is under
+#      `break` -- i.e. on the exact outcome the gate exists to produce. "`dotnet stryker` failed to
+#      complete:" followed by fifteen lines of tail describes a crash and buries a finding.
+#
+# And it names its own coverage. A bare `dotnet stryker` reads the config in the working directory, so a
+# repo with forty-five committed configs gets exactly one of them measured. Reported without that ratio,
+# one gate reads as a suite.
+#
+# WHAT IT DELIBERATELY DOES NOT DO: start a sweep. A maintenance pass that silently launches a multi-hour
+# mutation run across every gate is a worse defect than the one it fixes -- a project that wants that
+# owns its own rotation script and schedules it separately.
+mutation_break_of() { # mutation_break_of <config path>; echoes the integer break, or nothing
+  [ -f "$1" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  CFG="$1" python3 - <<'PY' 2>/dev/null
+import json, os
+try:
+    d = json.load(open(os.environ["CFG"]))
+except Exception:
+    raise SystemExit(0)
+d = d.get("stryker-config", d)
+b = (d.get("thresholds") or {}).get("break")
+if isinstance(b, (int, float)):
+    print(int(b))
+PY
+}
+
 if [ -n "$MUTATION_CMD" ]; then
   if [ "$FULL" -eq 1 ]; then
+    # Which config this bare invocation will actually read, and how many exist. Both tools default to a
+    # config in the working directory; the count is what turns "one gate" into an honest sentence.
+    case "$MUTATION_CMD" in
+      dotnet*) MUT_CFG="stryker-config.json" ;;
+      *)       MUT_CFG="stryker.conf.json" ;;
+    esac
+    MUT_CFG_TOTAL=$(find . -type d \( -name node_modules -o -name StrykerOutput -o -name bin -o -name obj -o -name .git \) -prune -o \
+                      -type f \( -name 'stryker-config*.json' -o -name 'stryker.conf*.json' \) -print 2>/dev/null | wc -l | tr -d ' ')
+    case "$MUT_CFG_TOTAL" in (''|*[!0-9]*) MUT_CFG_TOTAL=1 ;; esac
+    [ "$MUT_CFG_TOTAL" -lt 1 ] && MUT_CFG_TOTAL=1
+    MUT_SCOPE="1 of $MUT_CFG_TOTAL config(s) — a bare \`$MUTATION_CMD\` reads only $MUT_CFG"
+
     MUT_OUT=$(eval "$MUTATION_CMD" 2>&1)
     MUT_RC=$?
     SCORE=$(printf '%s' "$MUT_OUT" | grep -oE 'mutation score[^0-9]*[0-9]+(\.[0-9]+)?' | tail -1 | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1)
-    if [ "$MUT_RC" -ne 0 ]; then
-      add "[MUTATION] \`$MUTATION_CMD\` failed to complete:
+    INT_SCORE=${SCORE%%.*}
+
+    MUT_BREAK=$(mutation_break_of "$MUT_CFG")
+    if [ -n "$MUT_BREAK" ]; then
+      MUT_LIMIT="$MUT_BREAK"; MUT_LIMIT_SRC="$MUT_CFG thresholds.break"
+    else
+      MUT_LIMIT=80;           MUT_LIMIT_SRC="the ~80% default target (this config states no break)"
+    fi
+
+    if [ "$MUT_RC" -ne 0 ] && [ -n "$SCORE" ]; then
+      # A number came back, so the tool ran. Non-zero here is the gate doing its job.
+      add "[MUTATION] GATE FAILED — Stryker's own score ${SCORE}% against $MUT_LIMIT_SRC ($MUT_LIMIT).
+  This is the gate failing, not the tool crashing: Stryker exits non-zero when the score is under break.
+  Scope: $MUT_SCOPE.
+  NOTE: ${SCORE}% is Stryker's score, (Killed + Timeout) / valid. A Timeout is not a kill, so the strict
+  score is this or lower — never higher (.claude/docs/testing.md)."
+    elif [ "$MUT_RC" -ne 0 ]; then
+      add "[MUTATION] \`$MUTATION_CMD\` failed to complete — no score was produced:
 $(printf '%s' "$MUT_OUT" | tail -15)"
     elif [ -n "$SCORE" ]; then
-      INT_SCORE=${SCORE%%.*}
-      if [ "${INT_SCORE:-0}" -lt 80 ]; then
-        add "[MUTATION] kill rate ${SCORE}% — below the ~80% target on critical modules. The suite is green but does not bite (.claude/docs/testing.md)."
+      if [ "${INT_SCORE:-0}" -lt "$MUT_LIMIT" ]; then
+        add "[MUTATION] Stryker's own score ${SCORE}% is below $MUT_LIMIT_SRC ($MUT_LIMIT).
+  Scope: $MUT_SCOPE.
+  NOTE: ${SCORE}% counts a Timeout as a kill; the strict score (Killed / valid) is this or lower."
       fi
+    else
+      # Exit 0 and no parseable score is not a pass -- it is a run this section cannot classify, and
+      # saying nothing about it would report an unmeasured gate as a measured one.
+      add "[MUTATION] \`$MUTATION_CMD\` exited 0 but printed no mutation score — the run cannot be classified.
+  Scope: $MUT_SCOPE."
     fi
   else
-    REPORT="${REPORT}[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow).
+    REPORT="${REPORT}[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow, and it covers only the working-directory config).
 "
   fi
 fi
