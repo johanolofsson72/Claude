@@ -153,6 +153,10 @@ for f in "$ROOT"/*.sh; do
   # safer.
   has_helper=0
   if grep -qE '^[[:space:]]*(\.|source)[[:space:]]+.*scenario-probe-ids\.sh' "$f"; then has_helper=1; fi
+  # …and the helper itself, which sources nothing and would otherwise sit outside the rule it exists
+  # to serve. Its header argues at length that ids must be described rather than spelled; the file
+  # making that argument is exactly the one where a spelled id would look like documentation.
+  case "$base" in scenario-probe-ids.sh) has_helper=1 ;; esac
 
   [ "$has_row" -eq 1 ] || [ "$has_helper" -eq 1 ] || continue
   POPULATION=$((POPULATION + 1))

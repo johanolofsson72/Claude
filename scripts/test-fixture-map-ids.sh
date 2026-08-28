@@ -269,6 +269,21 @@ else
   bad 'naming the helper in a manifest does not put the file in the population' "rc=$RC [$OUT]"
 fi
 
+# --- C13c: the helper is under its own rule ------------------------------------------------------
+# It sources nothing, so neither trigger reaches it, and it is the one file whose whole content is
+# the argument for describing ids instead of spelling them. A spelled id there would read as
+# documentation and bind exactly as hard as a fixture row.
+R=$(fresh_root c13c)
+{ printf '#!/bin/sh\n'
+  printf '# the obvious move is to write %s and get on with the test\n' "$OWNED_A"
+} > "$R/scenario-probe-ids.sh"
+run_gate "$R"
+if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_A"; then
+  ok 'the helper is in its own population even though it sources nothing'
+else
+  bad 'the helper is in its own population even though it sources nothing' "rc=$RC [$OUT]"
+fi
+
 # --- C14: a clean run says what it looked at -----------------------------------------------------------
 # A bare "clean" is the sentence this family of gates exists to retire. The population size is what
 # separates "checked four harnesses and found nothing" from "found no harnesses".
