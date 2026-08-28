@@ -58,6 +58,15 @@ REPORT=""
 add() { REPORT="${REPORT}$1
 "; FINDINGS=$((FINDINGS + 1)); }
 
+# A second buffer, for sections that must REPORT without FAILING. `add` is both the finding
+# counter and the only route to output, so a section using it can only speak by making the run
+# red -- and a run that is red forever is a run nobody reads. `note` speaks without voting, and
+# the verdict prints NOTES in BOTH branches (clean and findings), or a note would only ever
+# surface when something else had already gone wrong.
+NOTES=""
+note() { NOTES="${NOTES}$1
+"; }
+
 # ---------------------------------------------------------------- 1. secrets + CVEs
 if [ -f scripts/project-freshness.sh ]; then
   FRESH_OUT=$(bash scripts/project-freshness.sh 2>&1)
@@ -87,6 +96,38 @@ for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
     add "[CONTEXT-COST] $f is $((BYTES / 1024)) KB — read on every spec. Trim: scripts/archive-spec-history.sh --keep 5"
   fi
 done
+
+# ------------------------------------------------------------ 2b. SC-id traceability
+# Both directions over the scenario map (spec 007bs):
+#   uncovered  a row claims it is tested or validated, and no test names its id
+#   dangling   a test names an id the map does not have
+#
+# UNCOVERED IS A NOTE, NOT A FINDING -- the deliberate asymmetry. On the project that built this
+# gate the honest first report was 122 of 150, and closing the other 28 is a register row's worth
+# of work per feature. Wiring that into the exit code would make maintenance permanently red, and
+# .claude/rules/github-actions.md already argues that a permanently-red signal is an absent one.
+# DANGLING IS A FINDING -- that direction is never a backlog. A test naming an id the map does not
+# have is a typo or a row deleted out from under a test, and it is zero on a healthy repo, so the
+# signal stays quiet until something actually breaks.
+if [ -f scripts/validate-scenario-traceability.sh ] && [ -f specs/SCENARIOS.md ]; then
+  TRACE_OUT=$(bash scripts/validate-scenario-traceability.sh --quiet 2>&1)
+  TRACE_RC=$?
+  case "$TRACE_RC" in
+    0|1)
+      TRACE_COV=$(printf '%s\n' "$TRACE_OUT" | grep '^coverage:' | head -1)
+      [ -n "$TRACE_COV" ] && note "[TRACEABILITY] $TRACE_COV"
+      TRACE_DANGL=$(printf '%s\n' "$TRACE_OUT" | sed -n 's/^dangling .*(\([0-9]*\)):$/\1/p')
+      if [ -n "$TRACE_DANGL" ] && [ "$TRACE_DANGL" -gt 0 ]; then
+        add "[TRACEABILITY] $TRACE_DANGL test reference(s) name an SC-id the scenario map does not have. Run: bash scripts/validate-scenario-traceability.sh"
+      fi
+      ;;
+    *)
+      # 2, 3 and 4 all mean "the gate could not answer" -- never reported as coverage.
+      add "[TRACEABILITY] scripts/validate-scenario-traceability.sh could not run (exit $TRACE_RC):
+$(printf '%s' "$TRACE_OUT" | tail -5)"
+      ;;
+  esac
+fi
 
 # --------------------------------------------------------- 3. blocked / stalled rows
 if [ -f specs/INDEX.md ]; then
@@ -363,11 +404,13 @@ fi
 if [ "$FINDINGS" -eq 0 ]; then
   [ "$QUIET" -eq 1 ] && exit 0
   echo "project-maintenance: clean — no secrets, no CVEs, no register drift, no context bloat.$([ "$FULL" -eq 0 ] && [ -n "$MUTATION_CMD" ] && printf ' (mutation pass skipped — use --full)')"
+  [ -n "$NOTES" ] && printf '%s' "$NOTES"
   exit 0
 fi
 
 echo "project-maintenance: $FINDINGS finding(s) — $(date -u +%Y-%m-%d)"
 echo
 printf '%s' "$REPORT"
+[ -n "$NOTES" ] && printf '%s' "$NOTES"
 echo "Each finding needs an explicit fix / defer / dismiss decision per .claude/rules/validation-followup.md."
 exit 1

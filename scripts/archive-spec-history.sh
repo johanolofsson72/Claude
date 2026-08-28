@@ -21,9 +21,16 @@
 #     only on the history section" — it used to say that, and it was false: the
 #     split is positional, so four scenario ledger blocks appended below the
 #     heading were swept as if they were history. Measured before the fix: 155
-#     lines and 76 live "✓ validated" SC-ids relocated into the archive, with
-#     validate-scenario-traceability.sh reporting 100% and exit 0 throughout,
-#     because it reads both files. That silence is the K5 violation; row H5j.
+#     lines and 76 live "✓ validated" SC-ids relocated into the archive, and
+#     NOTHING NOTICED. That silence is the K5 violation; row H5j.
+#
+#     This comment used to attribute the silence to validate-scenario-traceability.sh
+#     "reporting 100% and exit 0 throughout, because it reads both files". No such
+#     script existed — not here, not in the template, not anywhere in this repo's
+#     history. The relocation was unwatched because there was no watcher, which is a
+#     different and worse fact than a gate that failed to bite, and a reader had no
+#     way to tell the two apart. Spec 007bs built the gate and corrected this line;
+#     the coverage figure it reports is now a real measurement.
 #   - Reversible — the repo is git-tracked; `git diff` shows exactly what moved,
 #     `git checkout -- <file>` undoes it.
 #   - Idempotent — re-running with the same KEEP just re-confirms; nothing is

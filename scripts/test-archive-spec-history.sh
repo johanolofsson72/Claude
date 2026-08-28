@@ -5,9 +5,14 @@
 # "history" meant "every line below the heading" — and four scenario ledger
 # blocks that had been appended below that heading were therefore swept into the
 # archive as if they were history. Measured before the fix: 155 lines and 76 live
-# "✓ validated" SC-ids left SCENARIOS.md in one run, while
-# validate-scenario-traceability.sh reported 100% and exit 0 the whole time
-# (it reads both files). A silent relocation of proven scenarios is a K5 miss.
+# "✓ validated" SC-ids left SCENARIOS.md in one run, and nothing reported it. A
+# silent relocation of proven scenarios is a K5 miss.
+#
+# This comment used to say validate-scenario-traceability.sh "reported 100% and exit
+# 0 the whole time". That script did not exist when this was written; the run went
+# unwatched because nothing was watching. Spec 007bs built it — the gate is real now,
+# and scripts/test-validate-scenario-traceability.sh is what stops IT becoming the
+# next unwatched claim.
 # Row H5j added the guard; this harness is what stops the guard from becoming
 # the next unwatched claim.
 #
@@ -51,11 +56,19 @@ bad()  { FAIL=$((FAIL+1)); FAILED_CASES="$FAILED_CASES $1"; printf '  FAIL  %s �
 # A well-formed map: real content above the heading, dated one-line entries below.
 # Newest-first, matching how this repo's register actually orders them.
 #
-# NB: fixture rows deliberately use 'ID-NNN', never 'SC-NNN'. An SC-id here would
-# be picked up by validate-scenario-traceability.sh as a reference from scripts/,
-# so a fixture would silently "trace" a real scenario it never exercises — the
-# false-binding failure H5c and H5g both spent a row unpicking. Do not "fix" this
-# back to SC-.
+# NB: fixture rows deliberately use 'ID-NNN', never 'SC-NNN'. A real id here would be
+# picked up as a reference by scripts/validate-scenario-traceability.sh whenever it is
+# pointed at scripts/, so a fixture would silently "trace" a real scenario it never
+# exercises — the false-binding failure H5c and H5g both spent a row unpicking. Do not
+# "fix" this back to SC-.
+#
+# That gate did not exist when this note was written (spec 007bs built it), but the note
+# was right about what one would do, and it is now enforceable: running the gate with
+# --roots tests,scripts reports 15 dangling ids, every one of them an id written into a
+# harness comment in this directory. That is why its default reference root is tests/
+# alone. Note also that the ID- trick does NOT transfer to the traceability harness:
+# scenario-map-rows.sh hardcodes SC- in its row pattern, so an ID- fixture row there
+# extracts to nothing — that harness composes its ids at runtime instead.
 write_clean_scenarios() { # <path> [extra-entry-text]
   cat > "$1" <<'EOF'
 # Scenario map
@@ -277,11 +290,17 @@ if [ -f "$REPO_ROOT/specs/SCENARIOS.md" ] && [ "$SCRIPT" = "$REPO_ROOT/scripts/a
     mkdir -p "$sd/scenarios"
     cp "$REPO_ROOT"/specs/scenarios/*.md "$sd/scenarios/" 2>/dev/null || true
   fi
-  # Counts every SC-id MENTIONED, not only those owned as a table row, so this
-  # total runs one above validate-scenario-traceability.sh's: one map row quotes
-  # a shellcheck code (SC2086) while explaining it must not be read as an id, and
-  # this naive grep sees the lookalike. Harmless — the assertion is before ==
-  # after on one file, so a constant offset cannot mask a moved row.
+  # Counts every SC-id MENTIONED, not only those owned as a table row, so this total
+  # runs above scripts/validate-scenario-traceability.sh's, which reads five-column
+  # table rows only: prose mentions and flowchart labels inflate this grep and not the
+  # gate. Harmless — the assertion is before == after on one file, so a constant offset
+  # cannot mask a moved row.
+  #
+  # This note used to give the offset as exactly one, attributed to a shellcheck code
+  # (SC2086) that one map row quotes while explaining it must not be read as an id. The
+  # figure was never measured — the gate it compared against did not exist until spec
+  # 007bs — and the lookalike it names has no hyphen, so neither this grep nor the gate
+  # sees it. The offset is real; its size is not pinned, and nothing here depends on it.
   #
   # That lookalike is deliberately NOT spelled with a hyphen here: writing it out
   # would make this comment a reference from scripts/ to an id the map does not

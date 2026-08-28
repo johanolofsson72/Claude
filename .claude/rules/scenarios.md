@@ -115,6 +115,17 @@ flowchart TD
 
 This gives a clean chain: **SC-014 → destructive test → Allium invariant → TLA+ check**. When `/tla` finds a gap, you can trace it straight back to the scenario it came from (or discover the scenario was never written down — which is itself the finding).
 
+**The chain is checked, in both directions, by `scripts/validate-scenario-traceability.sh`.** It reports:
+
+- **uncovered** — a row whose Status claims `✓` or `◐` while no test under `tests/` names its id. The map says the scenario is proven and the suite has never heard of it. This is a gate failure, not a matter of taste: a status is a claim about the suite, and a claim nothing backs is the thing the status was invented to prevent.
+- **dangling** — an id a test names that is not a row in the map. A typo, or a row deleted out from under a test.
+
+**A `☐ mapped` row is exempt from the coverage direction.** Mapped-not-yet-tested is the correct state for every scenario of every unbuilt spec, and counting it as a failure would leave the gate permanently red on any project with a roadmap — which is how a gate stops being read. A **retired** (`~~SC-nnn~~`) row is exempt too, but its id still counts as real for the dangling check: the id is a permanent handle, so a test still naming it is stale, not wrong about the map.
+
+The figure is reported with **both numbers** (`122 of 150`), never as a bare percentage, and `scripts/project-maintenance.sh` prints it on every pass without failing the run — uncovered scenarios are a backlog, dangling ones are a defect and do fail it.
+
+For most of this project's life nothing checked either direction, while four comments in `scripts/` cited a traceability script by name as having "reported 100% and exit 0". No such script existed. That is why the gate ships with `scripts/test-validate-scenario-traceability.sh` and a sabotage arm: a gate nobody has watched fail is a report, not a gate. (Spec 007bs.)
+
 ## When to update (continuous, every spec)
 
 The map is touched during **every** behaviour-changing spec, as part of the pipeline (not a separate task):
