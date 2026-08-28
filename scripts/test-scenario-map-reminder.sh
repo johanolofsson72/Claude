@@ -55,7 +55,7 @@ expect_advisory() {
     _out=$(run_hook "$2")
     if [ -z "$_out" ]; then
         bad "$1" "expected an advisory, got silence"
-    elif printf '%s' "$_out" | grep -q "$3"; then
+    elif grep -q "$3" <<< "$_out"; then
         ok "$1"
     else
         bad "$1" "advisory fired but does not name $3"
@@ -135,7 +135,7 @@ NOMAP=$(make_single_file_fixture)
 rm -f "$NOMAP/specs/SCENARIOS.md"
 F=$(write_spec "$NOMAP" 003-gamma interactive)
 OUT=$(run_hook "$F")
-if printf '%s' "$OUT" | grep -q 'does not exist yet'; then
+if grep -q 'does not exist yet' <<< "$OUT"; then
     ok "no map at all — the 'does not exist yet' message still fires"
 else
     bad "no map at all" "expected the does-not-exist message, got: $(printf '%s' "$OUT" | head -c 120)"

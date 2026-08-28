@@ -129,7 +129,7 @@ proj=$(new_project)
 { map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
 write_test "$proj" "a.test.ts" 901
 run_gate "$proj"
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "$(id 902)" && printf '%s' "$OUT" | grep -q 'uncovered'; then
+if [ "$RC" -eq 1 ] && grep -q "$(id 902)" <<< "$OUT" && grep -q 'uncovered' <<< "$OUT"; then
   ok "case2-uncovered-validated"
 else
   bad "case2-uncovered-validated" "expected exit 1 naming the id under uncovered, got $RC: $OUT"
@@ -140,7 +140,7 @@ proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
 write_test "$proj" "a.test.ts" 901 907
 run_gate "$proj"
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'dangling' && printf '%s' "$OUT" | grep -q "$(id 907)"; then
+if [ "$RC" -eq 1 ] && grep -q 'dangling' <<< "$OUT" && grep -q "$(id 907)" <<< "$OUT"; then
   ok "case3-dangling"
 else
   bad "case3-dangling" "expected exit 1 naming the id under dangling, got $RC: $OUT"
@@ -152,8 +152,8 @@ proj=$(new_project)
 write_test "$proj" "a.test.ts" 901 907
 run_gate "$proj"
 if [ "$RC" -eq 1 ] \
-   && printf '%s' "$OUT" | grep -q 'uncovered' && printf '%s' "$OUT" | grep -q "$(id 902)" \
-   && printf '%s' "$OUT" | grep -q 'dangling'  && printf '%s' "$OUT" | grep -q "$(id 907)"; then
+   && grep -q 'uncovered' <<< "$OUT" && grep -q "$(id 902)" <<< "$OUT" \
+   && grep -q 'dangling' <<< "$OUT"  && grep -q "$(id 907)" <<< "$OUT"; then
   ok "case4-both-directions"
 else
   bad "case4-both-directions" "expected both sections populated, got $RC: $OUT"
@@ -180,7 +180,7 @@ proj=$(new_project)
 { map_header; row 901 "$V"; printf '| %s | happy | A thing happens | It works | %s * |\n' "$(id 902)" "$V"; } > "$proj/specs/SCENARIOS.md"
 write_test "$proj" "a.test.ts" 901
 run_gate "$proj"
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "$(id 902)"; then
+if [ "$RC" -eq 1 ] && grep -q "$(id 902)" <<< "$OUT"; then
   ok "case7-footnoted-validated-is-claimed"
 else
   bad "case7-footnoted-validated-is-claimed" "expected the footnoted row to be uncovered, got $RC: $OUT"
@@ -199,7 +199,7 @@ if [ "$RC" -eq 0 ]; then ok "case8-struck-reference-not-dangling"; else bad "cas
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
 run_gate "$proj" --roots nosuchdir
-if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q 'nosuchdir'; then
+if [ "$RC" -eq 4 ] && grep -q 'nosuchdir' <<< "$OUT"; then
   ok "case9-missing-root"
 else
   bad "case9-missing-root" "expected exit 4 naming the root, got $RC: $OUT"
@@ -232,7 +232,7 @@ mkdir -p "$proj/specs/scenarios"
 { map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/scenarios/001-feature.md"
 write_test "$proj" "a.test.ts" 901
 run_gate "$proj"
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'split' && printf '%s' "$OUT" | grep -q "$(id 902)"; then
+if [ "$RC" -eq 1 ] && grep -q 'split' <<< "$OUT" && grep -q "$(id 902)" <<< "$OUT"; then
   ok "case13-split-layout"
 else
   bad "case13-split-layout" "expected the split layout to report the same uncovered id, got $RC: $OUT"
@@ -321,7 +321,7 @@ expect_red() { # <label> <output> <case>...
   lbl="$1"; out="$2"; shift 2
   missing=""
   for c in "$@"; do
-    printf '%s' "$out" | grep -q "FAIL  $c" || missing="$missing $c"
+    grep -q "FAIL  $c" <<< "$out" || missing="$missing $c"
   done
   if [ -n "$missing" ]; then
     echo "  FAIL  sabotage/$lbl — these cases stayed GREEN:$missing"
@@ -336,7 +336,7 @@ expect_green() { # <label> <output> <case>...
   lbl="$1"; out="$2"; shift 2
   broke=""
   for c in "$@"; do
-    printf '%s' "$out" | grep -q "FAIL  $c" && broke="$broke $c"
+    grep -q "FAIL  $c" <<< "$out" && broke="$broke $c"
   done
   if [ -n "$broke" ]; then
     echo "  FAIL  sabotage/$lbl — these cases broke when they should not have:$broke"
@@ -415,7 +415,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   # the reds above would be meaningless.
   for s in a b c d e f; do
     sab_run "$SABDIR/$s.sh"
-    if printf '%s' "$SAB_OUT" | grep -q "FAIL  case1-clean"; then
+    if grep -q "FAIL  case1-clean" <<< "$SAB_OUT"; then
       echo "  FAIL  sabotage/$s — case1-clean also broke, so the sabotage was not surgical"
       SAB_FAIL=1
     fi

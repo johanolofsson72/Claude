@@ -45,12 +45,12 @@ expect_pkg_count() {
 
 # $1 name · $2 substring that must appear · $3 output
 expect_contains() {
-  if printf '%s\n' "$3" | grep -Fq "$2"; then ok "$1"; else bad "$1" "output contains '$2'" "not found"; fi
+  if grep -Fq "$2" <<< "$3"; then ok "$1"; else bad "$1" "output contains '$2'" "not found"; fi
 }
 
 # $1 name · $2 substring that must NOT appear · $3 output
 expect_absent() {
-  if printf '%s\n' "$3" | grep -Fq "$2"; then bad "$1" "output does NOT contain '$2'" "found"; else ok "$1"; fi
+  if grep -Fq "$2" <<< "$3"; then bad "$1" "output does NOT contain '$2'" "found"; else ok "$1"; fi
 }
 
 mkpkg() { mkdir -p "$(dirname "$1")"; printf '{ "name": "%s", "version": "1.0.0" }\n' "$2" > "$1"; }

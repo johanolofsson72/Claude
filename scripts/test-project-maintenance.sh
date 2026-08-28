@@ -51,13 +51,13 @@ bad() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n       expected: %s\n       actua
 
 # $1 name · $2 substring that must appear · $3 output
 expect_contains() {
-  if printf '%s\n' "$3" | grep -Fq -e "$2"; then ok "$1"; else
+  if grep -Fq -e "$2" <<< "$3"; then ok "$1"; else
     bad "$1" "output contains '$2'" "$(printf '%s' "$3" | tr '\n' '|')"; fi
 }
 
 # $1 name · $2 substring that must NOT appear · $3 output
 expect_absent() {
-  if printf '%s\n' "$3" | grep -Fq -e "$2"; then
+  if grep -Fq -e "$2" <<< "$3"; then
     bad "$1" "output does NOT contain '$2'" "$(printf '%s' "$3" | tr '\n' '|')"; else ok "$1"; fi
 }
 
@@ -350,7 +350,7 @@ expect_contains "C20 exit 0 with no score — reported as unclassifiable, never 
 # A maintenance pass that silently launches a multi-hour run across every gate is a worse defect than
 # the one it fixes. Asserted against the source, with comments stripped, because the file discusses the
 # rule at length and an assertion that cannot tell a discussion from a call would forbid the discussion.
-if ! sed 's/#.*//' "$MAINT" | grep -q 'rerun-refused\|mutation-rotation\|--include-unmeasured'; then
+if ! grep -q 'rerun-refused\|mutation-rotation\|--include-unmeasured' <<< "$(sed 's/#.*//' "$MAINT")"; then
   ok "C21 the maintenance pass invokes no sweep of its own"
 else
   bad "C21 the maintenance pass invokes no sweep" "no sweep invocation" "a sweep script is called"

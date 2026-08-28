@@ -64,8 +64,8 @@ history_mode() {
     # Was the fix already in the tree this commit produced? That is what decides
     # whether this commit is history or a regression.
     fixed=0
-    git -C "$repo" show "$sha:scripts/template-autosync.sh" 2>/dev/null \
-      | grep -q "$FIX_MARKER" && fixed=1
+    grep -q "$FIX_MARKER" \
+      <<< "$(git -C "$repo" show "$sha:scripts/template-autosync.sh" 2>/dev/null)" && fixed=1
 
     if [ "$claimed_u" = "$actual_m" ] && [ "$claimed_a" = "$actual_a" ]; then
       [ "$fixed" -eq 1 ] && checked=$((checked+1))
@@ -166,15 +166,15 @@ fixture_mode() {
   fi
 
   # The honest control must survive: this is the majority case and must not regress.
-  if git -C "$proj" show --name-only --format= HEAD | grep -qx '.claude/rules/specs.md'; then
+  if grep -qx '.claude/rules/specs.md' <<< "$(git -C "$proj" show --name-only --format= HEAD)"; then
     ok "the genuinely-changed file is in the commit"
   else
     bad "the genuinely-changed file never reached the commit"
   fi
 
   # FR-003 — each written-but-unrecorded file is named, with a reason.
-  if printf '%s\n' "$out" | grep -q 'rules/tests.md'; then
-    if printf '%s\n' "$out" | grep 'tests.md' | grep -qi 'identical to HEAD'; then
+  if grep -q 'rules/tests.md' <<< "$out"; then
+    if grep -qi 'identical to HEAD' <<< "$(grep 'tests.md' <<< "$out")"; then
       ok "the round-tripped write is named, with the HEAD-identical reason"
     else
       bad "the round-tripped write is named but its reason is wrong or missing"
@@ -183,8 +183,8 @@ fixture_mode() {
     bad "the round-tripped write (.claude/rules/tests.md) is not reported at all"
   fi
 
-  if printf '%s\n' "$out" | grep -q 'notes.local'; then
-    if printf '%s\n' "$out" | grep 'notes.local' | grep -qi 'ignored'; then
+  if grep -q 'notes.local' <<< "$out"; then
+    if grep -qi 'ignored' <<< "$(grep 'notes.local' <<< "$out")"; then
       ok "the gitignored write is named, with the ignored reason"
     else
       bad "the gitignored write is named but its reason is wrong or missing"
@@ -224,7 +224,7 @@ clean_case() {
 
   out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" bash "$SYNC" 2>&1 )
   printf '\n[clean] every write recorded — the block must stay silent\n'
-  if printf '%s\n' "$out" | grep -qi 'recorded no change'; then
+  if grep -qi 'recorded no change' <<< "$out"; then
     bad "a reconciliation block fired on a clean sync (this lands in every session start)"
     printf '%s\n' "$out" | sed 's/^/        | /'
   else
@@ -272,9 +272,9 @@ nothing_case() {
   else
     local files
     files=$(git -C "$proj" show --name-only --format= HEAD | grep -c .)
-    if [ "$files" -eq 1 ] && git -C "$proj" show --name-only --format= HEAD | grep -qx '.claude/.template-sync'; then
+    if [ "$files" -eq 1 ] && grep -qx '.claude/.template-sync' <<< "$(git -C "$proj" show --name-only --format= HEAD)"; then
       ok "only the stamp was committed (a SHA advance, not a file count)"
-      if git -C "$proj" log -1 --format=%s | grep -qE '— 0 updated, 0 added'; then
+      if grep -qE '— 0 updated, 0 added' <<< "$(git -C "$proj" log -1 --format=%s)"; then
         ok "the stamp-only commit does not claim files it does not carry"
       else
         bad "the stamp-only commit's subject: $(git -C "$proj" log -1 --format=%s)"
@@ -318,7 +318,7 @@ stamp_advance_case() {
   files=$(git -C "$proj" show --name-only --format= HEAD | grep -c .)
   case "$subj" in
     *"chore(sync)"*)
-      if [ "$files" -eq 1 ] && git -C "$proj" show --name-only --format= HEAD | grep -qx '.claude/.template-sync'; then
+      if [ "$files" -eq 1 ] && grep -qx '.claude/.template-sync' <<< "$(git -C "$proj" show --name-only --format= HEAD)"; then
         ok "the stamp advanced in a commit of its own"
       else
         bad "the stamp-advance commit carries $files file(s), not just the stamp"
@@ -331,7 +331,7 @@ stamp_advance_case() {
   esac
 
   # And the writes it did make must still be reported.
-  printf '%s\n' "$out" | grep -q 'recorded no change' \
+  grep -q 'recorded no change' <<< "$out" \
     && ok "the unrecorded writes are still reported" \
     || bad "files were written, none recorded, and nothing said so"
 
@@ -359,7 +359,7 @@ check_case() {
 
   out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" bash "$SYNC" --check 2>&1 )
   printf '\n[check] --check reconciles nothing\n'
-  printf '%s\n' "$out" | grep -qi 'recorded no change' \
+  grep -qi 'recorded no change' <<< "$out" \
     && bad "--check emitted a reconciliation block despite writing nothing" \
     || ok "--check emits no reconciliation block"
   [ -z "$(git -C "$proj" status --porcelain)" ] \

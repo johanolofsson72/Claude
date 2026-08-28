@@ -198,7 +198,7 @@ sd=$(new_specs_dir); write_clean_scenarios "$sd/SCENARIOS.md"
 run_archiver "$sd"
 if [ "$RC" -ne 0 ]; then
   bad "case1-clean-archives" "expected exit 0, got $RC"
-elif ! printf '%s' "$OUT" | grep -q 'archived 3 entries'; then
+elif ! grep -q 'archived 3 entries' <<< "$OUT"; then
   bad "case1-clean-archives" "expected 3 entries archived; got: $(printf '%s' "$OUT" | tr '\n' ' ')"
 elif [ "$(grep -c '^- 2026-' "$sd/SCENARIOS.md")" -ne 5 ]; then
   bad "case1-clean-archives" "expected 5 entries kept inline, got $(grep -c '^- 2026-' "$sd/SCENARIOS.md")"
@@ -233,9 +233,9 @@ elif [ "$(sha_of "$sd/SCENARIOS.md")" != "$before" ]; then
   bad "case3-ledger-block-refused" "file was modified despite the refusal"
 elif [ -f "$sd/SCENARIOS.history.md" ]; then
   bad "case3-ledger-block-refused" "an archive was written despite the refusal"
-elif ! printf '%s' "$OUT" | grep -q 'FAULT'; then
+elif ! grep -q 'FAULT' <<< "$OUT"; then
   bad "case3-ledger-block-refused" "no FAULT line in the output"
-elif ! printf '%s' "$OUT" | grep -q 'A block appended in the wrong place'; then
+elif ! grep -q 'A block appended in the wrong place' <<< "$OUT"; then
   bad "case3-ledger-block-refused" "the message does not quote the offending line"
 else
   ok "case3-ledger-block-refused"
@@ -247,7 +247,7 @@ sd=$(new_specs_dir); write_clean_scenarios "$sd/SCENARIOS.md"; append_ledger_blo
 run_archiver "$sd" --dry-run
 if [ "$RC" -ne 3 ]; then
   bad "case4-dry-run-refused" "expected exit 3, got $RC"
-elif printf '%s' "$OUT" | grep -q 'would archive'; then
+elif grep -q 'would archive' <<< "$OUT"; then
   bad "case4-dry-run-refused" "dry-run reported a planned archive on a foul file"
 else
   ok "case4-dry-run-refused"
@@ -293,7 +293,7 @@ printf '# Scenario map\n\n## Actor: Admin\n\n| SC-001 | happy | x | y | ✓ |\n'
 run_archiver "$sd"
 if [ "$RC" -ne 0 ]; then
   bad "case8-no-history-section-ok" "expected exit 0, got $RC"
-elif ! printf '%s' "$OUT" | grep -q 'no history section'; then
+elif ! grep -q 'no history section' <<< "$OUT"; then
   bad "case8-no-history-section-ok" "expected the existing skip path"
 else
   ok "case8-no-history-section-ok"
@@ -321,7 +321,7 @@ scen_before=$(sha_of "$sd/SCENARIOS.md")
 run_archiver "$sd"
 if [ "$RC" -ne 3 ]; then
   bad "case10-mixed-clean-and-foul" "expected exit 3, got $RC"
-elif ! printf '%s' "$OUT" | grep -q 'INDEX.md — archived 3 entries'; then
+elif ! grep -q 'INDEX.md — archived 3 entries' <<< "$OUT"; then
   bad "case10-mixed-clean-and-foul" "the clean sibling was not processed: $(printf '%s' "$OUT" | tr '\n' ' ')"
 elif [ "$(sha_of "$sd/SCENARIOS.md")" != "$scen_before" ]; then
   bad "case10-mixed-clean-and-foul" "the refused file was modified"
@@ -398,9 +398,9 @@ sd=$(new_specs_dir); write_budget_scenarios "$sd/SCENARIOS.md" 0 0
 run_archiver "$sd"
 if [ "$RC" -ne 0 ]; then
   bad "budget-clean-silent" "expected exit 0 on a compliant map, got $RC"
-elif printf '%s' "$OUT" | grep -q 'OVER BUDGET'; then
+elif grep -q 'OVER BUDGET' <<< "$OUT"; then
   bad "budget-clean-silent" "reported a budget fault on a map with no long entries"
-elif ! printf '%s' "$OUT" | grep -q 'archived 3 entries'; then
+elif ! grep -q 'archived 3 entries' <<< "$OUT"; then
   bad "budget-clean-silent" "the archiving behaviour changed: $(printf '%s' "$OUT" | tr '\n' ' ')"
 else
   ok "budget-clean-silent"
@@ -414,11 +414,11 @@ true_bytes=$(entry_bytes "$sd/SCENARIOS.md" 2026-08-08)
 run_archiver "$sd"
 if [ "$RC" -ne 4 ]; then
   bad "budget-over-reported" "expected exit 4, got $RC"
-elif ! printf '%s' "$OUT" | grep -q 'OVER BUDGET: SCENARIOS.md — 1 entry over the 300-byte budget'; then
+elif ! grep -q 'OVER BUDGET: SCENARIOS.md — 1 entry over the 300-byte budget' <<< "$OUT"; then
   bad "budget-over-reported" "no per-file report naming one entry: $(printf '%s' "$OUT" | tr '\n' ' ')"
-elif ! printf '%s' "$OUT" | grep -q "2026-08-08   ${true_bytes} bytes"; then
+elif ! grep -q "2026-08-08   ${true_bytes} bytes" <<< "$OUT"; then
   bad "budget-over-reported" "reported size is not the entry's true $true_bytes bytes: $(printf '%s' "$OUT" | tr '\n' ' ')"
-elif ! printf '%s' "$OUT" | grep -qE 'line (12|13) '; then
+elif ! grep -qE 'line (12|13) ' <<< "$OUT"; then
   bad "budget-over-reported" "no usable line number in the report: $(printf '%s' "$OUT" | tr '\n' ' ')"
 else
   ok "budget-over-reported"
@@ -447,7 +447,7 @@ sd=$(new_specs_dir); write_budget_scenarios "$sd/SCENARIOS.md" 7 900
 run_archiver "$sd"
 if [ "$RC" -ne 0 ]; then
   bad "budget-archived-entry-not-reported" "expected exit 0 — the long entry was archived by this very run — got $RC"
-elif printf '%s' "$OUT" | grep -q 'OVER BUDGET'; then
+elif grep -q 'OVER BUDGET' <<< "$OUT"; then
   bad "budget-archived-entry-not-reported" "reported an entry the run had just moved out of the live file"
 elif ! grep -q 'xxxxxxxxxx' "$sd/SCENARIOS.history.md"; then
   bad "budget-archived-entry-not-reported" "the long entry did not reach the archive"
@@ -461,7 +461,7 @@ sd=$(new_specs_dir); write_budget_scenarios "$sd/SCENARIOS.md" 1 900
 run_archiver "$sd" --max-bytes 0
 if [ "$RC" -ne 0 ]; then
   bad "budget-disabled-at-zero" "expected exit 0 with the check disabled, got $RC"
-elif printf '%s' "$OUT" | grep -q 'OVER BUDGET'; then
+elif grep -q 'OVER BUDGET' <<< "$OUT"; then
   bad "budget-disabled-at-zero" "reported a budget fault with --max-bytes 0"
 else
   ok "budget-disabled-at-zero"
@@ -490,9 +490,9 @@ before=$(sha_of "$sd/SCENARIOS.md")
 run_archiver "$sd" --dry-run
 if [ "$RC" -ne 4 ]; then
   bad "budget-dry-run-exits-4" "expected exit 4 from --dry-run, got $RC"
-elif ! printf '%s' "$OUT" | grep -q 'OVER BUDGET: SCENARIOS.md'; then
+elif ! grep -q 'OVER BUDGET: SCENARIOS.md' <<< "$OUT"; then
   bad "budget-dry-run-exits-4" "--dry-run stayed silent about the budget"
-elif printf '%s' "$OUT" | grep -q 'Archiving completed'; then
+elif grep -q 'Archiving completed' <<< "$OUT"; then
   bad "budget-dry-run-exits-4" "--dry-run claimed archiving completed — nothing was written"
 elif [ "$(sha_of "$sd/SCENARIOS.md")" != "$before" ] || [ -f "$sd/SCENARIOS.history.md" ]; then
   bad "budget-dry-run-exits-4" "--dry-run wrote to disk"
@@ -504,7 +504,7 @@ fi
 # archived, so the kept entries have not shifted up under the heading.
 if [ "$RC" -ne 4 ]; then
   bad "budget-dry-run-line-is-current" "expected exit 4 from the dry run, got $RC — no report to check a line number in"
-elif ! printf '%s' "$OUT" | grep -q 'line 12 '; then
+elif ! grep -q 'line 12 ' <<< "$OUT"; then
   bad "budget-dry-run-line-is-current" "the dry-run report does not name the entry's current line 12: $(printf '%s' "$OUT" | tr '\n' ' ')"
 else
   ok "budget-dry-run-line-is-current"
@@ -565,7 +565,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   expected_red="case3-ledger-block-refused case4-dry-run-refused case5-keep-independent case6-undated-bullet-refused case7-horizontal-rule-refused case10-mixed-clean-and-foul"
   missing=""
   for c in $expected_red; do
-    printf '%s' "$sab_out" | grep -q "FAIL  $c" || missing="$missing $c"
+    grep -q "FAIL  $c" <<< "$sab_out" || missing="$missing $c"
   done
 
   if [ -n "$missing" ]; then
@@ -592,7 +592,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   expected_red2="budget-over-reported budget-writes-completed budget-dry-run-exits-4 budget-dry-run-line-is-current"
   missing2=""
   for c in $expected_red2; do
-    printf '%s' "$sab2_out" | grep -q "FAIL  $c" || missing2="$missing2 $c"
+    grep -q "FAIL  $c" <<< "$sab2_out" || missing2="$missing2 $c"
   done
 
   if [ -n "$missing2" ]; then
@@ -607,7 +607,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   survivors="budget-clean-silent budget-disabled-at-zero budget-refusal-wins budget-multiline-refused-not-measured budget-archived-entry-not-reported budget-bad-arg-exits-2"
   wrongly_red=""
   for c in $survivors; do
-    printf '%s' "$sab2_out" | grep -q "FAIL  $c" && wrongly_red="$wrongly_red $c"
+    grep -q "FAIL  $c" <<< "$sab2_out" && wrongly_red="$wrongly_red $c"
   done
   if [ -n "$wrongly_red" ]; then
     echo "  FAIL  sabotage-budget — these cases went red for a check they do not exercise:$wrongly_red"
@@ -619,7 +619,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   # archiver's original behaviour, not the guard. If they went red too, the
   # sabotage broke the script wholesale and the red above would be meaningless.
   for c in case1-clean-archives case2-prose-with-markup-admitted; do
-    if printf '%s' "$sab_out" | grep -q "FAIL  $c"; then
+    if grep -q "FAIL  $c" <<< "$sab_out"; then
       echo "  FAIL  sabotage — $c also broke, so the sabotage was not surgical"
       exit 1
     fi

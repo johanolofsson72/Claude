@@ -694,8 +694,8 @@ printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] H9z — 
 mkdir -p "$QOT/specs/004-tail"
 printf '# R\n\n## Specs\n\n- [/] 004 — tail — full track — y\n' > "$QOT/specs/INDEX.md"
 printf '# Run log\n\n- 2026-01-01T00:00Z · mutation gate FAILED at 41%%\n' > "$QOT/specs/004-tail/run-log.md"
-(cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""') \
-  | grep -q 'mutation gate FAILED' \
+grep -q 'mutation gate FAILED' \
+  <<< "$(cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""')" \
   && _record "in-progress row → run-log tail is surfaced" 0 \
   || _record "in-progress row → run-log tail is surfaced" 1
 rm -rf "$QOT"

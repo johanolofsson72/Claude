@@ -136,7 +136,7 @@ EOF
             --exclude="$(basename "$0")" "$root"/scripts/*.sh 2>/dev/null | sort -u)
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    if { col1 "$MACHINE_LOCAL"; col1 "$TRACKED_BY_DESIGN"; } | grep -qxF "$p"; then
+    if grep -qxF "$p" <<< "$(col1 "$MACHINE_LOCAL"; col1 "$TRACKED_BY_DESIGN")"; then
       pass
     else
       fail "[C] a marker no bucket claims: $p"
@@ -191,7 +191,7 @@ self_test() {
   arm() { # $1=name  $2=fixture dir  $3=expected substring
     local o
     o=$(FAILURES=0; CHECKS=0; run_checks "$2" "$2/$SKILL_REL" 2>&1)
-    if printf '%s' "$o" | grep -q '^FAIL ' && printf '%s' "$o" | grep -qF "$3"; then
+    if grep -q '^FAIL ' <<< "$o" && grep -qF "$3" <<< "$o"; then
       st_pass=$((st_pass + 1)); printf 'ok    %s\n' "$1"
     else
       st_fail=$((st_fail + 1)); printf 'NOT OK %s — expected a failure naming: %s\n' "$1" "$3"
