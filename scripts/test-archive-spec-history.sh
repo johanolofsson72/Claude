@@ -37,9 +37,13 @@
 # written into a harness comment in this directory and none of them a row in the scenario
 # map. That measurement is why the gate's default reference root is tests/ alone, and why
 # scripts/project-maintenance.sh counts a dangling id as a finding rather than a note.
-# Minting SC-770.. for the ten budget cases below would grow a set the project has already
-# decided is a defect. The cases are named descriptively instead; the names are the handle
-# the sabotage arms match on, which is the only thing the ids were doing here anyway.
+# Minting the next ten ids for the budget cases below would grow a set the project has
+# already decided is a defect. (Those ids are deliberately not spelled out here, for the
+# same reason the SC2086 lookalike further down is not: writing one would itself be a
+# reference from scripts/ to an id the map does not own. The diagnostic run went 15 to 16
+# the first time this comment named one, which is how the trap gets re-proved.) The cases
+# are named descriptively instead; the names are the handle the sabotage arms match on,
+# which is the only thing the ids were doing here anyway.
 # Recorded in specs/007bt-history-entries-are-paragraphs/spec.md → Scope → Out.
 
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
