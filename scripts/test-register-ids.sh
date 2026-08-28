@@ -252,7 +252,12 @@ if [ "$BRC" -ne 0 ]; then
   bad "the gate is already rc=$BRC on the real register — with no green baseline a narrowing's effect
         cannot be attributed to the narrowing. Fix the grammar or the register first; this arm is
         deliberately silent rather than confidently wrong."
-  printf '%s\n' "$BOUT" | grep -v '^[[:space:]]*$' | head -3 | sed 's/^/        /'
+  # `| head -3` is an early-exit consumer: head leaves after three lines, grep -v keeps writing into a
+  # reader-less pipe and takes SIGPIPE (row H7x). Harmless here — the status is discarded — but the shape
+  # is the one scripts/validate-no-sigpipe-assertions.sh refuses, and it cannot tell a diagnostic from an
+  # assertion on a line that stands alone after a multi-line `bad`, so it says UNDECIDED rather than
+  # guessing. `sed -n '1,3p'` reads to EOF and orphans nobody: same three lines, no early exit.
+  grep -v '^[[:space:]]*$' <<< "$BOUT" | sed -n '1,3s/^/        /p'
   NARROWINGS=""
 fi
 

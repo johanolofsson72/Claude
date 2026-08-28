@@ -13,6 +13,12 @@
 # fixture carries a manifest or a solution file, so the mutation section never arms. Nothing
 # touches the network and the suite runs in about a second.
 #
+# C22-C25 cover section 2c (the SIGPIPE gate, row H7ax), which is likewise absent from every other
+# fixture: the section is guarded on the gate script existing, so it stays silent for C1-C21 and speaks
+# only for the four cases that plant a stub gate with a chosen exit code. What is under test there is
+# the same kind of decision — which exit code becomes a finding, which stays silent, and whether a gate
+# that could not run is ever allowed to read as a clean one.
+#
 # H1/F-04 is the failure this exists to prevent recurring: prune-agent-worktrees.sh existed the
 # whole time and ran only when somebody remembered, while the fleet accumulated 7 abandoned
 # worktrees, 733 MB, and 6 agent-memory files that existed nowhere else.
@@ -355,6 +361,48 @@ if ! grep -q 'rerun-refused\|mutation-rotation\|--include-unmeasured' <<< "$(sed
 else
   bad "C21 the maintenance pass invokes no sweep" "no sweep invocation" "a sweep script is called"
 fi
+
+# --- C22: no gate script — the section is silent, not reassuring -------------------------------------
+# Attention mode: a weekly report that lists what did not happen is the noise the mode exists to remove.
+# It is also the shape of every project that has not synced the gate yet, so silence here is the common
+# case, not an edge one.
+D=$(mkfix c22)
+OUT=$(run "$D"); RC=$?
+expect_absent "C22 no gate script — no SIGPIPE line" "[SIGPIPE]" "$OUT"
+expect_rc     "C22 no gate script — clean exit" 0 "$RC"
+
+# --- C23: the gate reports hits — a FINDING, and the verdict turns red -------------------------------
+# Deliberately the other side of 2b's asymmetry. An uncovered scenario is a backlog; a SIGPIPE assertion
+# is a one-line mechanical defect that is zero on a healthy repo, so it votes.
+D=$(mkfix c23)
+printf '#!/bin/bash\necho "scripts/test-x.sh:4"\necho "    if printf %%s \\"\$O\\" | grep -q y; then"\nexit 1\n' \
+  > "$D/scripts/validate-no-sigpipe-assertions.sh"
+OUT=$(run "$D"); RC=$?
+expect_contains "C23 gate reports hits — a SIGPIPE finding" "[SIGPIPE]" "$OUT"
+expect_contains "C23 the finding names the silent direction" "NEGATED" "$OUT"
+expect_contains "C23 the finding carries the gate's own output" "scripts/test-x.sh:4" "$OUT"
+expect_rc       "C23 gate reports hits — verdict is red" 1 "$RC"
+
+# --- C24: the gate could not run — still a finding, never a clean read -------------------------------
+# Exit 2 means "nothing to scan" or "a boundary I refuse to guess". Reporting that as a pass is the exact
+# defect row H7ax removed one level down: a gate that did not look must never read as a gate that did.
+D=$(mkfix c24)
+printf '#!/bin/bash\necho "ERROR: no scripts/test-*.sh under . — nothing was scanned." >&2\nexit 2\n' \
+  > "$D/scripts/validate-no-sigpipe-assertions.sh"
+OUT=$(run "$D"); RC=$?
+expect_contains "C24 gate could not run — reported, with its exit code" "could not run (exit 2)" "$OUT"
+expect_contains "C24 gate could not run — carries the reason" "nothing was scanned" "$OUT"
+expect_rc       "C24 gate could not run — verdict is red" 1 "$RC"
+
+# --- C25: a clean gate says nothing at all -----------------------------------------------------------
+# Including the NOT RUN branch, which also exits 0: downstream a freshly synced project has no self-tests
+# of its own, every one is sync-owned, and the template scans them. That is a normal state, not news.
+D=$(mkfix c25)
+printf '#!/bin/bash\necho "no-sigpipe-assertions: clean — 21 self-test(s)"\nexit 0\n' \
+  > "$D/scripts/validate-no-sigpipe-assertions.sh"
+OUT=$(run "$D"); RC=$?
+expect_absent "C25 clean gate — no SIGPIPE line" "[SIGPIPE]" "$OUT"
+expect_rc     "C25 clean gate — clean exit" 0 "$RC"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

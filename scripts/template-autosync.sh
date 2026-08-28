@@ -172,6 +172,7 @@ core-machinery-guard-hook.sh test-core-machinery-guard.sh
 bash_write_targets.py bash-write-guard-hook.sh bash-write-detect-hook.sh test-bash-write-guard.sh
 test-runtime-markers-ignored.sh
 validate-register-ids.sh test-register-ids.sh
+validate-no-sigpipe-assertions.sh test-no-sigpipe-assertions.sh
 validate-scenario-traceability.sh test-validate-scenario-traceability.sh
 project-maintenance.sh project-freshness.sh test-project-freshness.sh test-project-maintenance.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py

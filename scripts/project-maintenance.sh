@@ -129,6 +129,38 @@ $(printf '%s' "$TRACE_OUT" | tail -5)"
   esac
 fi
 
+# --------------------------------------------- 2c. SIGPIPE assertions in self-tests
+# `printf '%s' "$OUT" | grep -q PAT` under `set -o pipefail`: grep leaves at the match, printf keeps
+# writing into a reader-less pipe, takes SIGPIPE, and the PIPELINE returns 141 rather than grep's 0. A
+# positive assertion then reads a true claim as FALSE; a negated one reports PASS for exactly the state
+# it forbids -- the silent direction, and 46 of the 215 sites the gate was first written against. Rows
+# H7x and H7aw swept 52 such sites out of eight self-tests; nothing stops the idiom coming back, and a
+# template is where one reintroduced line reaches every project on its next session start.
+#
+# A FINDING, NOT A NOTE -- deliberately the other side of 2b's asymmetry. Uncovered scenarios are a
+# backlog and wiring a backlog into the exit code makes maintenance permanently red; this is not a
+# backlog. Every hit has a one-line mechanical fix (a here-string), and the gate already declines to
+# report what this tree cannot durably fix: downstream it exempts the sync-owned files because those are
+# scanned in the template itself (row H7ax). So the number is zero on a healthy repo, and it cannot creep
+# up merely because a project got large.
+if [ -f scripts/validate-no-sigpipe-assertions.sh ]; then
+  SIGPIPE_OUT=$(bash scripts/validate-no-sigpipe-assertions.sh 2>&1)
+  SIGPIPE_RC=$?
+  case "$SIGPIPE_RC" in
+    0) : ;;   # clean, or NOT RUN because every self-test here is sync-owned. Attention mode: say nothing.
+    1)
+      add "[SIGPIPE] self-test assertion(s) pipe into an early-exit consumer. Under set -o pipefail a true
+claim reads as false, and a NEGATED one passes for the state it forbids. Run: bash scripts/validate-no-sigpipe-assertions.sh
+$(sed -n '1,6p' <<< "$SIGPIPE_OUT")"
+      ;;
+    *)
+      # 2 is "nothing to scan" or "a boundary I refuse to guess" -- never reported as a clean tree.
+      add "[SIGPIPE] scripts/validate-no-sigpipe-assertions.sh could not run (exit $SIGPIPE_RC):
+$(tail -5 <<< "$SIGPIPE_OUT")"
+      ;;
+  esac
+fi
+
 # --------------------------------------------------------- 3. blocked / stalled rows
 if [ -f specs/INDEX.md ]; then
   BLOCKED=$(grep -cE '^- \[!\]' specs/INDEX.md 2>/dev/null | tr -dc '0-9'); BLOCKED=${BLOCKED:-0}
