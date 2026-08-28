@@ -80,10 +80,15 @@ scenario_probe_ids() {
   # The number is what is compared, so a suffixed id (a number plus a trailing letter, which real
   # maps do carry) occupies its stem's
   # number too. Two handles that differ by a letter must not let a probe take the digits between them.
+  # No `2>/dev/null` on this group, deliberately. It was here, and it made the readability guard
+  # below unfalsifiable: with the complaint swallowed, removing the guard changed nothing an assertion
+  # could see, and an arm that deleted it stayed green. Two defences for one property, where only one
+  # of them can ever be shown to work, is one defence and one decoration. The guard is the defence;
+  # anything cat has to say now reaches stderr, where the self-test asserts on its absence.
   { for _spi_map in "$@"; do
       [ -n "$_spi_map" ] && [ -r "$_spi_map" ] && cat "$_spi_map"
     done
-  } 2>/dev/null | awk -v want="$_spi_want" \
+  } | awk -v want="$_spi_want" \
                       -v top="$SCENARIO_PROBE_TOP" \
                       -v bottom="$SCENARIO_PROBE_BOTTOM" '
     /^\| *~*SC-[0-9]/ {

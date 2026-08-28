@@ -60,12 +60,21 @@ fi
 # --- a missing map is not an error ----------------------------------------------------------
 # Deliberately a path that cannot exist rather than one that happens not to: the assertion is about
 # the branch, and a stale file in TMPDIR would make this pass for the wrong reason.
-_got=$(scenario_probe_ids 2 "$TMP/there-is-no-such-file.md" 2>/dev/null | tr '\n' ' ')
+#
+# STDERR IS PART OF THE ASSERTION, and that is not belt-and-braces. Written as `2>/dev/null` this
+# case could not tell the readability guard from its absence: `cat` on a missing file fails, the
+# pipeline still exits on awk, and the only observable difference is the complaint on stderr — which
+# the test was throwing away. A falsification arm that removed the guard stayed GREEN. A defence no
+# arm can fell is a defence nobody can show is doing anything, and it is the shape that gets deleted
+# by the next reader as dead code.
+_err="$TMP/missing.err"
+_got=$(scenario_probe_ids 2 "$TMP/there-is-no-such-file.md" 2>"$_err" | tr '\n' ' ')
 _rc=$?
-if [ "$_rc" -eq 0 ] && [ "$_got" = "$TOP $TOP1 " ]; then
-  ok 'a missing map is an empty owned set, not an error'
+if [ "$_rc" -eq 0 ] && [ "$_got" = "$TOP $TOP1 " ] && [ ! -s "$_err" ]; then
+  ok 'a missing map is an empty owned set: right ids, rc 0, and silence on stderr'
 else
-  bad 'a missing map is an empty owned set, not an error' "rc=$_rc got [$_got]"
+  bad 'a missing map is an empty owned set: right ids, rc 0, and silence on stderr' \
+      "rc=$_rc got [$_got] stderr [$(cat "$_err")]"
 fi
 
 # --- no map argument at all -------------------------------------------------------------------
