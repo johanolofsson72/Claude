@@ -1,0 +1,123 @@
+#!/bin/sh
+# test-scenario-map-rows.sh — the parser harness for scenario-map-rows.sh.
+#
+# WHY THIS EXISTS: scenario-map-rows.sh was the single implementation of cell splitting for the
+# whole scenario-map toolchain and it had no test of its own. test-scenario-map-layouts.sh calls
+# it, but only to compare one layout against another — both sides run the same parser, so a
+# parsing bug cancels out and the comparison stays green. That is precisely how trap 3 survived:
+# on 2026-08-28 the traceability gate refused agentcrm's 482-row map over ONE row containing a
+# markdown-escaped pipe, and every harness that touched the parser was passing at the time.
+#
+# WHAT IT ASSERTS, and why each case is here rather than being obvious:
+#
+#   - the escaped pipe (\|) is a cell's content, not a column break                    [trap 3]
+#   - a restored cell keeps the escape, so the OUTPUT still has no bare delimiter. Every caller
+#     splits these rows on "|"; unescaping would push status and struck into the wrong fields
+#     for exactly the rows the rejoin rescues, which is a corruption no exit code reports.
+#   - an EVEN run of backslashes before a delimiter is a real column break. This is the case a
+#     naive "field ends in a backslash" test gets wrong, and it cannot be found by staring at a
+#     map that happens to contain no such row.
+#   - a genuinely six-column row is STILL rejected. This is the known positive from trap 4 in
+#     .claude/rules/mutation-timeouts.md: a fix that widens a guard must be shown to leave the
+#     guard biting, or "no malformed rows" stops distinguishing a clean map from a blind parser.
+#   - a retired (~~SC-NNN~~) row keeps its id and reports struck=1                     [trap 1]
+#   - prose and flowchart mentions of an id are not rows                               [trap 2]
+#
+# Run:  bash scripts/test-scenario-map-rows.sh
+# Exit: 0 all cases pass · 1 one or more failed
+
+set -u
+
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+ROWS="$SCRIPT_DIR/scenario-map-rows.sh"
+FAILED=0
+
+ok()  { printf '  ok:   %s\n' "$1"; }
+bad() { printf '  FAIL: %s — %s\n' "$1" "$2"; FAILED=$((FAILED + 1)); }
+
+TMP=$(mktemp -d 2>/dev/null || mktemp -d -t scenrows)
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# expect_row <label> <map-file> <id> <expected full output line>
+expect_row() {
+  _label=$1; _file=$2; _id=$3; _want=$4
+  _got=$(sh "$ROWS" "$_file" 2>/dev/null | grep "^$_id|")
+  if [ "$_got" = "$_want" ]; then ok "$_label"
+  else bad "$_label" "got [$_got] want [$_want]"
+  fi
+}
+
+printf '== scenario-map-rows: cell splitting ==\n'
+
+# --- trap 3: the escaped pipe ---------------------------------------------------------
+cat > "$TMP/escaped.md" <<'MAP'
+| SC-001 | adversarial | A note beginning `=cmd\|` shown in the preview | Rendered as text, never as a formula | ✓ |
+| SC-002 | happy | A plain row with no pipes at all | Extracted unchanged | ✓ |
+| SC-003 | edge | Two \| escaped \| pipes in one cell | Still one cell | ◐ |
+| ~~SC-004~~ | happy | A retired row | Its id stays reserved | ☐ |
+MAP
+
+expect_row 'escaped pipe is content, not a column break' "$TMP/escaped.md" SC-001 \
+  'SC-001|adversarial|A note beginning `=cmd\|` shown in the preview|Rendered as text, never as a formula|✓|0'
+expect_row 'a row with no pipes is untouched' "$TMP/escaped.md" SC-002 \
+  'SC-002|happy|A plain row with no pipes at all|Extracted unchanged|✓|0'
+expect_row 'two escaped pipes in one cell' "$TMP/escaped.md" SC-003 \
+  'SC-003|edge|Two \| escaped \| pipes in one cell|Still one cell|◐|0'
+expect_row 'a retired row keeps its id and reports struck' "$TMP/escaped.md" SC-004 \
+  'SC-004|happy|A retired row|Its id stays reserved|☐|1'
+
+if sh "$ROWS" "$TMP/escaped.md" >/dev/null 2>&1; then
+  ok 'a map whose only pipes are escaped exits 0'
+else
+  bad 'a map whose only pipes are escaped exits 0' "exit $?"
+fi
+
+# --- the even-backslash case ----------------------------------------------------------
+# `\\` is a literal backslash in markdown; the pipe after it IS a column break. A parser that
+# tests only "ends in a backslash" swallows that break and reports four columns.
+cat > "$TMP/evenslash.md" <<'MAP'
+| SC-010 | edge | Ends in a literal backslash \\ | Still five columns | ✓ |
+MAP
+expect_row 'an even backslash run leaves the column break alone' "$TMP/evenslash.md" SC-010 \
+  'SC-010|edge|Ends in a literal backslash \\|Still five columns|✓|0'
+
+# --- the known positive: the guard must still bite ------------------------------------
+cat > "$TMP/malformed.md" <<'MAP'
+| SC-020 | edge | A genuinely six-column row | With one cell too many | ✓ | oops |
+MAP
+_err=$(sh "$ROWS" "$TMP/malformed.md" 2>&1 >/dev/null)
+_rc=$?
+if [ "$_rc" -eq 2 ] && printf '%s' "$_err" | grep -q 'has 6 columns, expected 5'; then
+  ok 'a real six-column row is still rejected with exit 2'
+else
+  bad 'a real six-column row is still rejected with exit 2' "rc=$_rc err=[$_err]"
+fi
+
+# --- trap 2: only table rows count ----------------------------------------------------
+cat > "$TMP/prose.md" <<'MAP'
+Some prose that mentions SC-030 without being a row, and a flowchart node SC-031.
+
+| SC-032 | happy | The only actual row | Counted once | ✓ |
+MAP
+_ids=$(sh "$ROWS" "$TMP/prose.md" 2>/dev/null | cut -d'|' -f1 | tr '\n' ' ')
+if [ "$_ids" = "SC-032 " ]; then
+  ok 'prose and flowchart mentions are not rows'
+else
+  bad 'prose and flowchart mentions are not rows' "extracted [$_ids]"
+fi
+
+# --- --summary agrees with the rows it counted ----------------------------------------
+_total=$(sh "$ROWS" --summary "$TMP/escaped.md" 2>/dev/null | awk '/^rows:/ { print $2 }')
+if [ "$_total" = "4" ]; then
+  ok '--summary counts the escaped-pipe rows it can now parse'
+else
+  bad '--summary counts the escaped-pipe rows it can now parse' "rows: $_total, want 4"
+fi
+
+printf '\n'
+if [ "$FAILED" -eq 0 ]; then
+  printf 'scenario-map-rows: all cases pass\n'
+  exit 0
+fi
+printf 'scenario-map-rows: %d case(s) failed\n' "$FAILED"
+exit 1

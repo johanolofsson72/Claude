@@ -12,7 +12,8 @@
 # The id is emitted WITHOUT the strikethrough markers so ids sort and compare naturally;
 # the strike survives as its own field, because losing it would free a reserved id.
 #
-# TWO TRAPS THIS SCRIPT EXISTS TO AVOID, both found while scoping 007bl:
+# THREE TRAPS THIS SCRIPT EXISTS TO AVOID. The first two were found while scoping 007bl; the
+# third was found by the gate refusing a real map on 2026-08-28:
 #
 #   1. The obvious pattern '^\| SC-' misses every retired row, because those are written
 #      `| ~~SC-033~~ |`. Extracting with it yields 185 and looks correct. All three rows it
@@ -26,9 +27,17 @@
 #      cell IS an id — so prose mentions, flowchart references and comments cannot inflate the
 #      count. That is the whole reason extraction is anchored to the table rather than the text.
 #
-# The map's rows are uniform: 188 rows, all exactly five columns, none wrapped across lines
-# (verified 2026-08-26). If that ever stops being true this script reports it rather than
-# silently emitting a short row — see the column-count guard.
+#   3. FS = "|" splits a markdown-escaped pipe. GFM writes a literal pipe inside a cell as \|
+#      and renders it as text, not as a column break — so a row whose scenario text quotes one
+#      arrives at awk with six cells and is rejected as malformed. agentcrm's SC-436 does exactly
+#      that (a formula-injection payload beginning `=cmd\|`), and one such row took the whole
+#      traceability gate down for a 482-row map: the guard reports the row and exits 2, so nothing
+#      downstream got a single scenario out of a file that was never malformed. Adversarial rows
+#      are where the payloads live, so this will keep happening. See the rejoin loop below.
+#
+# The map's rows are uniform: exactly five columns, none wrapped across lines. If that ever stops
+# being true this script reports it rather than silently emitting a short row — see the
+# column-count guard. An escaped pipe is NOT a shape change and no longer trips that guard.
 #
 # USAGE:
 #   scripts/scenario-map-rows.sh specs/SCENARIOS.md
@@ -66,20 +75,36 @@ EXTRACT='
   BEGIN { FS = "|"; bad = 0 }
 
   /^[[:space:]]*\|[[:space:]]*(~~)?SC-[0-9]+/ {
-    # NF-2 is the cell count: FS on a full-width markdown row yields an empty first and
+    # Rejoin the cells FS cut apart at an escaped pipe (trap 3). A field ending in an ODD
+    # number of backslashes was cut mid-cell: the last one escapes the delimiter. An even
+    # number is literal backslashes standing in front of a real column break, so the count
+    # is what distinguishes them — a bare /\\$/ test would join the second case wrongly.
+    # The pipe is put back in its ESCAPED form, so a restored cell still contains no bare
+    # delimiter: this script emits pipe-separated rows, and every caller splits them on "|".
+    # Unescaping here would shift status and struck into the wrong fields for exactly the
+    # rows this rejoin exists to rescue — a fix that reads as a fix and corrupts silently.
+    n = 0
+    cur = $1
+    for (i = 2; i <= NF; i++) {
+      if (odd_backslashes(cur)) cur = cur "|" $i
+      else { cell[++n] = cur; cur = $i }
+    }
+    cell[++n] = cur
+
+    # n-2 is the cell count: FS on a full-width markdown row yields an empty first and
     # last field. The map is uniformly five columns; anything else is a shape change this
     # script must not paper over.
-    if (NF - 2 != 5) {
-      printf "scenario-map-rows: %s:%d has %d columns, expected 5: %s\n", FILENAME, FNR, NF - 2, $0 > "/dev/stderr"
+    if (n - 2 != 5) {
+      printf "scenario-map-rows: %s:%d has %d columns, expected 5: %s\n", FILENAME, FNR, n - 2, $0 > "/dev/stderr"
       bad = 1
       next
     }
 
-    id       = trim($2)
-    kind     = trim($3)
-    scenario = trim($4)
-    expected = trim($5)
-    status   = trim($6)
+    id       = trim(cell[2])
+    kind     = trim(cell[3])
+    scenario = trim(cell[4])
+    expected = trim(cell[5])
+    status   = trim(cell[6])
 
     struck = 0
     if (id ~ /^~~.*~~$/) {
@@ -100,6 +125,15 @@ EXTRACT='
   }
 
   END { if (bad) exit 2 }
+
+  # The trailing run of backslashes, isolated by deleting everything up to the last character
+  # that is not one. A string that is ALL backslashes matches nothing and is left whole, which
+  # is the case a greedy /.*\\/ strip would get wrong.
+  function odd_backslashes(s,   t) {
+    t = s
+    sub(/^.*[^\\]/, "", t)
+    return (length(t) % 2) == 1
+  }
 
   function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
   function squeeze(s) { gsub(/[[:space:]]+/, " ", s); return s }

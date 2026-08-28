@@ -160,7 +160,7 @@ spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-remi
 sync-feature-json-hook.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 scenario-map-layout.sh scenario-map-rows.sh scenario-map-baseline.sh
-test-scenario-map-layouts.sh test-scenario-map-canary.sh
+test-scenario-map-layouts.sh test-scenario-map-canary.sh test-scenario-map-rows.sh
 test-scenario-map-fixtures.sh test-scenario-map-reminder.sh test-scenario-map-index.py
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
 detect-stack.sh detect-verify-command.sh test-detect-verify-command.sh
