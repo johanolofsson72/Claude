@@ -253,7 +253,23 @@ else
   bad 'the gate and its own harness are exempt from their own rule' "rc=$RC [$OUT]"
 fi
 
-# --- C13: a clean run says what it looked at -----------------------------------------------------------
+# --- C13: naming the helper is not sourcing it ------------------------------------------------------
+# The sync manifest lists every CORE filename, the helper's included. Reading that as "this file was
+# converted" put a manifest in the population and made the clean line claim one more harness than it
+# examined — an overstatement of what was checked, which is the direction that reads as reassurance.
+R=$(fresh_root c13b)
+{ printf '#!/bin/sh\n'
+  printf 'CORE_SCRIPTS="a.sh scenario-probe-ids.sh b.sh"\n'
+  printf '# this manifest mentions %s and is not a harness\n' "$OWNED_A"
+} > "$R/manifest.sh"
+run_gate "$R"
+if [ "$RC" -eq 0 ]; then
+  ok 'naming the helper in a manifest does not put the file in the population'
+else
+  bad 'naming the helper in a manifest does not put the file in the population' "rc=$RC [$OUT]"
+fi
+
+# --- C14: a clean run says what it looked at -----------------------------------------------------------
 # A bare "clean" is the sentence this family of gates exists to retire. The population size is what
 # separates "checked four harnesses and found nothing" from "found no harnesses".
 R=$(fresh_root c13)

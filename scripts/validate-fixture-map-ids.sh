@@ -145,9 +145,14 @@ for f in "$ROOT"/*.sh; do
   # project's own gate refuses.
   has_row=0
   if grep -qE '^[[:space:]]*\|[[:space:]]*~*SC-[0-9]{3,4}[a-z]?~*[[:space:]]*\|' "$f"; then has_row=1; fi
-  # Trigger (b): already converted, and therefore still under the rule.
+  # Trigger (b): already converted, and therefore still under the rule. Matched on a SOURCE line —
+  # `. path/scenario-probe-ids.sh` — and not on the filename appearing anywhere, because the sync
+  # manifest lists that filename and is not a harness. Counting it put a manifest in the population
+  # and made the clean line report five harnesses where four were examined. A gate that overstates
+  # what it looked at is the same defect as one that understates it, in the direction that feels
+  # safer.
   has_helper=0
-  if grep -q 'scenario-probe-ids\.sh' "$f"; then has_helper=1; fi
+  if grep -qE '^[[:space:]]*(\.|source)[[:space:]]+.*scenario-probe-ids\.sh' "$f"; then has_helper=1; fi
 
   [ "$has_row" -eq 1 ] || [ "$has_helper" -eq 1 ] || continue
   POPULATION=$((POPULATION + 1))
