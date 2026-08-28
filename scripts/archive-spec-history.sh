@@ -92,7 +92,7 @@
 #     and the run archived the sixth. The trigger is ordinary, not exotic — more than
 #     --keep entries and one shared date.
 #   - THE SEQUENCES ARE OFTEN NOT SORTED AT ALL. Measured across 46 history sections
-#     in 24 projects: 14 are non-monotone. One runs 06-01, 06-01, 06-01, 06-02 x9,
+#     in 24 projects: 13 are non-monotone. One runs 06-01, 06-01, 06-01, 06-02 x9,
 #     06-01 — equal ends, unsorted middle — where the old rule answers "newest-last"
 #     and would archive the eight newest entries.
 #
@@ -112,8 +112,8 @@
 # so the 20-of-46 sections that never partition are untouched by all of this.
 #
 # There is deliberately NO default for the undecided case. The obvious one would be
-# "newest-first, it is what everyone does" — and it is not: of the 26 sections whose
-# order is decidable, 4 are newest-last. A silent default would archive the newest
+# "newest-first, it is what everyone does" — and it is not: of the 24 sections this rule
+# can decide, 3 are newest-last. A silent default would archive the newest
 # entries in exactly those projects. The archive file is deliberately not used as a
 # second oracle either: on the project where this defect was found, the archive is
 # partly the DEFECT'S OWN OUTPUT, and inferring the convention from it would mean
@@ -415,7 +415,7 @@ archive_history() {
   # History region = everything after the heading. Group into entries: an entry
   # starts at a top-level "- " bullet and includes following non-bullet lines.
   # Keep the KEEP NEWEST entries inline; archive the rest. Registers genuinely differ in
-  # convention — measured across 46 sections in 24 projects: 22 newest-first, 4 newest-last
+  # convention — measured across 46 sections in 24 projects: 21 newest-first, 3 newest-last
   # — so which end to keep is a real question and never an assumption. It is answered ONCE,
   # above, by decide_order(), and arrives here as a settled verdict. This block no longer
   # looks at a date: a partitioner that re-derives its own ordering is a second opinion that
@@ -425,7 +425,7 @@ archive_history() {
   # project checked". It does not, and nothing had ever counted: four sections are
   # unambiguously newest-last. That sentence was the reason "default to newest-first"
   # kept looking like a safe fix for the equal-dates case. It would have archived the
-  # newest entries in those four.)
+  # newest entries in those three.)
   #
   # fmeta carries ONE number out of the partition: how many region lines sit ABOVE
   # the kept block. The budget report needs it to name a line the reader can open —
