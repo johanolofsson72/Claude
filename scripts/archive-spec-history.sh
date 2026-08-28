@@ -67,9 +67,55 @@
 #      still happened: refusing to archive because an entry is too long would
 #      leave MORE bytes inline than completing the run does, which is the
 #      opposite of this script's purpose. That is the deliberate difference from
-#      3, where writing is what does the damage. 3 beats 4 when both apply — a
-#      refused file wrote nothing and still holds non-history content, so its
-#      budget figure describes a region the caller does not have.
+#      3, where writing is what does the damage.
+#   5  UNDECIDED ORDERING — the history section needs partitioning but the script
+#      cannot establish which end holds the newest entries. Nothing was moved for
+#      that file. See ORDERING below.
+#
+#   Precedence when several apply: 3 BEATS 5 BEATS 4. A refused file wrote nothing
+#   AND still holds non-history content, so any other figure describes a region the
+#   caller does not have. An undecided file wrote nothing either, and a tool that
+#   did not do its job outranks a report about bytes that stayed.
+#
+# ORDERING (row H7bb). Which end of the section holds the NEWEST entry decides which
+# end gets archived, and getting it backwards moves the entry most likely to be read
+# next into the file the pipeline never reads — quietly, while reporting "kept newest
+# N inline". Until H7bb the answer came from ONE comparison: the first entry's date
+# strictly greater than the last entry's. Two measured problems with that:
+#
+#   - EQUAL ENDS RESOLVED TO THE WRONG ANSWER. `fd > ld` is false when they are equal,
+#     so a newest-first section whose inline entries all share a date was read as
+#     newest-last and its TOP entry archived. Observed live on this template's own
+#     consumer project: five inline entries all dated the same day, a sixth added,
+#     and the run archived the sixth. The trigger is ordinary, not exotic — more than
+#     --keep entries and one shared date.
+#   - THE SEQUENCES ARE OFTEN NOT SORTED AT ALL. Measured across 46 history sections
+#     in 24 projects: 14 are non-monotone. One runs 06-01, 06-01, 06-01, 06-02 x9,
+#     06-01 — equal ends, unsorted middle — where the old rule answers "newest-last"
+#     and would archive the eight newest entries.
+#
+# So the order is now DECLARED, and only inferred when the inference is decisive:
+#
+#   1. A declaration on the heading line wins: "## Register history (newest first)".
+#      Accepted, case-insensitively: newest first / newest-first / newest at top /
+#      newest on top / oldest last / oldest at bottom  => newest-first; and the
+#      mirror set (newest last / newest at bottom / oldest first / oldest at top)
+#      => newest-last.
+#   2. Otherwise infer from the date trend, counting descending vs ascending steps
+#      between adjacent entries, and accept it only when max > 0 and max >= 2 * min.
+#      Tolerant of a mistyped date; not tolerant of 5-against-4.
+#   3. Otherwise UNDECIDED: move nothing for that file, say why, exit 5.
+#
+# The question is asked ONLY when a partition is actually needed (entries > --keep),
+# so the 20-of-46 sections that never partition are untouched by all of this.
+#
+# There is deliberately NO default for the undecided case. The obvious one would be
+# "newest-first, it is what everyone does" — and it is not: of the 26 sections whose
+# order is decidable, 4 are newest-last. A silent default would archive the newest
+# entries in exactly those projects. The archive file is deliberately not used as a
+# second oracle either: on the project where this defect was found, the archive is
+# partly the DEFECT'S OWN OUTPUT, and inferring the convention from it would mean
+# learning the convention from the bug.
 #
 # Usage:
 #   scripts/archive-spec-history.sh                 # cleans ./specs/*, KEEP=5
@@ -97,6 +143,10 @@ REFUSED=0
 # way and for the same reason as REFUSED: a fault in INDEX.md must not stop
 # SCENARIOS.md from being examined. Settled once, at the end, where 3 beats 4.
 OVER_BUDGET=0
+# Set by archive_history() when the section needs partitioning and the ordering cannot
+# be established. Accumulated per file for the same reason as the two above. Settled at
+# the end, where 3 beats 5 beats 4.
+UNDECIDED=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -187,6 +237,93 @@ budget_report() {
   return 1
 }
 
+# decide_order <live-file> <hdr-line>
+# Prints ONE tab-separated line: <verdict>\t<code>\t<desc-steps>\t<asc-steps>\t<declared>
+#   verdict : first | last | undecided
+#   code    : declared | declared+trend | trend | same-date | weak | contradiction
+#             | ambiguous-declaration
+#
+# This is the ONLY place the question "which end is newest?" is answered. It used to be
+# answered inside the partitioner, in the same expression that consumed it, which is why
+# the old code could not decline to answer — there was no point at which a verdict existed
+# but had not yet been acted on. Splitting it out is what makes exit 5 expressible at all.
+#
+# THE DECLARATION IS READ FROM LINE hdr-line ONLY, never by scanning for a heading. The
+# scenario map quotes its own headings in prose — a sentence beginning "## Scenario history"
+# mid-paragraph is real content in a real file on this template's consumer project, and a
+# prefix search finds it 1900 lines above the actual heading. Same lesson, same file, twice.
+#
+# LC_ALL=C for the same reason as budget_report: string comparison of ISO dates must not
+# depend on the caller's collation. ISO dates compare correctly as bytes; they do not
+# necessarily compare correctly under a locale-aware collation.
+decide_order() {
+  LC_ALL=C awk -v h="$2" '''
+    function dateof(s){ if (match(s, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) return substr(s, RSTART, RLENGTH); return "" }
+    NR == h {
+      s = tolower($0)
+      nf = (s ~ /newest[ -]*(first|at top|on top)/ || s ~ /oldest[ -]*(last|at bottom)/)
+      nl = (s ~ /newest[ -]*(last|at bottom)/      || s ~ /oldest[ -]*(first|at top|on top)/)
+      decl = (nf && nl) ? "both" : (nf ? "first" : (nl ? "last" : ""))
+      next
+    }
+    # Same entry model as the partitioner: a top-level "- " bullet. If the two ever
+    # disagree about what an entry is, the verdict describes a different partition than
+    # the one performed, which is the defect this row exists to remove, one level down.
+    NR > h && /^- / { d[++n] = dateof($0) }
+    END{
+      asc = 0; desc = 0
+      for (i = 2; i <= n; i++) {
+        if (d[i] == "" || d[i-1] == "") continue   # defensive: the guard already refuses undated bullets
+        if (d[i] > d[i-1]) asc++; else if (d[i] < d[i-1]) desc++
+      }
+      mx = (desc > asc) ? desc : asc
+      mn = (desc > asc) ? asc  : desc
+      # Decisive = at least twice as much evidence one way as the other, and some evidence
+      # at all. Measured against 46 real sections: this keeps every large register decided
+      # (15-vs-4, 16-vs-3, 9-vs-3) and refuses the coin flips (1-vs-1, 5-vs-4, 3-vs-2).
+      trend = (mx > 0 && mx >= 2 * mn) ? ((desc > asc) ? "first" : "last") : ""
+
+      if (decl == "both")               { print "undecided\tambiguous-declaration\t" desc "\t" asc "\t" decl; exit }
+      if (decl != "" && trend == "")    { print decl "\tdeclared\t"       desc "\t" asc "\t" decl; exit }
+      if (decl != "" && trend == decl)  { print decl "\tdeclared+trend\t" desc "\t" asc "\t" decl; exit }
+      if (decl != "")                   { print "undecided\tcontradiction\t" desc "\t" asc "\t" decl; exit }
+      if (trend != "")                  { print trend "\ttrend\t"         desc "\t" asc "\t" decl; exit }
+      print "undecided\t" ((desc == 0 && asc == 0) ? "same-date" : "weak") "\t" desc "\t" asc "\t" decl
+    }
+  ''' "$1"
+}
+
+# undecided_report <basename> <heading-line> <entries> <code> <desc> <asc> <declared>
+# Says which file, how much evidence there was, WHY that is not enough, and the one line
+# that fixes it. A gate that reports a refusal without the remedy gets routed around.
+undecided_report() {
+  ubname="$1"; uhline="$2"; un="$3"; ucode="$4"; udesc="$5"; uasc="$6"; udecl="$7"
+  echo "  UNDECIDED: $ubname — cannot establish which end of the history section is the newest,"
+  echo "         so NOTHING was moved. $un entries; $udesc descending vs $uasc ascending date steps."
+  case "$ucode" in
+    same-date)
+      echo "         Every entry carries the same date, so the dates say nothing about the order." ;;
+    weak)
+      echo "         The dates are not consistently ordered, so the trend is a coin flip, not evidence." ;;
+    contradiction)
+      echo "         The heading declares newest-$udecl but the dates say the opposite. One of the two"
+      echo "         is wrong and this script cannot tell which." ;;
+    ambiguous-declaration)
+      echo "         The heading declares BOTH orderings." ;;
+  esac
+  echo "         Guessing archives the NEWEST entry into the sibling file the pipeline never reads,"
+  echo "         while reporting that it kept the newest inline. That is why this declines instead."
+  case "$ucode" in
+    contradiction|ambiguous-declaration)
+      echo "         Fix the heading, or fix the dates — they currently disagree." ;;
+    *)
+      echo "         Declare the order once, on the heading line — either:"
+      echo "             ${uhline} (newest first)"
+      echo "             ${uhline} (newest last)" ;;
+  esac
+  echo "         'git log -p -- <file>' shows which end actually grows, if the convention is unclear."
+}
+
 # archive_history <live-file> <archive-file> <history-heading-regex>
 # <history-heading-regex> MUST be anchored to a markdown heading (^#+ ...) so a
 # history ENTRY that merely mentions the words "register history" in its prose is
@@ -245,38 +382,78 @@ archive_history() {
   # Body = everything up to and including the history heading line.
   awk -v h="$hdr_line" 'NR<=h' "$live" > "$tmp_body"
 
+  # ---- ORDER -------------------------------------------------------------
+  # Asked ONLY when a partition is actually needed. A section with entries <= KEEP moves
+  # nothing whichever end is newest, so demanding a verdict there would turn 20 of the 46
+  # measured sections red for a question that has no consequence — and a gate that fires
+  # where nothing is at stake is one people learn to ignore.
+  order=none; ocode=none; odesc=0; oasc=0; odecl=
+  n_entries=$(awk -v h="$hdr_line" 'NR>h && /^- /{c++} END{print c+0}' "$live")
+  if [ "$n_entries" -gt "$KEEP" ]; then
+    verdict=$(decide_order "$live" "$hdr_line")
+    order=$(printf '%s' "$verdict"  | cut -f1)
+    ocode=$(printf '%s' "$verdict"  | cut -f2)
+    odesc=$(printf '%s' "$verdict"  | cut -f3)
+    oasc=$(printf  '%s' "$verdict"  | cut -f4)
+    odecl=$(printf '%s' "$verdict"  | cut -f5)
+
+    if [ "$order" = "undecided" ]; then
+      # Everything stays inline, so the budget must measure everything — unlike a normal
+      # run, where the entries this run archives have stopped costing the pipeline anything.
+      awk -v h="$hdr_line" 'NR>h' "$live" > "$tmp_keep"
+      undecided_report "$(basename "$live")" "$(awk -v h="$hdr_line" 'NR==h' "$live")" \
+                       "$n_entries" "$ocode" "$odesc" "$oasc" "$odecl"
+      UNDECIDED=1
+      budget_report "$(basename "$live")" "$tmp_keep" "$hdr_line" || OVER_BUDGET=1
+      return 0
+    fi
+  fi
+  # ---- end ORDER ---------------------------------------------------------
+
   # History region = everything after the heading. Group into entries: an entry
   # starts at a top-level "- " bullet and includes following non-bullet lines.
-  # Keep the KEEP NEWEST entries inline; archive the rest. Registers differ in
-  # convention: some append newest-at-bottom (the template example), some prepend
-  # newest-at-top (every real project checked). So detect ordering from the first
-  # vs last entry's ISO date and keep whichever END holds the newest entries —
-  # never blindly keep-last, or a newest-first register archives its RECENT
-  # history and keeps ancient entries inline.
+  # Keep the KEEP NEWEST entries inline; archive the rest. Registers genuinely differ in
+  # convention — measured across 46 sections in 24 projects: 22 newest-first, 4 newest-last
+  # — so which end to keep is a real question and never an assumption. It is answered ONCE,
+  # above, by decide_order(), and arrives here as a settled verdict. This block no longer
+  # looks at a date: a partitioner that re-derives its own ordering is a second opinion that
+  # can silently diverge from the one that was reported.
+  #
+  # (The comment this replaces said the newest-at-top convention held for "every real
+  # project checked". It does not, and nothing had ever counted: four sections are
+  # unambiguously newest-last. That sentence was the reason "default to newest-first"
+  # kept looking like a safe fix for the equal-dates case. It would have archived the
+  # newest entries in those four.)
+  #
   # fmeta carries ONE number out of the partition: how many region lines sit ABOVE
   # the kept block. The budget report needs it to name a line the reader can open —
   # on a newest-first file the kept entries never move, so it is 0; on a
   # newest-at-bottom file they shift up by exactly the archived lines.
-  awk -v h="$hdr_line" -v keep="$KEEP" -v fkeep="$tmp_keep" -v fmove="$tmp_move" -v fmeta="$tmp_meta" '
-    function dateof(s){ if (match(s, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) return substr(s, RSTART, RLENGTH); return "" }
+  awk -v h="$hdr_line" -v keep="$KEEP" -v order="$order" -v fkeep="$tmp_keep" -v fmove="$tmp_move" -v fmeta="$tmp_meta" '
     NR<=h { next }
     { region[++n]=$0 }
     END{
       e=0
       for(i=1;i<=n;i++) if (region[i] ~ /^- /) starts[++e]=i
       if (e<=keep) { for(i=1;i<=n;i++) print region[i] > fkeep; print 0 > fmeta; exit }   # nothing to move
-      fd = dateof(region[starts[1]]); ld = dateof(region[starts[e]])
-      newestFirst = (fd != "" && ld != "" && fd > ld) ? 1 : 0
-      if (newestFirst) {
+      if (order == "first") {
         # newest at top → keep entries 1..keep, archive keep+1..e
         keepEnd = starts[keep+1] - 1
         for(i=1;i<=n;i++){ if (i<=keepEnd) print region[i] > fkeep; else print region[i] > fmove }
         print 0 > fmeta
-      } else {
-        # newest at bottom (or undated) → keep the last KEEP, archive 1..(e-keep)
+      } else if (order == "last") {
+        # newest at bottom → keep the last KEEP, archive 1..(e-keep)
         moveEnd = starts[e-keep+1] - 1
         for(i=1;i<=n;i++){ if (i<=moveEnd) print region[i] > fmove; else print region[i] > fkeep }
         print moveEnd > fmeta
+      } else {
+        # Unreachable: the caller returns before this on "undecided" and only asks at all
+        # when a partition is needed. Spelled out anyway, and it KEEPS rather than moves —
+        # an unknown verdict must not be able to archive anything. In the old code this
+        # else was the archive-the-newest branch, reached by falling through a false
+        # comparison, which is precisely how the defect stayed invisible.
+        for(i=1;i<=n;i++) print region[i] > fkeep
+        print 0 > fmeta
       }
     }
   ' "$live"
@@ -342,14 +519,24 @@ echo "Archiving spec history in: $SPECS_DIR (keep newest $KEEP inline)$([ "$DRY_
 archive_history "$SPECS_DIR/INDEX.md"     "$SPECS_DIR/INDEX.history.md"     '^#+ .*register history'
 archive_history "$SPECS_DIR/SCENARIOS.md" "$SPECS_DIR/SCENARIOS.history.md" '^#+ .*scenario history'
 
-# 3 BEATS 4. A refused file wrote nothing and still holds content that is not history,
-# so any budget figure computed for it describes a region the caller does not have. The
-# refusal is the fact that has to be acted on first; re-run after fixing it to see the
-# budget verdict for the real region.
+# 3 BEATS 5 BEATS 4. A refused file wrote nothing and still holds content that is not
+# history, so any other figure computed for it describes a region the caller does not have.
+# The refusal is the fact that has to be acted on first; re-run after fixing it to see the
+# remaining verdicts for the real region.
 if [ "$REFUSED" -ne 0 ]; then
   echo "REFUSED: at least one history region held content that is not a history entry. Nothing was"
   echo "moved for that file. Move the offending block ABOVE its history heading and re-run."
   exit 3
+fi
+
+# 5 BEATS 4. Both wrote nothing for the file in question, but exit 4 is a report about bytes
+# that stayed while the cleanup ran, and exit 5 says the cleanup did not run at all. A tool
+# that declined to do its job outranks a note about what it left behind.
+if [ "$UNDECIDED" -ne 0 ]; then
+  echo "UNDECIDED: at least one history section needs partitioning and its ordering could not be"
+  echo "established, so nothing was moved for that file. Declare the order on its heading line"
+  echo "(e.g. '## Register history (newest first)') and re-run. Nothing else was affected."
+  exit 5
 fi
 
 if [ "$OVER_BUDGET" -ne 0 ]; then

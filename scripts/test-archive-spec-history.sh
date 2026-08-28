@@ -176,6 +176,28 @@ EOF
 # Used to assert the script REPORTS the true size rather than an approximation.
 entry_bytes() { LC_ALL=C awk -v d="$2" '$0 ~ ("^- " d) { print length($0); exit }' "$1"; }
 
+# ---- ordering fixtures (row H7bb) -----------------------------------------
+# write_dated_index <path> <heading> <date>...
+# Entries are numbered top-to-bottom, so a case can assert WHICH end was archived rather
+# than merely how many entries moved. That distinction is the whole row: the defect
+# archived the right COUNT from the wrong END, and every case that existed at the time
+# counted rather than looked.
+write_dated_index() {
+  path="$1"; heading="$2"; shift 2
+  { echo "# Spec register"; echo; echo "## Specs"; echo
+    echo "- [x] 001 — something — light track — a goal"; echo; echo "$heading"; } > "$path"
+  i=0
+  for d in "$@"; do i=$((i + 1)); printf -- '- %s — entry%s, one line as the rules require\n' "$d" "$i" >> "$path"; done
+  return 0
+}
+
+# Which numbered entries ended up in the archive, comma-separated ("" when none).
+archived_entries() { grep -ohE 'entry[0-9]+' "$1" 2>/dev/null | paste -sd, - ; }
+
+# Six entries all carrying the same date — the shape observed live. More than --keep, and
+# one shared date, is the entire trigger.
+SAME_DATE_6="2026-08-28 2026-08-28 2026-08-28 2026-08-28 2026-08-28 2026-08-28"
+
 new_specs_dir() { d=$(mktemp -d); mkdir -p "$d/specs"; echo "$d/specs"; }
 
 # Run the script under test; capture output and exit code without tripping set -e.
@@ -542,6 +564,174 @@ else
   ok "budget-multiline-refused-not-measured"
 fi
 
+# ------------------------------------------------- ordering (row H7bb) ----
+# --keep controls how MANY entries stay inline and --max-bytes how LARGE one may be.
+# Neither says which END holds the newest entry, and getting that backwards archives the
+# entry most likely to be read next while reporting "kept newest 5 inline". Before H7bb
+# the answer came from one comparison — first entry's date strictly greater than the last
+# entry's — so a section whose entries all shared a date fell through to keep-last and
+# archived the top. Twenty-one cases were green at the time; not one of them used a
+# section with a repeated date.
+
+# The headline: all entries share a date, nothing declares the order, so nothing moves.
+sd=$(new_specs_dir); write_dated_index "$sd/INDEX.md" "## Register history" $SAME_DATE_6
+before=$(sha_of "$sd/INDEX.md")
+run_archiver "$sd"
+if [ "$RC" -ne 5 ]; then
+  bad "order-same-date-undecided" "expected exit 5, got $RC — a coin flip was resolved as a verdict"
+elif [ "$(sha_of "$sd/INDEX.md")" != "$before" ]; then
+  bad "order-same-date-undecided" "the file was modified despite the undecided verdict"
+elif [ -f "$sd/INDEX.history.md" ]; then
+  bad "order-same-date-undecided" "an archive was written despite the undecided verdict"
+elif ! grep -q 'UNDECIDED' <<< "$OUT"; then
+  bad "order-same-date-undecided" "no UNDECIDED line in the output"
+elif ! grep -q 'same date' <<< "$OUT"; then
+  bad "order-same-date-undecided" "the message does not say WHY the dates are no help"
+else
+  ok "order-same-date-undecided"
+fi
+
+# Declared newest-first: the BOTTOM entry is the oldest, so entry6 is what leaves.
+sd=$(new_specs_dir); write_dated_index "$sd/INDEX.md" "## Register history (newest first)" $SAME_DATE_6
+run_archiver "$sd"
+if [ "$RC" -ne 0 ]; then
+  bad "order-declared-first-archives-the-bottom" "expected exit 0, got $RC"
+elif [ "$(archived_entries "$sd/INDEX.history.md")" != "entry6" ]; then
+  bad "order-declared-first-archives-the-bottom" "archived [$(archived_entries "$sd/INDEX.history.md")], expected entry6"
+elif ! grep -q 'entry1,' "$sd/INDEX.md"; then
+  bad "order-declared-first-archives-the-bottom" "the newest entry did not stay inline"
+else
+  ok "order-declared-first-archives-the-bottom"
+fi
+
+# The mirror. Same file, same dates, opposite declaration, opposite end archived — which
+# is the proof that the declaration is what decides and not something incidental.
+sd=$(new_specs_dir); write_dated_index "$sd/INDEX.md" "## Register history (newest last)" $SAME_DATE_6
+run_archiver "$sd"
+if [ "$RC" -ne 0 ]; then
+  bad "order-declared-last-archives-the-top" "expected exit 0, got $RC"
+elif [ "$(archived_entries "$sd/INDEX.history.md")" != "entry1" ]; then
+  bad "order-declared-last-archives-the-top" "archived [$(archived_entries "$sd/INDEX.history.md")], expected entry1"
+else
+  ok "order-declared-last-archives-the-top"
+fi
+
+# Undeclared but unambiguously descending: entry6 is the oldest and the one that leaves.
+# This is the path 22 of the 46 measured sections take, and nothing asserted its DIRECTION
+# before this row — case1 counts three entries moved and never looks at which three.
+sd=$(new_specs_dir)
+write_dated_index "$sd/INDEX.md" "## Register history" 2026-08-06 2026-08-05 2026-08-04 2026-08-03 2026-08-02 2026-08-01
+run_archiver "$sd"
+if [ "$RC" -ne 0 ]; then
+  bad "order-trend-first-archives-the-bottom" "expected exit 0, got $RC"
+elif [ "$(archived_entries "$sd/INDEX.history.md")" != "entry6" ]; then
+  bad "order-trend-first-archives-the-bottom" "archived [$(archived_entries "$sd/INDEX.history.md")], expected entry6"
+else
+  ok "order-trend-first-archives-the-bottom"
+fi
+
+# One mistyped date must not flip the verdict. Seven descending steps against one ascending
+# clears the 2:1 bar, and real registers do contain the occasional wrong date — a rule that
+# demanded strict monotonicity would strand the three largest registers measured (107, 53
+# and 47 entries, all obviously newest-first).
+sd=$(new_specs_dir)
+write_dated_index "$sd/INDEX.md" "## Register history" 2026-08-09 2026-08-08 2026-08-07 2026-08-11 2026-08-05 2026-08-04 2026-08-03 2026-08-02
+run_archiver "$sd"
+if [ "$RC" -ne 0 ]; then
+  bad "order-trend-survives-one-bad-date" "expected exit 0, got $RC — one inverted date sank a clear trend"
+elif [ "$(archived_entries "$sd/INDEX.history.md")" != "entry6,entry7,entry8" ]; then
+  bad "order-trend-survives-one-bad-date" "archived [$(archived_entries "$sd/INDEX.history.md")], expected entry6,entry7,entry8"
+else
+  ok "order-trend-survives-one-bad-date"
+fi
+
+# A genuinely unsorted section is refused rather than guessed. This is a real shape, copied
+# from a measured register: equal ends, one step up in the middle and one back down. The old
+# rule answered "newest-last" here and would have archived the eight newest entries.
+sd=$(new_specs_dir)
+write_dated_index "$sd/INDEX.md" "## Register history" 2026-06-01 2026-06-01 2026-06-02 2026-06-02 2026-06-02 2026-06-01
+run_archiver "$sd"
+if [ "$RC" -ne 5 ]; then
+  bad "order-non-monotone-undecided" "expected exit 5, got $RC — a 1-against-1 trend was treated as evidence"
+elif [ -f "$sd/INDEX.history.md" ]; then
+  bad "order-non-monotone-undecided" "an archive was written despite the undecided verdict"
+elif ! grep -q 'not consistently ordered' <<< "$OUT"; then
+  bad "order-non-monotone-undecided" "the message does not distinguish this from the all-same-date case"
+else
+  ok "order-non-monotone-undecided"
+fi
+
+# A declaration that contradicts an unambiguous trend is not obeyed and not overruled —
+# one of the two is wrong and the script cannot tell which, so it moves nothing.
+sd=$(new_specs_dir)
+write_dated_index "$sd/INDEX.md" "## Register history (newest last)" 2026-08-06 2026-08-05 2026-08-04 2026-08-03 2026-08-02 2026-08-01
+run_archiver "$sd"
+if [ "$RC" -ne 5 ]; then
+  bad "order-declaration-contradicts-dates" "expected exit 5, got $RC"
+elif [ -f "$sd/INDEX.history.md" ]; then
+  bad "order-declaration-contradicts-dates" "an archive was written despite the contradiction"
+elif ! grep -q 'declares newest-last' <<< "$OUT"; then
+  bad "order-declaration-contradicts-dates" "the message does not name the declaration it disbelieved"
+else
+  ok "order-declaration-contradicts-dates"
+fi
+
+# The question is only asked when a partition would actually happen. Five same-date entries
+# at --keep 5 move nothing whichever end is newest, and a gate that fires where nothing is
+# at stake is one people learn to ignore — 20 of the 46 measured sections are this shape.
+sd=$(new_specs_dir)
+write_dated_index "$sd/INDEX.md" "## Register history" 2026-08-28 2026-08-28 2026-08-28 2026-08-28 2026-08-28
+run_archiver "$sd"
+if [ "$RC" -ne 0 ]; then
+  bad "order-undecided-silent-below-keep" "expected exit 0, got $RC — asked a question with no consequence"
+elif grep -q 'UNDECIDED' <<< "$OUT"; then
+  bad "order-undecided-silent-below-keep" "reported UNDECIDED on a section that cannot partition"
+else
+  ok "order-undecided-silent-below-keep"
+fi
+
+# --dry-run reaches the same verdict. A dry run that says "would archive 1 entry" about a
+# section whose order it cannot establish is a false green, exactly as it is for exit 3.
+sd=$(new_specs_dir); write_dated_index "$sd/INDEX.md" "## Register history" $SAME_DATE_6
+run_archiver "$sd" --dry-run
+if [ "$RC" -ne 5 ]; then
+  bad "order-dry-run-undecided" "expected exit 5, got $RC"
+elif grep -q 'would archive' <<< "$OUT"; then
+  bad "order-dry-run-undecided" "dry-run reported a planned archive on an undecided file"
+else
+  ok "order-dry-run-undecided"
+fi
+
+# One undecided file must not cancel unrelated correct work — the same property case10
+# pins for exit 3, and for the same reason: a non-zero `return` under `set -e` would kill
+# the run before the sibling was ever examined.
+sd=$(new_specs_dir)
+write_dated_index "$sd/INDEX.md" "## Register history" $SAME_DATE_6
+write_clean_scenarios "$sd/SCENARIOS.md"
+run_archiver "$sd"
+if [ "$RC" -ne 5 ]; then
+  bad "order-undecided-does-not-block-sibling" "expected exit 5, got $RC"
+elif ! grep -q 'SCENARIOS.md — archived 3 entries' <<< "$OUT"; then
+  bad "order-undecided-does-not-block-sibling" "the clean sibling was not processed: $(printf '%s' "$OUT" | tr '\n' ' ')"
+elif [ -f "$sd/INDEX.history.md" ]; then
+  bad "order-undecided-does-not-block-sibling" "the undecided file was archived anyway"
+else
+  ok "order-undecided-does-not-block-sibling"
+fi
+
+# 3 BEATS 5. A refused file wrote nothing AND still holds content that is not history, so
+# its ordering verdict describes a region the caller does not have. Both faults present,
+# exit 3 is what surfaces.
+sd=$(new_specs_dir)
+write_dated_index "$sd/INDEX.md" "## Register history" $SAME_DATE_6
+write_clean_scenarios "$sd/SCENARIOS.md"; append_ledger_block "$sd/SCENARIOS.md"
+run_archiver "$sd"
+if [ "$RC" -ne 3 ]; then
+  bad "order-refusal-outranks-undecided" "expected exit 3 when both faults are present, got $RC"
+else
+  ok "order-refusal-outranks-undecided"
+fi
+
 echo
 echo "  passed: $PASS   failed: $FAIL"
 
@@ -562,7 +752,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   fi
 
   sab_out=$(bash "$0" --script "$sab" --no-sabotage 2>&1)
-  expected_red="case3-ledger-block-refused case4-dry-run-refused case5-keep-independent case6-undated-bullet-refused case7-horizontal-rule-refused case10-mixed-clean-and-foul"
+  expected_red="case3-ledger-block-refused case4-dry-run-refused case5-keep-independent case6-undated-bullet-refused case7-horizontal-rule-refused case10-mixed-clean-and-foul order-refusal-outranks-undecided"
   missing=""
   for c in $expected_red; do
     grep -q "FAIL  $c" <<< "$sab_out" || missing="$missing $c"
@@ -614,6 +804,52 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
     exit 1
   fi
   echo "  PASS  sabotage-budget — 4 budget cases go red without the check, 6 unrelated ones stay green"
+
+  # Third, INDEPENDENT arm: neutralise the ORDERING DECISION (row H7bb) and require the
+  # ordering cases to go red by name. The two arms above leave every one of them green —
+  # they exercise the foreign-content guard and the byte budget, and the archiver decided
+  # which end to keep quite happily without either. That is exactly how a new check gets
+  # bolted under an existing falsification arm and inherits credit it never earned, so the
+  # ordering gets its own arm.
+  #
+  # The sabotage restores the DEFECT, not merely a broken script: forcing the verdict to
+  # "last" is the answer the old code fell through to whenever its one comparison came out
+  # false. So this arm asks the harness the question the row is about — would these cases
+  # have caught the bug that shipped? — rather than the weaker "does anything change".
+  sab3=$(mktemp -d)/archive-keeplast.sh
+  sed 's/      asc = 0; desc = 0$/      print "last"; exit; &/' "$SCRIPT" > "$sab3"
+
+  if ! grep -q 'print "last"; exit;' "$sab3"; then
+    echo "  FAIL  sabotage-order — could not force the ordering verdict; the harness cannot prove anything"
+    exit 1
+  fi
+
+  sab3_out=$(bash "$0" --script "$sab3" --no-sabotage 2>&1)
+  expected_red3="order-same-date-undecided order-declared-first-archives-the-bottom order-trend-first-archives-the-bottom order-trend-survives-one-bad-date order-non-monotone-undecided order-declaration-contradicts-dates order-dry-run-undecided order-undecided-does-not-block-sibling"
+  missing3=""
+  for c in $expected_red3; do
+    grep -q "FAIL  $c" <<< "$sab3_out" || missing3="$missing3 $c"
+  done
+
+  if [ -n "$missing3" ]; then
+    echo "  FAIL  sabotage-order — these cases stayed GREEN with the old keep-last verdict forced:$missing3"
+    echo "        They therefore prove nothing about the shipped script."
+    exit 1
+  fi
+
+  # And the three that SHOULD survive it must. One of them — order-declared-last-archives-the-top —
+  # expects exactly what the sabotage forces, which is what makes it the sharpest survivor here:
+  # if it went red, the sabotage broke something other than the verdict.
+  survivors3="order-declared-last-archives-the-top order-undecided-silent-below-keep order-refusal-outranks-undecided case1-clean-archives"
+  wrongly_red3=""
+  for c in $survivors3; do
+    grep -q "FAIL  $c" <<< "$sab3_out" && wrongly_red3="$wrongly_red3 $c"
+  done
+  if [ -n "$wrongly_red3" ]; then
+    echo "  FAIL  sabotage-order — these cases went red for a check they do not exercise:$wrongly_red3"
+    exit 1
+  fi
+  echo "  PASS  sabotage-order — 8 ordering cases go red with the old verdict forced, 4 unrelated ones stay green"
 
   # The clean-input cases must still pass while sabotaged: they measure the
   # archiver's original behaviour, not the guard. If they went red too, the
