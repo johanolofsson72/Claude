@@ -18,11 +18,17 @@
 #     track is a spec that owes its artifacts, not an exempt checkpoint. 14 of 19 rows were exempt on the
 #     strength of a letter before this row.
 #   * that a register with zero rows is not a pass.
+#   * that narrowing the grammar back to ANY shape it has already shipped turns the real gate red —
+#     all three of them (pre-007m, pre-007ab, pre-H7b), because the grammar has been too narrow three
+#     times and each fix was made without falsifying the one before it (row 007br).
 #
 # Scenario map: SC-1428, SC-1429, SC-1430, SC-1443, SC-1445 (specs/SCENARIOS.md, row H7b).
 #
 # Exit: 0 all expectations met · 1 an expectation failed · 2 the harness itself broke, OR a precondition
-#       could not be met (no register to narrow the grammar against) — SC-1683.
+#       could not be met — SC-1683. There are TWO such preconditions and they are the same fact: no
+#       register at all, and a register whose ids exercise none of the historical narrowings. Neither
+#       is a pass, and neither is evidence against the gate — reporting the second as a FAIL is the
+#       defect row 007br was opened for.
 
 set -uo pipefail
 
@@ -187,45 +193,132 @@ case "$DIRCHECK" in
   *) bad "directory resolution:"; printf '%s\n' "$DIRCHECK" | sed 's/^/        /' ;;
 esac
 
+
 echo "== falsification: a narrowed grammar must turn this gate red =="
-# The point of the whole row. If narrowing the grammar back to its pre-H7b shape leaves this gate green,
-# the gate is decorative. Run the classifier with the OLD regex against the REAL register.
+# The point of the whole row. If narrowing the grammar back to a shape it has already shipped leaves
+# this gate green, the gate is decorative.
 #
-# PRECONDITION, and it is a THIRD state rather than a failure (row H7t). This block needs a real register
-# with real rows; a synthetic one would only re-prove SC-1430, which is already asserted above. Repos that
-# legitimately have none — the template itself, a project before /project-wizard writes its register —
-# used to reach the `bad` branch and report "this gate cannot detect the defect it was built for", which
-# is a false accusation against a healthy gate and precisely the wrong-diagnosis failure the H7b row spent
-# 18 days inside. Missing precondition is not PASS and it is not FAIL: it is "I cannot tell you", and this
-# harness's own header already promises those are different facts (exit 2).
+# THREE narrowings, not one — the grammar has been too narrow THREE times, and each fix was made
+# without ever falsifying the one before it (row 007br):
+#
+#   pre-007m   NUMERIC ^[0-9]+$            never knew a letter suffix   (004a, 007a..007o went dark)
+#   pre-007ab  NUMERIC ^[0-9]+[a-z]?$      never knew a SECOND letter   (007aa onward went dark)
+#   pre-H7b    ALPHA   ^[A-Za-z]+[0-9]+$   never knew H6a, never H6s2   (69 of 114 rows went dark)
+#
+# The arm this replaces tested only the third, and on a register whose alpha ids are H1 and H2 — both
+# of which the narrowed alpha grammar still accepts — it fells 0 rows and concluded "this gate cannot
+# detect the defect it was built for". A false accusation against a healthy gate, and the whole
+# self-test exited 1 on it. The numeric column, which fells 80 rows and 53 rows on the same register,
+# was never looked at. Label each entry with the spec it re-creates: a FOURTH widening added without
+# a fourth entry here is then visible to a reader, not only to a counter.
+#
+# TWO PRECONDITIONS, and both are the THIRD state rather than a failure (rows H7t, 007br):
+#
+#   * no register at all — a synthetic one would only re-prove SC-1430, asserted above;
+#   * a register whose ids exercise no historical narrowing — it can tell you nothing about the
+#     gate, and saying "the gate is broken" on that evidence is the exact wrong-diagnosis failure
+#     the H7b row spent 18 days inside.
+#
+# Neither is PASS and neither is FAIL: both are "I cannot tell you", which this harness's own header
+# already promises is a distinct fact (exit 2).
+#
+# WHAT MAKES IT NOT DECORATIVE, beyond the extra rows: each entry runs the REAL GATE end to end
+# against the REAL REGISTER. `validate-register-ids.sh` pins HOOK_DIR to its own directory, so the
+# narrowing reaches it by copying both files into a temp dir and rebinding the regex in the COPY —
+# after which what exits 1 is the shipped gate, not an assertion about classify_id() made by this
+# harness. The count comes from the gate's own `unparseable: N` histogram line for the same reason:
+# a number this script computed itself would be a second opinion about the thing under test.
 PRECOND_UNMET=0
+PRECOND_WHY=""
 if [ ! -f "$ROOT/specs/INDEX.md" ]; then
   echo "  ----  no register at $ROOT/specs/INDEX.md — the falsification needs real rows, so it did not run"
   PRECOND_UNMET=1
+  PRECOND_WHY="no register in this repo"
 else
-NARROW=$(HOOK_DIR="$ROOT/scripts" REG="$ROOT/specs/INDEX.md" python3 <<'PY' 2>&1
-import os, re, sys
+
+# label | module attribute | narrowed pattern | canary the CURRENT grammar accepts and this one must not
+NARROWINGS='pre-007m|NUMERIC_ID_RE|^\**\s*([0-9]+)\**\s*$|007m
+pre-007ab|NUMERIC_ID_RE|^\**\s*([0-9]+[a-z]?)\**\s*$|007ab
+pre-H7b|ALPHA_ID_RE|^\**\s*([A-Za-z]+[0-9]+)\**\s*$|H6s2'
+
+# BASELINE FIRST, and it is not ceremony. "Narrowing turns the gate red" is a claim about a CHANGE,
+# and a change needs a starting point: if the shipped grammar is ALREADY red on this register, every
+# narrowing fells rows and this arm reports itself live on breakage it did not cause. Measured while
+# building row 007br — sabotaging spec_active.py to `[a-z]?` made all three entries "pass", including
+# the ALPHA one, which had felled nothing a moment earlier. Attribution, not decoration: with no green
+# baseline the honest answer is that this arm cannot tell you anything, and it says so.
+BOUT=$(REGISTER="$ROOT/specs/INDEX.md" bash "$GATE" 2>&1); BRC=$?
+if [ "$BRC" -ne 0 ]; then
+  bad "the gate is already rc=$BRC on the real register — with no green baseline a narrowing's effect
+        cannot be attributed to the narrowing. Fix the grammar or the register first; this arm is
+        deliberately silent rather than confidently wrong."
+  printf '%s\n' "$BOUT" | grep -v '^[[:space:]]*$' | head -3 | sed 's/^/        /'
+  NARROWINGS=""
+fi
+
+LIVE=0
+LIVE_DESC=""
+APPLIED_DESC=""
+while IFS='|' read -r LABEL ATTR PATTERN CANARY; do
+  [ -n "$LABEL" ] || continue
+  NDIR="$WORK/narrow-$LABEL"
+  mkdir -p "$NDIR" || { bad "$LABEL: could not create $NDIR"; continue; }
+  cp "$ROOT/scripts/spec_active.py" "$ROOT/scripts/validate-register-ids.sh" "$NDIR/" 2>/dev/null \
+    || { bad "$LABEL: could not copy the gate and its grammar into $NDIR"; continue; }
+
+  # Appended, not sed'd into the regex literal. classify_id() resolves these as module globals at
+  # call time, so a rebinding after the definition takes effect — and an append either lands whole
+  # or not at all, where an in-place rewrite of a regex literal can half-match and look like a
+  # no-op that the row below would then have to guess about.
+  {
+    echo ""
+    echo "# --- narrowed to the $LABEL shape by scripts/test-register-ids.sh ---"
+    echo "${ATTR} = re.compile(r\"${PATTERN}\")"
+  } >> "$NDIR/spec_active.py"
+
+  # CANARY FIRST. A narrowing that did not apply proves nothing, and its zero would otherwise be
+  # indistinguishable from "this register has no rows of that shape" — which is this row's own bug,
+  # one level down. So it is a harness FAILURE, never an inconclusive.
+  CANARY_SHAPE=$(HOOK_DIR="$NDIR" CANARY="$CANARY" python3 - <<'PY' 2>&1
+import os, sys
 sys.path.insert(0, os.environ["HOOK_DIR"])
-import spec_active
-spec_active.ALPHA_ID_RE = re.compile(r"^\**\s*([A-Za-z]+[0-9]+)\**\s*$")   # the pre-H7b shape
-n = 0
-for line in open(os.environ["REG"], encoding="utf-8", errors="ignore"):
-    m = spec_active.ROW_RE.match(line.rstrip())
-    if not m:
-        continue
-    _s, raw, _g, track = m.groups()
-    tok = (raw.strip().split() or [""])[0]
-    ident, shape = spec_active.classify_id(tok)
-    if spec_active._kind_for(shape, track) == "unparseable":
-        n += 1
-print("NARROWED-UNPARSEABLE %d" % n)
+from spec_active import classify_id
+print(classify_id(os.environ["CANARY"])[1])
 PY
 )
-COUNT=$(printf '%s' "$NARROW" | sed -n 's/.*NARROWED-UNPARSEABLE \([0-9]*\).*/\1/p')
-if [ -n "$COUNT" ] && [ "$COUNT" -gt 0 ]; then
-  ok "the pre-H7b grammar still fells $COUNT rows of the real register — the gate has something to catch"
-else
-  bad "narrowing the grammar changed nothing — this gate cannot detect the defect it was built for"
+  if [ "$CANARY_SHAPE" != "malformed" ]; then
+    bad "$LABEL: the narrowing did not apply — canary '$CANARY' still classifies as '$CANARY_SHAPE'"
+    continue
+  fi
+
+  GOUT=$(REGISTER="$ROOT/specs/INDEX.md" bash "$NDIR/validate-register-ids.sh" 2>&1); GRC=$?
+  # The gate prints its histogram on EVERY run, pass or fail. Its number, not ours.
+  GN=$(printf '%s\n' "$GOUT" | sed -n 's/.*unparseable: \([0-9]*\).*/\1/p' | head -1)
+  [ -n "$GN" ] || GN=-1
+
+  APPLIED_DESC="$APPLIED_DESC $LABEL"
+  if [ "$GRC" -eq 1 ] && [ "$GN" -gt 0 ]; then
+    LIVE=$((LIVE + 1))
+    LIVE_DESC="$LIVE_DESC $LABEL($GN)"
+    ok "$LABEL: the shipped gate goes red on the real register — $GN row(s) unparseable"
+  elif [ "$GRC" -eq 0 ] && [ "$GN" -eq 0 ]; then
+    echo "  ----  $LABEL: narrowing applied (canary '$CANARY' fell) but this register holds no id of that"
+    echo "        shape, so it fells nothing. Inconclusive for this narrowing — not a pass, not a fail."
+  else
+    bad "$LABEL: the gate and its own histogram disagree — rc=$GRC with unparseable=$GN"
+  fi
+done <<NARROWEOF
+$NARROWINGS
+NARROWEOF
+
+if [ "$LIVE" -gt 0 ]; then
+  ok "the falsification arm is live —$LIVE_DESC"
+elif [ "$fail" -eq 0 ]; then
+  # Every narrowing applied and none of them found anything to fell. That is a fact about THIS
+  # register, not about the gate, and the two must not share a verdict.
+  echo "  ----  every narrowing applied and none fells a row of this register"
+  PRECOND_UNMET=1
+  PRECOND_WHY="the register exercises none of the historical narrowings ($(echo $APPLIED_DESC))"
 fi
 fi
 
@@ -235,9 +328,12 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 if [ "$PRECOND_UNMET" -ne 0 ]; then
-  echo "INCONCLUSIVE — $pass expectations met, but the falsification could not run (no register in this repo)."
+  echo "INCONCLUSIVE — $pass expectations met, but the falsification could not run:"
+  echo "  $PRECOND_WHY"
   echo "The grammar's own cases passed; what is unproven here is that the gate would catch a narrowed"
-  echo "grammar, because that check needs a real register to narrow against. Not a pass."
+  echo "grammar, because that check needs a register holding ids the narrowing can fell. Not a pass —"
+  echo "and, equally, not the accusation 'this gate cannot detect the defect it was built for'. Those"
+  echo "are two different facts and this harness reports them as two (row 007br)."
   exit 2
 fi
 echo "PASS — $pass/$pass expectations met"
