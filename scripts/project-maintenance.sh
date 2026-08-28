@@ -120,6 +120,14 @@ if [ -f scripts/validate-scenario-traceability.sh ] && [ -f specs/SCENARIOS.md ]
       if [ -n "$TRACE_DANGL" ] && [ "$TRACE_DANGL" -gt 0 ]; then
         add "[TRACEABILITY] $TRACE_DANGL test reference(s) name an SC-id the scenario map does not have. Run: bash scripts/validate-scenario-traceability.sh"
       fi
+      # A FINDING for the same reason dangling is one: an id is a permanent handle, so a repeat is a
+      # mistake and not a backlog. It is also the one that quietly degrades the coverage line printed
+      # as a note two lines up -- with two rows under one id, "429 of 472" is counting handles, not
+      # scenarios.
+      TRACE_DUP=$(printf '%s\n' "$TRACE_OUT" | sed -n 's/^duplicate .*(\([0-9]*\)):$/\1/p')
+      if [ -n "$TRACE_DUP" ] && [ "$TRACE_DUP" -gt 0 ]; then
+        add "[TRACEABILITY] $TRACE_DUP scenario id(s) appear on more than one row. Run: bash scripts/validate-scenario-traceability.sh"
+      fi
       ;;
     *)
       # 2, 3 and 4 all mean "the gate could not answer" -- never reported as coverage.

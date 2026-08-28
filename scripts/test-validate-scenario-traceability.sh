@@ -283,6 +283,24 @@ else
   fi
 fi
 
+# case17 — one id on two rows. .claude/rules/scenarios.md makes an id a permanent handle, so this
+# is two scenarios wearing one name — and it is the shape that hid in agentcrm for two specs: a
+# 104-id block allocated twice by two developers working in parallel. Both rows are referenced by
+# the test below, so uncovered and dangling are both empty and every other check here says clean.
+# That is the point of the case: the gate must be red for a reason none of its other answers see.
+proj=$(new_project)
+{ map_header
+  printf '| %s | happy | The first meaning | It works | %s |\n' "$(id 917)" "$V"
+  printf '| %s | happy | A different scenario entirely | It also works | %s |\n' "$(id 917)" "$V"
+} > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 917
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q 'duplicate' <<< "$OUT" && grep -q "$(id 917)" <<< "$OUT"; then
+  ok "case17-duplicate-id"
+else
+  bad "case17-duplicate-id" "expected exit 1 naming the id under duplicate, got $RC: $OUT"
+fi
+
 # case16 — an EMPTY cell, which is the trap the tab delimiter brought with it. A tab is IFS
 # whitespace, so `IFS=<tab> read -r a b c d e f` collapses the empty Type cell below and shifts
 # every field after it: status would be read as "0" and the row would quietly stop counting as
@@ -432,16 +450,22 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   sab_run "$SABDIR/f.sh"
   expect_red "root-guard-removed" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
 
+  # (g) the duplicate-id check deleted — two scenarios under one handle stop being reported.
+  # shellcheck disable=SC2016
+  replace_region "$SCRIPT" "$SABDIR/g.sh" duplicate-check ': > "$TMP/duplicate"'
+  sab_run "$SABDIR/g.sh"
+  expect_red "duplicate-check-deleted" "$SAB_OUT" case17-duplicate-id || SAB_FAIL=1
+
   # The clean case must survive every surgical sabotage. If it broke, the sabotage was wholesale and
   # the reds above would be meaningless.
-  for s in a b c d e f; do
+  for s in a b c d e f g; do
     sab_run "$SABDIR/$s.sh"
     if grep -q "FAIL  case1-clean" <<< "$SAB_OUT"; then
       echo "  FAIL  sabotage/$s — case1-clean also broke, so the sabotage was not surgical"
       SAB_FAIL=1
     fi
   done
-  [ "$SAB_FAIL" -eq 0 ] && echo "  PASS  sabotage — every sabotage was surgical (case1-clean survived all six)"
+  [ "$SAB_FAIL" -eq 0 ] && echo "  PASS  sabotage — every sabotage was surgical (case1-clean survived all seven)"
 
   rm -rf "$SABDIR"
   [ "$SAB_FAIL" -eq 0 ] || FAIL=$((FAIL+1))

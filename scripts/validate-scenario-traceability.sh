@@ -18,6 +18,9 @@
 #              The map says the scenario is proven; nothing in the suite mentions it.
 #   dangling   an SC-id a test names that is not a row in the map. The suite believes in a scenario
 #              the map does not have — a typo, or a row deleted out from under a test.
+#   duplicate  one id on more than one row. An id is a permanent handle (.claude/rules/scenarios.md),
+#              so this is two scenarios wearing one name, and it makes both directions above
+#              approximate: a reference cannot say which of the two it proves.
 #
 # A ☐ row is EXEMPT from coverage. It is mapped and not yet tested, which is a legitimate state for
 # every scenario of every unbuilt spec; counting it as a failure would leave this gate permanently
@@ -272,6 +275,20 @@ comm -23 "$TMP/claimed" "$TMP/refs.u" > "$TMP/uncovered"
 comm -13 "$TMP/allids"  "$TMP/refs.u" > "$TMP/dangling"
 # <<< dangling
 
+# >>> duplicate-check
+# A THIRD answer, and it is not about tests at all. .claude/rules/scenarios.md makes an id a
+# permanent handle that is never reused, so one id on two rows is not a backlog item — it is two
+# scenarios wearing one name, and every number above it silently becomes an approximation: the
+# uncovered list cannot say WHICH of the two a test reference proves, and `sort -u` on the claimed
+# set quietly counts them once. Reported like dangling rather than like uncovered, for the reason
+# project-maintenance.sh gives: uncovered is a backlog, this is a mistake, and it is zero on a
+# healthy map. It went unseen here because scenario-map-rows.sh does check uniqueness — but only
+# under --summary, which this gate does not use and nothing else calls. agentcrm had 104 of them,
+# one contiguous block allocated twice by two developers working different specs in parallel.
+cut -f1 "$TMP/rows" | sort | uniq -d > "$TMP/duplicate"
+# <<< duplicate-check
+N_DUP=$(grep -c . "$TMP/duplicate" || true)
+
 N_CLAIMED=$(grep -c . "$TMP/claimed" || true)
 N_UNCOV=$(grep -c . "$TMP/uncovered" || true)
 N_DANGL=$(grep -c . "$TMP/dangling" || true)
@@ -301,11 +318,23 @@ if [ "$N_DANGL" -gt 0 ]; then
   echo
 fi
 
+if [ "$N_DUP" -gt 0 ]; then
+  echo "duplicate — one id on more than one row; an id is a permanent handle ($N_DUP):"
+  if [ "$QUIET" -eq 0 ]; then
+    while read -r id; do
+      [ -n "$id" ] || continue
+      # Every occurrence, not the first: the point is that they are different scenarios.
+      awk -F'\t' -v want="$id" '$1 == want {printf "  %s  %s  %s\n", $1, $5, $3}' "$TMP/rows"
+    done < "$TMP/duplicate"
+  fi
+  echo
+fi
+
 # BOTH numbers, never a bare percentage. "100%" with its denominator dropped is the sentence that
 # started spec 007bs; a fraction that carries its denominator cannot be quoted into a claim about a
 # different one.
 echo "coverage: $N_COVERED of $N_CLAIMED claimed rows referenced by a test"
 echo "  ($ROW_COUNT rows: $N_VALIDATED ✓ · $N_TESTED ◐ · $N_MAPPED ☐ exempt · $N_STRUCK retired exempt)"
 
-[ "$N_UNCOV" -eq 0 ] && [ "$N_DANGL" -eq 0 ] && exit 0
+[ "$N_UNCOV" -eq 0 ] && [ "$N_DANGL" -eq 0 ] && [ "$N_DUP" -eq 0 ] && exit 0
 exit 1
