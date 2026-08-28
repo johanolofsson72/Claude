@@ -267,6 +267,16 @@ if [ -f "$REPO_ROOT/specs/SCENARIOS.md" ] && [ "$SCRIPT" = "$REPO_ROOT/scripts/a
   sd=$(new_specs_dir)
   cp "$REPO_ROOT/specs/SCENARIOS.md" "$sd/SCENARIOS.md"
   cp "$REPO_ROOT/specs/INDEX.md" "$sd/INDEX.md"
+  # THE MAP MAY BE MORE THAN ONE FILE (spec 007bl). When specs/scenarios/ exists, the
+  # index carries only per-feature id RANGES and the rows themselves live in the feature
+  # files. Copying the index alone left this case counting 24 ids where it used to count
+  # 188 — it went on passing, and the "ids in, ids out" line went on looking reassuring,
+  # while covering an eighth of what it had. That is the exact shape of decay this case
+  # exists to catch, so it had to learn the second layout rather than be trusted.
+  if [ -d "$REPO_ROOT/specs/scenarios" ]; then
+    mkdir -p "$sd/scenarios"
+    cp "$REPO_ROOT"/specs/scenarios/*.md "$sd/scenarios/" 2>/dev/null || true
+  fi
   # Counts every SC-id MENTIONED, not only those owned as a table row, so this
   # total runs one above validate-scenario-traceability.sh's: one map row quotes
   # a shellcheck code (SC2086) while explaining it must not be read as an id, and
@@ -276,9 +286,18 @@ if [ -f "$REPO_ROOT/specs/SCENARIOS.md" ] && [ "$SCRIPT" = "$REPO_ROOT/scripts/a
   # That lookalike is deliberately NOT spelled with a hyphen here: writing it out
   # would make this comment a reference from scripts/ to an id the map does not
   # own, i.e. an orphan. Observed while writing this very line.
-  ids_before=$(grep -oE 'SC-[0-9]+' "$sd/SCENARIOS.md" | sort -u | wc -l | tr -d ' ')
+  map_ids() { grep -rhoE 'SC-[0-9]+' "$1/SCENARIOS.md" "$1/scenarios" 2>/dev/null | sort -u | wc -l | tr -d ' '; }
+  ids_before=$(map_ids "$sd")
   run_archiver "$sd"
-  ids_after=$(grep -oE 'SC-[0-9]+' "$sd/SCENARIOS.md" | sort -u | wc -l | tr -d ' ')
+  ids_after=$(map_ids "$sd")
+
+  # A floor, so the case cannot quietly shrink to near-nothing again and keep passing.
+  # 100 is well below the 188 the map holds today and well above the 24 the index alone
+  # yields, so it fails loudly if the rows stop being reachable rather than reporting a
+  # comfortable "n ids in, n ids out" about a map it can no longer see.
+  if [ "$ids_before" -lt 100 ]; then
+    bad "case11-real-map-is-well-formed" "only $ids_before ids visible — the map is not being read in full (split layout not picked up?)"
+  fi
   if [ "$RC" -ne 0 ]; then
     bad "case11-real-map-is-well-formed" "the repo's own map is refused (exit $RC) — a ledger block sits below the history heading"
   elif [ "$ids_before" != "$ids_after" ]; then

@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""test-scenario-map-index.py — the index must not drift from the files it summarizes.
+
+WHY THIS EXISTS: splitting the scenario map (spec 007bl) bought a small per-spec read and
+created a failure mode that did not exist before — the index and the feature files can now
+disagree. One document cannot contradict itself; two can, silently, and the contradiction
+looks like nothing at all until somebody trusts the wrong half.
+
+The sharpest case is the per-feature status tally. It is the project-wide progress view — the
+one that made checkpoint H1's section 3 possible — and it goes stale the instant a future spec
+flips a `◐` to `✓` inside a feature file and does not touch the index. Nothing else would
+notice: the row count is unchanged, the losslessness gate still passes, the canary is silent,
+and the index goes on stating a number that was true last month.
+
+So the nine invariants below run on every spec, against the real map, rather than being
+verified once by hand at the moment they were introduced.
+
+Silent on projects in the single-file layout — there is no index to drift from, so every check
+is vacuous and reporting on it would be noise.
+
+Run:  bash scripts/test-scenario-map-index.py
+Exit: 0 all invariants hold (or single-file layout) · 1 one or more violated
+"""
+
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INDEX = os.path.join(ROOT, "specs", "SCENARIOS.md")
+FEAT_DIR = os.path.join(ROOT, "specs", "scenarios")
+EXTRACT = os.path.join(ROOT, "scripts", "scenario-map-rows.sh")
+
+FAILED = []
+
+
+def ok(msg):
+    print(f"  ok:   {msg}")
+
+
+def bad(case, detail):
+    print(f"  FAIL: {case} — {detail}")
+    FAILED.append(case)
+
+
+if not os.path.isdir(FEAT_DIR) or not os.listdir(FEAT_DIR):
+    print("single-file layout — no index to drift from, nothing to check")
+    sys.exit(0)
+
+if not os.path.isfile(INDEX):
+    print("FAIL: specs/scenarios/ exists but specs/SCENARIOS.md does not")
+    sys.exit(1)
+
+
+def rows_of(*paths):
+    """Rows via the one extractor, so this harness and the losslessness gate agree on what a
+    row IS. Re-parsing the tables here would let the two drift — the very defect being tested."""
+    out = subprocess.run(["sh", EXTRACT, *paths], capture_output=True, text=True)
+    if out.returncode != 0:
+        raise SystemExit(f"extractor failed on {paths}: {out.stderr.strip()}")
+    return [l.split("|") for l in out.stdout.split("\n") if l.strip()]
+
+
+index_text = open(INDEX, encoding="utf-8").read()
+
+# An index row: | [Title](scenarios/slug.md) | specs | id-ranges | tally |
+ROW_RE = re.compile(
+    r"^\| \[(?P<title>[^\]]+)\]\(scenarios/(?P<file>[a-z0-9.-]+\.md)\) \| (?P<specs>[^|]*) \| (?P<ids>[^|]*) \| (?P<tally>[^|]*) \|$",
+    re.M,
+)
+entries = [m.groupdict() for m in ROW_RE.finditer(index_text)]
+files_on_disk = sorted(f for f in os.listdir(FEAT_DIR) if f.endswith(".md"))
+
+print(f"index has {len(entries)} rows; {len(files_on_disk)} feature files on disk")
+
+# --- 1. every feature file is linked, and every link resolves -------------------------
+linked = [e["file"] for e in entries]
+missing = [f for f in linked if not os.path.isfile(os.path.join(FEAT_DIR, f))]
+orphans = [f for f in files_on_disk if f not in linked]
+if missing:
+    bad("every index link resolves", f"broken: {', '.join(missing)}")
+else:
+    ok(f"every index link resolves ({len(linked)})")
+if orphans:
+    # An orphan is a feature whose scenarios exist but which is invisible to anyone reading
+    # the index — mapped and unfindable, which is worse than unmapped because it looks done.
+    bad("no orphan feature files", f"on disk but not linked: {', '.join(orphans)}")
+else:
+    ok("no orphan feature files")
+
+# --- 2. each file is indexed exactly once ---------------------------------------------
+dupes = {f for f in linked if linked.count(f) > 1}
+if dupes:
+    bad("each feature file indexed exactly once", f"duplicated: {', '.join(sorted(dupes))}")
+else:
+    ok("each feature file indexed exactly once")
+
+# --- 3. the link matches the file's own primary slug ----------------------------------
+SLUG_RE = re.compile(r"\b(\d{3}[a-z]*-[a-z0-9][a-z0-9-]*)\b")
+bad_link = []
+for e in entries:
+    stem = e["file"][:-3]
+    if stem.startswith("cross-cutting"):
+        continue
+    if stem not in e["specs"]:
+        bad_link.append(f"{e['file']} (Spec column: {e['specs'].strip()})")
+if bad_link:
+    bad("link matches a slug the row names", "; ".join(bad_link))
+else:
+    ok("link matches a slug the row names")
+
+# --- 4. tally counts LIVE rows, and retired are named separately ----------------------
+tally_bad = retired_bad = 0
+for e in entries:
+    rows = rows_of(os.path.join(FEAT_DIR, e["file"]))
+    live = [r for r in rows if r[5] == "0"]
+    retired = [r for r in rows if r[5] == "1"]
+    head = e["tally"].split("·")[0]
+    # Compare the tally PER STATUS, not by total. Comparing totals looks equivalent and is
+    # not: flipping a ◐ to a ✓ inside a feature file and rewriting "7 ✓, 1 ◐" as "8 ✓"
+    # leaves the sum at 8 and passes a total-only check — which is exactly the drift this
+    # invariant exists to catch, and exactly what a total-only version of it let through
+    # when the mutation check was run. "✓ *" is its own status and must not collapse into
+    # "✓", so the alternation puts the longer token first.
+    claimed = {}
+    for n, st in re.findall(r"(\d+)\s+(✓ \*|✓|◐|☐)", head):
+        claimed[st] = claimed.get(st, 0) + int(n)
+    actual = {}
+    for r in live:
+        actual[r[4]] = actual.get(r[4], 0) + 1
+    m = re.search(r"(\d+) retired", e["tally"])
+    claimed_ret = int(m.group(1)) if m else 0
+    if claimed != actual:
+        fmt = lambda d: ", ".join(f"{v} {k}" for k, v in sorted(d.items())) or "nothing"
+        bad("tally counts live rows", f"{e['file']}: index says [{fmt(claimed)}], file has [{fmt(actual)}]")
+        tally_bad += 1
+    if claimed_ret != len(retired):
+        bad("retired named separately", f"{e['file']}: index says {claimed_ret}, file has {len(retired)}")
+        retired_bad += 1
+if not tally_bad:
+    ok(f"tally counts live rows, not retired ({len(entries)} features)")
+if not retired_bad:
+    ok("retired rows named separately where present")
+
+# --- 5. the id ranges in the index cover exactly that file's ids ----------------------
+def expand(spec):
+    out = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if ".." in part:
+            a, b = part.split("..")
+            lo = int(a[3:])
+            hi = int(b) if b.isdigit() else int(b[3:])
+            out |= set(range(lo, hi + 1))
+        elif part.startswith("SC-"):
+            out.add(int(part[3:]))
+    return out
+
+
+range_bad = 0
+for e in entries:
+    claimed = expand(e["ids"])
+    actual = {int(r[0][3:]) for r in rows_of(os.path.join(FEAT_DIR, e["file"]))}
+    if claimed != actual:
+        bad("index id-ranges match the file", f"{e['file']}: only-in-index {sorted(claimed-actual)}, only-in-file {sorted(actual-claimed)}")
+        range_bad += 1
+if not range_bad:
+    ok("index id-ranges match each file's ids exactly")
+
+# --- 6. back-link at the top of every feature file ------------------------------------
+no_backlink = []
+for f in files_on_disk:
+    first = open(os.path.join(FEAT_DIR, f), encoding="utf-8").readline()
+    if "](../SCENARIOS.md)" not in first:
+        no_backlink.append(f)
+if no_backlink:
+    bad("back-link on every feature file", ", ".join(no_backlink))
+else:
+    ok(f"back-link on every feature file ({len(files_on_disk)})")
+
+# --- 7. every slug a file's headings cite appears inside that file ---------------------
+# The reminder hook finds a feature by grepping for the slug. A heading that cites a slug the
+# body never repeats is fine; a slug cited NOWHERE in the file is a feature the hook will
+# report as an unmapped scenario gap on every future spec.
+slug_bad = []
+for f in files_on_disk:
+    text = open(os.path.join(FEAT_DIR, f), encoding="utf-8").read()
+    cited = set()
+    for h in re.findall(r"^#{1,3} .*$", text, re.M):
+        cited |= set(SLUG_RE.findall(h))
+    for s in cited:
+        if s not in text:
+            slug_bad.append(f"{f}: {s}")
+if slug_bad:
+    bad("cited slugs appear in their file", "; ".join(slug_bad))
+else:
+    ok("cited slugs appear in their file")
+
+# --- 8. a nested sub-feature is not indexed separately --------------------------------
+# It travels inside its parent's file. An index row of its own would claim its rows twice.
+nested = set()
+for f in files_on_disk:
+    text = open(os.path.join(FEAT_DIR, f), encoding="utf-8").read()
+    for h in re.findall(r"^## .*$", text, re.M):
+        nested |= set(SLUG_RE.findall(h))
+double = [s for s in nested if f"scenarios/{s}.md" in index_text]
+if double:
+    bad("nested sub-features not indexed separately", ", ".join(double))
+else:
+    ok(f"nested sub-features not indexed separately ({len(nested)} nested)")
+
+# --- 9. strike-through and retired status agree ---------------------------------------
+# Not done in awk: BSD awk compares multi-byte strings wrongly — "☐" == "—" evaluates TRUE,
+# so an awk version of this check reports every live row as a violation. Found writing it.
+all_rows = rows_of(INDEX, *[os.path.join(FEAT_DIR, f) for f in files_on_disk])
+mismatch = [r[0] for r in all_rows if (r[4] == "—") != (r[5] == "1")]
+if mismatch:
+    bad("strike-through matches retired status", ", ".join(mismatch))
+else:
+    ok(f"strike-through matches retired status ({len(all_rows)} rows)")
+
+print()
+if FAILED:
+    print(f"{len(FAILED)} invariant(s) violated — the index and the feature files disagree")
+    sys.exit(1)
+print("index and feature files agree on all nine invariants")
+sys.exit(0)

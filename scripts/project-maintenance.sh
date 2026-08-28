@@ -72,7 +72,14 @@ fi
 
 # ------------------------------------------------------- 2. per-spec-read file bloat
 # Same 25 KB threshold as the SessionStart canary in spec-register-orientation-hook.sh.
-for f in specs/INDEX.md specs/SCENARIOS.md; do
+#
+# Spec 007bl added the second shape a scenario map can take: an index plus per-feature files
+# under specs/scenarios/. Every one of those is read when its feature is worked, so each is
+# measured on its own. They are never summed — nothing reads all of them in one spec, so a sum
+# would fire forever on a map that is behaving exactly as designed, and an un-actionable
+# warning is the thing this section exists to remove rather than reproduce. The glob simply
+# matches nothing on the 41 projects that never split, so their output is unchanged.
+for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
   [ -f "$f" ] || continue
   BYTES=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
   case "$BYTES" in (''|*[!0-9]*) BYTES=0 ;; esac

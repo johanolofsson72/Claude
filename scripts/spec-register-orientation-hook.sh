@@ -221,6 +221,28 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   if [ "$SCEN_BYTES" -gt "$WARN_THRESH" ]; then
     [ -n "$BLOATED" ] && BLOATED="$BLOATED, SCENARIOS.md ($((SCEN_BYTES/1024)) KB)" || BLOATED="SCENARIOS.md ($((SCEN_BYTES/1024)) KB)"
   fi
+
+  # Spec 007bl: on a project whose map outgrew one file, SCENARIOS.md keeps only the use-case
+  # diagram and a per-feature index, and the rows live in specs/scenarios/<slug>.md. Measuring
+  # the index alone there reports a healthy 9 KB while the file a spec actually opens is its
+  # feature file — the canary would go blind at exactly the moment it started mattering, which
+  # is how the map reached 85 KB in the first place: no single edit ever looked large.
+  #
+  # Each feature file is measured SEPARATELY and never summed. Nothing reads all of them in one
+  # spec, so a sum would fire permanently on a map behaving exactly as designed — recreating the
+  # un-actionable warning 007bl exists to remove. Every file over the threshold is named, not
+  # just the largest: "your biggest file is too big" sends the reader back for the next one.
+  if [ -d "${PROJECT_ROOT}/specs/scenarios" ]; then
+    for _scen in "${PROJECT_ROOT}"/specs/scenarios/*.md; do
+      [ -f "$_scen" ] || continue
+      _sb=$(wc -c < "$_scen" 2>/dev/null | tr -d ' ') || _sb=0
+      _sb=${_sb:-0}
+      if [ "$_sb" -gt "$WARN_THRESH" ]; then
+        _sn="scenarios/$(basename "$_scen") ($((_sb/1024)) KB)"
+        [ -n "$BLOATED" ] && BLOATED="$BLOATED, $_sn" || BLOATED="$_sn"
+      fi
+    done
+  fi
   if [ -n "$BLOATED" ]; then
     SIZE_WARN="
 ⚠ CONTEXT-COST CANARY — large per-spec files: ${BLOATED}.

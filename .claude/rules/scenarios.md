@@ -7,15 +7,38 @@ paths:
   - "**/SCENARIOS.md"
 ---
 
-# Scenario map rule (`specs/SCENARIOS.md` — the living exploded view)
+# Scenario map rule (`specs/SCENARIOS.md` + `specs/scenarios/` — the living exploded view)
 
-Every project keeps a single living **scenario map** at `specs/SCENARIOS.md` — an exploded view ("sprängskiss") of every conceivable scenario and use case across the whole project. It is the source from which the rest of the pipeline is derived:
+Every project keeps a living **scenario map** rooted at `specs/SCENARIOS.md` — an exploded view ("sprängskiss") of every conceivable scenario and use case across the whole project. It is the source from which the rest of the pipeline is derived:
 
 - **Happy-path scenarios** → the functional-coverage inventory (one test per happy scenario).
 - **Edge / adversarial / error scenarios** → the destructive E2E suite (Playwright/Maestro) and the risk-tiered count.
 - **Invariants implied by the scenarios** → Allium `rule`/`invariant` entries.
 
 The map answers one question at a glance that nothing else in the pipeline answers: *"have we thought of everything yet?"* It is a **surveyable, visual artifact** — not just a ledger of rows. It grows with the project — it is never "finished".
+
+### Two layouts — one file, or an index plus feature files
+
+Because it never stops growing, the map has two legitimate shapes. Which one a project is in is a
+question about size, not taste, and every consumer detects it rather than assuming:
+
+| | **Single-file** (the default) | **Split** (a project that outgrew one file) |
+|---|---|---|
+| `specs/SCENARIOS.md` | everything: use-case diagram, every flowchart, every SC row, history | use-case diagram, actor headings, a **per-feature index**, history |
+| `specs/scenarios/<slug>.md` | does not exist | one file per feature: its flowchart, its SC rows, its validation prose |
+| Read per spec | the whole map | the index, plus the one feature file being worked |
+
+**Detection is `specs/scenarios/` existing and being non-empty.** An empty directory counts as
+single-file — it is what a half-finished split or a stray `mkdir` leaves behind, and reading it as
+split would send every consumer looking for rows where there are none. `scripts/scenario-map-layout.sh`
+is the one implementation of that predicate; hooks source it rather than re-deciding, because two
+hooks disagreeing about where the rows live is worse than either being wrong, the disagreement being
+silent.
+
+**When to split:** when the map passes the context-cost canary (25 KB) and targeted reads have stopped
+being comfortable. Not before — a small map is *better* in one file, and 41 of this template's 42
+projects are correctly single-file. Split as a deliberate refactor with its own spec, noted in Scenario
+history; the layout change is not a cleanup you do in passing while working another feature.
 
 ## What the map contains — visual overview (tiered), backed by the SC-id ledger
 
@@ -105,12 +128,17 @@ Updating the map is part of "done" for the spec, the same way ticking the spec r
 
 ## Keep the map lean — read it targeted (BLOCKING — context-cost hygiene)
 
-`SCENARIOS.md` is the file most likely to balloon, because it grows with *every* behaviour-changing spec and the rule above says to touch it every time. "Surveyable" means a human can skim the diagrams — it does **not** mean you reload all 1000+ lines into context on every spec. On a mature project this single file can be 40k+ tokens; swallowing it whole each spec is the biggest avoidable per-spec cost. Discipline:
+The map is the artefact most likely to balloon, because it grows with *every* behaviour-changing spec and the rule above says to touch it every time. Under the split layout the growth lands in a feature file rather than the index, which is why the canary measures each of them and not just the index. "Surveyable" means a human can skim the diagrams — it does **not** mean you reload all 1000+ lines into context on every spec. On a mature project this single file can be 40k+ tokens; swallowing it whole each spec is the biggest avoidable per-spec cost. Discipline:
 
-- **Read only the slice you need.** When you touch the map for feature X, load only that feature's flowchart + its SC-id rows. Find them with a targeted read, not a whole-file read: `grep -nE 'Feature: <name>|SC-0[0-9]{2}' specs/SCENARIOS.md` to locate the block, then `Read` with `offset`/`limit` around it. You almost never need the whole map at once — the use-case diagram and other features' ledgers are not inputs to the spec in front of you.
+- **Read only the slice you need.** When you touch the map for feature X, load only that feature's flowchart + its SC-id rows. You almost never need the whole map at once — the use-case diagram and other features' ledgers are not inputs to the spec in front of you. The recipe depends on the layout:
+  - **Split** — read `specs/SCENARIOS.md` (small by construction) to find the feature's row, then open its `specs/scenarios/<slug>.md` whole. To go straight from an id: `grep -rn 'SC-047' specs/SCENARIOS.md specs/scenarios/` names both the index row and the file that owns it.
+  - **Single-file** — `grep -nE 'Feature: <name>|SC-0[0-9]{2}' specs/SCENARIOS.md` to locate the block, then `Read` with `offset`/`limit` around it. Never a whole-file read.
 - **Edit surgically.** Add the new feature's rows/flowchart with `Edit` at the right location; do not read-and-rewrite the entire map to append a few rows.
 - **History is one line each, and it gets archived.** `## Scenario history` entries are `- YYYY-MM-DD — <one sentence>`, never paragraphs. When the section passes ~5 entries, move the older ones to `specs/SCENARIOS.history.md` (never read in-flight) with `scripts/archive-spec-history.sh`.
-- **When a project's map genuinely outgrows one file** (many actors × many features, and even targeted reads are awkward), split per feature: keep the use-case diagram + SC-id index in `SCENARIOS.md` and move each feature's flowchart + rows to `specs/scenarios/<NNN-slug>.md`. The map stays surveyable via the index; each spec loads only its own feature file. Do this as a deliberate refactor (note it in Scenario history), not silently.
+- **When a project's map genuinely outgrows one file** (many actors × many features, and even targeted reads are awkward), split it per the table above. One file per **feature block**, named for its primary spec slug; a `####` sub-feature travels inside its parent's file rather than earning one of its own, because it was written as one narrative. The index keeps the use-case diagram and one row per feature: name, spec slug(s), a link, its SC-id range, and a tally of live rows with retired ones named separately. Do it as a deliberate refactor with its own spec (note it in Scenario history), never silently.
+- **Moving the map is a move, not an edit.** Restructuring must not reword, re-type, re-status or drop a single row, and a retired `~~SC-nnn~~` row must survive struck through — tidying one away frees an id that is a permanent handle. Prove it mechanically: snapshot every row before, extract after, diff. `scripts/scenario-map-rows.sh` and `scripts/test-scenario-map-split.sh` are that pair. Eyeballing a 188-row diff is not a check.
+- **The index must not drift from the files it summarizes.** Splitting buys a cheap per-spec read and creates a failure mode one document could not have: the index's per-feature status tally goes stale the moment a spec flips a `◐` to `✓` in a feature file and does not touch the index, and nothing else notices — the row count is unchanged, the losslessness gate passes, the canary is silent. `scripts/test-scenario-map-index.py` checks nine such invariants against the real map. **Updating a scenario's status is two edits, not one**: the row in its feature file, and that feature's tally in the index.
+- **The canary measures every file the map is made of.** Under the split layout `scripts/spec-register-orientation-hook.sh` and `scripts/project-maintenance.sh` measure the index *and* each feature file separately, naming every one over 25 KB. They never sum them: nothing reads all the feature files in one spec, so a sum would fire permanently on a map behaving exactly as designed, and a warning that is always on is a warning that is off.
 
 None of this weakens the "map everything / never invent silently" rules below — it changes *how much you load to work on the map*, not *what the map must contain*.
 
@@ -135,7 +163,7 @@ Validate foundational scenarios **before** the ones that depend on them. If you 
 - If a prerequisite scenario fails validation, **STOP and fix it before continuing** — it invalidates everything downstream. Do not write 90 destructive tests for a checkout that can't be reached because the map click does nothing.
 - Mark the dependency in the map when it isn't obvious (e.g. note that SC-040..060 all sit behind SC-001 login).
 
-Update each scenario's **Status** in `specs/SCENARIOS.md` as it moves `☐ → ◐ → ✓`. The spec/feature is not done until its scenarios are `✓`. A `/tla` or Allium finding that traces to a scenario also flips that scenario back below `✓` until re-validated.
+Update each scenario's **Status** where its row lives — the feature file under the split layout, `specs/SCENARIOS.md` under the single-file one — as it moves `☐ → ◐ → ✓`. Under the split layout also refresh that feature's tally in the index, or the index starts lying about project-wide progress. The spec/feature is not done until its scenarios are `✓`. A `/tla` or Allium finding that traces to a scenario also flips that scenario back below `✓` until re-validated.
 
 ## Scenario gap or drift → START AN INTERVIEW (BLOCKING — do not paper over it)
 
@@ -152,19 +180,19 @@ Missing user-cases are the root cause of "we forgot that in the code". A scatter
 
 - For each actor × feature, ask the user to confirm or fill the four scenario classes: **happy**, **edge**, **adversarial** (race/double-submit/tamper), **error** (network/timeout/auth-expiry), plus **offline** where relevant.
 - Pair every question with a **recommended answer** derived from the spec and the codebase — the user confirms or corrects, they don't start from a blank page. (Single-model self-assessment of "did I cover everything?" is weak; the interview makes the human the completeness check.)
-- Keep going until the user signals the feature's scenarios are complete, then write them into `specs/SCENARIOS.md` as BOTH the visual artifacts and the ledger: update the project **use-case diagram** if a new actor/use case appeared, draw/refresh the feature's **user-flow flowchart** (every branch is a scenario, error/empty branches included), add the new `SC-id` rows to the table, and append a line to **Scenario history** noting what the interview added and why. A scenario that exists as a row but not in the flowchart isn't surveyable — put it in both.
+- Keep going until the user signals the feature's scenarios are complete, then write them into the map as BOTH the visual artifacts and the ledger — into the feature's own `specs/scenarios/<slug>.md` under the split layout, into `specs/SCENARIOS.md` under the single-file one: update the project **use-case diagram** if a new actor/use case appeared, draw/refresh the feature's **user-flow flowchart** (every branch is a scenario, error/empty branches included), add the new `SC-id` rows to the table, and append a line to **Scenario history** noting what the interview added and why. A scenario that exists as a row but not in the flowchart isn't surveyable — put it in both.
 - Only then resume the pipeline. The newly-captured scenarios immediately feed the functional inventory and the destructive suite.
 
 Do NOT silently invent the missing scenarios and move on — inventing them is the same failure as missing them, just hidden. Ask.
 
 ## Enforcement
 
-- **PostToolUse reminder** (`scripts/scenario-map-reminder-hook.sh`, advisory — never blocks): fires when a `spec*.md` / `tasks*.md` / `plan*.md` gains interactive behaviour but `specs/SCENARIOS.md` lacks rows for it. The reminder explicitly instructs Claude to **start the scenario interview above**, not merely to jot a note. The hook is silent on template/scratch repos (no language marker) and on non-behaviour specs.
+- **PostToolUse reminder** (`scripts/scenario-map-reminder-hook.sh`, advisory — never blocks): fires when a `spec*.md` / `tasks*.md` / `plan*.md` gains interactive behaviour but the map lacks rows for it — searching the index **and** every `specs/scenarios/*.md`, so a feature mapped in a feature file is not reported as a gap. The reminder explicitly instructs Claude to **start the scenario interview above**, not merely to jot a note. The hook is silent on template/scratch repos (no language marker) and on non-behaviour specs.
 - The map is seeded by `/project-wizard` at project inception (the inception interview is the first scenario interview) and grows from there.
 - Drift detection rides alongside Allium/TLA+: the scenario map is the human-readable layer above the Allium baseline, so `/tla`'s drift report and the scenario map stay in lockstep.
 
 ## What this rule forbids
 
 - Writing a destructive test for a scenario that isn't in the map (map it first, or as you write the test).
-- Treating `SCENARIOS.md` as write-once — it is a living document; a spec that adds behaviour and leaves the map untouched is incomplete.
+- Treating the map as write-once — it is a living document; a spec that adds behaviour and leaves the map untouched is incomplete.
 - Reusing an `SC-id`. Ids are permanent handles for traceability.

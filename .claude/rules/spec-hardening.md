@@ -40,7 +40,7 @@ The checkpoint is worked like any other row (run it, tick it, commit, push) and 
 
 1. **Full-system regression** — the entire test suite (not just the changed module): unit + integration + E2E + visual-regression baselines. Integration is where AI code most often breaks at the seams; this is the seam check.
 2. **Cross-cutting security sweep** — `security-scanner` agent over the whole surface + a `scripts/project-freshness.sh` run (trufflehog verified-secret scan + `npm audit` dependency-CVE report). Catches secrets and CVEs that accumulated across the last five specs.
-3. **Scenario-map reconciliation** — verify `specs/SCENARIOS.md` still matches reality across all features built so far; a drift starts a scenario interview per `.claude/rules/scenarios.md`, it is not silently patched.
+3. **Scenario-map reconciliation** — verify the scenario map (the index plus every `specs/scenarios/*.md`) still matches reality across all features built so far; a drift starts a scenario interview per `.claude/rules/scenarios.md`, it is not silently patched.
 4. **Mutation spot-check** — run Stryker on the two or three most-changed critical modules since the last checkpoint; a collapse in kill rate means recent specs added code the tests do not actually exercise.
 
 The checkpoint produces a status summary like a spec does, then stops (it is a legitimate per-row stop per `.claude/rules/spec-register.md`). N = 5 is the default cadence; a project may set its own N at wizard time (recorded in the register history), but the checkpoint is never silently skipped — a register that has passed a multiple of 5 with no checkpoint row is a drift to surface, not a thing to ignore.

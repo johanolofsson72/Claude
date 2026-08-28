@@ -73,8 +73,36 @@ fi
 
 # Suppress if the map already references this spec slug. Anchor on non-alphanumeric
 # boundaries so a short slug (003-api) is not falsely matched inside a longer one.
-if [ -n "$SLUG" ] && grep -qE "(^|[^A-Za-z0-9])$SLUG([^A-Za-z0-9]|\$)" "$MAP" 2>/dev/null; then
-  exit 0
+#
+# THE MAP IS NOT ALWAYS ONE FILE (spec 007bl). On a project whose map outgrew a single
+# document, specs/SCENARIOS.md keeps the use-case diagram and a per-feature index, and each
+# feature's rows live in specs/scenarios/<slug>.md. Searching only the index there would fire
+# a "scenario gap" for every feature whose rows moved — i.e. for almost every spec, on a
+# project whose map is in perfect shape. An advisory that cries wolf on every spec is worse
+# than no advisory: it trains the reader to dismiss the one signal that catches a genuinely
+# missed user-case, which is the entire reason this hook exists.
+#
+# scenario_map_files resolves the layout and lists every file that can hold rows — the index
+# alone under the single-file layout, so projects that never split behave exactly as before.
+_SMR_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [ -r "$_SMR_DIR/scenario-map-layout.sh" ]; then
+  . "$_SMR_DIR/scenario-map-layout.sh"
+  MAP_FILES=$(scenario_map_files "$ROOT")
+else
+  # Fail open to the pre-007bl behaviour rather than erroring inside a PostToolUse hook.
+  MAP_FILES="$MAP"
+fi
+
+if [ -n "$SLUG" ]; then
+  # A loop rather than `grep -q ... $MAP_FILES`, so a path containing whitespace cannot
+  # split into two filenames and quietly search the wrong thing.
+  printf '%s\n' "$MAP_FILES" | while IFS= read -r _mf; do
+    [ -n "$_mf" ] || continue
+    [ -f "$_mf" ] || continue
+    grep -qE "(^|[^A-Za-z0-9])$SLUG([^A-Za-z0-9]|\$)" "$_mf" 2>/dev/null && exit 17
+  done
+  # 17 escapes the subshell as the pipeline's status; anything else means no file matched.
+  [ "$?" -eq 17 ] && exit 0
 fi
 
 jq -n --arg slug "$SLUG" '{systemMessage: ("Scenario gap: specs/SCENARIOS.md has no rows for this spec (" + $slug + "). This is the failure mode where a missed user-case slips into the code. START A SCENARIO INTERVIEW now (AskUserQuestion, one feature at a time; recommended answers the user confirms) to capture happy / edge / adversarial / error / offline scenarios, then write the SC-id rows. The map is the source the functional inventory and destructive suite derive from. See .claude/rules/scenarios.md.")}'
