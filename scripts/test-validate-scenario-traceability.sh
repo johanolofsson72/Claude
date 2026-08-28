@@ -262,8 +262,13 @@ else
   # through the sabotage that removes both defences, i.e. it tested grep rather than the gate.
   # The denominator is `is_claimed` counting rows, and it is the number the trap actually corrupts:
   # correct is 3 of 3 (the mapped row exempt); with the symbols collapsed it becomes 3 of 4.
+  # The oracle splits on TAB because that is what the extractor emits — see the OUTPUT block in
+  # scenario-map-rows.sh. It was "|" until 2026-08-28, and when the delimiter moved this oracle
+  # returned 0 while the gate returned the right answer: the case went red naming the gate, which
+  # is the honest failure mode for a harness that pins a format it does not own.
+  ORACLE_TAB=$(printf '\t')
   rows_out=$("$REPO_ROOT/scripts/scenario-map-rows.sh" "$proj/specs/SCENARIOS.md")
-  o_claimed=$(printf '%s\n' "$rows_out" | grep -cE "\|($V|$T)\|0$")
+  o_claimed=$(printf '%s\n' "$rows_out" | grep -cE "$ORACLE_TAB($V|$T)${ORACLE_TAB}0$")
 
   # LC_ALL is unset deliberately: with it set, the caller's environment would mask whether the gate
   # pins the locale itself, and the case would pass for the wrong reason.
@@ -276,6 +281,22 @@ else
   else
     bad "case14-locale-immunity" "under $SVLOC the gate claimed ${g_claimed:-?} rows (exit $RC), oracle says $o_claimed — the status distinction collapsed"
   fi
+fi
+
+# case16 — an EMPTY cell, which is the trap the tab delimiter brought with it. A tab is IFS
+# whitespace, so `IFS=<tab> read -r a b c d e f` collapses the empty Type cell below and shifts
+# every field after it: status would be read as "0" and the row would quietly stop counting as
+# claimed, i.e. the gate would report clean over exactly the gap it exists to find. awk sees six
+# fields on the same line and the field-count guard stays green, so nothing else here catches it.
+# The row is validated and referenced by nothing, so a gate reading status correctly says exit 1.
+proj=$(new_project)
+{ map_header; printf '| %s |  | A thing happens | It works | %s |\n' "$(id 916)" "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "$(id 916)" <<< "$OUT" && grep -q 'uncovered' <<< "$OUT"; then
+  ok "case16-empty-cell-does-not-shift-status"
+else
+  bad "case16-empty-cell-does-not-shift-status" "expected exit 1 naming the id as uncovered, got $RC: $OUT"
 fi
 
 # case15 — this file must not contain a literal id token. See the header: the fixture ids are built

@@ -6,11 +6,19 @@
 # 188 rows, so it is checked mechanically: snapshot before, extract after, diff. This script
 # is both halves of that, and scripts/test-scenario-map-split.sh is the gate around it.
 #
-# OUTPUT: one line per row, sorted by id, pipe-separated:
-#     id|kind|scenario|expected_outcome|status|struck
+# OUTPUT: one line per row, sorted by id, TAB-separated:
+#     id<TAB>kind<TAB>scenario<TAB>expected_outcome<TAB>status<TAB>struck
 # where `struck` is 1 for a retired row (written ~~SC-NNN~~ in the map) and 0 otherwise.
 # The id is emitted WITHOUT the strikethrough markers so ids sort and compare naturally;
 # the strike survives as its own field, because losing it would free a reserved id.
+#
+# THE DELIMITER IS A TAB BECAUSE A CELL CAN CONTAIN A PIPE. It was "|" until 2026-08-28, which
+# reads fine until a scenario quotes one — see trap 3 — and then the emitted line has seven
+# fields where every caller splits on six. `IFS='|' read -r id kind scen expected status struck`
+# does not fail on that; it shifts status into expected and puts "✓|0" in struck, so the row
+# quietly stops counting as validated. A tab cannot collide the same way, and not by convention:
+# squeeze() below collapses every whitespace run in a cell to a single space, so no emitted cell
+# contains a tab. That is an invariant of this script, not an escaping rule callers must know.
 #
 # THREE TRAPS THIS SCRIPT EXISTS TO AVOID. The first two were found while scoping 007bl; the
 # third was found by the gate refusing a real map on 2026-08-28:
@@ -79,10 +87,11 @@ EXTRACT='
     # number of backslashes was cut mid-cell: the last one escapes the delimiter. An even
     # number is literal backslashes standing in front of a real column break, so the count
     # is what distinguishes them — a bare /\\$/ test would join the second case wrongly.
-    # The pipe is put back in its ESCAPED form, so a restored cell still contains no bare
-    # delimiter: this script emits pipe-separated rows, and every caller splits them on "|".
-    # Unescaping here would shift status and struck into the wrong fields for exactly the
-    # rows this rejoin exists to rescue — a fix that reads as a fix and corrupts silently.
+    # The pipe goes back spelled as the map spells it, \|, because every other cell is
+    # emitted verbatim and a diff of two extractions is meant to be a diff of the maps.
+    # (No apostrophes in this block: EXTRACT is a single-quoted shell string, and one
+    # stray quote ends it mid-program. Cost of learning that: nine red cases below.)
+    # Output stays splittable because the delimiter is a tab, not because of that backslash.
     n = 0
     cur = $1
     for (i = 2; i <= NF; i++) {
@@ -121,7 +130,7 @@ EXTRACT='
     status   = squeeze(status)
     kind     = squeeze(kind)
 
-    printf "%s|%s|%s|%s|%s|%d\n", id, kind, scenario, expected, status, struck
+    printf "%s\t%s\t%s\t%s\t%s\t%d\n", id, kind, scenario, expected, status, struck
   }
 
   END { if (bad) exit 2 }
@@ -146,7 +155,8 @@ EXTRACT='
 RAW=$(awk "$EXTRACT" "$@")
 RC=$?
 [ "$RC" -ne 0 ] && exit "$RC"
-ROWS=$(printf '%s\n' "$RAW" | sed '/^$/d' | sort -t'|' -k1,1)
+TAB=$(printf '\t')
+ROWS=$(printf '%s\n' "$RAW" | sed '/^$/d' | sort -t"$TAB" -k1,1)
 
 if [ "$SUMMARY" -eq 0 ]; then
   printf '%s\n' "$ROWS"
@@ -155,15 +165,15 @@ fi
 
 # --summary: the numbers T002 asserts against, so the snapshot is verified rather than trusted.
 TOTAL=$(printf '%s\n' "$ROWS" | grep -c . || true)
-UNIQUE=$(printf '%s\n' "$ROWS" | cut -d'|' -f1 | sort -u | grep -c . || true)
+UNIQUE=$(printf '%s\n' "$ROWS" | cut -d"$TAB" -f1 | sort -u | grep -c . || true)
 DUPES=$((TOTAL - UNIQUE))
 
 printf 'rows:      %s\n' "$TOTAL"
 printf 'unique:    %s\n' "$UNIQUE"
 printf 'duplicate: %s\n' "$DUPES"
-printf 'struck:    %s\n' "$(printf '%s\n' "$ROWS" | awk -F'|' '$6 == 1' | grep -c . || true)"
+printf 'struck:    %s\n' "$(printf '%s\n' "$ROWS" | awk -F'\t' '$6 == 1' | grep -c . || true)"
 printf -- '--- status histogram ---\n'
-printf '%s\n' "$ROWS" | awk -F'|' '{ h[$5]++ } END { for (k in h) printf "%-6s %d\n", k, h[k] }' | sort -k2 -rn
+printf '%s\n' "$ROWS" | awk -F'\t' '{ h[$5]++ } END { for (k in h) printf "%-6s %d\n", k, h[k] }' | sort -k2 -rn
 
 [ "$DUPES" -eq 0 ] || {
   echo "scenario-map-rows: $DUPES duplicate id(s) — ids are permanent handles and must be unique" >&2

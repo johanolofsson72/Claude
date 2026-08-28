@@ -29,7 +29,7 @@
 # ------------------------------------------------------------------------------------------------
 # THE LOCALE TRAP — read this before "simplifying" the classification into one awk line.
 #
-# The natural way to classify pipe-separated rows is awk. On macOS awk (version 20200816) under this
+# The natural way to classify delimited rows is awk. On macOS awk (version 20200816) under this
 # developer's locale, awk's string EQUALITY operator says these three symbols are the same symbol:
 #
 #     $ printf 'a|✓\nb|◐\nc|☐\n' | awk -F'|' '$2=="✓"{print $1}'      # LANG=sv_SE.UTF-8
@@ -117,6 +117,12 @@ done
 
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
+# scenario-map-rows.sh emits TAB-separated fields, and the tab is load-bearing: a scenario cell
+# may contain a pipe (SC-436 quotes a formula-injection payload), so splitting on "|" pushes
+# status into expected and the row stops counting as validated without anything erroring. Read
+# that script's OUTPUT block before changing this.
+TAB=$(printf '\t')
+
 if [ -z "$SPECS_DIR" ]; then
   ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
   SPECS_DIR="$ROOT/specs"
@@ -173,7 +179,7 @@ fi
 
 # The extractor promises six pipe-separated fields. If that ever stops being true, say so rather than
 # silently mis-slicing the status column — a gate reading the wrong field is worse than no gate.
-BADFIELDS=$(awk -F'|' 'NF != 6 {c++} END {print c+0}' "$TMP/rows")
+BADFIELDS=$(awk -F'\t' 'NF != 6 {c++} END {print c+0}' "$TMP/rows")
 if [ "$BADFIELDS" -ne 0 ]; then
   echo "scenario-traceability: $BADFIELDS row(s) did not split into 6 fields — the extractor's format changed" >&2
   exit 3
@@ -198,12 +204,18 @@ is_claimed() { # <status-cell> — true when the row claims to be tested or vali
 
 : > "$TMP/claimed"
 : > "$TMP/allids"
-# kind/scen/expected are read only to hold their column positions — the fields this loop needs are
-# the first, fifth and sixth. Naming them beats `_ _ _` at the point where someone has to check the
-# order against scenario-map-rows.sh's output contract.
-# shellcheck disable=SC2034
-while IFS='|' read -r id kind scen expected status struck; do
+# The three fields this loop needs are the first, the fifth and the sixth, and they are cut out by
+# suffix removal rather than by `IFS=<tab> read -r id kind scen expected status struck`. That reads
+# better and is wrong: a tab is IFS WHITESPACE, so `read` collapses a run of them into one delimiter
+# and an empty cell silently shifts every field after it — status would land in expected and the row
+# would stop counting as claimed. The BADFIELDS guard above cannot see it, because awk with an
+# explicit FS does NOT collapse, so the same line is six fields to awk and five to read. With "|" as
+# the delimiter this could not happen; it is the cost of the delimiter change and it is paid here.
+while IFS= read -r line; do
+  id=${line%%"$TAB"*}
   [ -n "$id" ] || continue
+  struck=${line##*"$TAB"}
+  status=${line%"$TAB"*}; status=${status##*"$TAB"}
   printf '%s\n' "$id" >> "$TMP/allids"
   # >>> struck-exempt
   [ "$struck" = "1" ] && continue
@@ -214,10 +226,15 @@ done < "$TMP/rows"
 sort -u "$TMP/allids" -o "$TMP/allids"
 sort -u "$TMP/claimed" -o "$TMP/claimed"
 
-N_VALIDATED=$(grep -c '|✓|' "$TMP/rows" || true)
-N_TESTED=$(grep -c '|◐|' "$TMP/rows" || true)
-N_MAPPED=$(grep -c '|☐|' "$TMP/rows" || true)
-N_STRUCK=$(awk -F'|' '$6 == "1" {c++} END {print c+0}' "$TMP/rows")
+# Braces are load-bearing: bash decides where a variable name ends by the locale's notion of an
+# identifier character, and under a UTF-8 locale "$TAB✓" parses as the variable TAB✓ — unbound,
+# and with set -u that is an exit before a single row is counted. Under the LC_ALL=C pin above it
+# parses as intended, so the bug is invisible until the pin is removed. The sabotage entry that
+# removes the pin is what found this, which is the entry existing to prove the OTHER defence.
+N_VALIDATED=$(grep -c "${TAB}✓${TAB}" "$TMP/rows" || true)
+N_TESTED=$(grep -c "${TAB}◐${TAB}" "$TMP/rows" || true)
+N_MAPPED=$(grep -c "${TAB}☐${TAB}" "$TMP/rows" || true)
+N_STRUCK=$(awk -F'\t' '$6 == "1" {c++} END {print c+0}' "$TMP/rows")
 
 # ------------------------------------------------------------------------------------- references
 # One tree walk emitting every id token, not one `grep -r` per id: 150 ids would be 150 walks.
@@ -262,7 +279,7 @@ N_COVERED=$((N_CLAIMED - N_UNCOV))
 
 # ----------------------------------------------------------------------------------------- report
 row_detail() { # <id> — echo "  ID  status  scenario"
-  awk -F'|' -v want="$1" '$1 == want {printf "  %s  %s  %s\n", $1, $5, $3; exit}' "$TMP/rows"
+  awk -F'\t' -v want="$1" '$1 == want {printf "  %s  %s  %s\n", $1, $5, $3; exit}' "$TMP/rows"
 }
 
 echo "scenario traceability — $LAYOUT layout, $MAP_COUNT map file(s), roots: $ROOTS"

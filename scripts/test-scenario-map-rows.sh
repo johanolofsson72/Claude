@@ -11,9 +11,12 @@
 # WHAT IT ASSERTS, and why each case is here rather than being obvious:
 #
 #   - the escaped pipe (\|) is a cell's content, not a column break                    [trap 3]
-#   - a restored cell keeps the escape, so the OUTPUT still has no bare delimiter. Every caller
-#     splits these rows on "|"; unescaping would push status and struck into the wrong fields
-#     for exactly the rows the rejoin rescues, which is a corruption no exit code reports.
+#   - the OUTPUT is TAB-separated and every row still has exactly six fields. This is the half
+#     the first attempt at the fix got wrong: it rejoined the cell and kept the pipe escaped,
+#     reasoning that \| is not a delimiter. It is one — `cut -d'|'` and `IFS='|' read` see the
+#     byte, not the backslash — so the emitted row split into seven, status landed in expected,
+#     struck read "✓|0", and the row stopped counting as validated with nothing erroring. The
+#     field-count case below is what caught it, one command after the change.
 #   - an EVEN run of backslashes before a delimiter is a real column break. This is the case a
 #     naive "field ends in a backslash" test gets wrong, and it cannot be found by staring at a
 #     map that happens to contain no such row.
@@ -38,10 +41,12 @@ bad() { printf '  FAIL: %s — %s\n' "$1" "$2"; FAILED=$((FAILED + 1)); }
 TMP=$(mktemp -d 2>/dev/null || mktemp -d -t scenrows)
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
+TAB=$(printf '\t')
+
 # expect_row <label> <map-file> <id> <expected full output line>
 expect_row() {
   _label=$1; _file=$2; _id=$3; _want=$4
-  _got=$(sh "$ROWS" "$_file" 2>/dev/null | grep "^$_id|")
+  _got=$(sh "$ROWS" "$_file" 2>/dev/null | grep "^$_id$TAB")
   if [ "$_got" = "$_want" ]; then ok "$_label"
   else bad "$_label" "got [$_got] want [$_want]"
   fi
@@ -58,18 +63,28 @@ cat > "$TMP/escaped.md" <<'MAP'
 MAP
 
 expect_row 'escaped pipe is content, not a column break' "$TMP/escaped.md" SC-001 \
-  'SC-001|adversarial|A note beginning `=cmd\|` shown in the preview|Rendered as text, never as a formula|✓|0'
+  "SC-001${TAB}adversarial${TAB}A note beginning \`=cmd\\|\` shown in the preview${TAB}Rendered as text, never as a formula${TAB}✓${TAB}0"
 expect_row 'a row with no pipes is untouched' "$TMP/escaped.md" SC-002 \
-  'SC-002|happy|A plain row with no pipes at all|Extracted unchanged|✓|0'
+  "SC-002${TAB}happy${TAB}A plain row with no pipes at all${TAB}Extracted unchanged${TAB}✓${TAB}0"
 expect_row 'two escaped pipes in one cell' "$TMP/escaped.md" SC-003 \
-  'SC-003|edge|Two \| escaped \| pipes in one cell|Still one cell|◐|0'
+  "SC-003${TAB}edge${TAB}Two \\| escaped \\| pipes in one cell${TAB}Still one cell${TAB}◐${TAB}0"
 expect_row 'a retired row keeps its id and reports struck' "$TMP/escaped.md" SC-004 \
-  'SC-004|happy|A retired row|Its id stays reserved|☐|1'
+  "SC-004${TAB}happy${TAB}A retired row${TAB}Its id stays reserved${TAB}☐${TAB}1"
 
 if sh "$ROWS" "$TMP/escaped.md" >/dev/null 2>&1; then
   ok 'a map whose only pipes are escaped exits 0'
 else
   bad 'a map whose only pipes are escaped exits 0' "exit $?"
+fi
+
+# The output contract, asserted on the rows most able to break it. validate-scenario-traceability.sh
+# refuses the whole run when any row is not six fields, and this is the case that caught the first
+# fix keeping a pipe in the emitted cell: four rows out, one of them seven fields long.
+_wrongwidth=$(sh "$ROWS" "$TMP/escaped.md" 2>/dev/null | awk -F'\t' 'NF != 6 { c++ } END { print c+0 }')
+if [ "$_wrongwidth" = "0" ]; then
+  ok 'every emitted row is exactly six tab-separated fields'
+else
+  bad 'every emitted row is exactly six tab-separated fields' "$_wrongwidth row(s) split wrong"
 fi
 
 # --- the even-backslash case ----------------------------------------------------------
@@ -79,7 +94,7 @@ cat > "$TMP/evenslash.md" <<'MAP'
 | SC-010 | edge | Ends in a literal backslash \\ | Still five columns | ✓ |
 MAP
 expect_row 'an even backslash run leaves the column break alone' "$TMP/evenslash.md" SC-010 \
-  'SC-010|edge|Ends in a literal backslash \\|Still five columns|✓|0'
+  "SC-010${TAB}edge${TAB}Ends in a literal backslash \\\\${TAB}Still five columns${TAB}✓${TAB}0"
 
 # --- the known positive: the guard must still bite ------------------------------------
 cat > "$TMP/malformed.md" <<'MAP'
@@ -87,7 +102,11 @@ cat > "$TMP/malformed.md" <<'MAP'
 MAP
 _err=$(sh "$ROWS" "$TMP/malformed.md" 2>&1 >/dev/null)
 _rc=$?
-if [ "$_rc" -eq 2 ] && printf '%s' "$_err" | grep -q 'has 6 columns, expected 5'; then
+# `case`, not `printf | grep -q`: grep -q exits at the first match and the printf ahead of it
+# then dies of SIGPIPE, which under pipefail is 141 — a true claim read as false. See
+# validate-no-sigpipe-assertions.sh, which refuses that shape in this directory.
+case "$_err" in *'has 6 columns, expected 5'*) _named=1 ;; *) _named=0 ;; esac
+if [ "$_rc" -eq 2 ] && [ "$_named" -eq 1 ]; then
   ok 'a real six-column row is still rejected with exit 2'
 else
   bad 'a real six-column row is still rejected with exit 2' "rc=$_rc err=[$_err]"
@@ -99,7 +118,7 @@ Some prose that mentions SC-030 without being a row, and a flowchart node SC-031
 
 | SC-032 | happy | The only actual row | Counted once | ✓ |
 MAP
-_ids=$(sh "$ROWS" "$TMP/prose.md" 2>/dev/null | cut -d'|' -f1 | tr '\n' ' ')
+_ids=$(sh "$ROWS" "$TMP/prose.md" 2>/dev/null | cut -d"$TAB" -f1 | tr '\n' ' ')
 if [ "$_ids" = "SC-032 " ]; then
   ok 'prose and flowchart mentions are not rows'
 else

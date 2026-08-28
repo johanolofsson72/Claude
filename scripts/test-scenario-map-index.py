@@ -59,7 +59,9 @@ def rows_of(*paths):
     out = subprocess.run(["sh", EXTRACT, *paths], capture_output=True, text=True)
     if out.returncode != 0:
         raise SystemExit(f"extractor failed on {paths}: {out.stderr.strip()}")
-    return [l.split("|") for l in out.stdout.split("\n") if l.strip()]
+    # TAB-separated, not "|": a scenario cell may contain a pipe. See the OUTPUT block
+    # in scenario-map-rows.sh.
+    return [l.split("\t") for l in out.stdout.split("\n") if l.strip()]
 
 
 index_text = open(INDEX, encoding="utf-8").read()
