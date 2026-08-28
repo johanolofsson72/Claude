@@ -36,25 +36,55 @@
 #   - Idempotent — re-running with the same KEEP just re-confirms; nothing is
 #     lost or duplicated (archived entries are prepended once, newest-first).
 #
+# BYTE BUDGET (spec 007bt). KEEP controls how MANY entries stay inline and has
+# never controlled how LARGE one may be, while both rules that govern this file
+# say an entry is "- YYYY-MM-DD — <one sentence>", never a paragraph. Measured
+# 2026-08-28 in specs/SCENARIOS.md: three of seven inline entries ran 2075, 2634
+# and 2925 bytes — nine to twelve sentences each, 88% of the section's bytes —
+# and passed every check this project had, because each was one line and a
+# markdown bullet has no length limit. --max-bytes is that missing measurement.
+#
+#   The default of 300 is calibrated, not chosen: across all four history files
+#   there are 48 entries that are genuinely one sentence, and their sizes run
+#   p50 171, p90 236, p95 285. 300 is the smallest round number above p95, so it
+#   admits 46 of the 48 that already comply and excludes every entry that does
+#   not. 500 would admit all 124 and gate nothing; 250 would flag seven entries
+#   that were written correctly.
+#
+#   Bytes rather than sentences because sentence-splitting over prose holding
+#   "007bi:", file paths, "e.g." and "0.04 s" is a heuristic, and a gate whose
+#   verdict rests on a heuristic is one people argue with instead of obeying.
+#   The rule still says one sentence; this is the measurable floor under it.
+#
 # Exit codes:
 #   0  success (or nothing to do)
 #   1  no specs/ directory found
-#   2  usage error (unknown arg, non-numeric --keep)
+#   2  usage error (unknown arg, non-numeric --keep or --max-bytes)
 #   3  REFUSED — a history region contained something that is not a history
 #      entry. Nothing was written. Distinct from 1/2 so a test asserting the
 #      refusal cannot pass because the script died of an unrelated fault.
+#   4  OVER BUDGET — an entry that STAYS INLINE exceeds --max-bytes. The writes
+#      still happened: refusing to archive because an entry is too long would
+#      leave MORE bytes inline than completing the run does, which is the
+#      opposite of this script's purpose. That is the deliberate difference from
+#      3, where writing is what does the damage. 3 beats 4 when both apply — a
+#      refused file wrote nothing and still holds non-history content, so its
+#      budget figure describes a region the caller does not have.
 #
 # Usage:
 #   scripts/archive-spec-history.sh                 # cleans ./specs/*, KEEP=5
 #   scripts/archive-spec-history.sh --keep 8        # keep the 8 newest inline
 #   scripts/archive-spec-history.sh --dir path/to/specs
 #   scripts/archive-spec-history.sh --dry-run       # report only, write nothing
+#   scripts/archive-spec-history.sh --max-bytes 400 # loosen the per-entry budget
+#   scripts/archive-spec-history.sh --max-bytes 0   # disable the budget entirely
 #
 # Cross-platform: POSIX awk + bash. Runs under macOS, Linux, and Git Bash/WSL.
 
 set -eu
 
 KEEP=5
+MAX_BYTES=300
 SPECS_DIR=""
 DRY_RUN=0
 # Set to 1 by archive_history() when a file is refused. The function itself
@@ -63,10 +93,15 @@ DRY_RUN=0
 # being examined (silently breaking the "a clean sibling is still processed"
 # guarantee). The refusal is reported per file and settled once, at the end.
 REFUSED=0
+# Set by archive_history() when a KEPT entry exceeds MAX_BYTES. Accumulated the same
+# way and for the same reason as REFUSED: a fault in INDEX.md must not stop
+# SCENARIOS.md from being examined. Settled once, at the end, where 3 beats 4.
+OVER_BUDGET=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) KEEP="${2:?--keep needs a number}"; shift 2 ;;
+    --max-bytes) MAX_BYTES="${2:?--max-bytes needs a number}"; shift 2 ;;
     --dir) SPECS_DIR="${2:?--dir needs a path}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed -E 's/^# ?//'; exit 0 ;;
@@ -75,6 +110,9 @@ while [ $# -gt 0 ]; do
 done
 
 case "$KEEP" in ''|*[!0-9]*) echo "--keep must be a non-negative integer" >&2; exit 2 ;; esac
+# Same shape as --keep's check, deliberately: a leading '-' lands in the [!0-9] class,
+# so a negative budget is rejected here rather than silently flagging every entry.
+case "$MAX_BYTES" in ''|*[!0-9]*) echo "--max-bytes must be a non-negative integer (0 disables the check)" >&2; exit 2 ;; esac
 
 # Locate the specs dir: explicit --dir, else ./specs, else walk up to a repo root.
 if [ -z "$SPECS_DIR" ]; then
@@ -90,6 +128,64 @@ if [ -z "$SPECS_DIR" ]; then
   fi
 fi
 [ -n "$SPECS_DIR" ] && [ -d "$SPECS_DIR" ] || { echo "no specs/ dir found (use --dir)" >&2; exit 1; }
+
+# budget_report <live-basename> <keep-file> <line-base>
+# Measures every entry that will remain INLINE and prints the ones over MAX_BYTES.
+# Returns 1 when any entry is over budget, 0 otherwise. Prints nothing when clean —
+# the check is invisible on a compliant file, exactly like the foreign-content guard.
+#
+# WHY THIS IS CHECKED HERE AND NOT WHERE THE OTHER GUARD IS. The foreign-content
+# guard runs over the WHOLE region BEFORE the keep/move partition, so its verdict
+# never depends on --keep; that is right for it, because content in the wrong place
+# is wrong at any --keep, and a fault that appears at 5 and vanishes at 20 teaches
+# people it is spurious. This guard is the opposite case and is checked over the KEPT
+# set AFTER the partition, because it measures in-flight cost rather than an invariant
+# of the file: an entry this run archives has stopped being read by the pipeline, and
+# reporting it would make the gate red about bytes the run just removed. Do not
+# "align" the two — the difference is the point.
+#
+# An entry is a top-level "- " bullet plus its following non-bullet lines, and its
+# size is the SUM of those lines; newline separators are not counted, so the number
+# matches `wc -c` on the quoted line.
+#
+# That summing is DEFENSIVE, not the defence. It was written to stop "press Enter to
+# split the entry" from evading the budget, and then measured: the evasion is
+# unreachable. The guard above admits only "- YYYY-MM-DD ..." lines and blank lines,
+# so a continuation line is foreign content and the file is REFUSED with exit 3
+# before this function is ever called. The summing stays because this must hold the
+# same entry model as the partitioner it reads, and because it is correct if that
+# guard is ever loosened — but do not describe it as what closes the hole. Exit 3
+# closes the hole, and the harness asserts exit 3 for exactly that case.
+#
+# LC_ALL=C is load-bearing, not decorative. gawk under a UTF-8 locale returns
+# CHARACTERS from length(); macOS awk returns bytes. History entries carry em dashes
+# (2 bytes), "✓" (3 bytes) and backticked paths, so without the pin the same entry
+# measures materially smaller on Linux and a developer there passes a budget a
+# developer here fails. Same conclusion spec 007bs reached for status classification.
+budget_report() {
+  bname="$1"; keepfile="$2"; linebase="$3"
+  # `if`, not `[ ... ] && return 0` — `set -e` is live and a trailing failed test in an
+  # && list takes the function's exit status with it, which would report "over budget"
+  # on every clean file the moment the budget is enabled.
+  if [ "$MAX_BYTES" -eq 0 ]; then return 0; fi
+
+  over=$(LC_ALL=C awk -v max="$MAX_BYTES" -v base="$linebase" '
+    function dateof(s){ if (match(s, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) return substr(s, RSTART, RLENGTH); return "?" }
+    /^- / { cur++; startln[cur]=NR; dt[cur]=dateof($0); by[cur]=length($0); next }
+            { if (cur) by[cur] += length($0) }
+    END{ for(i=1;i<=cur;i++) if (by[i] > max) printf "           line %-5d %s   %d bytes\n", base+startln[i], dt[i], by[i] }
+  ' "$keepfile") || true
+
+  [ -n "$over" ] || return 0
+
+  n=$(printf '%s\n' "$over" | grep -c '^' )
+  echo "  OVER BUDGET: $bname — $n entr$([ "$n" -eq 1 ] && echo y || echo ies) over the ${MAX_BYTES}-byte budget:"
+  printf '%s\n' "$over"
+  echo "         A history entry is '- YYYY-MM-DD — <one sentence>', never a paragraph"
+  echo "         (.claude/rules/scenarios.md, .claude/rules/spec-register.md). Rewrite these to"
+  echo "         one sentence — the detail belongs in the spec's own directory — or archive them."
+  return 1
+}
 
 # archive_history <live-file> <archive-file> <history-heading-regex>
 # <history-heading-regex> MUST be anchored to a markdown heading (^#+ ...) so a
@@ -143,8 +239,8 @@ archive_history() {
   fi
   # ---- end GUARD ---------------------------------------------------------
 
-  tmp_body=$(mktemp); tmp_keep=$(mktemp); tmp_move=$(mktemp)
-  trap 'rm -f "$tmp_body" "$tmp_keep" "$tmp_move"' RETURN
+  tmp_body=$(mktemp); tmp_keep=$(mktemp); tmp_move=$(mktemp); tmp_meta=$(mktemp)
+  trap 'rm -f "$tmp_body" "$tmp_keep" "$tmp_move" "$tmp_meta"' RETURN
 
   # Body = everything up to and including the history heading line.
   awk -v h="$hdr_line" 'NR<=h' "$live" > "$tmp_body"
@@ -157,24 +253,30 @@ archive_history() {
   # vs last entry's ISO date and keep whichever END holds the newest entries —
   # never blindly keep-last, or a newest-first register archives its RECENT
   # history and keeps ancient entries inline.
-  awk -v h="$hdr_line" -v keep="$KEEP" -v fkeep="$tmp_keep" -v fmove="$tmp_move" '
+  # fmeta carries ONE number out of the partition: how many region lines sit ABOVE
+  # the kept block. The budget report needs it to name a line the reader can open —
+  # on a newest-first file the kept entries never move, so it is 0; on a
+  # newest-at-bottom file they shift up by exactly the archived lines.
+  awk -v h="$hdr_line" -v keep="$KEEP" -v fkeep="$tmp_keep" -v fmove="$tmp_move" -v fmeta="$tmp_meta" '
     function dateof(s){ if (match(s, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) return substr(s, RSTART, RLENGTH); return "" }
     NR<=h { next }
     { region[++n]=$0 }
     END{
       e=0
       for(i=1;i<=n;i++) if (region[i] ~ /^- /) starts[++e]=i
-      if (e<=keep) { for(i=1;i<=n;i++) print region[i] > fkeep; exit }   # nothing to move
+      if (e<=keep) { for(i=1;i<=n;i++) print region[i] > fkeep; print 0 > fmeta; exit }   # nothing to move
       fd = dateof(region[starts[1]]); ld = dateof(region[starts[e]])
       newestFirst = (fd != "" && ld != "" && fd > ld) ? 1 : 0
       if (newestFirst) {
         # newest at top → keep entries 1..keep, archive keep+1..e
         keepEnd = starts[keep+1] - 1
         for(i=1;i<=n;i++){ if (i<=keepEnd) print region[i] > fkeep; else print region[i] > fmove }
+        print 0 > fmeta
       } else {
         # newest at bottom (or undated) → keep the last KEEP, archive 1..(e-keep)
         moveEnd = starts[e-keep+1] - 1
         for(i=1;i<=n;i++){ if (i<=moveEnd) print region[i] > fmove; else print region[i] > fkeep }
+        print moveEnd > fmeta
       }
     }
   ' "$live"
@@ -183,13 +285,29 @@ archive_history() {
   # that "0" without appending a second line (which would break the -eq test).
   moved=$(grep -cE '^- ' "$tmp_move" 2>/dev/null || true)
   moved=${moved:-0}
+
+  keep_offset=$(cat "$tmp_meta" 2>/dev/null || echo 0)
+  case "$keep_offset" in ''|*[!0-9]*) keep_offset=0 ;; esac
+
+  # The line number this reports must be the one the caller finds when they open the
+  # file AFTER this run — the report is useless otherwise. When we rewrite the file the
+  # kept entries start immediately under the heading; when we do not (a dry run, or
+  # nothing to move) they sit where they already were, keep_offset lines further down.
+  if [ "$DRY_RUN" -eq 1 ] || [ "$moved" -eq 0 ]; then
+    line_base=$((hdr_line + keep_offset))
+  else
+    line_base=$hdr_line
+  fi
+
   if [ "$moved" -eq 0 ]; then
     echo "  ok:   $(basename "$live") — history ≤ keep=$KEEP, nothing to move"
+    budget_report "$(basename "$live")" "$tmp_keep" "$line_base" || OVER_BUDGET=1
     return 0
   fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY:  $(basename "$live") — would archive $moved entr$([ "$moved" -eq 1 ] && echo y || echo ies) → $(basename "$archive"), keep newest $KEEP inline"
+    budget_report "$(basename "$live")" "$tmp_keep" "$line_base" || OVER_BUDGET=1
     return 0
   fi
 
@@ -214,16 +332,37 @@ archive_history() {
   # Rebuild the live file: body (through heading) + kept entries.
   { cat "$tmp_body"; cat "$tmp_keep"; } > "$live.tmp" && mv "$live.tmp" "$live"
   echo "  ok:   $(basename "$live") — archived $moved entr$([ "$moved" -eq 1 ] && echo y || echo ies) → $(basename "$archive"), kept newest $KEEP inline"
+  # AFTER the write, deliberately. Exit 4 reports a cost; it does not veto the cleanup.
+  # Refusing to archive because a kept entry is too long would leave MORE bytes inline
+  # than completing the run does — the opposite of what this script is for.
+  budget_report "$(basename "$live")" "$tmp_keep" "$line_base" || OVER_BUDGET=1
 }
 
 echo "Archiving spec history in: $SPECS_DIR (keep newest $KEEP inline)$([ "$DRY_RUN" -eq 1 ] && echo '  [DRY RUN]')"
 archive_history "$SPECS_DIR/INDEX.md"     "$SPECS_DIR/INDEX.history.md"     '^#+ .*register history'
 archive_history "$SPECS_DIR/SCENARIOS.md" "$SPECS_DIR/SCENARIOS.history.md" '^#+ .*scenario history'
 
+# 3 BEATS 4. A refused file wrote nothing and still holds content that is not history,
+# so any budget figure computed for it describes a region the caller does not have. The
+# refusal is the fact that has to be acted on first; re-run after fixing it to see the
+# budget verdict for the real region.
 if [ "$REFUSED" -ne 0 ]; then
   echo "REFUSED: at least one history region held content that is not a history entry. Nothing was"
   echo "moved for that file. Move the offending block ABOVE its history heading and re-run."
   exit 3
+fi
+
+if [ "$OVER_BUDGET" -ne 0 ]; then
+  echo "OVER BUDGET: at least one entry that stays inline exceeds the ${MAX_BYTES}-byte budget."
+  if [ "$DRY_RUN" -eq 1 ]; then
+    # Say what actually happened. Claiming "archiving completed" after a dry run would be
+    # the same class of untruth this spec exists to remove — a report about a run nobody made.
+    echo "Nothing was written (dry run). The entries above are the ones that would stay inline."
+  else
+    echo "Archiving completed — this is a report about what is still there, not a refusal to write."
+  fi
+  echo "Rewrite the named entries to one sentence, or raise the budget with --max-bytes N."
+  exit 4
 fi
 
 echo "Done. Review with 'git diff', undo with 'git checkout -- $SPECS_DIR'."
