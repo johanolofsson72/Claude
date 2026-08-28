@@ -7,8 +7,10 @@
 # thousands of tokens that buy nothing — the live rows/ledger are what the
 # pipeline actually needs. This script moves the OLD history entries out to a
 # sibling ".history.md" archive (never read per-spec) and keeps only the N
-# NEWEST entries inline (ordering auto-detected: works whether the register
-# appends newest-at-bottom or prepends newest-at-top). The live spec rows /
+# NEWEST entries inline. Which end is "newest" is DECLARED on the heading line and
+# only inferred when the inference is decisive — see ORDERING below; this line used
+# to say "auto-detected", and the detection was one date comparison that archived
+# the newest entry whenever the inline entries shared a date. The live spec rows /
 # SC-id ledger are never touched.
 #
 # Safe by construction:
