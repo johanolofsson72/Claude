@@ -18,31 +18,35 @@
 # was written afterwards, by someone who had no reason to read that file. A rule that exists only as
 # a comment in one file is a rule the next file breaks.
 #
-# WHAT IT CHECKS.
+# WHAT IT CHECKS — FIXTURE CONTENT, and nothing else.
 #
-#   population   a script under the scan root that either (a) contains a scenario-map TABLE ROW whose
-#                first cell is a literal id the map owns, or (b) sources scenario-probe-ids.sh, i.e.
-#                has already been converted to derived ids.
-#   finding      any literal SC-id token in such a file whose number the map owns — in a fixture row,
-#                in a heredoc, or in prose.
+#   fixture row  a line that is a scenario-map table row: a pipe, an id or an @IDn@ placeholder in
+#                the first cell, a closing pipe. The placeholder half matters — it is what keeps a
+#                CONVERTED harness's fixtures recognisable, so the gate does not stop watching a file
+#                the moment it is fixed.
+#   R1           a fixture row whose id is spelled out and owned by the map.
+#   R2           any owned id anywhere in ANY heredoc body of a file that writes a fixture row. This
+#                is the live case: the id sat in a SENTENCE inside the probe map, and that sentence
+#                exists to prove that sentences are not rows. Scoped per FILE and not per heredoc,
+#                because a map fixture is written in several pieces — the split layout's index lists
+#                its features and links their ids in a table whose first cell is a feature name, so a
+#                per-heredoc rule reads that piece as "not a map" and walks past two live bindings.
 #
-# THE POPULATION IS DELIBERATELY THE UNION, and (b) is the half that matters. Trigger (a) alone
-# describes the tree before the fix and NOT the tree after it: once a harness is converted its
-# fixture rows are placeholders, it drops out of the population, and the gate stops watching the one
-# file most likely to regress. A gate that disarms itself on success is exactly the coincidence this
-# whole line of work removes — it would report clean for the same reason a deleted gate does.
+# WHAT IT DELIBERATELY LEAVES ALONE, because getting this wrong is worse than the defect:
 #
-# The check is FILE-scoped, not line-scoped, inside that population. A converted harness must not
-# spell a real id anywhere, including in the comment explaining why it must not — that comment is
-# itself a reference, and writing one was the first mistake made while landing this row.
-#
-# WHAT IT DOES NOT DO, and each omission is an argument rather than an oversight:
-#
-#   - It does not police ids in harnesses that embed no map. Naming the scenario a case asserts is
-#     how tests bind to the map; that is the mechanism working, not a defect.
-#   - It does not look outside the scan root. Every map-embedding harness in these trees is a shell
-#     script under scripts/; widening to a population with no known members would add a branch with
-#     no red case.
+#   - AN ID IN AN ASSERTION LABEL. `echo "  ok  the thing works (<id>)"` is how a test binds to the
+#     map; refusing it would refuse the mechanism. The first draft of this gate was file-scoped —
+#     any owned id anywhere in a harness that embeds a map — and it condemned 60 such labels in one
+#     harness on its first real run. A gate whose first honest run says "your tracing scheme is the
+#     bug" has misidentified the bug.
+#   - AN ID IN PROSE OUTSIDE A FIXTURE. Whether a comment naming an id should count as a reference at
+#     all is a real question — the id-accounting gate excludes src/ for exactly that reason, and the
+#     same argument reaches comments in scripts/. It is a wider class with a different answer and it
+#     needs its own measurement, not a silent extension of this one. Write ids in prose sparingly and
+#     describe them where you can; that is discipline here, not enforcement.
+#   - ANYTHING OUTSIDE THE SCAN ROOT. Every map-embedding harness in these trees is a shell script
+#     under scripts/; widening to a population with no known members would add a branch with no red
+#     case.
 #   - It never writes. It reads the map, reads the scripts, and reports.
 #
 # Usage:
@@ -139,41 +143,68 @@ for f in "$ROOT"/*.sh; do
   case "$base" in "$SELF"|"$SELF_TEST") continue ;; esac
   SCANNED=$((SCANNED + 1))
 
-  # Trigger (a): a fixture table row carrying a literal id. Matched on the ROW SHAPE — a pipe, the
-  # id in the first cell, a closing pipe — because that is what a map parser reads. `grep -q` and
-  # not a pipeline into another matcher: a `printf | grep -q` here would be the SIGPIPE idiom this
-  # project's own gate refuses.
-  has_row=0
-  if grep -qE '^[[:space:]]*\|[[:space:]]*~*SC-[0-9]{3,4}[a-z]?~*[[:space:]]*\|' "$f"; then has_row=1; fi
-  # Trigger (b): already converted, and therefore still under the rule. Matched on a SOURCE line —
-  # `. path/scenario-probe-ids.sh` — and not on the filename appearing anywhere, because the sync
-  # manifest lists that filename and is not a harness. Counting it put a manifest in the population
-  # and made the clean line report five harnesses where four were examined. A gate that overstates
-  # what it looked at is the same defect as one that understates it, in the direction that feels
-  # safer.
-  has_helper=0
-  if grep -qE '^[[:space:]]*(\.|source)[[:space:]]+.*scenario-probe-ids\.sh' "$f"; then has_helper=1; fi
-  # …and the helper itself, which sources nothing and would otherwise sit outside the rule it exists
-  # to serve. Its header argues at length that ids must be described rather than spelled; the file
-  # making that argument is exactly the one where a spelled id would look like documentation.
-  case "$base" in scenario-probe-ids.sh) has_helper=1 ;; esac
-
-  [ "$has_row" -eq 1 ] || [ "$has_helper" -eq 1 ] || continue
+  # Is this a fixture-map harness at all? A file with no map row in it — literal or placeholder —
+  # has no fixture content to police, and the ids it names are assertion labels. `grep -q` on the
+  # file rather than a pipeline: a `printf | grep -q` here would be the SIGPIPE idiom this project's
+  # own gate refuses in these files.
+  grep -qE '^[[:space:]]*\|[[:space:]]*~*(SC-[0-9]{3,4}[a-z]?|@ID[0-9]+@)~*[[:space:]]*\|' "$f" || continue
   POPULATION=$((POPULATION + 1))
 
-  # Every literal id in the file, with its line, filtered to the ones the map owns. Matching any
-  # width and then comparing the number keeps a five-digit token from being read as its own first
-  # four — the same reason validate-scenario-traceability.sh matches wide and narrows afterwards.
+  # R1 and R2 in one pass.
+  #
+  # The heredoc tracking is deliberately crude — an opener sets a terminator, a line equal to that
+  # terminator closes it — because the alternative is parsing shell, and a gate that needs a shell
+  # parser to decide what it refuses is a gate nobody can reason about. Crude is fine here: a missed
+  # heredoc costs an R2 finding that R1 usually catches anyway, and a spurious one costs nothing
+  # because the id still has to be owned to be reported.
+  #
+  # Matching ids at any width and comparing the NUMBER keeps a five-digit token from being read as
+  # its own first four — the same reason the coverage gate matches wide and narrows afterwards.
   awk -v file="$base" '
     FNR == NR { owned[$0 + 0] = 1; next }
-    {
-      line = $0
+
+    function report(line, lineno,   tok, num) {
       while (match(line, /SC-[0-9]+[a-z]?/)) {
         tok = substr(line, RSTART, RLENGTH)
         line = substr(line, RSTART + RLENGTH)
         num = tok; sub(/^SC-/, "", num); sub(/[a-z]$/, "", num)
         if (length(num) < 3 || length(num) > 4) continue
-        if ((num + 0) in owned) printf "%s:%d\t%s\n", file, FNR, tok
+        if ((num + 0) in owned) printf "%s:%d\t%s\n", file, lineno, tok
+      }
+    }
+
+    # Heredoc bodies are COLLECTED here and judged in END, because whether a body counts is decided
+    # by a row that may appear anywhere inside it — including after the line being judged. Collecting
+    # is why the file is read once and not twice; reading it twice emitted every finding twice, which
+    # is a report that overstates the damage and undermines its own count.
+    {
+      if (inhd) {
+        if ($0 == term) { inhd = 0; next }
+        body[hd] = body[hd] $0 "\n"
+        bline[hd] = bline[hd] FNR "\n"
+        if ($0 ~ /^[[:space:]]*\|[[:space:]]*~*(SC-[0-9][0-9][0-9][0-9]?[a-z]?|@ID[0-9]+@)~*[[:space:]]*\|/) hasrow = 1
+        next
+      }
+      # R1: a fixture row outside any heredoc (a printf-written map, a here-string, a plain file).
+      if ($0 ~ /^[[:space:]]*\|[[:space:]]*~*SC-[0-9][0-9][0-9][0-9]?[a-z]?~*[[:space:]]*\|/) report($0, FNR)
+      if (match($0, /<<-?[[:space:]]*[\x27"]?[A-Za-z_][A-Za-z0-9_]*[\x27"]?/)) {
+        term = substr($0, RSTART, RLENGTH)
+        sub(/^<<-?[[:space:]]*/, "", term); gsub(/[\x27"]/, "", term)
+        hd++; inhd = 1
+      }
+    }
+
+    END {
+      # R2: every owned id in every heredoc of a file that writes a map. This is where the live
+      # defect lived — an id in a sentence inside the probe map, not in a cell — and where two more
+      # sat, in the index heredoc of the split layout, whose rows are feature names rather than ids.
+      # (No apostrophes in here: this awk program lives in a single-quoted shell string, so one ends
+      # the string and the gate dies with a syntax error. Observed, while writing this very comment.)
+      if (!hasrow) exit
+      for (h = 1; h <= hd; h++) {
+        n = split(body[h], lines, "\n")
+        split(bline[h], nums, "\n")
+        for (i = 1; i <= n; i++) if (lines[i] != "") report(lines[i], nums[i] + 0)
       }
     }
   ' "$TMP/owned" "$f" >> "$TMP/findings"

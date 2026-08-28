@@ -76,11 +76,15 @@ R=$(fresh_root c1)
   printf "cat > \"\$TMP/probe.md\" <<'MAP'\n"
   printf '| %s | happy | probe | probe outcome | ✓ |\n' "$OWNED_A"
   printf '| %s | edge  | probe | probe outcome | ◐ |\n' "$OWNED_B"
+  printf 'And a sentence naming %s, which is fixture text all the same.\n' "$RETIRED"
   printf 'MAP\n'
   printf 'expect_row "$TMP/probe.md" %s\n' "$OWNED_A"
 } > "$R/test-thing.sh"
 run_gate "$R"
 _n=$(printf '%s\n' "$OUT" | grep -c 'test-thing.sh:')
+# THREE fixture occurrences, and the assertion argument on the last line is NOT one of them — it is a
+# label, and labels are how a test binds to the map. A count of four here would mean the gate had
+# started refusing the tracing mechanism.
 if [ "$RC" -eq 1 ] && [ "$_n" -eq 3 ]; then
   ok 'a fixture map built from owned ids is refused, every occurrence named'
 else
@@ -147,14 +151,37 @@ fi
 # prove that sentences are not rows. A line-scoped rule would have walked straight past it.
 R=$(fresh_root c5)
 { printf '#!/bin/sh\n'
-  printf '| %s | happy | probe | probe outcome | ✓ |\n' "$OWNED_A"
+  printf "cat > \"\$TMP/probe.md\" <<'MAP'\n"
+  printf '| @ID1@ | happy | probe | probe outcome | ✓ |\n'
   printf 'Some prose that mentions %s without being a row.\n' "$OWNED_B"
+  printf 'MAP\n'
 } > "$R/test-thing.sh"
 run_gate "$R"
 if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_B"; then
-  ok 'an owned id in prose inside a fixture harness is refused'
+  ok 'an owned id in fixture PROSE is refused, not only in a cell'
 else
-  bad 'an owned id in prose inside a fixture harness is refused' "rc=$RC [$OUT]"
+  bad 'an owned id in fixture PROSE is refused, not only in a cell' "rc=$RC [$OUT]"
+fi
+
+# --- C5b: a SECOND heredoc in the same file is fixture text too --------------------------------------
+# A map fixture is written in pieces. The split layout has an index heredoc whose rows are feature
+# names, not ids, so a per-heredoc rule reads it as "not a map" — and walked past two live bindings
+# in the file this row was written about. The rule is per FILE for that reason.
+R=$(fresh_root c5b)
+{ printf '#!/bin/sh\n'
+  printf "cat > \"\$TMP/probe.md\" <<'MAP'\n"
+  printf '| @ID1@ | happy | probe | probe outcome | ✓ |\n'
+  printf 'MAP\n'
+  printf "cat > \"\$TMP/index.md\" <<'INDEX'\n"
+  printf '| Feature | Spec | Scenarios | Status |\n'
+  printf '| Alpha | 001-alpha | [%s](scenarios/001-alpha.md) | 1 ✓ |\n' "$OWNED_B"
+  printf 'INDEX\n'
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_B"; then
+  ok 'a second heredoc in a map-writing file is fixture text as well'
+else
+  bad 'a second heredoc in a map-writing file is fixture text as well' "rc=$RC [$OUT]"
 fi
 
 # --- C6: prose OUTSIDE the population is left alone -----------------------------------------------
@@ -173,21 +200,45 @@ else
   bad 'an assertion label in a harness with no fixture map is not a finding' "rc=$RC [$OUT]"
 fi
 
-# --- C7: the case the gate would otherwise disarm itself on ------------------------------------------
-# THE LOAD-BEARING ONE. After conversion a harness has no literal fixture row, so a population keyed
-# on fixture rows alone would drop it — and the file most likely to regress would be the one file the
-# gate no longer watches. Sourcing the helper keeps it in scope. Removing that half of the union is
-# invisible in every other case here.
+# --- C7: a converted harness does not fall out of scope ------------------------------------------
+# THE LOAD-BEARING ONE, and the reason the row pattern accepts @IDn@ as well as a literal id. Once a
+# harness is fixed its fixture rows are placeholders; a rule that recognised only literal rows would
+# stop watching the one file most likely to regress, and would report clean for the same reason a
+# deleted gate does. Here the placeholder row keeps the file in scope and the owned id in the
+# fixture prose beside it is still refused.
 R=$(fresh_root c7)
 { printf '#!/bin/sh\n'
   printf '. "$SCRIPT_DIR/scenario-probe-ids.sh"\n'
-  printf '# ids are derived rather than written; do not go back to spelling %s here\n' "$OWNED_A"
+  printf "sed \"\$SUBST\" > \"\$TMP/probe.md\" <<'MAP'\n"
+  printf '| @ID1@ | happy | probe | probe outcome | ✓ |\n'
+  printf 'and someone later added a sentence naming %s\n' "$OWNED_A"
+  printf 'MAP\n'
 } > "$R/test-thing.sh"
 run_gate "$R"
 if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_A"; then
-  ok 'a converted harness stays in scope and is refused for an owned id in a comment'
+  ok 'a converted harness stays in scope through its placeholder rows'
 else
-  bad 'a converted harness stays in scope and is refused for an owned id in a comment' "rc=$RC [$OUT]"
+  bad 'a converted harness stays in scope through its placeholder rows' "rc=$RC [$OUT]"
+fi
+
+# --- C7b: a comment is not fixture text, even in a fixture harness ----------------------------------
+# The boundary this gate does NOT cross, and the first draft crossed it. File-scoped, it condemned 60
+# assertion labels in one harness on its first honest run — a gate whose opening verdict is "your
+# tracing scheme is the bug" has misidentified the bug. Whether a prose id anywhere in scripts/ should
+# count as a reference is a real question with a different answer; it is not this one.
+R=$(fresh_root c7b)
+{ printf '#!/bin/sh\n'
+  printf '# ids are derived here; %s is named only to explain why\n' "$OWNED_A"
+  printf "sed \"\$SUBST\" > \"\$TMP/probe.md\" <<'MAP'\n"
+  printf '| @ID1@ | happy | probe | probe outcome | ✓ |\n'
+  printf 'MAP\n'
+  printf 'echo "  ok  the thing works (%s)"\n' "$OWNED_B"
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 0 ]; then
+  ok 'a comment and an assertion label are not fixture text'
+else
+  bad 'a comment and an assertion label are not fixture text' "rc=$RC [$OUT]"
 fi
 
 # --- C8: no map is NOT RUN, never clean -------------------------------------------------------------
@@ -253,35 +304,37 @@ else
   bad 'the gate and its own harness are exempt from their own rule' "rc=$RC [$OUT]"
 fi
 
-# --- C13: naming the helper is not sourcing it ------------------------------------------------------
-# The sync manifest lists every CORE filename, the helper's included. Reading that as "this file was
-# converted" put a manifest in the population and made the clean line claim one more harness than it
-# examined — an overstatement of what was checked, which is the direction that reads as reassurance.
+# --- C13b: the sync manifest is not a harness ---------------------------------------------------------
+# It lists every CORE filename and it names ids in its own comments. An earlier draft keyed the
+# population on "mentions the helper" and swept it in, so the clean line claimed one more harness than
+# it examined — an overstatement of what was checked, which is the direction that reads as
+# reassurance. Writing a map row is what makes a file a fixture harness; naming things is not.
 R=$(fresh_root c13b)
 { printf '#!/bin/sh\n'
   printf 'CORE_SCRIPTS="a.sh scenario-probe-ids.sh b.sh"\n'
   printf '# this manifest mentions %s and is not a harness\n' "$OWNED_A"
 } > "$R/manifest.sh"
 run_gate "$R"
-if [ "$RC" -eq 0 ]; then
-  ok 'naming the helper in a manifest does not put the file in the population'
+if [ "$RC" -eq 0 ] && contains "$OUT" "0 fixture-map harness"; then
+  ok 'a manifest that names ids and the helper is not in the population'
 else
-  bad 'naming the helper in a manifest does not put the file in the population' "rc=$RC [$OUT]"
+  bad 'a manifest that names ids and the helper is not in the population' "rc=$RC [$OUT]"
 fi
 
-# --- C13c: the helper is under its own rule ------------------------------------------------------
-# It sources nothing, so neither trigger reaches it, and it is the one file whose whole content is
-# the argument for describing ids instead of spelling them. A spelled id there would read as
-# documentation and bind exactly as hard as a fixture row.
+# --- C13c: a printf-built probe map with derived ids is clean --------------------------------------
+# The third way a harness in this family writes a map: no heredoc at all, a format string with the id
+# substituted in. It has been doing that correctly for a year, and a gate that flagged it would be
+# flagging the one file that already got this right.
 R=$(fresh_root c13c)
 { printf '#!/bin/sh\n'
-  printf '# the obvious move is to write %s and get on with the test\n' "$OWNED_A"
-} > "$R/scenario-probe-ids.sh"
+  printf "printf '| %%%%s | happy | probe: an unbound row | it must fail the gate | ☐ |\\n' \"\$UNBOUND\"\n"
+  printf 'echo "  ok    an unbound row is refused (%s)"\n' "$OWNED_A"
+} > "$R/test-thing.sh"
 run_gate "$R"
-if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_A"; then
-  ok 'the helper is in its own population even though it sources nothing'
+if [ "$RC" -eq 0 ]; then
+  ok 'a printf-built probe map with a derived id is clean'
 else
-  bad 'the helper is in its own population even though it sources nothing' "rc=$RC [$OUT]"
+  bad 'a printf-built probe map with a derived id is clean' "rc=$RC [$OUT]"
 fi
 
 # --- C14: a clean run says what it looked at -----------------------------------------------------------
