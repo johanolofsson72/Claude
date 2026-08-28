@@ -174,6 +174,8 @@ test-runtime-markers-ignored.sh
 validate-register-ids.sh test-register-ids.sh
 validate-no-sigpipe-assertions.sh test-no-sigpipe-assertions.sh
 validate-scenario-traceability.sh test-validate-scenario-traceability.sh
+scenario-probe-ids.sh test-scenario-probe-ids.sh
+validate-fixture-map-ids.sh test-fixture-map-ids.sh
 project-maintenance.sh project-freshness.sh test-project-freshness.sh test-project-maintenance.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
 template-autosync.sh template-autosync-hook.sh

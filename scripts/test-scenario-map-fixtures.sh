@@ -21,8 +21,41 @@
 #
 # Each maker echoes the fixture root. Fixtures live under one temp dir per process so a single
 # cleanup call takes them all, including after a failure.
+#
+# FIXTURE IDS ARE DERIVED, NEVER WRITTEN (register row H7bd). The ids in the maps below come from
+# scenario-probe-ids.sh, which hands back ids no row in the project's real map owns; the heredoc
+# bodies carry @IDn@ placeholders substituted on the way to disk. Spelling real ids here — which is
+# what this file did until H7bd — is a false binding, not a cosmetic choice: the id-accounting gate
+# scans scripts/, cannot tell a fixture from an assertion, and counts a probe map for a hook test as
+# proof that a real scenario is tested. Measured in consultpilot, four real ids were bound that way
+# from this file alone. scenario-probe-ids.sh's header carries the two alternatives and why neither
+# works for a fixture that must be parsed by an SC--anchored row extractor.
 
 FIXTURE_TMPDIR="${FIXTURE_TMPDIR:-}"
+
+_FIXTURE_HERE=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)
+# shellcheck source=scripts/scenario-probe-ids.sh
+. "$_FIXTURE_HERE/scenario-probe-ids.sh"
+
+# Derived once, at source time, so every maker in one run agrees about which ids it is using and a
+# consumer that builds both layouts gets the same four ids in both. The template ships no scenario
+# map; with none, every id is free, which is the right answer for a tree that owns no scenarios.
+_FIXTURE_MAP=$(git rev-parse --show-toplevel 2>/dev/null)/specs/SCENARIOS.md
+_FIXTURE_WANT=4
+_FIXTURE_IDS=$(scenario_probe_ids "$_FIXTURE_WANT" "$_FIXTURE_MAP")
+if [ "$(printf '%s\n' "$_FIXTURE_IDS" | grep -c .)" -ne "$_FIXTURE_WANT" ]; then
+  # Refuse loudly rather than build a short fixture. A map missing a row still parses and still
+  # passes, and the case it was carrying — the nested sub-feature whose slug appears in no index row
+  # — stops being tested without anything going red.
+  printf 'test-scenario-map-fixtures: fewer than %d free scenario ids in the probe window.\n' "$_FIXTURE_WANT" >&2
+  printf '  The id space is exhausted; widen the id format before adding more scenarios.\n' >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+# shellcheck disable=SC2086
+set -- $_FIXTURE_IDS
+FIXTURE_ID1=$1; FIXTURE_ID2=$2; FIXTURE_ID3=$3; FIXTURE_ID4=$4
+_FIXTURE_SUBST=$(scenario_probe_sed_script "$FIXTURE_ID1" "$FIXTURE_ID2" "$FIXTURE_ID3" "$FIXTURE_ID4")
 
 _fixture_tmpdir() {
     if [ -z "$FIXTURE_TMPDIR" ]; then
@@ -103,15 +136,15 @@ make_single_file_fixture() {
     _fixture_skeleton "$_sf_root"
     _fixture_index_head "$_sf_root"
 
-    cat >> "$_sf_root/specs/SCENARIOS.md" <<'FIXTURE_SINGLE'
+    sed "$_FIXTURE_SUBST" >> "$_sf_root/specs/SCENARIOS.md" <<'FIXTURE_SINGLE'
 ### Feature: Alpha   (spec: 001-alpha)
 
 The alpha feature, with a form the user can submit.
 
 | ID     | Type  | Scenario              | Expected outcome            | Status |
 |--------|-------|-----------------------|-----------------------------|--------|
-| SC-001 | happy | Submit the alpha form | Saved and listed            | ✓      |
-| SC-002 | error | Submit it empty       | Field error, input retained | ◐      |
+| @ID1@ | happy | Submit the alpha form | Saved and listed            | ✓      |
+| @ID2@ | error | Submit it empty       | Field error, input retained | ◐      |
 
 #### The alpha detail   (spec: 001a-alpha-detail)
 
@@ -119,7 +152,7 @@ The nested sub-feature.
 
 | ID     | Type  | Scenario                | Expected outcome     | Status |
 |--------|-------|-------------------------|----------------------|--------|
-| SC-003 | happy | Open the detail drawer  | The drawer opens     | ✓      |
+| @ID3@ | happy | Open the detail drawer  | The drawer opens     | ✓      |
 
 ### Feature: Beta   (spec: 002-beta)
 
@@ -127,7 +160,7 @@ The beta feature.
 
 | ID     | Type  | Scenario           | Expected outcome | Status |
 |--------|-------|--------------------|------------------|--------|
-| SC-010 | happy | Click the beta tab | The tab opens    | ☐      |
+| @ID4@ | happy | Click the beta tab | The tab opens    | ☐      |
 FIXTURE_SINGLE
 
     _fixture_history "$_sf_root"
@@ -156,16 +189,16 @@ make_split_fixture() {
     _fixture_skeleton "$_sp_root"
     _fixture_index_head "$_sp_root"
 
-    cat >> "$_sp_root/specs/SCENARIOS.md" <<'FIXTURE_SPLIT_INDEX'
+    sed "$_FIXTURE_SUBST" >> "$_sp_root/specs/SCENARIOS.md" <<'FIXTURE_SPLIT_INDEX'
 | Feature | Spec | Scenarios | Status |
 |---------|------|-----------|--------|
-| Alpha   | 001-alpha | [SC-001..003](scenarios/001-alpha.md) | 2 ✓, 1 ◐ |
-| Beta    | 002-beta  | [SC-010](scenarios/002-beta.md)       | 1 ☐       |
+| Alpha   | 001-alpha | [@ID1@..@ID3@](scenarios/001-alpha.md) | 2 ✓, 1 ◐ |
+| Beta    | 002-beta  | [@ID4@](scenarios/002-beta.md)       | 1 ☐       |
 FIXTURE_SPLIT_INDEX
 
     _fixture_history "$_sp_root"
 
-    cat > "$_sp_root/specs/scenarios/001-alpha.md" <<'FIXTURE_ALPHA'
+    sed "$_FIXTURE_SUBST" > "$_sp_root/specs/scenarios/001-alpha.md" <<'FIXTURE_ALPHA'
 [← Scenario map](../SCENARIOS.md)
 
 # Alpha   (spec: 001-alpha)
@@ -174,8 +207,8 @@ The alpha feature, with a form the user can submit.
 
 | ID     | Type  | Scenario              | Expected outcome            | Status |
 |--------|-------|-----------------------|-----------------------------|--------|
-| SC-001 | happy | Submit the alpha form | Saved and listed            | ✓      |
-| SC-002 | error | Submit it empty       | Field error, input retained | ◐      |
+| @ID1@ | happy | Submit the alpha form | Saved and listed            | ✓      |
+| @ID2@ | error | Submit it empty       | Field error, input retained | ◐      |
 
 ## The alpha detail   (spec: 001a-alpha-detail)
 
@@ -184,10 +217,10 @@ reminder hook's multi-file search load-bearing rather than decorative.
 
 | ID     | Type  | Scenario                | Expected outcome     | Status |
 |--------|-------|-------------------------|----------------------|--------|
-| SC-003 | happy | Open the detail drawer  | The drawer opens     | ✓      |
+| @ID3@ | happy | Open the detail drawer  | The drawer opens     | ✓      |
 FIXTURE_ALPHA
 
-    cat > "$_sp_root/specs/scenarios/002-beta.md" <<'FIXTURE_BETA'
+    sed "$_FIXTURE_SUBST" > "$_sp_root/specs/scenarios/002-beta.md" <<'FIXTURE_BETA'
 [← Scenario map](../SCENARIOS.md)
 
 # Beta   (spec: 002-beta)
@@ -196,7 +229,7 @@ The beta feature.
 
 | ID     | Type  | Scenario           | Expected outcome | Status |
 |--------|-------|--------------------|------------------|--------|
-| SC-010 | happy | Click the beta tab | The tab opens    | ☐      |
+| @ID4@ | happy | Click the beta tab | The tab opens    | ☐      |
 FIXTURE_BETA
 
     echo "$_sp_root"
