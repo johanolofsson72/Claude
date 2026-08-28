@@ -255,12 +255,21 @@ If you find a project's `settings.json` has the OLD spec-completeness prompt hoo
 
 Ensure the project's `.gitignore` covers these patterns. Add any that are missing:
 
-- `.claude/validation/`
+- `.claude/validation/` (Stop-hook timestamp)
 - `.claude/.local-llm-*` (draft artifact files written by hooks)
 - `.claude/local-llm-*.log` (per-project telemetry log)
 - `.claude/local-llm-*.log.errors` (telemetry write-error log)
 - `.claude/projects/` (per-user memory directory — never commit)
 - `.claude/settings.local.json` (per-machine settings)
+- `.claude/.template-sync-check` (auto-sync rate-limit marker — the manifest `.claude/.template-sync` IS tracked, this is not)
+- `.claude/state/` (repeat-failure guard's attempt counters, TTL-pruned)
+- `.claude/.bash-write-marker` (bash-write guard's timestamp, re-stamped on every Bash write)
+- `.claude/.bash-write-blocked` (bash-write guard's escape-hatch record — a second file on purpose, see `bash-write-detect-hook.sh:29`)
+
+This list is not advisory and it is not maintained by hand alone: `scripts/test-runtime-markers-ignored.sh`
+fails when a machine-local `.claude/` path the scripts write is missing from it, or from the project's
+`.gitignore`. Four of the ten entries above were added by spec 007bq after two of them had been missing
+long enough for the marker to churn in five repositories — including the template's own.
 
 ### 3b. Freshness pass (ALWAYS RUNS — regardless of sync mode)
 

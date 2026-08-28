@@ -19,6 +19,13 @@ CLAUDE.local.md
 # Attempt counters for the repeat-failure guard (machine-local, TTL-pruned)
 .claude/state/
 
+# Bash-write guard's two records. Both machine-local, both re-written during a normal
+# session, neither meaningful in another machine's history. They are two files on purpose
+# (bash-write-detect-hook.sh:29): the marker is a TIMESTAMP re-stamped on every Bash write,
+# so an escape hatch living in it would forget it had ever blocked.
+.claude/.bash-write-marker
+.claude/.bash-write-blocked
+
 # Python bytecode cache — the guards import scripts/spec_active.py (spec 007m),
 # so python3 writes a __pycache__ next to the hooks on every run.
 __pycache__/
