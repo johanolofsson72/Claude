@@ -168,6 +168,41 @@ else
 fi
 SCENARIO_PROBE_TOP=$_saved_top; SCENARIO_PROBE_BOTTOM=$_saved_bottom
 
+# --- the checked wrapper -------------------------------------------------------------------------
+# scenario_probe_checked is where the "the space is exhausted" refusal lives, once, for all callers.
+# It RETURNS rather than exits because one caller is a script and one is a sourced library; a helper
+# that exited would take the sourcing shell with it, and the failure would look like the consumer's.
+: > "$TMP/checked.err"
+_got=$(scenario_probe_checked 2 some-harness "$TMP/empty.md" 2>"$TMP/checked.err")
+_rc=$?
+_got=$(printf '%s\n' "$_got" | tr '\n' ' ')
+if [ "$_rc" -eq 0 ] && [ "$_got" = "$TOP $TOP1 " ] && [ ! -s "$TMP/checked.err" ]; then
+  ok 'the checked wrapper passes the ids through and says nothing when they exist'
+else
+  bad 'the checked wrapper passes the ids through and says nothing when they exist' \
+      "rc=$_rc got [$_got] stderr [$(cat "$TMP/checked.err")]"
+fi
+
+_saved_top=$SCENARIO_PROBE_TOP; _saved_bottom=$SCENARIO_PROBE_BOTTOM
+SCENARIO_PROBE_TOP=9999; SCENARIO_PROBE_BOTTOM=9999
+# No `| tr` on this capture. A pipeline reports the LAST command's status, so piping the refusal
+# through tr reads rc 0 for a function that returned 1 — the case would have passed a broken wrapper.
+# The two production callers use a bare `$( ) || exit 1`, which is why they were never affected; the
+# test almost was.
+_got=$(scenario_probe_checked 3 some-harness "$TMP/empty.md" 2>"$TMP/checked.err")
+_rc=$?
+_got=$(printf '%s' "$_got" | tr '\n' ' ')
+# The caller's NAME has to be in the refusal. A message that says only "the id space is exhausted"
+# leaves the reader grepping for which of several harnesses said it, which is the hunt a refusal is
+# supposed to remove.
+if [ "$_rc" -eq 1 ] && [ -z "$_got" ] && grep -q 'some-harness' "$TMP/checked.err"; then
+  ok 'the checked wrapper refuses by name and emits no partial id list'
+else
+  bad 'the checked wrapper refuses by name and emits no partial id list' \
+      "rc=$_rc got [$_got] stderr [$(cat "$TMP/checked.err")]"
+fi
+SCENARIO_PROBE_TOP=$_saved_top; SCENARIO_PROBE_BOTTOM=$_saved_bottom
+
 # --- the sed script ------------------------------------------------------------------------------
 _script=$(scenario_probe_sed_script "$TOP" "$TOP1")
 _got=$(printf '| @ID1@ | x | @ID2@ and @ID1@ again |\n' | sed "$_script")

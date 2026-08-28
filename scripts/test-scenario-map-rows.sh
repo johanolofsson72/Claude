@@ -55,17 +55,7 @@ FAILED=0
 # harness has no other reason to know what a layout is.
 PROBE_MAP=$(git rev-parse --show-toplevel 2>/dev/null)/specs/SCENARIOS.md
 
-PROBE_WANT=9
-PROBE_IDS=$(scenario_probe_ids "$PROBE_WANT" "$PROBE_MAP")
-if [ "$(printf '%s\n' "$PROBE_IDS" | grep -c .)" -ne "$PROBE_WANT" ]; then
-  # Refuse rather than run short. A fixture missing an id still parses, still passes, and quietly
-  # stops asserting the case it is named after — the failure this whole derivation exists to avoid,
-  # arriving through the back door.
-  printf 'test-scenario-map-rows: fewer than %d free scenario ids in the probe window.\n' "$PROBE_WANT" >&2
-  printf '  The id space is exhausted and this harness can no longer build a fixture the map does\n' >&2
-  printf '  not own. Widen the id format (extractor pattern, gate regex and the probe window) first.\n' >&2
-  exit 1
-fi
+PROBE_IDS=$(scenario_probe_checked 9 test-scenario-map-rows "$PROBE_MAP") || exit 1
 
 # shellcheck disable=SC2086
 set -- $PROBE_IDS

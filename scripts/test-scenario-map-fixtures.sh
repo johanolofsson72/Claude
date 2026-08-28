@@ -41,20 +41,16 @@ _FIXTURE_HERE=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)
 # consumer that builds both layouts gets the same four ids in both. The template ships no scenario
 # map; with none, every id is free, which is the right answer for a tree that owns no scenarios.
 _FIXTURE_MAP=$(git rev-parse --show-toplevel 2>/dev/null)/specs/SCENARIOS.md
-_FIXTURE_WANT=4
-_FIXTURE_IDS=$(scenario_probe_ids "$_FIXTURE_WANT" "$_FIXTURE_MAP")
-if [ "$(printf '%s\n' "$_FIXTURE_IDS" | grep -c .)" -ne "$_FIXTURE_WANT" ]; then
-  # Refuse loudly rather than build a short fixture. A map missing a row still parses and still
-  # passes, and the case it was carrying — the nested sub-feature whose slug appears in no index row
-  # — stops being tested without anything going red.
-  printf 'test-scenario-map-fixtures: fewer than %d free scenario ids in the probe window.\n' "$_FIXTURE_WANT" >&2
-  printf '  The id space is exhausted; widen the id format before adding more scenarios.\n' >&2
-  return 1 2>/dev/null || exit 1
-fi
+_FIXTURE_IDS=$(scenario_probe_checked 4 test-scenario-map-fixtures "$_FIXTURE_MAP") \
+  || return 1 2>/dev/null || exit 1
 
-# shellcheck disable=SC2086
-set -- $_FIXTURE_IDS
-FIXTURE_ID1=$1; FIXTURE_ID2=$2; FIXTURE_ID3=$3; FIXTURE_ID4=$4
+# Read into variables WITHOUT `set --`. This file is SOURCED, so `set --` would silently replace the
+# positional parameters of whatever sourced it — a library that eats its caller's arguments is a
+# surprise nobody looks for, and it is free to avoid.
+FIXTURE_ID1=$(printf '%s\n' "$_FIXTURE_IDS" | sed -n 1p)
+FIXTURE_ID2=$(printf '%s\n' "$_FIXTURE_IDS" | sed -n 2p)
+FIXTURE_ID3=$(printf '%s\n' "$_FIXTURE_IDS" | sed -n 3p)
+FIXTURE_ID4=$(printf '%s\n' "$_FIXTURE_IDS" | sed -n 4p)
 _FIXTURE_SUBST=$(scenario_probe_sed_script "$FIXTURE_ID1" "$FIXTURE_ID2" "$FIXTURE_ID3" "$FIXTURE_ID4")
 
 _fixture_tmpdir() {

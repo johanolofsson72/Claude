@@ -104,6 +104,33 @@ scenario_probe_ids() {
   unset _spi_want _spi_map
 }
 
+# scenario_probe_checked <count> <caller-label> [map-file ...] — print <count> free ids, or print the
+# exhaustion refusal on stderr and return 1.
+#
+# It RETURNS rather than exits, because one caller is a script and one is a sourced library, and a
+# helper that exited would take the sourcing shell down with it. Each caller turns the 1 into its own
+# `exit` or `return`; only the message is shared, and the message is the part that was about to exist
+# in three places.
+scenario_probe_checked() {
+  _spc_want=$1
+  _spc_who=$2
+  shift 2
+  _spc_ids=$(scenario_probe_ids "$_spc_want" "$@")
+  if [ "$(printf '%s\n' "$_spc_ids" | grep -c .)" -ne "$_spc_want" ]; then
+    # Refuse rather than run short. A fixture missing an id still parses, still passes, and quietly
+    # stops asserting the case it is named after — the failure the derivation exists to avoid,
+    # arriving through the back door.
+    printf '%s: fewer than %d free scenario ids in the probe window (%s-%s).\n' \
+      "$_spc_who" "$_spc_want" "$SCENARIO_PROBE_BOTTOM" "$SCENARIO_PROBE_TOP" >&2
+    printf '  The id space is exhausted and this harness can no longer build a fixture the map does\n' >&2
+    printf '  not own. Widen the id format — extractor pattern, gate regex and this window — first.\n' >&2
+    unset _spc_want _spc_who _spc_ids
+    return 1
+  fi
+  printf '%s\n' "$_spc_ids"
+  unset _spc_want _spc_who _spc_ids
+}
+
 # scenario_probe_sed_script <id> [<id> ...] — emit a sed script replacing @ID1@, @ID2@, … with the
 # ids given, in order. Intended for `cat <<'FIXTURE' | sed "$(scenario_probe_sed_script $IDS)"`.
 #
