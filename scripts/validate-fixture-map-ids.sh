@@ -186,9 +186,9 @@ if [ "$N_PROSE" -gt 0 ]; then
     echo
     while IFS= read -r hit; do [ -n "$hit" ] && printf '  %s\n' "$hit"; done < "$TMP/prose"
     echo
-    echo "  Each of these illustrates a FORM, so the number is not the evidence — the form is. These"
-    echo "  files are shared with every project that syncs them, and the owned id set is per project,"
-    echo "  so a real number here is a bet against every one of their maps. Write SC-nnn / SC-nnnn."
+    echo "  Each of these illustrates a FORM, so the number is not the evidence — the form is. A real"
+    echo "  id here binds a scenario to prose that asserts nothing about it; in a CORE file it does so"
+    echo "  in every project that syncs it, against maps this one cannot see. Write SC-nnn / SC-nnnn."
   fi
   exit 1
 fi
