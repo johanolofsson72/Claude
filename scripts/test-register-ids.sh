@@ -127,6 +127,11 @@ OUT=$(REGISTER="$REG" bash "$GATE" 2>&1); RC=$?
 check_rc  "clean register" 0 "$RC"
 check_says "clean register reports the histogram" "unparseable: 0" "$OUT"
 check_says "clean register counts the ONE checkpoint-track row" "checkpoint: 1" "$OUT"
+check_says "clean register counts duplicate ids" "duplicate ids: 0" "$OUT"
+# A bare register file in $WORK has no specs/ tree beside it, so the directory half legitimately reads
+# nothing. Asserted rather than left implicit: "0 matched" is a fact about this fixture, and a reader
+# who finds it in a real run is looking at a gate pointed somewhere wrong.
+check_says "a bare register file matches no directories" "spec dirs matched: 0" "$OUT"
 
 echo "== the gate, red arm (this is the arm that had never been observed) =="
 REG=$(make_register broken \
@@ -148,6 +153,63 @@ REG=$(make_register norows)   # header only, zero rows
 OUT=$(REGISTER="$REG" bash "$GATE" 2>&1); RC=$?
 check_rc   "register with zero rows is not a pass" 2 "$RC"
 check_says "and says so"     "ZERO register rows" "$OUT"
+
+echo "== uniqueness: an id names one row, and one directory (row 007ch) =="
+# WHY THIS IS NOT TIDINESS. Both BLOCKING PreToolUse guards resolve the active row's id, glob
+# specs/<id>-*, and check what they find. So when the ticked row of a colliding pair owns a complete
+# artifact set, the ACTIVE row inherits it: 007ch research.md M4 measured both guards ALLOWING a
+# source edit for a spec with zero artifacts and zero interview answers, against a control in which
+# the same guards on the same fixture DENIED it. That is verbatim the bypass spec_active.py's own
+# docstring describes for a mis-parsed id, reached with no parser bug at all.
+#
+# Which row you get is not even "the first one": resolve() sorts the glob and takes the first isdir
+# hit, so the answer is decided by the alphabet of the SLUG (M3). The directory half is therefore the
+# half with consequences, and it is checked separately from the row half.
+#
+# THREE ARMS, and the third is the one that matters most. A check that never executes passes both red
+# arms' absence forever, so the green arm asserts the gate's own COUNTS rather than its silence — and
+# the counts include how many directories the glob actually matched, because a scan that read nothing
+# is otherwise indistinguishable from a clean one (the lesson row 007cd wrote a per-root file floor for).
+
+REG=$(make_register dup-rows \
+  '- [x] 007ca — first — spec-only track — done' \
+  '- [x] 007cc — alpha-first — spec-only track — done, and it owns the directory' \
+  '- [ ] 007cc — zulu-second — spec-only track — active, and it owns nothing')
+OUT=$(REGISTER="$REG" bash "$GATE" 2>&1); RC=$?
+check_rc   "one id on two rows" 1 "$RC"
+check_says "names the duplicated id"      "007cc" "$OUT"
+check_says "names the earlier row's line" ":6"    "$OUT"
+check_says "names the later row's line"   ":7"    "$OUT"
+check_says "says what a duplicate costs"  "approve a source edit" "$OUT"
+
+# The directory half needs a TREE, not a bare file: the gate globs specs/<id>-* from the register's
+# own tree root, which is what lets REGISTER= point the WHOLE check at a fixture rather than half of it.
+DUPTREE="$WORK/duptree"
+mkdir -p "$DUPTREE/specs/007cc-alpha" "$DUPTREE/specs/007cc-zulu"
+{ echo "# Spec register"; echo; echo "## Specs"; echo
+  echo '- [/] 007cc — one-row-two-dirs — spec-only track — the register is fine; the tree is not'
+} > "$DUPTREE/specs/INDEX.md"
+OUT=$(REGISTER="$DUPTREE/specs/INDEX.md" bash "$GATE" 2>&1); RC=$?
+check_rc   "one id, two directories" 1 "$RC"
+check_says "names the first directory"      "007cc-alpha" "$OUT"
+check_says "names the second directory"     "007cc-zulu"  "$OUT"
+# The glob found something. Without this the arm above could pass on a gate whose root is wrong in
+# some OTHER way that still yields two hits, and the green arms below could pass on one that finds
+# nothing at all, forever.
+check_says "counts the directories it read" "spec dirs matched: 2" "$OUT"
+
+# The quiet control. A clean tree, one directory per id, and the counts say the check RAN.
+CLEANTREE="$WORK/cleantree"
+mkdir -p "$CLEANTREE/specs/007cc-only-one" "$CLEANTREE/specs/H1-integration-hardening"
+{ echo "# Spec register"; echo; echo "## Specs"; echo
+  echo '- [x] 007cc — only-one — spec-only track — one row, one directory'
+  echo '- [ ] H1 — integration-hardening — checkpoint — one row, one directory'
+} > "$CLEANTREE/specs/INDEX.md"
+OUT=$(REGISTER="$CLEANTREE/specs/INDEX.md" bash "$GATE" 2>&1); RC=$?
+check_rc   "clean tree" 0 "$RC"
+check_says "clean tree reports zero duplicate ids"  "duplicate ids: 0"  "$OUT"
+check_says "clean tree reports zero ambiguous dirs" "ambiguous dirs: 0" "$OUT"
+check_says "clean tree read both directories"       "spec dirs matched: 2" "$OUT"
 
 echo "== SC-1445: the directory is resolved for every well-formed id, not only for kind==spec =="
 DIRCHECK=$(HOOK_DIR="$ROOT/scripts" WORKDIR="$WORK" python3 <<'DIRPY' 2>&1

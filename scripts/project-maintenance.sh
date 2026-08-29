@@ -176,6 +176,46 @@ $(tail -5 <<< "$SIGPIPE_OUT")"
   esac
 fi
 
+# ------------------------------------------------------ 2d. register id health
+# Classifiable, unique, unambiguous. The first is row H7b's check and it has run in this project since
+# the day it shipped -- in the template's other projects, via scripts/run-gates.sh. Here there is no
+# run-gates.sh, so until row 007ch the gate had no caller at all and its own header still named one.
+# A gate nobody runs is the shape this repo keeps paying for: 007ce found archive-completed-rows.sh had
+# stopped running, and .claude/rules/github-actions.md records "nightly" quietly meaning "never" for the
+# mutation gate and the secret scan. This is the caller.
+#
+# A FINDING, not a note -- the same argument 2b makes for duplicate SC-ids, an id is a permanent handle
+# so a repeat is a mistake and not a backlog, with a sharper consequence. A duplicate SPEC id miscounts
+# nothing; it makes both BLOCKING PreToolUse guards read another row's artifacts and approve a source
+# edit for a spec that has none (007ch research.md M4, measured against a control).
+if [ -f scripts/validate-register-ids.sh ] && [ -f specs/INDEX.md ]; then
+  REGID_OUT=$(bash scripts/validate-register-ids.sh 2>&1)
+  REGID_RC=$?
+  case "$REGID_RC" in
+    0) : ;;   # classifiable, unique, unambiguous. Attention mode: say nothing.
+    1)
+      # No silent cap. An excerpt that stops without saying so reads as the whole finding -- the rule
+      # scripts/bash-write-detect-hook.sh states for its own report, and the gate's output is long
+      # precisely because each failure explains itself.
+      REGID_DETAIL=$(sed -n '/^FAIL/,$p' <<< "$REGID_OUT")
+      REGID_LINES=$(wc -l <<< "$REGID_DETAIL" | tr -dc '0-9'); REGID_LINES=${REGID_LINES:-0}
+      REGID_MORE=""
+      [ "$REGID_LINES" -gt 8 ] && REGID_MORE="
+    ... $((REGID_LINES - 8)) more line(s) — run the gate for the rest."
+      add "[REGISTER-IDS] the register has an id the resolver cannot classify, or one id on two rows or two
+directories. Both PreToolUse pipeline guards resolve the active row's id, so this is an edit block or a
+bypass, not a cosmetic complaint. Run: bash scripts/validate-register-ids.sh
+$(sed -n '1,8p' <<< "$REGID_DETAIL")$REGID_MORE"
+      ;;
+    *)
+      # 2 is "the register could not be read" -- a different fact from "the register is bad", and the
+      # distinction is the whole reason that gate has three exit codes. Never reported as clean.
+      add "[REGISTER-IDS] scripts/validate-register-ids.sh could not run (exit $REGID_RC):
+$(tail -5 <<< "$REGID_OUT")"
+      ;;
+  esac
+fi
+
 # --------------------------------------------------------- 3. blocked / stalled rows
 if [ -f specs/INDEX.md ]; then
   BLOCKED=$(grep -cE '^- \[!\]' specs/INDEX.md 2>/dev/null | tr -dc '0-9'); BLOCKED=${BLOCKED:-0}
