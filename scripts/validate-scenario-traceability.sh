@@ -21,6 +21,21 @@
 #   duplicate  one id on more than one row. An id is a permanent handle (.claude/rules/scenarios.md),
 #              so this is two scenarios wearing one name, and it makes both directions above
 #              approximate: a reference cannot say which of the two it proves.
+#   out-of-range
+#              a reference to an SC-id BELOW the lowest id the map owns. Almost always the OTHER
+#              SC- namespace: spec-kit's spec template numbers a spec's Success Criteria SC-001,
+#              SC-002, ... with the same prefix scenario ids use, so a test citing its own spec's
+#              criteria looks exactly like a test citing a scenario that does not exist. Measured
+#              on one project: 387 of 458 spec.md files number criteria that way, and 41 of the
+#              gate's 44 "dangling" ids were that and nothing else. Reported in its own bucket
+#              rather than as dangling, because a list of 44 that is 41 false is a list nobody
+#              reads — and the 3 real ones were invisible inside it.
+#
+#              THE SEPARATION IS ARITHMETIC, NOT DESIGN. It holds only while no spec numbers a
+#              criterion up into the map's range, and on that same project one already had
+#              (SC-1165, in a spec whose map block starts at SC-1170) — so that one stays
+#              dangling, correctly, and is the standing evidence that the two namespaces need
+#              separating at the source rather than told apart by a floor.
 #
 # A ☐ row is EXEMPT from coverage. It is mapped and not yet tested, which is a legitimate state for
 # every scenario of every unbuilt spec; counting it as a failure would leave this gate permanently
@@ -83,6 +98,10 @@
 #   3  the map could not be read, the extractor refused entirely, or it yielded zero rows
 #   4  a configured reference root does not exist
 #   5  checked, but part of the map was unreadable — never reported as clean
+#
+# out-of-range does NOT fail the run. It is a collision between two naming conventions, not a defect
+# in either the map or the suite, and there is nothing a reader could fix reference by reference. It
+# is always PRINTED, because a bucket that is silent is a bucket that grows.
 #
 # Cross-platform: POSIX sh + POSIX awk + grep. Runs under macOS, Linux, and Git Bash/WSL.
 
@@ -325,8 +344,24 @@ grep -xE "${PREFIX}-[0-9]+" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" ||
 # --------------------------------------------------------------------------------- the two answers
 comm -23 "$TMP/claimed" "$TMP/refs.u" > "$TMP/uncovered"
 # >>> dangling
-comm -13 "$TMP/allids"  "$TMP/refs.u" > "$TMP/dangling"
+comm -13 "$TMP/allids"  "$TMP/refs.u" > "$TMP/dangling.all"
 # <<< dangling
+
+# >>> out-of-range
+# Split the dangling set at the map's own floor. The floor is DERIVED from the map on every run, so
+# it moves when the map does and there is no constant here to go stale. It is printed with the
+# bucket for the same reason: a reader has to be able to see which rule reclassified what.
+MAP_MIN=$(sed "s/^${PREFIX}-//" "$TMP/allids" | sort -n | head -1)
+if [ -n "$MAP_MIN" ]; then
+  awk -v pre="$PREFIX" -v floor="$MAP_MIN" '
+    { n = $0; sub("^" pre "-", "", n); if (n + 0 < floor + 0) print > "/dev/stderr"; else print }
+  ' "$TMP/dangling.all" > "$TMP/dangling" 2> "$TMP/outofrange"
+else
+  cp "$TMP/dangling.all" "$TMP/dangling"
+  : > "$TMP/outofrange"
+fi
+# <<< out-of-range
+N_OOR=$(grep -c . "$TMP/outofrange" || true)
 
 # >>> duplicate-check
 # A THIRD answer, and it is not about tests at all. .claude/rules/scenarios.md makes an id a
@@ -367,6 +402,16 @@ if [ "$N_DANGL" -gt 0 ]; then
   echo "dangling — a test names an id the map does not have ($N_DANGL):"
   if [ "$QUIET" -eq 0 ]; then
     while read -r id; do [ -n "$id" ] && echo "  $id"; done < "$TMP/dangling"
+  fi
+  echo
+fi
+
+if [ "$N_OOR" -gt 0 ]; then
+  echo "out-of-range — a reference below ${PREFIX}-${MAP_MIN}, the lowest id this map owns ($N_OOR):"
+  echo "  Almost certainly a spec's own Success Criteria, which spec-kit numbers with the same"
+  echo "  ${PREFIX}- prefix. Not counted as dangling, and not a failure. See --help."
+  if [ "$QUIET" -eq 0 ]; then
+    while read -r id; do [ -n "$id" ] && echo "  $id"; done < "$TMP/outofrange"
   fi
   echo
 fi

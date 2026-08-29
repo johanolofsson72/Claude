@@ -437,6 +437,55 @@ else
       "clean=$_clean removed=$_removed added=$_added — the gate does not move when the evidence does"
 fi
 
+# case25 — a reference BELOW the map's lowest id is not dangling. spec-kit's spec template numbers a
+# spec's Success Criteria with the same two-letter prefix scenario ids use, counting from one — so a
+# test citing its own spec criteria is indistinguishable from one citing a scenario that never existed.
+# Measured on one project: 387 of 458 spec.md files number criteria that way, and 41 of 44 reported
+# "dangling" ids were that. A list that is 93% false is a list nobody reads, and the three real
+# entries were invisible inside it.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+# The criterion id is BUILT, never spelled — case15 refuses a literal id token anywhere in this
+# file, prose included, and it caught this very case being written with two of them. That guard is the fixture-map-ids lesson
+# holding on its own harness, which is the only place it could be proved.
+write_test "$proj" "a.test.ts" 901
+printf 'and this spec own success criterion %s\n' "$(id 2)" >> "$proj/tests/a.test.ts"
+run_gate "$proj"
+# Exit 0, deliberately: out-of-range is a collision between two naming conventions, not a defect in
+# the map or the suite, so it is printed and does not fail. Asserting exit 1 here would be asserting
+# the opposite of the decision.
+if [ "$RC" -eq 0 ] && grep -q 'out-of-range' <<< "$OUT" && ! grep -q '^dangling' <<< "$OUT"; then
+  ok "case25-below-the-floor-is-not-dangling"
+else
+  bad "case25-below-the-floor-is-not-dangling" "expected an out-of-range bucket and no dangling, got $RC: $OUT"
+fi
+
+# case26 — ...and a reference ABOVE the floor that the map lacks is still dangling. The floor must
+# separate the two namespaces, not swallow the direction the gate exists for. This is the half that
+# would go unnoticed: a bucket that quietly absorbs real defects looks exactly like a clean gate.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901 999
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "$(id 999)" <<< "$OUT" && grep -q 'dangling' <<< "$OUT"; then
+  ok "case26-above-the-floor-still-dangles"
+else
+  bad "case26-above-the-floor-still-dangles" "expected the id under dangling, got $RC: $OUT"
+fi
+
+# case27 — the floor is DERIVED, not a constant. Raise the map's lowest id and the same reference
+# that was dangling becomes out-of-range, with no edit to the gate. A hardcoded floor would be a
+# number that goes stale the first time a map is renumbered, silently and in the unsafe direction.
+proj=$(new_project)
+{ map_header; row 9500 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 9500 999
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && grep -q 'out-of-range' <<< "$OUT" && ! grep -q '^dangling' <<< "$OUT"; then
+  ok "case27-the-floor-follows-the-map"
+else
+  bad "case27-the-floor-follows-the-map" "expected $(id 999) to be out-of-range against a map starting at $(id 9500), got $RC: $OUT"
+fi
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be
@@ -548,7 +597,10 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
 
   # (d) the dangling comparison deleted.
   # shellcheck disable=SC2016
-  replace_region "$SCRIPT" "$SABDIR/d.sh" dangling ': > "$TMP/dangling"'
+  # The region now writes dangling.all, which the out-of-range split consumes — a replacement that
+  # still wrote "dangling" would leave that split reading a file nobody created, and the arm would
+  # report "not surgical" on a gate it had simply broken. It did exactly that once.
+  replace_region "$SCRIPT" "$SABDIR/d.sh" dangling ': > "$TMP/dangling.all"'
   sab_run "$SABDIR/d.sh"
   expect_red "dangling-check-deleted" "$SAB_OUT" case3-dangling case4-both-directions || SAB_FAIL=1
 
@@ -576,6 +628,11 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   replace_region "$SCRIPT" "$SABDIR/j.sh" partial-exit ':'
   sab_run "$SABDIR/j.sh"
   expect_red "partial-exit-removed" "$SAB_OUT" case21-partial-read-is-never-clean || SAB_FAIL=1
+
+  # (k) the out-of-range split removed — the other SC- namespace floods the dangling list again.
+  replace_region "$SCRIPT" "$SABDIR/k.sh" out-of-range 'cp "$TMP/dangling.all" "$TMP/dangling"; : > "$TMP/outofrange"'
+  sab_run "$SABDIR/k.sh"
+  expect_red "out-of-range-split-removed" "$SAB_OUT" case25-below-the-floor-is-not-dangling || SAB_FAIL=1
 
   # (f) the missing-root guard removed — a typo'd root reports every scenario as uncovered.
   replace_region "$SCRIPT" "$SABDIR/f.sh" root-guard ':'
