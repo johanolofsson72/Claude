@@ -39,6 +39,13 @@ def ok(msg):
     print(f"  ok:   {msg}")
 
 
+def na(case, why):
+    # NOT APPLICABLE is its own answer. Printing "ok" for an invariant whose input column does not
+    # exist is the vacuous pass this whole file spent a year reporting; printing "FAIL" would blame
+    # the map for a shape the checker chose not to support. Neither is true, so neither is printed.
+    print(f"  n/a:  {case} — {why}")
+
+
 def bad(case, detail):
     print(f"  FAIL: {case} — {detail}")
     FAILED.append(case)
@@ -66,15 +73,47 @@ def rows_of(*paths):
 
 index_text = open(INDEX, encoding="utf-8").read()
 
-# An index row: | [Title](scenarios/slug.md) | specs | id-ranges | tally |
+# An index row, TABLE shape: | [Title](scenarios/slug.md) | specs | id-ranges | tally |
 ROW_RE = re.compile(
     r"^\| \[(?P<title>[^\]]+)\]\(scenarios/(?P<file>[a-z0-9.-]+\.md)\) \| (?P<specs>[^|]*) \| (?P<ids>[^|]*) \| (?P<tally>[^|]*) \|$",
     re.M,
 )
+
+# ...and LIST shape, which is what a split index written as bullets looks like:
+#     - ### Feature: Connect Fortnox   (spec: 280-fortnox-org-config)  → [scenarios/280.md](scenarios/280.md)
+# It carries a title, a spec slug and a link, and it carries NO id-range and NO tally — so the
+# invariants that compare those are not applicable to it and say so rather than passing vacuously.
+LIST_RE = re.compile(
+    r"^[-*] +#*\s*Feature:\s*(?P<title>.+?)\s*\((?:spec|specs):\s*(?P<specs>[^)]*)\)"
+    r".*?\]\(scenarios/(?P<file>[a-z0-9.-]+\.md)\)",
+    re.M,
+)
+
 entries = [m.groupdict() for m in ROW_RE.finditer(index_text)]
+INDEX_SHAPE = "table"
+if not entries:
+    entries = [dict(m.groupdict(), ids="", tally="") for m in LIST_RE.finditer(index_text)]
+    if entries:
+        INDEX_SHAPE = "list"
 files_on_disk = sorted(f for f in os.listdir(FEAT_DIR) if f.endswith(".md"))
 
-print(f"index has {len(entries)} rows; {len(files_on_disk)} feature files on disk")
+print(f"index has {len(entries)} rows ({INDEX_SHAPE} shape); {len(files_on_disk)} feature files on disk")
+
+# AN UNREADABLE INDEX IS NOT AN INDEX FULL OF DEFECTS. With zero rows parsed, "every feature file is
+# an orphan" and "no feature file has a back-link" are both arithmetically true and both meaningless
+# — and on a 229-file map they print 229 filenames twice, which is how a checker gets switched off.
+# This ran that way for as long as the extractor was refusing the map: it reported ok over zero rows,
+# and the moment it could read rows it started accusing everything instead. Stop, and say which of
+# the two shapes was expected.
+if not entries and files_on_disk:
+    bad("the index shape is recognised",
+        f"{len(files_on_disk)} feature files on disk and not one index row parsed. The index is "
+        f"neither the table shape (| [Title](scenarios/x.md) | specs | ids | tally |) nor the list "
+        f"shape (- ### Feature: T   (spec: N-slug)  → [scenarios/x.md](...)). Nothing below this "
+        f"line can be evaluated, so it is not evaluated.")
+    print()
+    print("FAILED — the index could not be read, so nothing downstream was evaluated")
+    raise SystemExit(1)
 
 # --- 1. every feature file is linked, and every link resolves -------------------------
 linked = [e["file"] for e in entries]
@@ -113,8 +152,12 @@ else:
     ok("link matches a slug the row names")
 
 # --- 4. tally counts LIVE rows, and retired are named separately ----------------------
+# The list shape carries no tally and no id-range, so these two invariants have nothing to compare.
+# Reported as not-applicable rather than as ok: "ok over a column that does not exist" is the same
+# vacuous pass this file was reporting over zero rows.
 tally_bad = retired_bad = 0
-for e in entries:
+SKIP_TALLY = INDEX_SHAPE == "list"
+for e in [] if SKIP_TALLY else entries:
     rows = rows_of(os.path.join(FEAT_DIR, e["file"]))
     live = [r for r in rows if r[5] == "0"]
     retired = [r for r in rows if r[5] == "1"]
@@ -141,9 +184,15 @@ for e in entries:
         bad("retired named separately", f"{e['file']}: index says {claimed_ret}, file has {len(retired)}")
         retired_bad += 1
 if not tally_bad:
-    ok(f"tally counts live rows, not retired ({len(entries)} features)")
+    if SKIP_TALLY:
+        na("tally counts live rows, not retired", "the list-shape index carries no tally column")
+    else:
+        ok(f"tally counts live rows, not retired ({len(entries)} features)")
 if not retired_bad:
-    ok("retired rows named separately where present")
+    if SKIP_TALLY:
+        na("retired rows named separately", "the list-shape index carries no tally column")
+    else:
+        ok("retired rows named separately where present")
 
 # --- 5. the id ranges in the index cover exactly that file's ids ----------------------
 def expand(spec):
@@ -161,14 +210,17 @@ def expand(spec):
 
 
 range_bad = 0
-for e in entries:
+for e in [] if SKIP_TALLY else entries:
     claimed = expand(e["ids"])
     actual = {int(r[0][3:]) for r in rows_of(os.path.join(FEAT_DIR, e["file"]))}
     if claimed != actual:
         bad("index id-ranges match the file", f"{e['file']}: only-in-index {sorted(claimed-actual)}, only-in-file {sorted(actual-claimed)}")
         range_bad += 1
 if not range_bad:
-    ok("index id-ranges match each file's ids exactly")
+    if SKIP_TALLY:
+        na("index id-ranges match each file", "the list-shape index carries no id-range column")
+    else:
+        ok("index id-ranges match each file's ids exactly")
 
 # --- 6. back-link at the top of every feature file ------------------------------------
 no_backlink = []

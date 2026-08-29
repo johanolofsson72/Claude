@@ -120,6 +120,27 @@ This gives a clean chain: **SC-014 → destructive test → Allium invariant →
 - **uncovered** — a row whose Status claims `✓` or `◐` while no test under `tests/` names its id. The map says the scenario is proven and the suite has never heard of it. This is a gate failure, not a matter of taste: a status is a claim about the suite, and a claim nothing backs is the thing the status was invented to prevent.
 - **dangling** — an id a test names that is not a row in the map. A typo, or a row deleted out from under a test.
 
+**A retired row's status is `—`, and the proof it earned goes in its text.** A row struck through
+(`~~SC-nnn~~`) has one true current state — retired — and the status column is the cell every gate
+reads and every tally counts. Leaving the `✓` it had earned there means the map shows a validated
+scenario that no longer exists, and the reader has to notice the strike to know otherwise. The
+history is worth keeping, so keep it where it reads as history: `— **Superseded by spec N.**
+_(retired; had been ✓ before it was superseded.)_ | — |`. The rejected alternative was to relax the
+invariant instead and let a retired row keep its old status; that keeps one sentence of history at
+the price of every count downstream being ambiguous, which is the wrong trade for the column the
+machinery consumes. `scripts/test-scenario-map-index.py` enforces this: status is `—` exactly when
+the row is struck.
+
+**Two `SC-` namespaces exist, and only arithmetic keeps them apart.** spec-kit's spec template
+numbers a spec's Success Criteria `SC-001`, `SC-002`, … — the same prefix this map uses for
+permanent handles. A test citing its own spec's criteria is therefore indistinguishable from a test
+citing a scenario that does not exist, and `validate-scenario-traceability.sh` reports references
+below the map's lowest id in a separate **out-of-range** bucket rather than as dangling. That split
+is a floor, not a fix: it holds only while no spec numbers a criterion up into the map's range, and
+that has already happened at least once. When you write a spec, prefer letters for its Success
+Criteria (`SC-A`, `SC-B`) or reuse the map ids the spec actually claims — do not start a second
+numeric sequence under the same prefix.
+
 **A `☐ mapped` row is exempt from the coverage direction.** Mapped-not-yet-tested is the correct state for every scenario of every unbuilt spec, and counting it as a failure would leave the gate permanently red on any project with a roadmap — which is how a gate stops being read. A **retired** (`~~SC-nnn~~`) row is exempt too, but its id still counts as real for the dangling check: the id is a permanent handle, so a test still naming it is stale, not wrong about the map.
 
 The figure is reported with **both numbers** (`122 of 150`), never as a bare percentage, and `scripts/project-maintenance.sh` prints it on every pass without failing the run — uncovered scenarios are a backlog, dangling ones are a defect and do fail it.
