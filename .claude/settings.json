@@ -133,6 +133,11 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/core-machinery-guard-hook.sh\"",
             "statusMessage": "Checking template-owned core machinery..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/core-owed-tick-guard-hook.sh\"",
+            "statusMessage": "Checking CORE work owed before a register tick..."
           }
         ]
       },

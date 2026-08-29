@@ -93,6 +93,7 @@ The register is read (and often re-read) on essentially every spec. If it balloo
 - **Declare which end of the history section is the newest.** Write the heading as `## Register history (newest first)` — or `(newest last)` if the register appends at the bottom. Which end holds the newest entry is what decides which end gets archived, and getting it backwards moves the entry most likely to be read next into the file the pipeline never reads, while reporting that it kept the newest inline. Until row H7bb the archiver inferred this from one comparison (first entry's date greater than the last entry's), which is false whenever every inline entry shares a date — an ordinary state on a register that closes several rows in a day, and the state this project's own register was in when the defect was found. The archiver now takes the declaration when there is one, infers from the date trend only when that trend is decisive (at least twice as much evidence one way as the other), and otherwise **moves nothing and exits 5** rather than guessing. There is deliberately no default: measured across 46 history sections, 21 are newest-first and 3 are newest-last, so a silent default would archive the newest entries in those three.
 - **Never load the history section as pipeline input.** When you read the register to find the next row, read the `## Specs` list only. `INDEX.history.md` exists so it can be consulted *deliberately* (an audit question), not swallowed by default.
 - **Ticking a row is an Edit, not a rewrite.** Change `- [ ]` to `- [x]` on the one row with a surgical `Edit`; do not read-and-rewrite the whole register to tick one box.
+- **A tick is refused while the project owes the template CORE work.** `scripts/core-owed-tick-guard-hook.sh` (layer 3 under Enforcement below) checks that at the moment of the tick and denies it if `--owed` or `--unlisted` has anything to say. If you meet that deny, the fix is to land the change in the template and sync it back — not to reach for the override.
 
 ## Failure memory across `/clear` (`<spec-dir>/run-log.md`)
 
@@ -156,7 +157,7 @@ When this happens:
 
 Mid-spec stops that are NOT register rewrites (typos in the spec, small refinements, missing test cases) are not exceptions — those get handled inside the pipeline per existing rules.
 
-## Enforcement (three layers)
+## Enforcement (four layers)
 
 The register is enforced deterministically — Claude cannot silently skip it because the hooks fire regardless of conversation state.
 
@@ -167,9 +168,15 @@ The register is enforced deterministically — Claude cannot silently skip it be
 
 2. **PreToolUse guard** (`scripts/spec-register-guard-hook.sh`) — fires on `Edit`/`Write`/`MultiEdit`. Walks up from the file path to the `.git` boundary, checks for a language marker, and if there is one AND `specs/INDEX.md` is missing AND the file's extension is in the source-code allowlist, returns `permissionDecision: deny` with a bootstrap instruction. Allowed without register: anything under `specs/`, `.claude/**`, `scripts/**`, `README*`, `CHANGELOG*`, `LICENSE*`, `CLAUDE.md`, `.gitignore`, `.env*`, `.editorconfig`, `Dockerfile`, `docker-compose*`, and any non-source-code extension. Source-code extensions blocked: `.cs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.py`, `.go`, `.rs`, `.java`, `.rb`, `.php`, `.swift`, `.kt`, `.kts`, `.cpp`, `.cxx`, `.cc`, `.c`, `.h`, `.hpp`, `.hxx`, `.razor`, `.cshtml`, `.vbhtml`, `.vue`, `.svelte`, `.astro`, `.dart`, `.scala`, `.clj`, `.cljs`, `.ex`, `.exs`, `.erl`, `.hrl`, `.fs`, `.fsx`, `.fsi`, `.hs`, `.elm`, `.lua`, `.jl`, `.nim`, `.zig`, `.sh`, `.bash`, `.zsh`, `.pl`, `.pm`.
 
-3. **This rule file** — auto-loaded each session via `.claude/rules/`. Provides the procedural context the hooks reference.
+3. **PreToolUse tick gate** (`scripts/core-owed-tick-guard-hook.sh`) — fires on `Edit`/`Write`/`MultiEdit` against `specs/INDEX.md`, and only when the written bytes introduce a `- [x]`. It asks `scripts/template-autosync.sh` two questions — `--owed` (CORE files whose bytes no longer match the manifest) and `--unlisted` (scripts a CORE file depends on that the template has never shipped) — and denies the tick if either answers. Both questions are local: they read the manifest and the working tree and return before template resolution, so nothing waits on a clone.
 
-The walk in both hooks stops at the `.git` boundary so a parent directory's stray language marker (e.g. a `~/package.json` left over from some other project) cannot cause a false positive in an unrelated repo. The template repo itself trips no enforcement because it has no language marker at its `.git` root.
+   **Why the tick and not the edit.** `core-machinery-guard-hook.sh` already refuses the CORE *edit*, and there is a legitimate way past it, because sometimes the edit is right. What had no gate was the moment the spec declares itself finished. Spec 007bl edited eight CORE files and added nine scripts in one project, landed none of them in the template, and ticked; `[owed]` named the eight for three days, nothing acted, and a later sync reverted the split layout inside the project that had authored it. After the tick the spec is closed and the finding is addressed to nobody — the same failure `CLAUDE.md` records for a diagnosis parked in a `run-log.md`.
+
+   Every other register edit passes: adding a row, marking `- [/]` or `- [!]`, archiving history, fixing prose. Marking a row in progress is what you do *on the way* to landing what is owed, so blocking it would block the repair path. The gate fails **open** on any failure to answer — the opposite of `pipeline-state-guard`, deliberately: that guard protects a process, this one protects a file the template owns, and if the sync is broken there is no sync coming and nothing to protect it from. `ALLOW_TICK_WITH_CORE_OWED=1` is the override, for the case where the tick being made *is* the one that closes the spec landing the work; it announces itself rather than passing quietly. Reached through the shell as well, via the delegate list in `scripts/bash-write-guard-hook.sh` — with the coverage bound that on that route only the path is visible, so it answers about the file rather than about the tick.
+
+4. **This rule file** — auto-loaded each session via `.claude/rules/`. Provides the procedural context the hooks reference.
+
+The walk in these hooks stops at the `.git` boundary so a parent directory's stray language marker (e.g. a `~/package.json` left over from some other project) cannot cause a false positive in an unrelated repo. The template repo itself trips no enforcement because it has no language marker at its `.git` root.
 
 ## Bootstrapping the register (new projects)
 

@@ -102,6 +102,10 @@ TEMPLATE_TARBALL="https://codeload.github.com/johanolofsson72/Claude/tar.gz/refs
 
 MODE_CHECK=0; MODE_DRYRUN=0; FORCE=0; DO_COMMIT=1; QUIET=0; MODE_ACCEPT=0; ACCEPT_PATHS=""
 MODE_IS_CORE=0; IS_CORE_PATH=""
+# Spec 007ca. Declared beside MODE_IS_CORE because it is the same shape of question — a query mode
+# that answers and exits rather than syncing — and because `set -u` is on and the report block below
+# runs on every path, including the ones that never reach the flag loop's default.
+MODE_UNLISTED=0; UNLISTED=""; MODE_OWED=0
 # Spec 007be. IGNORE_IN_PROGRESS is the escape hatch out of the deferral gate below; DEFERRED is
 # what the gate sets and the report block reads. Both are declared here rather than beside the gate
 # because `set -u` is on and the report block runs on --check and --dry-run too, which never reach
@@ -126,6 +130,8 @@ while [ $# -gt 0 ]; do
         shift
       done
       ;;
+    --unlisted) MODE_UNLISTED=1 ;;
+    --owed)     MODE_OWED=1 ;;
     --is-core)
       MODE_IS_CORE=1
       # One path, and only if it is not the next flag — so `--is-core --quiet` is a
@@ -170,6 +176,7 @@ speckit-extension-policy.sh
 archive-spec-history.sh test-archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
+core-owed-tick-guard-hook.sh test-core-owed-tick-guard.sh
 bash_write_targets.py bash-write-guard-hook.sh bash-write-detect-hook.sh test-bash-write-guard.sh
 test-runtime-markers-ignored.sh
 validate-register-ids.sh test-register-ids.sh
@@ -180,7 +187,33 @@ validate-fixture-map-ids.sh test-fixture-map-ids.sh
 project-maintenance.sh project-freshness.sh test-project-freshness.sh test-project-maintenance.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
 template-autosync.sh template-autosync-hook.sh
-template-sync-verify.sh template-sync-verify-hook.sh"
+template-sync-verify.sh template-sync-verify-hook.sh
+test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
+test-sync-prompt-bootstrap.sh"
+
+# Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
+# (spec 007ca) reports twelve files at every session start in the template, forever — which is the
+# state that teaches a reader to skip the block, i.e. exactly how [owed] went unread for three days
+# while it was correct. A detector whose output is permanently non-empty is not a detector.
+#
+# Two classes, and both are decisions somebody made on purpose:
+#
+#   Tech-stack hooks. sync-core-hooks.py re-adds a core hook "only [if] every referenced script
+#   already exists in the project", and its docstring names script-presence as the tech-stack gate:
+#   "a project that dropped tla-hook.sh (not a UI/spec project) simply never gets the tla hook
+#   re-added." Adding these to CORE_SCRIPTS would push a TLA+ hook onto every project in the fleet
+#   and delete that gate. The absence is the feature.
+#
+#   Template-authoring tools. update-template.sh drives THIS repository's own refresh and
+#   verify-local-llm-hooks.sh checks the template's local-LLM wiring. A project has no use for
+#   either; both are already present in older projects only because a long-ago prose sync copied
+#   them, which is not a reason to keep shipping them.
+#
+# A name here is a claim that somebody looked. Moving a name OUT of this list and into CORE_SCRIPTS
+# is the fix when the claim turns out to be wrong.
+TEMPLATE_ONLY_SCRIPTS="after-specify-hook.sh allium-hook.sh tla-hook.sh ui-design-hook.sh
+sqlite-nfs-safety-hook.sh test-coverage-hook.sh
+update-template.sh verify-local-llm-hooks.sh"
 
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
@@ -204,6 +237,184 @@ core_refusal_text() {
   printf 'is deleted by the next sync, and recording it as an intentional difference\n'
   printf 'would only promise a silence that same sync would break. Land the change in\n'
   printf 'the template instead.\n'
+}
+
+# ------------------------------------------- unlisted CORE-shaped scripts (spec 007ca)
+# The blind spot underneath [owed], and it is structural rather than a missed case. [owed] is
+# defined as "the manifest's recorded bytes disagree with the bytes on disk". A file the template
+# has never shipped has NO manifest line, so it contributes no row to either side of that join —
+# it is not under-reported, it is absent from the question.
+#
+# Spec 007bl proved what that costs. It edited eight CORE files and added nine scripts in one
+# project, landed none of them here, and ticked its register row. [owed] named the eight for three
+# days. The nine were unrepresentable, and a later sync reverted the split layout inside the very
+# project that authored it.
+#
+# The same blindness exists one level up, in this repository. copy_file's new-file branch is
+# `is_core || CLASS = skills || return 0`, so a script sitting in the template's scripts/ that
+# nobody added to CORE_SCRIPTS is added to no project at all — it is only ever UPDATED where a
+# project already happens to hold it. Commit 8689d17 fixed one instance of that by hand and its own
+# message names a second that was still stranded. Two directions, one predicate: the set of files
+# under scripts/ and the list that ships them disagree, and nothing measured the disagreement.
+#
+# WHY A REFERRER, AND NOT A NAME PATTERN. In project mode the test is "a CORE file names it", not
+# "it looks like machinery". That is not a heuristic dressed up — the referring CORE file is
+# precisely what the next sync overwrites, so either the template's copy also names the script (and
+# the template must therefore ship it) or the reference vanishes and the work is reverted. Measured
+# on msroute (007ca research.md M2): 13 unmanaged scripts, 1 flagged, 0 false positives; replayed
+# against 007bl's own commit, 18 unmanaged, 4 flagged, 0 false positives. A detector that reported
+# all 13 would be 92% noise, which is the state report_stranded already refuses to ship in.
+#
+# Recall is deliberately below 100% (4 of 007bl's 9). The block is a decision prompt, not an
+# inventory: four named members of a five-file family send the reader to the family. A closure pass
+# was built and measured and bought exactly one more file for a second failure mode (M3).
+#
+# Emits "<relpath>\t<referrer>[ <referrer>…]" per line, empty on a healthy tree.
+#   $1 = mode: "project" or "template"   $2 = root to answer about
+unlisted_core_shaped() {
+  _mode="$1"; _root="$2"
+  [ -d "$_root/scripts" ] || return 0
+
+  # Membership from the same two variables is_core reads, in this process. Never a second list —
+  # a second definition of CORE drifts from the first the moment either changes, which is the trap
+  # core_divergence already records, and a stale list is authoritative-looking silence over exactly
+  # the new file nobody has habits about yet.
+  # Newline-delimited with sentinel newlines at both ends, so membership is a `case` glob and costs
+  # no subprocess. The same idiom the EOL_DIVERGED lookup in copy_file uses, for the same reason:
+  # these tests run once per file over ~140 files, and `grep -qx` per file is how a 40 ms scan
+  # becomes a 600 ms one on a path that runs at every session start.
+  _core_names="
+$(printf '%s\n' $CORE_SCRIPTS)
+"
+  _tmpl_only="
+$(printf '%s\n' $TEMPLATE_ONLY_SCRIPTS)
+"
+
+  # Shipped, just not by copy_file. sync-local-llm-hooks.py mirrors the local-llm-*-hook.sh files on
+  # disk as well as their wiring (its docstring says so in as many words), and sync-graphify-wiring.py
+  # does the same for graphify-*. Without this exemption the template-side report is 47 lines of
+  # correctly-shipped files and 12 real ones, i.e. unreadable.
+  _exempt() {
+    case "$1" in local-llm-*|graphify-*) return 0 ;; esac
+    # A statement about the file, so it holds in both directions: a tech-stack hook is no more a
+    # finding when a project's CORE rule happens to name it than it is here.
+    case "$_tmpl_only" in *"
+$1
+"*) return 0 ;; esac
+    return 1
+  }
+
+  # The whole scan runs with cwd at the root, for the reason spec 007bg records against
+  # core_divergence: the paths here are project-relative and are handed to grep, so without this the
+  # answer comes from whatever directory the caller happened to be standing in. That defect is not
+  # loud when it lands — from another synced project it would read files that exist and match.
+  ( cd "$_root" || exit 0
+
+    if [ "$_mode" = template ]; then
+      # No referrer test and no manifest. An unlisted script here reaches no project regardless of
+      # who names it, so the absence from CORE_SCRIPTS IS the finding.
+      for _f in scripts/*.sh scripts/*.py; do
+        [ -f "$_f" ] || continue
+        _b=${_f#scripts/}
+        _exempt "$_b" && continue
+        case "$_core_names" in *"
+$_b
+"*) continue ;; esac
+        printf '%s\tabsent from CORE_SCRIPTS — ships to no project\n' "$_f"
+      done
+      exit 0
+    fi
+
+    # Project mode. No manifest is no evidence and therefore no claim — the same first line
+    # core_divergence takes, rather than a second answer to the same missing file.
+    [ -f "$STAMP" ] || exit 0
+    _managed="
+$(awk '!/^#/ && NF == 2 { print $2 }' "$STAMP" 2>/dev/null)
+"
+
+    # The files whose bytes the next sync replaces, and therefore the only ones whose reference to a
+    # script is evidence that the template needs that script. settings.json is in the set because
+    # sync-core-hooks.py rewrites the CORE hook wiring inside it on every sync.
+    _core_files=$(
+      printf '%s\n' $CORE_SCRIPTS | sed 's#^#scripts/#'
+      printf '%s\n' $CORE_RULES   | sed 's#^#.claude/rules/#'
+      printf '%s\n' '.claude/settings.json'
+    )
+
+    _cands=""
+    for _f in scripts/*.sh scripts/*.py; do
+      [ -f "$_f" ] || continue
+      _b=${_f#scripts/}
+      _exempt "$_b" && continue
+      # Already on the list that ships it, so by the block's own title it is not unlisted. What it is
+      # instead is a manifest lagging its CORE_SCRIPTS — which happens for one sync after a new CORE
+      # script is added, and resolves itself. Skipping it here also removes the referrer this file
+      # would otherwise be for every name inside its own CORE_SCRIPTS: a list naming something is
+      # membership, not a dependency, and reporting it would put "template-autosync.sh" beside every
+      # finding as a referrer that tells the reader nothing.
+      #
+      # The case this does NOT hide is a name added to a LOCAL CORE_SCRIPTS and never landed: this
+      # file is itself CORE, so that edit moves it off its manifest hash and [owed] names it.
+      case "$_core_names" in *"
+$_b
+"*) continue ;; esac
+      case "$_managed" in *"
+$_f
+"*) continue ;; esac
+      _cands="$_cands
+$_b"
+    done
+    _cands=$(printf '%s\n' "$_cands" | grep -v '^$')
+    [ -n "$_cands" ] || exit 0
+
+    # ONE grep over every CORE file, not one per (candidate, file) pair. The obvious nesting is
+    # 13 candidates x 86 CORE files = ~1100 subprocesses, measured at 3.2 s — thirteen times this
+    # spec's own 250 ms budget, on a path that runs at every session start of every project. That is
+    # the 1.5-second tax sha_many's comment already records as the thing that gets a feature deleted
+    # rather than fixed, and it would have been paid here at every session start of every project.
+    #
+    # `-o` prints the matched name, `-H` the file it was in, so one stream carries both halves of
+    # the join. Existing files only: grep treats a missing path as an error and would pollute the
+    # stream with the ones a project legitimately does not have.
+    _present=""
+    for _c in $_core_files; do [ -f "$_c" ] && _present="$_present $_c"; done
+    [ -n "$_present" ] || exit 0
+
+    printf '%s\n' "$_cands" \
+      | grep -oHF -f - $_present 2>/dev/null \
+      | awk -F: '
+          # $1 = the CORE file that named it, $2 = the candidate basename. A script naming itself is
+          # not a referrer, which is why the guard is on the PAIR and not on either side alone.
+          $1 != "scripts/" $2 {
+            n = $1; sub(/.*\//, "", n)
+            if (index(seen[$2], " " n " ") == 0) { seen[$2] = seen[$2] " " n " "; refs[$2] = refs[$2] " " n }
+          }
+          END { for (b in refs) printf "scripts/%s\t%s\n", b, substr(refs[b], 2) }
+        ' \
+      | LC_ALL=C sort
+    # A candidate absent from that output had no referrer, and no referrer is no claim (FR-003).
+    # This is what keeps the twelve scripts a project genuinely owns — its mutation gate, its load
+    # harnesses — out of a block about the template.
+  )
+}
+
+# Silent on empty input, for the reason report_owed and report_stranded are: this text is forwarded
+# verbatim into every session start of every project, and a block that fires with nothing to report
+# is what trains a reader to skip the place the next real finding will appear.
+#
+# `tell`, not `say`, so --quiet does not swallow it — 007be measured what that costs, and the answer
+# was complete silence at a session start.
+#
+# It names paths and their referrers and stops. The referrer is not decoration: it is what lets a
+# reader dismiss a false positive in one look instead of going and reading the script.
+report_unlisted() {
+  [ -n "$1" ] || return 0
+  tell "[unlisted] script(s) under scripts/ that the list which ships them does not name:"
+  printf '%s\n' "$1" | while IFS="$(printf '\t')" read -r _p _r; do
+    [ -n "$_p" ] && tell "$(printf '             %-44s %s' "$_p" "$_r")"
+  done
+  tell "           CORE_SCRIPTS is what copy_file adds a new file from, so a script missing from it"
+  tell "           reaches no project. Add it there in the template, push, then sync."
 }
 
 # ------------------------------------------------------------ --is-core (spec 007ao)
@@ -249,14 +460,62 @@ done
 [ -n "$PROJECT_ROOT" ] || { say "[skip] not inside a git repository"; exit 0; }
 [ -d "$PROJECT_ROOT/.claude" ] || { say "[skip] no .claude/ — not a Claude Code project"; exit 0; }
 
+STAMP="$PROJECT_ROOT/.claude/.template-sync"
+# Spec 007bf hoisted this from below the copy loop, where it sat next to the block that first
+# needed it. The stranded-writes detector runs at the `[ok] already at template` early exit, which
+# is ~1000 lines above that, and this is a constant with no reader in between — so the hoist
+# carries no behaviour and the alternative (a second spelling of the same literal) is how the two
+# copies of a path drift apart.
+#
+# Spec 007ca hoisted it the rest of the way, past the template-origin gate below, for the same
+# reason and with the same non-effect: --unlisted answers about the project's manifest and must run
+# before that gate, because the gate exits. PROJECT_ROOT is assigned once, immediately above, and
+# never reassigned — so there is still no reader in between and still no behaviour in the move.
+STAMP_REL=".claude/.template-sync"
+
 # Never sync the template onto itself. Identify it by remote URL — file markers
 # are useless here because the sync copies scripts/sync-prompt.md and friends
 # into every project, so every synced project looks like the template.
 ORIGIN=$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null)
+IS_TEMPLATE=0
 case "$ORIGIN" in
-  *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*)
-    say "[skip] this IS the template repo"; exit 0 ;;
+  *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) IS_TEMPLATE=1 ;;
 esac
+
+# ------------------------------------------------------------ --unlisted (spec 007ca)
+# The machine-readable half of the block above: findings on stdout, one per line, and nothing else.
+# scripts/core-owed-tick-guard-hook.sh consumes it before every register tick, which is why it stops
+# here — after the root walk (it needs PROJECT_ROOT and the manifest) and BEFORE template
+# resolution, so it never waits on a clone or a fetch. A gate in front of an Edit that blocks on the
+# network is a gate that gets deleted, taking the protection with it.
+#
+# It sits above the template-repo gate rather than below because that gate exits, and the template
+# is one of the two things this mode has an answer about.
+#   0 = findings, on stdout · 1 = none · 2 = cannot answer
+if [ "$MODE_UNLISTED" -eq 1 ]; then
+  if [ "$IS_TEMPLATE" -eq 1 ]; then UNLISTED_OUT=$(unlisted_core_shaped template "$PROJECT_ROOT")
+  else                              UNLISTED_OUT=$(unlisted_core_shaped project  "$PROJECT_ROOT")
+  fi
+  [ -n "$UNLISTED_OUT" ] || exit 1
+  printf '%s\n' "$UNLISTED_OUT"
+  exit 0
+fi
+
+# Never sync the template onto itself. Identify it by remote URL — file markers
+# are useless here because the sync copies scripts/sync-prompt.md and friends
+# into every project, so every synced project looks like the template.
+if [ "$IS_TEMPLATE" -eq 1 ]; then
+  # --owed asks about a manifest, and the template has none. Answering 0 here would print `[skip]`
+  # on stdout and hand a caller a success code with a line of prose in it, which is worse than any
+  # wrong answer — 2 is "cannot answer", and it is the same convention --is-core uses.
+  [ "$MODE_OWED" -eq 1 ] && exit 2
+  say "[skip] this IS the template repo"
+  # Spec 007ca. The one place the template's own unshippable scripts are ever looked at. Nobody runs
+  # a sync here to sync anything — the hook fires at every session start and this is where it lands —
+  # so a finding that is not rendered on this path is rendered nowhere.
+  report_unlisted "$(unlisted_core_shaped template "$PROJECT_ROOT")"
+  exit 0
+fi
 
 # ------------------------------------------------- is git mid-operation? (spec 007be)
 # One answer, two callers: the deferral gate below the --accept-local block, and 007bd's
@@ -575,33 +834,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! resolve_local_template; then
-  resolve_remote_template
-  RC=$?
-  if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; exit 0; fi
-  if [ "$RC" -ne 0 ]; then
-    # A sync that cannot reach the template does nothing and says so quietly; it runs
-    # from a SessionStart hook and must never make offline look like breakage. An
-    # --accept-local that cannot reach it has to fail loudly instead: the template's
-    # hash is half the record, and inventing it would silence a file forever against
-    # a value nobody ever computed.
-    if [ "$MODE_ACCEPT" -eq 1 ]; then
-      warn "[accept-local] refused: the template could not be resolved (no local clone, and no network)."
-      warn "               Recording a difference needs the template's bytes. Set CLAUDE_TEMPLATE_DIR"
-      warn "               to a local clone, or retry with a connection."
-      exit 1
-    fi
-    say "[skip] template unreachable (offline?) — nothing changed"; exit 0
-  fi
-fi
-
-STAMP="$PROJECT_ROOT/.claude/.template-sync"
-# Spec 007bf hoisted this from below the copy loop, where it sat next to the block that first
-# needed it. The stranded-writes detector runs at the `[ok] already at template` early exit, which
-# is ~1000 lines above that, and this is a constant with no reader in between — so the hoist
-# carries no behaviour and the alternative (a second spelling of the same literal) is how the two
-# copies of a path drift apart.
-STAMP_REL=".claude/.template-sync"
 # Spec 007ax. Declared here rather than beside the stamp write, because `set -u` is on and the
 # commit gate reads it on every path — including the ones that return before the stamp is composed.
 STAMP_REWRITTEN=0
@@ -932,11 +1164,59 @@ report_stranded() {
   tell "           mentions them. \`git add -- <path>\` when your tree is in a state to take them."
 }
 
+# --------------------------------------------------------------- --owed (spec 007ca)
+# The other half of what a project can owe the template, machine-readable: the CORE paths whose
+# bytes no longer match the manifest, one per line, and nothing else.
+#
+# It sits HERE, and the block below it — the template resolution — was moved down past it to make
+# that possible. That is the whole point: core_divergence reads the manifest and the working tree
+# and needs no template at all, while resolve_local_template costs ~1 s against a local clone and up
+# to 20 s against the network. scripts/core-owed-tick-guard-hook.sh calls this in front of an Edit,
+# and a gate that waits on a fetch is a gate that gets deleted, taking the protection with it. The
+# move carries no behaviour: nothing between the old position and this one reads TEMPLATE_DIR or
+# TEMPLATE_SHA, and the first thing that does — the stamp comparison — is immediately below.
+#
+# --unlisted answers the sibling question ~500 lines above, at the earliest point IT can be answered.
+# Two flags rather than one because the two findings are answerable at different depths, and pushing
+# --unlisted down here to keep them together would make it pay for hashing it does not need.
+#   0 = findings, on stdout · 1 = none · 2 = cannot answer
+if [ "$MODE_OWED" -eq 1 ]; then
+  [ -f "$STAMP" ] || exit 2
+  OWED_OUT=$(core_divergence) || exit 2
+  [ -n "$OWED_OUT" ] || exit 1
+  printf '%s\n' "$OWED_OUT"
+  exit 0
+fi
+
+if ! resolve_local_template; then
+  resolve_remote_template
+  RC=$?
+  if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; exit 0; fi
+  if [ "$RC" -ne 0 ]; then
+    # A sync that cannot reach the template does nothing and says so quietly; it runs
+    # from a SessionStart hook and must never make offline look like breakage. An
+    # --accept-local that cannot reach it has to fail loudly instead: the template's
+    # hash is half the record, and inventing it would silence a file forever against
+    # a value nobody ever computed.
+    if [ "$MODE_ACCEPT" -eq 1 ]; then
+      warn "[accept-local] refused: the template could not be resolved (no local clone, and no network)."
+      warn "               Recording a difference needs the template's bytes. Set CLAUDE_TEMPLATE_DIR"
+      warn "               to a local clone, or retry with a connection."
+      exit 1
+    fi
+    say "[skip] template unreachable (offline?) — nothing changed"; exit 0
+  fi
+fi
+
 STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | head -1)
 if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
   say "[ok] already at template $TEMPLATE_SHA"
   # Rendered here rather than collected for later, because on this path there is no later.
   report_owed "$(core_divergence)"
+  # Spec 007ca. Between the two deliberately: [owed] and [unlisted] both ask for a decision about
+  # work this project owes the template, and [stranded] below asks for a command. They are the same
+  # question about two files that differ only in whether the template has ever seen one of them.
+  report_unlisted "$(unlisted_core_shaped project "$PROJECT_ROOT")"
   # Spec 007bf. THE call site. This line is the entire output of a stranded project — the stamp
   # names the new template, so every run lands here and says `[ok]` over files the repository has
   # never seen. After [owed] because [owed] asks for a decision and this asks for a command.
@@ -964,8 +1244,14 @@ fi
 # nothing" and "there was no pass 1" are different states and only one of them may re-measure.
 if [ "${AUTOSYNC_REEXEC:-0}" -eq 1 ]; then
   OWED="${AUTOSYNC_CARRY_OWED-}"
+  # Spec 007ca. Carried for the same reason as $OWED and not re-measured for a sharper one: pass 1
+  # writes the new scripts/ before it re-execs, so a pass-2 measurement would be taken against a
+  # tree this process has already changed. $OWED's own comment records what that looked like the
+  # first time — the sync accusing itself of a local edit.
+  UNLISTED="${AUTOSYNC_CARRY_UNLISTED-}"
 else
   OWED=$(core_divergence)
+  UNLISTED=$(unlisted_core_shaped project "$PROJECT_ROOT")
 fi
 
 # ------------------------------------------------- the intentional-difference record
@@ -1609,6 +1895,7 @@ if [ "$MODE_CHECK" -eq 1 ]; then
   # point, since [deferred] says "the next session start syncs them for real" and this says which
   # files that sentence is about.
   report_owed "$OWED"
+  report_unlisted "$UNLISTED"
   # Spec 007bf. --check and --dry-run are the modes a developer runs BEFORE anything happens, and
   # they are the ones that must not be missing a warning that is free here.
   #
@@ -1652,7 +1939,9 @@ if [ "${AUTOSYNC_REEXEC:-0}" -eq 0 ]; then
       # the space-separated lists, because that is what core_divergence emits and report_owed
       # consumes.
       AUTOSYNC_CARRY_OWED="$OWED"
+      AUTOSYNC_CARRY_UNLISTED="$UNLISTED"
       export AUTOSYNC_REEXEC AUTOSYNC_CARRY_WROTE AUTOSYNC_CARRY_ADDED AUTOSYNC_CARRY_OWED
+      export AUTOSYNC_CARRY_UNLISTED
       rm -f "$NEW_MANIFEST"
       exec bash "$PROJECT_ROOT/scripts/template-autosync.sh" $ORIG_ARGS --force
       ;;
@@ -2914,6 +3203,7 @@ fi
 # local change that REMOVED lines (restoring them is net-positive) and the one that REPLACED them
 # 1:1 (net zero). Both measured: [reverted] silent, this block fires (spec 007az research.md M7).
 report_owed "$OWED"
+report_unlisted "$UNLISTED"
 
 # Spec 007an. The gap between what this sync wrote and what the repository recorded
 # is not a presentation problem to be smoothed over by picking the nicer number —

@@ -92,8 +92,12 @@ history_mode() {
     # Asked in the other order, a subject somebody rewrote by hand is reported as a regression in a
     # script that counted correctly — an accusation the evidence does not support.
     authored=1
-    git -C "$repo" log -1 --format=%b "$sha" 2>/dev/null \
-      | grep -q "^$SYNC_BODY_MARKER" || authored=0
+    # Not a pipeline into grep -q, deliberately: under `set -o pipefail` that returns 141 as soon as
+    # the body after the match fills the pipe buffer, which reads a commit that DOES carry the marker
+    # as one that does not. scripts/validate-no-sigpipe-assertions.sh names this shape (row H7x); the
+    # here-string is the fix it prescribes, and it costs one variable.
+    _body=$(git -C "$repo" log -1 --format=%b "$sha" 2>/dev/null)
+    grep -q "^$SYNC_BODY_MARKER" <<< "$_body" || authored=0
 
     # Was the fix already in the tree this commit produced? That is what decides
     # whether this commit is history or a regression.

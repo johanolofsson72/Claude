@@ -136,7 +136,7 @@ fi
 # ---------------------------------------------------------------------------
 while IFS= read -r target; do
   [ -z "$target" ] && continue
-  for guard in core-machinery-guard-hook.sh spec-register-guard-hook.sh pipeline-state-guard-hook.sh spec-interview-guard-hook.sh; do
+  for guard in core-machinery-guard-hook.sh core-owed-tick-guard-hook.sh spec-register-guard-hook.sh pipeline-state-guard-hook.sh spec-interview-guard-hook.sh; do
     [ -f "$HOOK_DIR/$guard" ] || continue
     OUT=$(printf '{"tool_input":{"file_path":%s}}' "$(jq -Rn --arg p "$target" '$p')" \
             | bash "$HOOK_DIR/$guard" 2>/dev/null)
@@ -150,6 +150,17 @@ while IFS= read -r target; do
     # about which gate spoke sends the reader to the wrong repair (row H7t). The delegate's own reason is
     # passed through verbatim in both arms — only the one line above it changes.
     case "$guard" in
+      core-owed-tick-guard-hook.sh)
+        REASON="BLOCKED — a shell command was about to tick a register row while this project owes the template CORE work.
+
+Target: ${target}
+Guard:  scripts/${guard}
+
+Its own reason follows. Note the coverage bound it states: this route hands it a path and no bytes, so unlike the Edit route it cannot tell a tick from any other write to specs/INDEX.md. Answering about the file is the conservative half of that trade — the alternative is that \`sed -i\` is the silent way past a gate the Edit tool enforces, which is the defect row H7b exists to remove.
+
+────────────────────────────────────────────────────────────
+${INNER}"
+        ;;
       core-machinery-guard-hook.sh)
         REASON="BLOCKED — a shell command was about to write to a file the TEMPLATE owns.
 
