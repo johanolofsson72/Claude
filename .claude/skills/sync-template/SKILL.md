@@ -268,7 +268,11 @@ Ensure the project's `.gitignore` covers these patterns. Add any that are missin
 
 This list is not advisory and it is not maintained by hand alone: `scripts/test-runtime-markers-ignored.sh`
 fails when a machine-local `.claude/` path the scripts write is missing from it, or from the project's
-`.gitignore`. Four of the ten entries above were added by spec 007bq after two of them had been missing
+`.gitignore`. A marker written by a hook **the template does not ship** does not belong in the list
+above — that test is CORE, so a project's line in it is eaten by the next sync, and a line here for a
+path only one project writes turns the gate red in every other project that carries it. Classify those
+in the project-owned `.claude/.runtime-markers` instead (`[machine-local]` / `[tracked-by-design]`
+sections, `path%reason` lines); the test reads it and section 3a is deliberately not asked to seed it. Four of the ten entries above were added by spec 007bq after two of them had been missing
 long enough for the marker to churn in five repositories — including the template's own.
 
 ### 3b. Freshness pass (ALWAYS RUNS — regardless of sync mode)

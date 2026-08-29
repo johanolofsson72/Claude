@@ -33,7 +33,7 @@
 # to it.
 #
 #   bash scripts/test-runtime-markers-ignored.sh              # check this repository
-#   bash scripts/test-runtime-markers-ignored.sh --self-test  # prove the four assertions can fail
+#   bash scripts/test-runtime-markers-ignored.sh --self-test  # prove the five assertions can fail
 
 set -u
 
@@ -63,9 +63,68 @@ MACHINE_LOCAL='.claude/.bash-write-marker%bash-write guard timestamp, re-stamped
 TRACKED_BY_DESIGN='.claude/.template-sync%the sync manifest — a project commits it, it is how drift is detected
 .claude/.sync-stack%the declared stack for this project, read by the guards
 .claude/.sync-local%accepted intentional differences from the template
-.claude/.template-sync-verify%the verify command this project declares for its sync commits'
+.claude/.template-sync-verify%the verify command this project declares for its sync commits
+.claude/.runtime-markers%project-local bucket additions (below) — a record a project commits'
 
 SKILL_REL=".claude/skills/sync-template/SKILL.md"
+
+# ------------------------------------------------- project-local additions (.claude/.runtime-markers)
+# The two buckets above are CORE: this file is synced, so a path written into it by a project is
+# eaten by the next sync. That is fine while every marker comes from a hook the template ships — and
+# it stopped being fine the moment one did not. consultpilot's run-gates-stop-hook.sh writes
+# .claude/.run-gates-marker; neither the hook nor the runner exists in this template, so assertion C
+# fires there and the project has nowhere to answer it.
+#
+# WHY NOT JUST DECLARE IT UP HERE. Measured before choosing, because it is the cheaper-looking option:
+# 8 repositories carry this test, and assertion A asks `git check-ignore` about EVERY declared
+# machine-local path whether or not the repository writes it. A bucket line here for a marker one
+# project writes turns the gate RED in the other 7 — this template among them — for a file they will
+# never see. The sync does not carry .gitignore (it is project-owned), so each of those 7 would need a
+# human to add an ignore rule for a path that does not concern them. That is not a cheap fix with an
+# odd smell; it is a gate that cries wolf in 7 of 8 repositories, and a gate that does that is the
+# permanently-red signal the register keeps arguing is an absent one.
+#
+# So the judgment stays where the judgment belongs — with the project that owns the hook — in a file
+# the sync never rewrites. Same `path%reason` form, same contestable-reason discipline as the buckets
+# above and as EXCLUDED in run-gates.sh.
+#
+#   # .claude/.runtime-markers
+#   [machine-local]
+#   .claude/.run-gates-marker%gate-runner Stop-hook marker; mtime only
+#
+#   [tracked-by-design]
+#   .claude/.something%a record this project commits
+#
+# Read per-root, not once at startup, because the self-test drives run_checks against fixture
+# repositories and a startup read would make every arm see this repository's file.
+#
+# Assertion D deliberately does NOT read these. D asks whether section 3a seeds a path to NEW
+# projects, and the template cannot seed a marker written by a hook it does not ship. Requiring it
+# would make the sidecar unusable the moment it is used.
+
+MARKERS_REL=".claude/.runtime-markers"
+
+# Echoes `path%reason` lines for one section; echoes MALFORMED lines prefixed with `!` so the caller
+# can fail on them by name. A classification with no reason is not a classification here.
+local_markers() { # $1=root  $2=section
+  local f="$1/$MARKERS_REL"
+  [ -f "$f" ] || return 0
+  awk -v want="$2" '
+    { sub(/\r$/, "") }
+    /^[[:space:]]*(#|$)/ { next }
+    /^[[:space:]]*\[.*\][[:space:]]*$/ {
+      gsub(/^[[:space:]]*\[|\][[:space:]]*$/, "")
+      sec = $0
+      if (sec != "machine-local" && sec != "tracked-by-design") print "!unknown section [" sec "]"
+      next
+    }
+    {
+      if (sec == "") { print "!line outside any section: " $0; next }
+      if ($0 !~ /^\.claude\/[^%]+%.+$/) { print "!not path%reason: " $0; next }
+      if (sec == want) print $0
+    }
+  ' "$f"
+}
 
 # ------------------------------------------------------------------------- helpers
 FAILURES=0
@@ -93,9 +152,32 @@ skill_patterns() { # $1=path to SKILL.md
     | grep -oE '`\.claude/[^`]+`' | tr -d '`' | sort -u
 }
 
-# ------------------------------------------------------------------- the four assertions
+# ------------------------------------------------------------------- the five assertions
 run_checks() { # $1=repo root  $2=SKILL.md path (may be absent)
   local root="$1" skill="$2" p reason pat found line
+  local ML TBD bad
+
+  # --- E: the project-local file, if any, parses.  Read BEFORE A/B/C, because a line this rejects
+  # is a marker the developer believes is classified and that A/B/C would then report as unclaimed —
+  # two messages about one cause, with the misleading one first.
+  bad=$( { local_markers "$root" machine-local; local_markers "$root" tracked-by-design; } \
+           | grep '^!' | sed 's/^!//' | sort -u )
+  if [ -n "$bad" ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      fail "[E] $MARKERS_REL is malformed: $line"
+      printf '        expected `# comment`, `[machine-local]`, `[tracked-by-design]`,\n'
+      printf '        or `.claude/.name%%reason` inside one of those sections. A path with no\n'
+      printf '        reason is not a classification — the reason is what a reviewer contests.\n'
+    done <<EOF0
+$bad
+EOF0
+  else
+    pass
+  fi
+
+  ML=$(printf '%s\n' "$MACHINE_LOCAL"; local_markers "$root" machine-local | grep -v '^!')
+  TBD=$(printf '%s\n' "$TRACKED_BY_DESIGN"; local_markers "$root" tracked-by-design | grep -v '^!')
 
   # --- A: every machine-local path is ignored.  The row's bug, and its sibling.
   while IFS= read -r p; do
@@ -103,21 +185,21 @@ run_checks() { # $1=repo root  $2=SKILL.md path (may be absent)
     if git -C "$root" check-ignore -q "$p" 2>/dev/null; then
       pass
     else
-      reason=$(reason_for "$MACHINE_LOCAL" "$p")
+      reason=$(reason_for "$ML" "$p")
       fail "[A] machine-local but NOT gitignored: $p"
       printf '        %s\n' "$reason"
       printf '        add it to %s/.gitignore — it is re-written during a normal session and\n' "$root"
       printf '        means nothing in another machine'"'"'s history.\n'
     fi
   done <<EOF
-$(col1 "$MACHINE_LOCAL")
+$(col1 "$ML")
 EOF
 
   # --- B: no tracked-by-design record is ignored.  A rule that swallowed the manifest.
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     if git -C "$root" check-ignore -q "$p" 2>/dev/null; then
-      reason=$(reason_for "$TRACKED_BY_DESIGN" "$p")
+      reason=$(reason_for "$TBD" "$p")
       fail "[B] tracked by design but IS gitignored: $p"
       printf '        %s\n' "$reason"
       printf '        an ignore rule here hides the record instead of the churn.\n'
@@ -125,7 +207,7 @@ EOF
       pass
     fi
   done <<EOF
-$(col1 "$TRACKED_BY_DESIGN")
+$(col1 "$TBD")
 EOF
 
   # --- C: every .claude/.<marker> the scripts write is classified.  The next marker.
@@ -136,7 +218,7 @@ EOF
             --exclude="$(basename "$0")" "$root"/scripts/*.sh 2>/dev/null | sort -u)
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    if grep -qxF "$p" <<< "$(col1 "$MACHINE_LOCAL"; col1 "$TRACKED_BY_DESIGN")"; then
+    if grep -qxF "$p" <<< "$(col1 "$ML"; col1 "$TBD")"; then
       pass
     else
       fail "[C] a marker no bucket claims: $p"
@@ -146,6 +228,9 @@ EOF
       printf '        machine — and then gitignore it. TRACKED_BY_DESIGN if it is a record this\n'
       printf '        project is meant to commit. That judgment is the one thing this test\n'
       printf '        cannot make for you, which is why it stops here.\n'
+      printf '        A marker written by a hook THIS TEMPLATE DOES NOT SHIP is classified in the\n'
+      printf '        project-owned %s instead — see the header for why it is not\n' "$MARKERS_REL"
+      printf '        a line up here.\n'
     fi
   done <<EOF
 $found
@@ -180,9 +265,13 @@ EOF3
 }
 
 # ------------------------------------------------------------------------ self-test
-# Four fixtures, one per assertion. A gate nobody has watched fail is a gate nobody knows the shape
-# of — this register already carries a row for a falsification arm that falsified nothing (007br),
-# so each arm here reverts one real thing and asserts THAT path is named.
+# Ten arms. A gate nobody has watched fail is a gate nobody knows the shape of — this register
+# already carries a row for a falsification arm that falsified nothing (007br), so each arm here
+# reverts one real thing and asserts THAT path is named.
+#
+# Two of the ten (E2, E6) are NEGATIVE arms: they assert a message is ABSENT. They exist because the
+# sidecar's whole job is to make an existing failure stop, and every positive arm in this file stays
+# green if the sidecar is parsed and then thrown away.
 self_test() {
   local st_fail=0 st_pass=0 d
   ST_TMP=$(mktemp -d) || { echo "cannot mktemp"; exit 2; }
@@ -202,7 +291,7 @@ self_test() {
   # A fixture repository carrying the full correct set, which each arm then breaks one way.
   mk() { # $1=name -> echoes path
     local d="$ST_TMP/$1"
-    mkdir -p "$d/scripts" "$d/$(dirname "$SKILL_REL")"
+    mkdir -p "$d/scripts" "$d/.claude" "$d/$(dirname "$SKILL_REL")"
     git -C "$d" init -q 2>/dev/null || git init -q "$d"
     printf '.claude/.bash-write-marker\n.claude/.bash-write-blocked\n.claude/.template-sync-check\n.claude/.local-llm-*\n.claude/state/\n.claude/validation/\n' > "$d/.gitignore"
     { echo '### 3a. .gitignore additions'
@@ -233,6 +322,64 @@ self_test() {
   d=$(mk d); grep -v 'bash-write-blocked' "$d/$SKILL_REL" > "$d/.s" && mv "$d/.s" "$d/$SKILL_REL"
   arm "D: a dropped section-3a entry is caught" "$d" "[D] not seeded to new projects: .claude/.bash-write-blocked"
 
+  # --- the project-local sidecar.  The four arms below are one claim each, and the LOAD-BEARING one
+  # is `sidecar silences [C]` — without it the file could be parsed and thrown away and every other
+  # arm here would still be green, which is the shape 007br recorded (a falsification arm that
+  # falsified nothing).
+  local nd
+  narm() { # $1=name  $2=fixture dir  $3=substring that must NOT appear
+    local o
+    o=$(FAILURES=0; CHECKS=0; run_checks "$2" "$2/$SKILL_REL" 2>&1)
+    if grep -qF "$3" <<< "$o"; then
+      st_fail=$((st_fail + 1)); printf 'NOT OK %s — this must not have been reported: %s\n' "$1" "$3"
+      printf '%s\n' "$o" | sed 's/^/         | /'
+    else
+      st_pass=$((st_pass + 1)); printf 'ok    %s\n' "$1"
+    fi
+  }
+
+  # A hook writes a marker this template does not ship; the project classifies it in its own file.
+  mk_sidecar() { # $1=name  $2=sidecar body -> echoes path
+    local d; d=$(mk "$1")
+    printf '#!/usr/bin/env bash\n: > "$ROOT/.claude/.proj-marker"\n' > "$d/scripts/proj.sh"
+    printf '%s\n' "$2" > "$d/.claude/.runtime-markers"
+    printf '.claude/.proj-marker\n' >> "$d/.gitignore"
+    printf '%s\n' "$d"
+  }
+
+  # E1 — no sidecar at all: the marker is unclaimed.  The state the sidecar exists to leave.
+  d=$(mk e1); printf '#!/usr/bin/env bash\n: > "$ROOT/.claude/.proj-marker"\n' > "$d/scripts/proj.sh"
+  arm "E1: without a sidecar a project marker is unclaimed" "$d" "[C] a marker no bucket claims: .claude/.proj-marker"
+
+  # E2 — the load-bearing one: with the sidecar, the SAME marker is claimed and [C] is silent.
+  nd=$(mk_sidecar e2 '[machine-local]
+.claude/.proj-marker%written by this project only')
+  narm "E2: a sidecar entry silences [C] for that marker" "$nd" "[C] a marker no bucket claims: .claude/.proj-marker"
+
+  # E3 — the sidecar feeds assertion A, not just C.  Classifying churn without ignoring it is
+  # a declaration that the path is churn and a repository that commits it anyway.
+  d=$(mk_sidecar e3 '[machine-local]
+.claude/.proj-marker%written by this project only')
+  grep -v '^\.claude/\.proj-marker$' "$d/.gitignore" > "$d/.g" && mv "$d/.g" "$d/.gitignore"
+  arm "E3: a sidecar machine-local path must still be gitignored" "$d" "[A] machine-local but NOT gitignored: .claude/.proj-marker"
+
+  # E4 — a path with no reason is not a classification.  The reason is the contestable half.
+  d=$(mk_sidecar e4 '[machine-local]
+.claude/.proj-marker')
+  arm "E4: a sidecar line with no reason is refused" "$d" "[E] .claude/.runtime-markers is malformed: not path%reason: .claude/.proj-marker"
+
+  # E5 — an entry before any section header has no bucket, so it decides nothing.
+  d=$(mk_sidecar e5 '.claude/.proj-marker%no section above me')
+  arm "E5: a sidecar line outside any section is refused" "$d" "[E] .claude/.runtime-markers is malformed: line outside any section"
+
+  # E6 — assertion D must NOT demand a sidecar path in section 3a: the template cannot seed a
+  # marker written by a hook it does not ship, so requiring it would make the sidecar unusable
+  # on the first use.  This is the arm that pins the one place the merged list is deliberately
+  # not used.
+  nd=$(mk_sidecar e6 '[machine-local]
+.claude/.proj-marker%written by this project only')
+  narm "E6: section 3a is not required to seed a project-local marker" "$nd" "[D] not seeded to new projects: .claude/.proj-marker"
+
   printf '\nself-test: %d passed, %d failed\n' "$st_pass" "$st_fail"
   [ "$st_fail" -eq 0 ] || return 1
   return 0
@@ -254,8 +401,14 @@ fi
 run_checks "$ROOT" "$ROOT/$SKILL_REL"
 
 if [ "$FAILURES" -eq 0 ]; then
-  printf 'ok: %d runtime-marker checks passed (%d machine-local, %d tracked by design).\n' \
-    "$CHECKS" "$(col1 "$MACHINE_LOCAL" | grep -c .)" "$(col1 "$TRACKED_BY_DESIGN" | grep -c .)"
+  N_LOCAL=$(local_markers "$ROOT" machine-local | grep -vc '^!' || true)
+  N_TRACKED=$(local_markers "$ROOT" tracked-by-design | grep -vc '^!' || true)
+  N_PROJ=$((N_LOCAL + N_TRACKED))
+  printf 'ok: %d runtime-marker checks passed (%d machine-local, %d tracked by design%s).\n' \
+    "$CHECKS" \
+    "$(( $(col1 "$MACHINE_LOCAL" | grep -c .) + N_LOCAL ))" \
+    "$(( $(col1 "$TRACKED_BY_DESIGN" | grep -c .) + N_TRACKED ))" \
+    "$([ "$N_PROJ" -gt 0 ] && printf '; %d from %s' "$N_PROJ" "$MARKERS_REL")"
   exit 0
 fi
 printf '\n%d of %d runtime-marker checks failed.\n' "$FAILURES" "$((FAILURES + CHECKS))"
