@@ -191,6 +191,7 @@ sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-path
 template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
+test-template-autosync-unlisted.sh
 test-sync-prompt-bootstrap.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
@@ -335,12 +336,22 @@ $(awk '!/^#/ && NF == 2 { print $2 }' "$STAMP" 2>/dev/null)
 "
 
     # The files whose bytes the next sync replaces, and therefore the only ones whose reference to a
-    # script is evidence that the template needs that script. settings.json is in the set because
-    # sync-core-hooks.py rewrites the CORE hook wiring inside it on every sync.
+    # script is evidence that the template needs that script.
+    #
+    # .claude/settings.json USED TO BE IN THIS SET and is deliberately not any more (row H7bk). The
+    # justification was "sync-core-hooks.py rewrites the CORE hook wiring inside it on every sync",
+    # which is true and does not reach the conclusion: that script's own docstring says "any
+    # project-specific script hook the template does not ship [is] preserved verbatim", and the
+    # identity it strips on is the SET OF SCRIPT BASENAMES a hook names. An *unlisted* script cannot
+    # be in a template hook's identity — that is what unlisted means — so a hook naming one can never
+    # be stripped. Measured rather than reasoned (H7bk research.md M-3): a sandboxed sync over
+    # consultpilot's settings.json removed 48 hooks, added 48, and left the project's own Stop hook
+    # in place. And copy_file never touches the file at all; the only wholesale write is the seed for
+    # a project that has NO settings.json, which by construction has no project-specific hooks to
+    # lose. So settings.json could only ever produce false positives, and it produced two.
     _core_files=$(
       printf '%s\n' $CORE_SCRIPTS | sed 's#^#scripts/#'
       printf '%s\n' $CORE_RULES   | sed 's#^#.claude/rules/#'
-      printf '%s\n' '.claude/settings.json'
     )
 
     _cands=""
@@ -383,21 +394,65 @@ scripts/$_b"
     # the 1.5-second tax sha_many's comment already records as the thing that gets a feature deleted
     # rather than fixed, and it would have been paid here at every session start of every project.
     #
-    # `-o` prints the matched name, `-H` the file it was in, so one stream carries both halves of
-    # the join. Existing files only: grep treats a missing path as an error and would pollute the
-    # stream with the ones a project legitimately does not have.
+    # `-H` prints the file the match was in, and the whole line comes with it. `-o` used to trim
+    # that to the matched name alone; the comment rule below needs the line's FIRST character, and
+    # -o is precisely what throws it away (row H7bk). Existing files only: grep treats a missing
+    # path as an error and would pollute the stream with the ones a project legitimately does not
+    # have.
     _present=""
     for _c in $_core_files; do [ -f "$_c" ] && _present="$_present $_c"; done
     [ -n "$_present" ] || exit 0
 
-    printf '%s\n' "$_cands" \
-      | grep -oHF -f - $_present 2>/dev/null \
-      | awk -F: '
-          # $1 = the CORE file that named it, $2 = the candidate path. A script naming itself is not
-          # a referrer, which is why the guard is on the PAIR and not on either side alone.
-          $1 != $2 {
-            n = $1; sub(/.*\//, "", n)
-            if (index(seen[$2], " " n " ") == 0) { seen[$2] = seen[$2] " " n " "; refs[$2] = refs[$2] " " n }
+    {
+      printf 'C\t%s\n' $_cands
+      printf '%s\n' "$_cands" | grep -HF -f - $_present 2>/dev/null | sed 's/^/M\t/'
+    } \
+      | awk '
+          # Two record kinds on one stream, tagged in column 1: C = a candidate path, M = a line
+          # from a CORE file that contains one, verbatim. The candidates travel IN BAND rather than
+          # through -v because they are newline-separated and awk -v cannot carry a newline (BSD awk
+          # answers "newline in string" and prints nothing, which is a detector that reports clean).
+          {
+            kind = substr($0, 1, 1); rec = substr($0, 3)
+            if (kind == "C") { if (rec != "") cand[++nc] = rec; next }
+            # First colon only, via index(): a path has none and a line of code has several.
+            i = index(rec, ":"); if (i == 0) next
+            f = substr(rec, 1, i - 1); body = substr(rec, i + 1)
+
+            # A reference on a WHOLE-LINE COMMENT of a shell or python CORE file is prose, not a
+            # dependency (row H7bk). The sync overwrites the comment with an identical comment; it
+            # neither breaks the reference nor needs the named file to exist. Two CORE files cite
+            # the run-gates.sh that consultpilot owns, as an idiom, in four comments — and that
+            # alone held the register tick guard on that project permanently red, so every row it
+            # ticked went through ALLOW_TICK_WITH_CORE_OWED. An exception taken every time is the
+            # rule with extra steps.
+            #
+            # LANGUAGE-AWARE, and that is the whole calibration. In markdown `#` is a heading, and a
+            # CORE rule writing "Prove it mechanically: `scripts/x.sh` … is that pair" IS a
+            # dependency — all four findings in the 007ca calibration corpus have a .md referrer,
+            # so a blanket rule would take recall to zero.
+            #
+            # "Whole-line comment" means the first non-blank character is `#`, and nothing subtler —
+            # the same line scripts/validate-scenario-id-accounting.sh already draws, for the same
+            # reason: deciding whether a mid-line `#` is quoted needs a shell parser. So
+            # `bash x.sh  # see scripts/y.sh` still counts as a dependency. Exact, not clever, and
+            # it errs toward REPORTING.
+            #
+            # NO APOSTROPHES ANYWHERE INSIDE THIS awk PROGRAM. It is single-quoted, so one `'"'"'`
+            # in a comment ends the program and bash reports a syntax error on a line of prose.
+            # Cost one debug cycle here, and scripts/validate-scenario-id-accounting.sh records
+            # the same fifteen minutes being spent while landing H5z.
+            if (f ~ /\.(sh|py)$/ && body ~ /^[ \t]*#/) next
+
+            for (j = 1; j <= nc; j++) {
+              c = cand[j]
+              # A script naming itself is not a referrer, which is why the guard is on the PAIR and
+              # not on either side alone.
+              if (c == f) continue
+              if (index(body, c) == 0) continue
+              n = f; sub(/.*\//, "", n)
+              if (index(seen[c], " " n " ") == 0) { seen[c] = seen[c] " " n " "; refs[c] = refs[c] " " n }
+            }
           }
           END { for (b in refs) printf "%s\t%s\n", b, substr(refs[b], 2) }
         ' \
