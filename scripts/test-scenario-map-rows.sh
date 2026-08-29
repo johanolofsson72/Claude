@@ -55,12 +55,17 @@ FAILED=0
 # harness has no other reason to know what a layout is.
 PROBE_MAP=$(git rev-parse --show-toplevel 2>/dev/null)/specs/SCENARIOS.md
 
-PROBE_IDS=$(scenario_probe_checked 9 test-scenario-map-rows "$PROBE_MAP") || exit 1
+PROBE_IDS=$(scenario_probe_checked 18 test-scenario-map-rows "$PROBE_MAP") || exit 1
 
 # shellcheck disable=SC2086
 set -- $PROBE_IDS
 ID1=$1; ID2=$2; ID3=$3; ID4=$4; ID5=$5; ID6=$6; ID7=$7; ID8=$8; ID9=$9
-SUBST=$(scenario_probe_sed_script "$ID1" "$ID2" "$ID3" "$ID4" "$ID5" "$ID6" "$ID7" "$ID8" "$ID9")
+# ${10} and up are not addressable in POSIX sh, so shift the first nine off rather than reaching
+# for them. `$10` parses as `$1` followed by a literal 0, which would silently reuse ID1.
+shift 9
+ID10=$1; ID11=$2; ID12=$3; ID13=$4; ID14=$5; ID15=$6; ID16=$7; ID17=$8; ID18=$9
+SUBST=$(scenario_probe_sed_script "$ID1" "$ID2" "$ID3" "$ID4" "$ID5" "$ID6" "$ID7" "$ID8" "$ID9" \
+                                  "$ID10" "$ID11" "$ID12" "$ID13" "$ID14" "$ID15" "$ID16" "$ID17" "$ID18")
 
 ok()  { printf '  ok:   %s\n' "$1"; }
 bad() { printf '  FAIL: %s — %s\n' "$1" "$2"; FAILED=$((FAILED + 1)); }
@@ -83,6 +88,8 @@ printf '== scenario-map-rows: cell splitting ==\n'
 
 # --- trap 3: the escaped pipe ---------------------------------------------------------
 sed "$SUBST" > "$TMP/escaped.md" <<'MAP'
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
 | @ID1@ | adversarial | A note beginning `=cmd\|` shown in the preview | Rendered as text, never as a formula | ✓ |
 | @ID2@ | happy | A plain row with no pipes at all | Extracted unchanged | ✓ |
 | @ID3@ | edge | Two \| escaped \| pipes in one cell | Still one cell | ◐ |
@@ -118,6 +125,8 @@ fi
 # `\\` is a literal backslash in markdown; the pipe after it IS a column break. A parser that
 # tests only "ends in a backslash" swallows that break and reports four columns.
 sed "$SUBST" > "$TMP/evenslash.md" <<'MAP'
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
 | @ID5@ | edge | Ends in a literal backslash \\ | Still five columns | ✓ |
 MAP
 expect_row 'an even backslash run leaves the column break alone' "$TMP/evenslash.md" "$ID5" \
@@ -125,6 +134,8 @@ expect_row 'an even backslash run leaves the column break alone' "$TMP/evenslash
 
 # --- the known positive: the guard must still bite ------------------------------------
 sed "$SUBST" > "$TMP/malformed.md" <<'MAP'
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
 | @ID6@ | edge | A genuinely six-column row | With one cell too many | ✓ | oops |
 MAP
 _err=$(sh "$ROWS" "$TMP/malformed.md" 2>&1 >/dev/null)
@@ -143,6 +154,8 @@ fi
 sed "$SUBST" > "$TMP/prose.md" <<'MAP'
 Some prose that mentions @ID7@ without being a row, and a flowchart node @ID8@.
 
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
 | @ID9@ | happy | The only actual row | Counted once | ✓ |
 MAP
 _ids=$(sh "$ROWS" "$TMP/prose.md" 2>/dev/null | cut -d"$TAB" -f1 | tr '\n' ' ')
@@ -158,6 +171,211 @@ if [ "$_total" = "4" ]; then
   ok '--summary counts the escaped-pipe rows it can now parse'
 else
   bad '--summary counts the escaped-pipe rows it can now parse' "rows: $_total, want 4"
+fi
+
+printf '\n== scenario-map-rows: the ledger-header rule ==\n'
+
+# --- a commentary table is not a ledger, and the real ledger below it still reads ------
+#
+# This is the case the whole header rule exists for. 492.md carries a promotion note whose rows
+# cite ids that are ALSO rows in its real ledger further down the file, and 511.md carries two
+# evidence summaries. Judged on arity they refuse the entire map; judged on arity when the arity
+# happens to fit, they manufacture duplicate ids. Neither table was ever malformed.
+sed "$SUBST" > "$TMP/commentary.md" <<'MAP'
+Operator validated the following on the live build:
+
+| SC | now | why |
+|---|---|---|
+| @ID10@ | ✓ validated | he reached his own sentence and edited it |
+
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
+| @ID10@ | happy | The real ledger row | Counted once | ◐ |
+MAP
+_out=$(sh "$ROWS" "$TMP/commentary.md" 2>"$TMP/commentary.err"); _rc=$?
+_n=$(printf '%s\n' "$_out" | grep -c "^$ID10$TAB" || true)
+_kind=$(printf '%s\n' "$_out" | awk -F'\t' -v id="$ID10" '$1 == id { print $2 }')
+if [ "$_rc" -eq 0 ] && [ "$_n" = "1" ] && [ "$_kind" = "happy" ]; then
+  ok 'a commentary table is skipped and the ledger below it is read'
+else
+  bad 'a commentary table is skipped and the ledger below it is read' \
+      "rc=$_rc rows=$_n kind=[$_kind] err=[$(cat "$TMP/commentary.err")]"
+fi
+
+# --- SABOTAGE: remove the ledger-context guard, and the same file breaks ---------------
+#
+# The arm is the argument for the case. Without it "one row, kind=happy" is a sentence that would
+# also be true of a parser that reads every table row and got lucky.
+sed 's/if (!in_ledger) { ignored\[FILENAME\]++; prev = \$0; next }/if (0) { }/' \
+    "$ROWS" > "$TMP/sabotaged-context.sh"
+_sab=$(sh "$TMP/sabotaged-context.sh" "$TMP/commentary.md" 2>&1); _sabrc=$?
+if [ "$_sabrc" -ne 0 ] || [ "$(printf '%s\n' "$_sab" | grep -c "^$ID10$TAB" || true)" != "1" ]; then
+  ok 'SABOTAGE: without the ledger-context guard, the commentary file no longer reads correctly'
+else
+  bad 'SABOTAGE: without the ledger-context guard, the commentary file no longer reads correctly' \
+      "the guard is not carrying this case — rc=$_sabrc"
+fi
+
+# --- a REORDERED ledger header is an error, not a silent mis-slice ---------------------
+#
+# 518.md was written this way for months. Five columns, so arity accepted it; every row was parsed
+# positionally into the wrong fields and its status landed in column five by luck, so nothing
+# anywhere went red. Column ORDER is the contract.
+sed "$SUBST" > "$TMP/reordered.md" <<'MAP'
+| SC | Scenario | Type | Coverage | Status |
+|---|---|---|---|---|
+| @ID11@ | the scenario prose | adversarial | FC-001 | ✓ |
+MAP
+_err=$(sh "$ROWS" "$TMP/reordered.md" 2>&1 >/dev/null); _rc=$?
+case "$_rc:$_err" in
+  2:*canonical\ order*) ok 'a reordered ledger header is reported, not silently mis-sliced' ;;
+  *) bad 'a reordered ledger header is reported, not silently mis-sliced' "rc=$_rc err=[$_err]" ;;
+esac
+
+# --- a RENAMED but correctly-ordered header is accepted --------------------------------
+#
+# The other half of the same rule, and the half a first draft got wrong: it enumerated acceptable
+# column labels and condemned four real fixtures whose headers said "flow" and "st". Accepting a
+# rename while rejecting a reorder is the point; refusing both is just a stricter kind of broken.
+sed "$SUBST" > "$TMP/renamed.md" <<'MAP'
+| id | type | flow | expected | st |
+|---|---|---|---|---|
+| @ID12@ | edge | Columns renamed, order kept | Still a ledger | ✓ |
+MAP
+expect_row 'a renamed but correctly-ordered header is still a ledger' "$TMP/renamed.md" "$ID12" \
+  "${ID12}${TAB}edge${TAB}Columns renamed, order kept${TAB}Still a ledger${TAB}✓${TAB}0"
+
+# --- five unknown column names is NOT a ledger -----------------------------------------
+#
+# The cost of permitting renames, bounded. A table whose first cell is an id and whose other four
+# labels mean nothing to this script is a commentary table, not a ledger that renamed everything.
+sed "$SUBST" > "$TMP/allunknown.md" <<'MAP'
+| SC | now | why | evidence | note |
+|---|---|---|---|---|
+| @ID13@ | ✓ validated | operator saw it | a screenshot | — |
+MAP
+_out=$(sh "$ROWS" "$TMP/allunknown.md" 2>/dev/null || true)
+if [ -z "$(printf '%s' "$_out" | tr -d '[:space:]')" ]; then
+  ok 'a five-column table with no recognised column name is not a ledger'
+else
+  bad 'a five-column table with no recognised column name is not a ledger' "extracted [$_out]"
+fi
+
+printf '\n== scenario-map-rows: decorated ids ==\n'
+
+# --- a bolded id is a row, not an invisible one ----------------------------------------
+#
+# 77 rows across three files were written `| **SC-3835** |`. They were not refused, they were
+# INVISIBLE — worse, because a refusal is loud: their ✓ claims were never checked and a test naming
+# one was reported dangling, since the map appeared not to have it.
+sed "$SUBST" > "$TMP/bold.md" <<'MAP'
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
+| **@ID14@** | happy | A bolded id | Emitted undecorated | ✓ |
+MAP
+expect_row 'a bolded id is parsed and emitted undecorated' "$TMP/bold.md" "$ID14" \
+  "${ID14}${TAB}happy${TAB}A bolded id${TAB}Emitted undecorated${TAB}✓${TAB}0"
+
+# --- the renumber form: the LIVE id is the second one ----------------------------------
+#
+# scenario-scid-renumber.py writes `~~SC-a~~ SC-b` and hundreds of rows carry it. Nothing parsed it,
+# so the whole cell became the id: a test naming SC-b read as dangling, and the row status was
+# attributed to an id that does not exist.
+sed "$SUBST" > "$TMP/renumber.md" <<'MAP'
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
+| ~~@ID15@~~ @ID16@ | happy | A renumbered row | The live id is the second | ◐ |
+MAP
+expect_row 'the renumber form emits the LIVE id as the row' "$TMP/renumber.md" "$ID16" \
+  "${ID16}${TAB}happy${TAB}A renumbered row${TAB}The live id is the second${TAB}◐${TAB}0"
+_alias=$(sh "$ROWS" "$TMP/renumber.md" 2>/dev/null | awk -F'\t' -v id="$ID15" '$1 == id { print $2 "/" $6 }')
+if [ "$_alias" = "retired/1" ]; then
+  ok 'a struck id with no keeper survives as its own retired row'
+else
+  bad 'a struck id with no keeper survives as its own retired row' "got [$_alias] want [retired/1]"
+fi
+
+# --- ...but NOT when the keeper exists --------------------------------------------------
+#
+# Read scenario-scid-renumber.py before touching this. `~~SC-a~~ SC-b` does not mean "SC-a retired
+# here"; it means SC-a was defined twice, the lowest-numbered file KEEPS it, and this definition was
+# reassigned. Emitting the struck id unconditionally re-creates the very duplicates that tool exists
+# to remove — measured at 103 of them on one real map.
+sed "$SUBST" > "$TMP/renumber-keeper.md" <<'MAP'
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
+| @ID15@ | happy | The keeper still owns this id | Not re-emitted as retired | ✓ |
+| ~~@ID15@~~ @ID16@ | happy | A renumbered row | The live id is the second | ◐ |
+MAP
+_rows=$(sh "$ROWS" "$TMP/renumber-keeper.md" 2>/dev/null | awk -F'\t' -v id="$ID15" '$1 == id')
+_n=$(printf '%s\n' "$_rows" | grep -c . || true)
+_struck=$(printf '%s\n' "$_rows" | awk -F'\t' '{ print $6 }')
+if [ "$_n" = "1" ] && [ "$_struck" = "0" ]; then
+  ok 'the alias row is dropped when the struck id has a keeper'
+else
+  bad 'the alias row is dropped when the struck id has a keeper' "rows=$_n struck=[$_struck]"
+fi
+
+printf '\n== scenario-map-rows: --partial, and silence ==\n'
+
+# --- --partial emits what it can AND says it skipped something -------------------------
+#
+# Exit 4 is the state this flag exists to make sayable. Reporting it as 0 would be "clean over what
+# I could read, reported as clean" — the defect. Reporting it as a refusal is the all-or-nothing
+# behaviour it replaced. It has to be its own answer.
+sed "$SUBST" > "$TMP/partial.md" <<'MAP'
+| SC | Type | Scenario | Expected outcome | Status |
+|---|---|---|---|---|
+| @ID17@ | happy | A good row | Emitted | ✓ |
+| @ID18@ | happy | A row missing a column | Skipped |
+MAP
+_out=$(sh "$ROWS" --partial "$TMP/partial.md" 2>"$TMP/partial.err"); _rc=$?
+_n=$(printf '%s\n' "$_out" | grep -c . || true)
+if [ "$_rc" -eq 4 ] && [ "$_n" = "1" ] && grep -q 'skipped 1 malformed row' "$TMP/partial.err"; then
+  ok '--partial emits the good rows, reports the bad one, and exits 4'
+else
+  bad '--partial emits the good rows, reports the bad one, and exits 4' \
+      "rc=$_rc rows=$_n err=[$(cat "$TMP/partial.err")]"
+fi
+
+# --- without --partial the same file is refused whole ----------------------------------
+_out=$(sh "$ROWS" "$TMP/partial.md" 2>/dev/null); _rc=$?
+if [ "$_rc" -eq 2 ]; then
+  ok 'without --partial the same file is still refused whole (the harness needs that)'
+else
+  bad 'without --partial the same file is still refused whole (the harness needs that)' "rc=$_rc"
+fi
+
+# --- SABOTAGE: an exit-4 that kills the script at the assignment ------------------------
+#
+# Under `set -e` a bare `RAW=$(awk ...)` whose command substitution exits non-zero kills the script
+# AT THE ASSIGNMENT, so --partial would report "rows emitted, rows skipped" and emit nothing. That
+# is not hypothetical; it is what the first implementation did, and only a harness found it.
+sed 's/RAW=$(awk -v PARTIAL="$PARTIAL" "$EXTRACT" "$@") || RC=$?/RAW=$(awk -v PARTIAL="$PARTIAL" "$EXTRACT" "$@")/' \
+    "$ROWS" > "$TMP/sabotaged-setE.sh"
+_sab=$(sh "$TMP/sabotaged-setE.sh" --partial "$TMP/partial.md" 2>/dev/null || true)
+if [ -z "$(printf '%s' "$_sab" | tr -d '[:space:]')" ]; then
+  ok 'SABOTAGE: without the || RC=$? capture, --partial emits nothing at all'
+else
+  bad 'SABOTAGE: without the || RC=$? capture, --partial emits nothing at all' "still emitted [$_sab]"
+fi
+
+# --- a file the header rule reads as ALL commentary says so out loud -------------------
+#
+# Requiring a header is right. "Wrong header, therefore silence" is the failure that cost a year:
+# an invisible row is worse than a refused one, because a refusal is loud. This does not fail the
+# run — a file may legitimately cite ids and carry no ledger — it says the whole file went unread.
+sed "$SUBST" > "$TMP/headerless.md" <<'MAP'
+| @ID17@ | happy | A ledger row with no header above it | Nothing reads this | ✓ |
+| @ID18@ | happy | Nor this | Silently | ◐ |
+MAP
+_out=$(sh "$ROWS" "$TMP/headerless.md" 2>"$TMP/headerless.err" || true)
+if [ -z "$(printf '%s' "$_out" | tr -d '[:space:]')" ] \
+   && grep -q 'no recognised ledger header' "$TMP/headerless.err"; then
+  ok 'a file with rows but no ledger header is reported, not silently empty'
+else
+  bad 'a file with rows but no ledger header is reported, not silently empty' \
+      "out=[$_out] err=[$(cat "$TMP/headerless.err")]"
 fi
 
 printf '\n'

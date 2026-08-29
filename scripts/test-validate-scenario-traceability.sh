@@ -325,6 +325,118 @@ else
   ok "case15-no-literal-id-in-source"
 fi
 
+# case18 — a FOUR-DIGIT id is a reference. The keep-filter here read [0-9]{3} for as long as ids
+# were three digits, and stayed that way after they were not: on the map that found it, 1241 of the
+# 1454 ids the tests actually named were being discarded, so the gate reported 179 of 2961 covered
+# instead of 1316 of 3024. Invisible, because the extractor was refusing the map before this line
+# ever ran. Every id below has four digits, so the {3} filter reports both as uncovered.
+proj=$(new_project)
+{ map_header; row 9101 "$V"; row 9102 "$T"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 9101 9102
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then
+  ok "case18-four-digit-ids-are-references"
+else
+  bad "case18-four-digit-ids-are-references" "expected exit 0, got $RC: $OUT"
+fi
+
+# case19 — BUILD OUTPUT IS NOT EVIDENCE. A stale Stryker report under bin/ quotes test source that
+# no longer exists in the tree; counting it means a DELETED test still covers its scenario, on the
+# strength of a build artifact. Speed was the reason this was noticed (21.2 s of a 22.9 s run) and
+# correctness is the reason it stayed: all 25 ids the unpruned walk found and the pruned walk did
+# not were inside such a report.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+mkdir -p "$proj/tests/Unit/bin/Release/StrykerOutput/2026-07-01"
+printf 'a deleted test that used to cover %s\n' "$(id 901)" \
+  > "$proj/tests/Unit/bin/Release/StrykerOutput/2026-07-01/mutation-report.json"
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "$(id 901)" <<< "$OUT" && grep -q 'uncovered' <<< "$OUT"; then
+  ok "case19-build-output-is-not-a-reference"
+else
+  bad "case19-build-output-is-not-a-reference" "expected the id to be uncovered, got $RC: $OUT"
+fi
+
+# case20 — a live reference in the SAME tree still counts. The pruning must remove build output and
+# nothing else; a prune that also swallowed real test files would make every row uncovered and look
+# exactly like a project with no tests.
+write_test "$proj" "live.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then
+  ok "case20-pruning-does-not-eat-real-tests"
+else
+  bad "case20-pruning-does-not-eat-real-tests" "expected exit 0, got $RC: $OUT"
+fi
+
+# case21 — a PARTIALLY unreadable map is never reported as clean. This is the whole argument for
+# exit 5: the numbers below are real and worth printing, and they are not the whole map, and a gate
+# that says 0 for "clean over what I could read" is the defect --partial was added to remove.
+proj=$(new_project)
+{ map_header; row 901 "$V"; printf '| %s | happy | missing a column |\n' "$(id 902)"; } \
+  > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 5 ] && grep -q 'partial' <<< "$OUT"; then
+  ok "case21-partial-read-is-never-clean"
+else
+  bad "case21-partial-read-is-never-clean" "expected exit 5 saying so, got $RC: $OUT"
+fi
+
+# case22 — ...but it still CHECKS what it could read. A partial read that stopped counting would be
+# the all-or-nothing behaviour wearing a different exit code.
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 903 "$V"; printf '| %s | happy | missing a column |\n' "$(id 902)"; } \
+  > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 5 ] && grep -q "$(id 903)" <<< "$OUT" && grep -q 'uncovered' <<< "$OUT"; then
+  ok "case22-partial-read-still-reports-uncovered"
+else
+  bad "case22-partial-read-still-reports-uncovered" "expected the readable row to be judged, got $RC: $OUT"
+fi
+
+# case23 — a commentary table does not manufacture a duplicate. The map file below cites one id in a
+# promotion note and then carries it as a real ledger row, which is how two real feature files are
+# written. Read without the header rule, that is one id on two rows — and this gate would report the
+# map as corrupt on the strength of its own parser.
+proj=$(new_project)
+{
+  map_header
+  row 901 "$V"
+  printf '\n| SC | now | why |\n|---|---|---|\n| %s | validated | operator confirmed it |\n' "$(id 901)"
+} > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then
+  ok "case23-commentary-table-is-not-a-duplicate"
+else
+  bad "case23-commentary-table-is-not-a-duplicate" "expected exit 0, got $RC: $OUT"
+fi
+
+# case24 — the NEGATIVE CONTROL on the instrument itself, both directions at once. A gate whose
+# number never moves reads exactly like a gate that passes; 506.1 called that a vacuous invariant.
+# Remove the only reference to a covered row and it must become uncovered; name an id the map does
+# not have and it must become dangling. Same project, one edit each way.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+_clean=$RC
+rm -f "$proj/tests/a.test.ts"
+run_gate "$proj"
+_removed=$RC; _removed_out=$OUT
+write_test "$proj" "a.test.ts" 901 999
+run_gate "$proj"
+_added=$RC; _added_out=$OUT
+if [ "$_clean" -eq 0 ] \
+   && [ "$_removed" -eq 1 ] && grep -q 'uncovered' <<< "$_removed_out" \
+   && [ "$_added" -eq 1 ] && grep -q "$(id 999)" <<< "$_added_out" && grep -q 'dangling' <<< "$_added_out"; then
+  ok "case24-negative-control-both-directions"
+else
+  bad "case24-negative-control-both-directions" \
+      "clean=$_clean removed=$_removed added=$_added — the gate does not move when the evidence does"
+fi
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be
@@ -445,6 +557,26 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   sab_run "$SABDIR/e.sh"
   expect_red "struck-exemption-deleted" "$SAB_OUT" case6-struck-exempt || SAB_FAIL=1
 
+  # (h) the id-length filter narrowed back to {3} — the shape it had while the extractor was
+  # refusing the map, so nobody ever saw it discard 85% of the evidence.
+  # shellcheck disable=SC2016
+  replace_region "$SCRIPT" "$SABDIR/h.sh" id-length-filter \
+'grep -xE "${PREFIX}-[0-9]{3}" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" || : > "$TMP/refs.u"'
+  sab_run "$SABDIR/h.sh"
+  expect_red "id-length-filter-narrowed" "$SAB_OUT" case18-four-digit-ids-are-references || SAB_FAIL=1
+
+  # (i) the build-output prune removed — a stale mutation report becomes coverage evidence.
+  # shellcheck disable=SC2016
+  replace_region "$SCRIPT" "$SABDIR/i.sh" build-prune \
+'  grep -rhoIE "${PREFIX}-[0-9]+" "$rp" 2>/dev/null >> "$TMP/refs" || true'
+  sab_run "$SABDIR/i.sh"
+  expect_red "build-prune-removed" "$SAB_OUT" case19-build-output-is-not-a-reference || SAB_FAIL=1
+
+  # (j) the partial-read exit removed — "clean over what I could read" reported as clean.
+  replace_region "$SCRIPT" "$SABDIR/j.sh" partial-exit ':'
+  sab_run "$SABDIR/j.sh"
+  expect_red "partial-exit-removed" "$SAB_OUT" case21-partial-read-is-never-clean || SAB_FAIL=1
+
   # (f) the missing-root guard removed — a typo'd root reports every scenario as uncovered.
   replace_region "$SCRIPT" "$SABDIR/f.sh" root-guard ':'
   sab_run "$SABDIR/f.sh"
@@ -465,7 +597,13 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
       SAB_FAIL=1
     fi
   done
-  [ "$SAB_FAIL" -eq 0 ] && echo "  PASS  sabotage — every sabotage was surgical (case1-clean survived all seven)"
+  # Counted, not spelled out. The line said "all seven" while ten arms were running — a hardcoded
+  # tally in a message about thoroughness is the one number nobody re-reads when they add an arm.
+  # `! -type l` excludes the two dependency SYMLINKS linked into this directory above, which a
+  # plain *.sh count includes — it reported 12 arms for 10, which is how a derived number goes
+  # wrong in the same direction a hardcoded one does. c0.sh is an intermediate, not an arm.
+  SAB_COUNT=$(find "$SABDIR" -maxdepth 1 -name '*.sh' ! -type l ! -name 'c0.sh' | wc -l | tr -d ' ')
+  [ "$SAB_FAIL" -eq 0 ] && echo "  PASS  sabotage — every sabotage was surgical (case1-clean survived all $SAB_COUNT)"
 
   rm -rf "$SABDIR"
   [ "$SAB_FAIL" -eq 0 ] || FAIL=$((FAIL+1))

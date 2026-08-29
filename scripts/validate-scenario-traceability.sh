@@ -80,8 +80,9 @@
 #   0  clean — nothing uncovered, nothing dangling
 #   1  uncovered and/or dangling ids found
 #   2  usage error
-#   3  the map could not be read, the extractor refused, or it yielded zero rows
+#   3  the map could not be read, the extractor refused entirely, or it yielded zero rows
 #   4  a configured reference root does not exist
+#   5  checked, but part of the map was unreadable — never reported as clean
 #
 # Cross-platform: POSIX sh + POSIX awk + grep. Runs under macOS, Linux, and Git Bash/WSL.
 
@@ -165,8 +166,34 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 # prose mentions, flowchart labels and the SC2086 shellcheck lookalike cannot enter the id set. It
 # also knows that a retired row is written ~~SC-NNN~~, which the obvious '^| SC-' pattern misses —
 # and those are precisely the ids that must never be reused.
-# shellcheck disable=SC2086
-if ! printf '%s\n' "$MAP_FILES" | tr '\n' '\0' | xargs -0 "$HERE/scenario-map-rows.sh" > "$TMP/rows" 2>"$TMP/rows.err"; then
+# --partial, and NOT through xargs. Two separate defects were fixed here; both were silent.
+#
+#   1. ALL-OR-NOTHING. Without --partial the extractor refuses the entire map when any ONE file has a
+#      malformed row, and this gate turned that into `exit 3` having checked nothing. It did so for
+#      over a year while 80 of 226 files were malformed — so neither the uncovered nor the dangling
+#      direction was ever checked, which is the failure .claude/rules/scenarios.md names by name:
+#      a gate nobody has watched fail is a report, not a gate.
+#
+#   2. xargs COULD NOT REPORT THE CHILD'S EXIT CODE ANYWAY. xargs collapses any child status in
+#      1..125 to 123, so `exit 4` ("rows emitted, rows skipped") would have arrived here
+#      indistinguishable from `exit 1` ("no readable input"). xargs is also free to SPLIT a long
+#      argument list across several invocations, which would restart the extractor's table-context
+#      state mid-map and silently drop the rows of any table whose header landed in the previous
+#      batch. Building the argument list with `set --` removes both.
+set --
+OLDIFS=$IFS
+IFS='
+'
+for f in $MAP_FILES; do [ -n "$f" ] && set -- "$@" "$f"; done
+IFS=$OLDIFS
+
+EXTRACT_RC=0
+"$HERE/scenario-map-rows.sh" --partial "$@" > "$TMP/rows" 2>"$TMP/rows.err" || EXTRACT_RC=$?
+
+PARTIAL_READ=0
+if [ "$EXTRACT_RC" -eq 4 ]; then
+  PARTIAL_READ=1
+elif [ "$EXTRACT_RC" -ne 0 ]; then
   echo "scenario-traceability: scenario-map-rows.sh refused the map" >&2
   [ -s "$TMP/rows.err" ] && cat "$TMP/rows.err" >&2
   exit 3
@@ -234,9 +261,15 @@ sort -u "$TMP/claimed" -o "$TMP/claimed"
 # and with set -u that is an exit before a single row is counted. Under the LC_ALL=C pin above it
 # parses as intended, so the bug is invisible until the pin is removed. The sabotage entry that
 # removes the pin is what found this, which is the entry existing to prove the OTHER defence.
-N_VALIDATED=$(grep -c "${TAB}✓${TAB}" "$TMP/rows" || true)
-N_TESTED=$(grep -c "${TAB}◐${TAB}" "$TMP/rows" || true)
-N_MAPPED=$(grep -c "${TAB}☐${TAB}" "$TMP/rows" || true)
+# Counted on the status cell's LEADING symbol, not on the whole cell. The status column is free
+# text: "✓ validated", "◐ tested (IT-C-007)", "☐ mapped — needs the live pilot" are all real. An
+# exact-cell match (${TAB}✓${TAB}) counts only the bare symbol, which on one real map left 165 rows
+# in no bucket at all and printed a breakdown that did not add up to the row count — the summary
+# line disagreeing with the classification two functions above it. index()==1 is the same leading-
+# symbol rule is_claimed uses, so the two can no longer drift apart.
+N_VALIDATED=$(awk -F'\t' 'index($5, "✓") == 1 {c++} END {print c+0}' "$TMP/rows")
+N_TESTED=$(awk -F'\t' 'index($5, "◐") == 1 {c++} END {print c+0}' "$TMP/rows")
+N_MAPPED=$(awk -F'\t' 'index($5, "☐") == 1 {c++} END {print c+0}' "$TMP/rows")
 N_STRUCK=$(awk -F'\t' '$6 == "1" {c++} END {print c+0}' "$TMP/rows")
 
 # ------------------------------------------------------------------------------------- references
@@ -260,14 +293,34 @@ for root in $ROOTS; do
     exit 4
   fi
   # <<< root-guard
-  # Match ids of ANY length, then keep the three-digit ones. Matching [0-9]{3} directly would truncate
-  # a hypothetical SC-1234 to SC-123 and invent a reference to a real scenario.
-  grep -rhoIE "${PREFIX}-[0-9]+" "$rp" 2>/dev/null >> "$TMP/refs" || true
+  # Match ids of ANY length. The keep-filter below used to be [0-9]{3} — see there.
+  # BUILD OUTPUT IS PRUNED, and not only because it is slow (21.2 s -> 1.3 s on one repo whose
+  # tests/ tree is 4.5 GB of which almost all is bin/obj). It is pruned because counting it is
+  # WRONG. Every one of the 25 ids that a full walk found there and a pruned walk did not was inside
+  # a stale Stryker mutation-report JSON under bin/Release/.../StrykerOutput/ — a two-month-old
+  # snapshot quoting test source that no longer exists in the tree. Counting those means a DELETED
+  # test still covers its scenario, on the evidence of a build artifact. A coverage claim backed by
+  # nothing live is precisely the lie this gate was written to catch, so it must not be the gate
+  # that tells it.
+  # >>> build-prune
+  find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
+       -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \) \
+       -prune -o -type f -print0 2>/dev/null \
+    | xargs -0 grep -hoIE "${PREFIX}-[0-9]+" 2>/dev/null >> "$TMP/refs" || true
+  # <<< build-prune
   IFS=,
 done
 IFS=$OLDIFS
 
-grep -xE "${PREFIX}-[0-9]{3}" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" || : > "$TMP/refs.u"
+# ANY id length, not {3}. This filter used to keep only three-digit ids, which was right when it was
+# written and silently wrong afterwards: once a map passes id 999 the four-digit rows are the
+# majority, and on the map that found this it was discarding 1241 of the 1454 ids the tests actually
+# name — 85% of the evidence — so the gate reported 179 of 2961 covered instead of 1316 of 3024.
+# Nobody saw it, because the extractor was refusing the map long before this line ever ran. The `-o`
+# match above is greedy, so the truncation the {3} was guarding against cannot occur anyway.
+# >>> id-length-filter
+grep -xE "${PREFIX}-[0-9]+" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" || : > "$TMP/refs.u"
+# <<< id-length-filter
 
 # --------------------------------------------------------------------------------- the two answers
 comm -23 "$TMP/claimed" "$TMP/refs.u" > "$TMP/uncovered"
@@ -335,6 +388,16 @@ fi
 # different one.
 echo "coverage: $N_COVERED of $N_CLAIMED claimed rows referenced by a test"
 echo "  ($ROW_COUNT rows: $N_VALIDATED ✓ · $N_TESTED ◐ · $N_MAPPED ☐ exempt · $N_STRUCK retired exempt)"
+
+# >>> partial-exit
+if [ "$PARTIAL_READ" -eq 1 ]; then
+  # "Clean over what I could read" reported as clean is the defect --partial exists to remove, so a
+  # partial read gets its own code and can never be 0. It is reported AFTER the numbers, because the
+  # numbers are still worth having — they are just not the whole map.
+  echo "scenario-traceability: part of the map was unreadable (see above) — this reading is partial" >&2
+  exit 5
+fi
+# <<< partial-exit
 
 [ "$N_UNCOV" -eq 0 ] && [ "$N_DANGL" -eq 0 ] && [ "$N_DUP" -eq 0 ] && exit 0
 exit 1

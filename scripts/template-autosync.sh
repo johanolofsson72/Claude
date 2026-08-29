@@ -162,6 +162,7 @@ scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-ho
 scenario-map-layout.sh scenario-map-rows.sh scenario-map-baseline.sh
 test-scenario-map-layouts.sh test-scenario-map-canary.sh test-scenario-map-rows.sh
 test-scenario-map-fixtures.sh test-scenario-map-reminder.sh test-scenario-map-index.py
+test-scenario-map-split.sh
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
 detect-stack.sh detect-verify-command.sh test-detect-verify-command.sh
 prune-dangling-hooks.py prune-agent-worktrees.sh
