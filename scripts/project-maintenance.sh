@@ -93,7 +93,14 @@ for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
   BYTES=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
   case "$BYTES" in (''|*[!0-9]*) BYTES=0 ;; esac
   if [ "$BYTES" -gt 25600 ]; then
-    add "[CONTEXT-COST] $f is $((BYTES / 1024)) KB — read on every spec. Trim: scripts/archive-spec-history.sh --keep 5"
+    # Which script to name depends on where the bytes are. Spec 007ce measured
+    # specs/INDEX.md at 91.4% spec rows against 4.8% history, so naming the history
+    # archiver on the register sent people at 1,918 bytes while 36,521 sat untouched.
+    case "$f" in
+      */INDEX.md) HINT="scripts/archive-completed-rows.sh (rows), scripts/archive-spec-history.sh --keep 5 (history)" ;;
+      *)          HINT="scripts/archive-spec-history.sh --keep 5" ;;
+    esac
+    add "[CONTEXT-COST] $f is $((BYTES / 1024)) KB — read on every spec. Trim: $HINT"
   fi
 done
 

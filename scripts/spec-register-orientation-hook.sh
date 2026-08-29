@@ -247,9 +247,12 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
     SIZE_WARN="
 ⚠ CONTEXT-COST CANARY — large per-spec files: ${BLOATED}.
   These are read every spec. Trim before continuing: run
-  scripts/archive-spec-history.sh (moves old history to *.history.md), and read
-  these files TARGETED (only the next row / the current feature's SC rows), never
-  whole. See 'Keep the register lean' / 'Keep the map lean' in .claude/rules/."
+  scripts/archive-completed-rows.sh (INDEX.md — archives completed rows to
+  *.completed.md and reports rows over the 300-byte budget; the ROWS are where
+  the bytes are, measured 91.4% in spec 007ce) or scripts/archive-spec-history.sh
+  (moves old history to *.history.md), and read these files TARGETED (only the
+  next row / the current feature's SC rows), never whole. See 'Keep the register
+  lean' / 'Keep the map lean' in .claude/rules/."
   fi
 
   # Failure memory for a resumed spec: when a row is mid-flight ("- [/]"), show

@@ -92,6 +92,43 @@ The register is read (and often re-read) on essentially every spec. If it balloo
 - **Cap inline history at ~5 entries; archive the rest.** When `## Register history` grows past ~5 entries, move the older ones to `specs/INDEX.history.md` (a sibling file that is **never** read during the pipeline). Run `scripts/archive-spec-history.sh` — it does this mechanically and reversibly (`--keep 5` by default, `--dry-run` to preview). The live `INDEX.md` keeps only the current spec rows + the last handful of history lines.
 - **Declare which end of the history section is the newest.** Write the heading as `## Register history (newest first)` — or `(newest last)` if the register appends at the bottom. Which end holds the newest entry is what decides which end gets archived, and getting it backwards moves the entry most likely to be read next into the file the pipeline never reads, while reporting that it kept the newest inline. Until row H7bb the archiver inferred this from one comparison (first entry's date greater than the last entry's), which is false whenever every inline entry shares a date — an ordinary state on a register that closes several rows in a day, and the state this project's own register was in when the defect was found. The archiver now takes the declaration when there is one, infers from the date trend only when that trend is decisive (at least twice as much evidence one way as the other), and otherwise **moves nothing and exits 5** rather than guessing. There is deliberately no default: measured across 46 history sections, 21 are newest-first and 3 are newest-last, so a silent default would archive the newest entries in those three.
 - **Never load the history section as pipeline input.** When you read the register to find the next row, read the `## Specs` list only. `INDEX.history.md` exists so it can be consulted *deliberately* (an audit question), not swallowed by default.
+- **A row is 300 bytes, and the same 300 as a history entry.** The history budget above caps an
+  entry; this caps a **row**, and rows are where the bytes actually are. Measured on this project
+  2026-08-29, after `archive-spec-history.sh` had done its job: 36,521 of 39,950 bytes — **91.4%** —
+  were the 106 spec rows, against 1,918 for the whole history section. `scripts/archive-completed-rows.sh`
+  reports every row over `--max-bytes` (default 300, `0` disables). The number is calibrated the same
+  way 007bt calibrated the history one: across the 78 rows that already complied, p95 was 265 and the
+  maximum 293, so 300 is the smallest round number that admits every compliant row. That it matches
+  the history budget is two independent measurements landing on the same figure, which is convenient
+  — one number for "a line in the register" — but it was derived, not copied.
+
+- **A row is a pointer; the diagnosis lives in one of two archives.** Completed rows keep a one-line
+  goal, with the row verbatim as it read at tick time in `specs/INDEX.completed.md`. A row that is
+  **not started** keeps a pointer, with its diagnosis in `specs/INDEX.pending.md`. Neither file is
+  pipeline input; each is read deliberately, by the one spec that needs it.
+
+  This is not the same trade as history, and the difference is why the row still has to say
+  something. A history entry is an audit trail nobody's next action depends on. A row is the
+  **handoff** — the SessionStart banner prints it, and for a defect row it is often all a fresh
+  session sees before deciding what to build. What makes the budget affordable is that the two costs
+  fall on different readers: *every* spec pays for a long row, *one* spec reads it. So a row must
+  stay a self-sufficient pointer — what is wrong, where, and which archive holds the rest — never
+  "fix the thing".
+
+  A row for unstarted work is long for an honest reason: the finding was understood the moment it
+  was surfaced, and the spec directory that would hold it does not exist until someone starts. That
+  is the correct instinct meeting a missing container. `INDEX.pending.md` is the container; its entry
+  moves to `INDEX.completed.md` when the spec is ticked.
+
+- **Preserve first, shorten second.** A row may only be shortened once its long form is in an
+  archive. This is the one operation here that can destroy understanding, and it is exactly what a
+  hurried pass would do — so `archive-completed-rows.sh` labels every over-budget row either
+  `shortenable` (its diagnosis is preserved) or `archive first`. Run it when you tick a row, not as
+  a cleanup someday: the archive was built by hand on 2026-08-22 and again on 2026-08-25, and then
+  nobody remembered, so twenty ticked rows sat inline at full length — 35% of the file — as debt the
+  project already knew how to pay. A mechanism that depends on memory is a mechanism with an expiry
+  date.
+
 - **Ticking a row is an Edit, not a rewrite.** Change `- [ ]` to `- [x]` on the one row with a surgical `Edit`; do not read-and-rewrite the whole register to tick one box.
 - **A tick is refused while the project owes the template CORE work.** `scripts/core-owed-tick-guard-hook.sh` (layer 3 under Enforcement below) checks that at the moment of the tick and denies it if `--owed` or `--unlisted` has anything to say. If you meet that deny, the fix is to land the change in the template and sync it back — not to reach for the override.
 
