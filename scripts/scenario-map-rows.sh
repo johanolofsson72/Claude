@@ -25,7 +25,7 @@
 # real map on 2026-08-29, one repository over.
 #
 #   1. The obvious pattern '^\| SC-' misses every retired row, because those are written
-#      `| ~~SC-033~~ |`. Extracting with it yields 185 and looks correct. All three rows it
+#      `| ~~SC-nnn~~ |`. Extracting with it yields 185 and looks correct. All three rows it
 #      drops are precisely the ones whose ids must never be reused (.claude/rules/scenarios.md
 #      makes an id a permanent handle), so the ONE check that must not miss them misses them.
 #      Hence the (~~)? in the row pattern below, and the struck field.
@@ -137,7 +137,7 @@ EXTRACT='
   # Leaving the table (any line that is not a table row) resets the context.
   !/^[[:space:]]*\|/ { in_ledger = 0; prev = $0; next }
 
-  # `**SC-3835**` is how some files write their ids — 77 rows across three files that the old
+  # `**SC-nnnn**` is how some files write their ids — 77 rows across three files that the old
   # pattern never matched, so they were not refused, they were INVISIBLE: a "✓" among them was never
   # checked, and a test naming one was reported as dangling because the map appeared not to have it.
   /^[[:space:]]*\|[[:space:]]*(\*\*)?(~~)?SC-[0-9]+/ {
@@ -173,10 +173,10 @@ EXTRACT='
     id = trim(cell[2])
     sub(/^\*\*/, "", id); sub(/\*\*$/, "", id)
 
-    # RENUMBERED ROW: "~~SC-1522~~ SC-2234" — the old id struck, the new one live, both in one cell.
+    # RENUMBERED ROW: "~~SC-nnnn~~ SC-mmmm" — the old id struck, the new one live, both in one cell.
     # scripts/scenario-scid-renumber.py writes this form and hundreds of rows carry it, but nothing
     # here ever parsed it, so the whole cell became the id. Two consequences, both silent: a test
-    # naming SC-2234 was reported dangling because the map appeared not to have it, and the row
+    # naming the LIVE id was reported dangling because the map appeared not to have it, and the row
     # status was attributed to an id that does not exist, inflating the uncovered count.
     #
     # The retired id still has to be REAL — .claude/rules/scenarios.md makes an id a permanent
@@ -330,9 +330,9 @@ RAW=$(awk -v PARTIAL="$PARTIAL" "$EXTRACT" "$@") || RC=$?
 
 # Drop a renumber ALIAS row whose id is already defined as a real row somewhere in the map.
 #
-# Read scenario-scid-renumber.py's docstring before touching this. `~~SC-1522~~ SC-2234` does NOT
-# mean "SC-1522 retired here". It means the OPPOSITE: SC-1522 was defined in two files, the
-# lowest-numbered file KEEPS it, and this file's definition was reassigned to SC-2234. So the struck
+# Read scenario-scid-renumber.py's docstring before touching this. `~~SC-nnnn~~ SC-mmmm` does NOT
+# mean "SC-nnnn retired here". It means the OPPOSITE: SC-nnnn was defined in two files, the
+# lowest-numbered file KEEPS it, and this file's definition was reassigned to SC-mmmm. So the struck
 # id still belongs to the keeper.
 #
 # Emitting the struck id as a row here would therefore RE-CREATE the exact duplicates the renumber

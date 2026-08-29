@@ -265,7 +265,7 @@ printf '\n== scenario-map-rows: decorated ids ==\n'
 
 # --- a bolded id is a row, not an invisible one ----------------------------------------
 #
-# 77 rows across three files were written `| **SC-3835** |`. They were not refused, they were
+# 77 rows across three files were written `| **SC-nnnn** |`. They were not refused, they were
 # INVISIBLE — worse, because a refusal is loud: their ✓ claims were never checked and a test naming
 # one was reported dangling, since the map appeared not to have it.
 sed "$SUBST" > "$TMP/bold.md" <<'MAP'

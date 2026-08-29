@@ -31,6 +31,13 @@
 #                because a map fixture is written in several pieces — the split layout's index lists
 #                its features and links their ids in a table whose first cell is a feature name, so a
 #                per-heredoc rule reads that piece as "not a map" and walks past two live bindings.
+##   R3           any id shown as MAP SYNTAX in a whole-line comment, anywhere in the scan root:
+#                decorated (`**SC-nnnn**`, `~~SC-nnnn~~`) or in a pipe-delimited cell
+#                (`| **SC-nnnn** |`). Unlike R1/R2 this consults NO owned set and excludes NO file,
+#                including this one — prose never needs a real number, so the rule can be absolute.
+#                It runs BEFORE the map check, because the template repo has no map and is where
+#                these files are authored. Measured across ten repositories: seven source lines, zero
+#                false positives. Full reasoning at the R3 pass below.
 #
 # WHAT IT DELIBERATELY LEAVES ALONE, because getting this wrong is worse than the defect:
 #
@@ -39,11 +46,14 @@
 #     any owned id anywhere in a harness that embeds a map — and it condemned 60 such labels in one
 #     harness on its first real run. A gate whose first honest run says "your tracing scheme is the
 #     bug" has misidentified the bug.
-#   - AN ID IN PROSE OUTSIDE A FIXTURE. Whether a comment naming an id should count as a reference at
-#     all is a real question — the id-accounting gate excludes src/ for exactly that reason, and the
-#     same argument reaches comments in scripts/. It is a wider class with a different answer and it
-#     needs its own measurement, not a silent extension of this one. Write ids in prose sparingly and
-#     describe them where you can; that is discipline here, not enforcement.
+#   - AN ID MERELY NAMED IN PROSE. The measurement this section used to ask for was done (register
+#     row H7bi, 2026-08-29) and it came back the opposite way from the guess: 261 ids have every one
+#     of their references in a whole-line comment under scripts/, and all 261 are CORRECT — a comment
+#     is how a shell harness binds a scenario, which is why the accounting gate lists "script check"
+#     as a form of tracing. Refusing that would condemn the tracing scheme. So a bare id in prose is
+#     still allowed, deliberately and now with a number behind the decision. What the measurement DID
+#     find is the far narrower class R3 refuses: an id shown as an example of a FORM. The difference
+#     is decoration, and it is the whole difference.
 #   - ANYTHING OUTSIDE THE SCAN ROOT. Every map-embedding harness in these trees is a shell script
 #     under scripts/; widening to a population with no known members would add a branch with no red
 #     case.
@@ -57,7 +67,7 @@
 #
 # Exit codes — "I cannot answer" is never reported as "the answer is fine":
 #   0  clean
-#   1  at least one finding
+#   1  at least one finding (R3 can report one even where the owned set is unknown)
 #   2  usage error
 #   3  NOT RUN — no scenario map to compare against, so there is no owned set and no verdict
 #
@@ -93,6 +103,96 @@ if [ ! -d "$ROOT" ]; then
   exit 3
 fi
 
+TMP=$(mktemp -d 2>/dev/null || mktemp -d -t fixturemapids)
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# Self-exclusion, needed by R3 below as well as by the R1/R2 pass: this file and its own harness must
+# be able to spell the shapes they describe.
+SELF=$(basename "$0")
+SELF_TEST="test-fixture-map-ids.sh"
+
+# ------------------------------------------------------------------------------------ R3: PROSE
+# An id presented as MAP SYNTAX inside a whole-line comment — decorated (`**SC-nnnn**`, `~~SC-nnnn~~`)
+# or sitting in a pipe-delimited cell (`| **SC-nnnn** |`).
+#
+# WHY THIS IS NOT THE PROSE CARVE-OUT BELOW. That carve-out is about an id merely NAMED in prose, and
+# it stands. Measured on the project that carved this rule, 2026-08-29: 261 ids have every one of
+# their references in a whole-line comment under scripts/, and every one of them is CORRECT — the
+# `# Covers:` header block, the `# --- case N: … (id)` marker, the census line. Comments ARE how a
+# shell harness binds a scenario, and the accounting gate's own bucket text says so ("script check").
+# A rule against ids in comments would condemn the tracing scheme, which is the mistake the first
+# draft of this gate already made once, sixty labels at a time.
+#
+# R3 is a different and far smaller class: an id shown as an EXAMPLE OF A FORM. Swept across ten
+# repositories it found seven distinct source lines and ZERO false positives — every hit an
+# illustrative syntax comment in the scenario-map tooling itself. The `# Covers:` form carries no
+# decoration and no pipe and is untouched by construction, not by exception.
+#
+# WHY IT CONSULTS NO OWNED SET, unlike R1 and R2. A fixture row must use SOME id, so ownership is
+# what separates a legal fixture from a colliding one. Prose never needs a real number: `SC-nnnn`
+# says everything a real id says when the subject is the FORM. So the rule is absolute — and that is
+# the point rather than a shortcut. The owned set is PER PROJECT while these files are CORE, so a
+# real number in a shared file is a bet against every project's map. Measured: the bolded-id example
+# in the row harness is unowned in the project that carved this and owned in a sibling, where that
+# scenario is listed uncovered today and would have read as traced on three comments about bolded-id
+# parsing. An ownership test is precisely what made that invisible in one tree and live in another.
+#
+# The accounting gate forgives a CORE orphan as template-owned. That exemption covers the ORPHAN
+# direction only: in a project that OWNS the id there is no orphan to forgive, only a false `traced`.
+# Same line, same file, opposite treatment, decided by how far the local map happened to count.
+#
+# WHY BEFORE THE MAP CHECK. This gate must have a verdict even with no map at all. The template repo
+# has no map and is where these CORE files are AUTHORED; a gate that protects the consumer but not
+# the author is backwards. R3 needs no owned set, so nothing stops it running there. A finding is a
+# finding: exit 1. Only when R3 is clean does an absent map fall through to NOT RUN below.
+#
+# WHY R3 DOES NOT SELF-EXCLUDE, where R1/R2 must. R1/R2 skip this file and its harness because those
+# two have to spell real fixture rows to describe and to test them. R3 has no such need — every shape
+# it refuses can be written `SC-nnnn` — so it scans this file too, and the comment you are reading is
+# subject to it. That is deliberate: a literal id written into the prose explaining the rule is how
+# this project re-created the same finding twice, once while writing the comment that explained it.
+: > "$TMP/prose"
+for f in "$ROOT"/*.sh "$ROOT"/*.py; do
+  [ -f "$f" ] || continue
+  awk -v file="$(basename "$f")" '
+    /^[[:space:]]*#/ {
+      body = $0
+      sub(/^[[:space:]]*#+[[:space:]]?/, "", body)
+      # Two markers. The id pattern keeps the accounting gates discriminator — a hyphen and 3-4
+      # digits — so a shellcheck code (SC2086, no hyphen) can never be read as a scenario id.
+      # (No apostrophes anywhere in here: this program lives in a single-quoted shell string.)
+      marked = 0
+      if (body ~ /(\*\*|~~)[[:space:]]*SC-[0-9][0-9][0-9]/) marked = 1
+      if (body ~ /\|[[:space:]]*(\*\*|~~)*[[:space:]]*SC-[0-9][0-9][0-9]/) marked = 1
+      if (!marked) next
+      # EVERY id on the line, not only the marked one: the renumber form shows two ids and decorates
+      # one of them. Reporting only the decorated half fixes half a line.
+      rest = body
+      while (match(rest, /SC-[0-9]+[a-z]?/)) {
+        tok = substr(rest, RSTART, RLENGTH)
+        rest = substr(rest, RSTART + RLENGTH)
+        num = tok; sub(/^SC-/, "", num); sub(/[a-z]$/, "", num)
+        if (length(num) < 3 || length(num) > 4) continue
+        printf "%s:%d\t%s\n", file, FNR, tok
+      }
+    }
+  ' "$f" >> "$TMP/prose"
+done
+
+N_PROSE=$(grep -c . "$TMP/prose" || true)
+if [ "$N_PROSE" -gt 0 ]; then
+  echo "fixture-map-ids: $N_PROSE literal scenario id(s) shown as map syntax in a comment"
+  if [ "$QUIET" -eq 0 ]; then
+    echo
+    while IFS= read -r hit; do [ -n "$hit" ] && printf '  %s\n' "$hit"; done < "$TMP/prose"
+    echo
+    echo "  Each of these illustrates a FORM, so the number is not the evidence — the form is. These"
+    echo "  files are shared with every project that syncs them, and the owned id set is per project,"
+    echo "  so a real number here is a bet against every one of their maps. Write SC-nnn / SC-nnnn."
+  fi
+  exit 1
+fi
+
 # NOT RUN, never clean. A tree with no scenario map owns no ids, so every fixture id in it is free
 # and the gate has nothing to refuse — which is a true statement about an absent map, not a verdict
 # about the files. The template itself is in exactly this state, and a `clean` there would read as
@@ -102,9 +202,6 @@ if [ ! -f "$MAP" ]; then
   echo "  (a tree with no map allocates no ids; nothing here is a verdict about the harnesses)"
   exit 3
 fi
-
-TMP=$(mktemp -d 2>/dev/null || mktemp -d -t fixturemapids)
-trap 'rm -rf "$TMP"' EXIT INT TERM
 
 # ---------------------------------------------------------------------------------- the owned set
 # A table row allocates an id; prose does not. Struck rows count — an id is a permanent handle that
@@ -127,11 +224,10 @@ if [ "$OWNED_COUNT" -eq 0 ]; then
 fi
 
 # ------------------------------------------------------------------------------- the population
-# Self-exclusion: this file and its own harness must be able to spell the shapes they describe.
-# Everything else in the root is fair game, including the helper — a helper that spelled a real id
-# in its documentation would bind it exactly as a fixture would.
-SELF=$(basename "$0")
-SELF_TEST="test-fixture-map-ids.sh"
+# Self-exclusion (SELF/SELF_TEST are set above, where R3 already needs them): this file and its own
+# harness must be able to spell the shapes they describe. Everything else in the root is fair game,
+# including the helper — a helper that spelled a real id in its documentation would bind it exactly
+# as a fixture would.
 
 : > "$TMP/findings"
 SCANNED=0

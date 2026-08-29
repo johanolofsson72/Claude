@@ -351,6 +351,105 @@ else
   bad 'a clean run names how many harnesses it examined' "rc=$RC [$OUT]"
 fi
 
+# --- C15: R3 — a DECORATED id in a comment is refused ------------------------------------------------
+# The rule H7bi added, and the reason it is not the prose carve-out: this id is not merely named, it
+# is displayed AS A ROW FORM. Note the sandbox file writes no fixture row at all — R3 scans the whole
+# root, because two of the three real files that carry this shape are not fixture harnesses.
+R=$(fresh_root c15)
+{ printf '#!/bin/sh\n'
+  printf '# a bolded id is how some maps write theirs: **%s**\n' "$OWNED_A"
+  printf 'true\n'
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_A" && contains "$OUT" "map syntax in a comment"; then
+  ok 'a decorated id in a comment is refused'
+else
+  bad 'a decorated id in a comment is refused' "rc=$RC [$OUT]"
+fi
+
+# --- C15b: R3 — a PIPE-CELLED id in a comment is refused, and the whole line is reported -------------
+# The second marker, and the reason every id on the line is reported rather than only the marked one:
+# the renumber form decorates the retired id and leaves the live one bare, so a rule that reports the
+# decorated half tells you to fix half a line.
+R=$(fresh_root c15b)
+{ printf '#!/bin/sh\n'
+  printf '# rows are written `| ~~%s~~ %s |` when renumbered\n' "$RETIRED" "$OWNED_B"
+  printf 'true\n'
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 1 ] && contains "$OUT" "$RETIRED" && contains "$OUT" "$OWNED_B"; then
+  ok 'a pipe-celled comment reports every id on the line, not just the decorated one'
+else
+  bad 'a pipe-celled comment reports every id on the line, not just the decorated one' "rc=$RC [$OUT]"
+fi
+
+# --- C15b2: R3 — an UNDECORATED id in a pipe cell is refused ----------------------------------------
+# The pipe marker on its own. Without this case the pipe branch is unfalsifiable: C15b's fixture is
+# struck as well as celled, so the decoration marker fires first and turning the pipe branch off
+# reddens nothing. Measured — the control experiment that found this is why the case exists. The
+# shape is real: the accounting gate's own header quotes a plain `| id |` row twice.
+R=$(fresh_root c15b2)
+{ printf '#!/bin/sh\n'
+  printf '# the old pattern matched the row `| %s |` and truncated it\n' "$OWNED_A"
+  printf 'true\n'
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_A"; then
+  ok 'an undecorated id in a pipe cell is refused'
+else
+  bad 'an undecorated id in a pipe cell is refused' "rc=$RC [$OUT]"
+fi
+
+# --- C15c: R3 does NOT touch a bare id in prose ------------------------------------------------------
+# The boundary. C7b asserts this for a fixture harness; this asserts it for R3, whose scan root is
+# every file. If this case ever goes red, R3 has grown into the rule the gate spent a measurement
+# refusing: 261 ids in the carving project have every reference in a comment, and all are correct.
+R=$(fresh_root c15c)
+{ printf '#!/bin/sh\n'
+  printf '# Covers: %s %s — and %s is named here only to explain why\n' "$OWNED_A" "$OWNED_B" "$RETIRED"
+  printf '# --- case 3: the thing works (%s) ---\n' "$OWNED_A"
+  printf 'true\n'
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 0 ]; then
+  ok 'a bare id in prose is not map syntax'
+else
+  bad 'a bare id in prose is not map syntax' "rc=$RC [$OUT]"
+fi
+
+# --- C15d: R3 has a verdict with NO MAP, and it is a finding, not NOT RUN ----------------------------
+# FR-004. The template repo has no map and is where these CORE files are authored; a gate that
+# protects the consumer and not the author is backwards. R3 consults no owned set, so nothing stops
+# it. C8 still holds: no map AND no R3 finding is still NOT RUN, and still never the word clean.
+R=$(fresh_root c15d)
+{ printf '#!/bin/sh\n'
+  printf '# a bolded id: **%s**\n' "$OWNED_A"
+  printf 'true\n'
+} > "$R/test-thing.sh"
+RC=0
+OUT=$(sh "$GATE" --map "$TMP/there-is-no-map.md" --root "$R" 2>&1) || RC=$?
+if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_A" && ! contains "$OUT" "NOT RUN"; then
+  ok 'with no map at all, R3 still reports — a finding, not NOT RUN'
+else
+  bad 'with no map at all, R3 still reports — a finding, not NOT RUN' "rc=$RC [$OUT]"
+fi
+
+# --- C15e: R3 does not read a shellcheck code as a scenario id ---------------------------------------
+# The discriminator is the hyphen plus 3-4 digits, taken from the accounting gate so two patterns that
+# claim to be the same one do not quietly disagree. A disable directive is decorated markdown often
+# enough to matter.
+R=$(fresh_root c15e)
+{ printf '#!/bin/sh\n'
+  printf '# see **SC2086** and | SC2154 | for why the quotes are there\n'
+  printf 'true\n'
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 0 ]; then
+  ok 'a shellcheck code is not a scenario id'
+else
+  bad 'a shellcheck code is not a scenario id' "rc=$RC [$OUT]"
+fi
+
 printf '\n'
 if [ "$FAILED" -eq 0 ]; then
   printf 'fixture-map-ids: all cases pass\n'
