@@ -361,8 +361,16 @@ $_b
       case "$_managed" in *"
 $_f
 "*) continue ;; esac
+      # Path-shaped, not the bare basename. A dependency is written `scripts/foo.sh` — in a hook
+      # command, a `bash scripts/foo.sh`, a rule's instruction — while a bare `foo.sh` is how prose
+      # and test fixtures mention it. Measured against 007bl's tree the tighter pattern keeps all
+      # four findings and drops only a redundant second referrer, so it is precision for free.
+      #
+      # It is not free of judgement, though: the very first live run of the bare-name version
+      # reported this project's own mutation-gate.sh, because the harness for THIS feature names it
+      # in a fixture. That is A-002 arriving within the hour, on the file that shipped the rule.
       _cands="$_cands
-$_b"
+scripts/$_b"
     done
     _cands=$(printf '%s\n' "$_cands" | grep -v '^$')
     [ -n "$_cands" ] || exit 0
@@ -383,13 +391,13 @@ $_b"
     printf '%s\n' "$_cands" \
       | grep -oHF -f - $_present 2>/dev/null \
       | awk -F: '
-          # $1 = the CORE file that named it, $2 = the candidate basename. A script naming itself is
-          # not a referrer, which is why the guard is on the PAIR and not on either side alone.
-          $1 != "scripts/" $2 {
+          # $1 = the CORE file that named it, $2 = the candidate path. A script naming itself is not
+          # a referrer, which is why the guard is on the PAIR and not on either side alone.
+          $1 != $2 {
             n = $1; sub(/.*\//, "", n)
             if (index(seen[$2], " " n " ") == 0) { seen[$2] = seen[$2] " " n " "; refs[$2] = refs[$2] " " n }
           }
-          END { for (b in refs) printf "scripts/%s\t%s\n", b, substr(refs[b], 2) }
+          END { for (b in refs) printf "%s\t%s\n", b, substr(refs[b], 2) }
         ' \
       | LC_ALL=C sort
     # A candidate absent from that output had no referrer, and no referrer is no claim (FR-003).

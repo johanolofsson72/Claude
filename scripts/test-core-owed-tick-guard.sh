@@ -58,9 +58,13 @@ make_project() {
   git -C "$_p" remote add origin "https://github.com/someone/not-the-template.git" 2>/dev/null
   cp "$SYNC" "$_p/scripts/template-autosync.sh"
 
+  # Fixture names are deliberately synthetic. This harness is CORE, so the detector under test READS
+  # this file — and the bare-name version of the predicate duly reported msroute's real
+  # mutation-gate.sh on its first live run, because a fixture line here mentioned it. The sibling
+  # harness reached the same convention (`project-specific-thing.sh`) by the same route.
   printf 'core script\n'  > "$_p/scripts/spec_active.py"                  # CORE
   printf 'core rule\n'    > "$_p/.claude/rules/feature-pipeline.md"       # CORE
-  printf 'ours\n'         > "$_p/scripts/mutation-gate.sh"                # the project's own
+  printf 'ours\n'         > "$_p/scripts/project-owned-thing.sh"                # the project's own
   printf '{}\n'           > "$_p/.claude/settings.json"
 
   cat > "$_p/specs/INDEX.md" <<'IDX'
@@ -134,7 +138,7 @@ do
 done
 
 # ---- everything that is not the register -------------------------------------
-OUT=$(run_hook "$DIRTY/scripts/mutation-gate.sh" "$TICK")
+OUT=$(run_hook "$DIRTY/scripts/project-owned-thing.sh" "$TICK")
 [ -z "$OUT" ] && ok "a file that is not specs/INDEX.md is untouched, even carrying tick-shaped text" \
               || { bad "the guard judged a non-register file"; info "$(reason "$OUT")"; }
 
@@ -165,7 +169,7 @@ fi
 # not exist the gate would reproduce 007bl's exact blindness inside the fix for 007bl.
 UNL=$(make_project unlisted)
 printf 'new machinery\n' > "$UNL/scripts/scenario-map-probe.sh"       # CORE name, no manifest line
-printf 'see scenario-map-probe.sh\n' >> "$UNL/.claude/rules/feature-pipeline.md"
+printf 'run: bash scripts/scenario-map-probe.sh\n' >> "$UNL/.claude/rules/feature-pipeline.md"
 # ...and re-record the rule's hash, so THIS arm cannot pass by way of the [owed] family instead.
 { grep -v 'feature-pipeline.md' "$UNL/.claude/.template-sync"
   printf '%s  .claude/rules/feature-pipeline.md\n' "$(sha "$UNL/.claude/rules/feature-pipeline.md")"
@@ -187,9 +191,9 @@ fi
 
 # ---- a project's own script is not a finding ---------------------------------
 # The negative control for the arm above, and the one that decides whether this block is readable.
-# mutation-gate.sh has no manifest line either; the difference is that no CORE file depends on it.
+# project-owned-thing.sh has no manifest line either; the difference is that no CORE file depends on it.
 OWN=$(make_project own)
-printf 'ours, unmanaged, and nobody CORE cares\n' > "$OWN/scripts/mutation-gate.sh"
+printf 'ours, unmanaged, and nobody CORE cares\n' > "$OWN/scripts/project-owned-thing.sh"
 OUT=$(run_hook "$OWN/specs/INDEX.md" "$TICK")
 [ -z "$OUT" ] && ok "an unmanaged script no CORE file names is NOT a finding" \
               || { bad "the project's own script blocked a tick"; info "$(reason "$OUT")"; }
@@ -201,13 +205,36 @@ OUT=$(run_hook "$OWN/specs/INDEX.md" "$TICK")
 # manifest one sync behind, not work owed.
 LISTED=$(make_project listed)
 printf 'arrived with the last sync\n' > "$LISTED/scripts/scenario-map-rows.sh"   # in CORE_SCRIPTS
-printf 'see scenario-map-rows.sh\n' >> "$LISTED/.claude/rules/feature-pipeline.md"
+printf 'run: bash scripts/scenario-map-rows.sh\n' >> "$LISTED/.claude/rules/feature-pipeline.md"
 { grep -v 'feature-pipeline.md' "$LISTED/.claude/.template-sync"
   printf '%s  .claude/rules/feature-pipeline.md\n' "$(sha "$LISTED/.claude/rules/feature-pipeline.md")"
 } > "$LISTED/.claude/.template-sync.new" && mv "$LISTED/.claude/.template-sync.new" "$LISTED/.claude/.template-sync"
 OUT=$(run_hook "$LISTED/specs/INDEX.md" "$TICK")
 [ -z "$OUT" ] && ok "a script CORE_SCRIPTS already names is not reported as unlisted" \
               || { bad "a listed script was reported as unlisted"; info "$(reason "$OUT")"; }
+
+# ---- a bare mention in prose is not a dependency ------------------------------
+# The precision half of the predicate, and the one this harness itself violated first. A CORE file
+# that writes `foo.sh` is talking ABOUT a script; one that writes `scripts/foo.sh` is depending on
+# it. Without this distinction every fixture name and every sentence in a rule becomes a referrer.
+PROSE=$(make_project prose)
+printf 'ours\n' > "$PROSE/scripts/some-local-tool.sh"
+printf 'Historically some-local-tool.sh did this job.\n' >> "$PROSE/.claude/rules/feature-pipeline.md"
+{ grep -v 'feature-pipeline.md' "$PROSE/.claude/.template-sync"
+  printf '%s  .claude/rules/feature-pipeline.md\n' "$(sha "$PROSE/.claude/rules/feature-pipeline.md")"
+} > "$PROSE/.claude/.template-sync.new" && mv "$PROSE/.claude/.template-sync.new" "$PROSE/.claude/.template-sync"
+OUT=$(run_hook "$PROSE/specs/INDEX.md" "$TICK")
+[ -z "$OUT" ] && ok "a bare mention in prose is not a referrer" \
+              || { bad "prose created a finding"; info "$(reason "$OUT")"; }
+
+# ...and the positive control for it: the same file, referenced as a path.
+printf 'run: bash scripts/some-local-tool.sh\n' >> "$PROSE/.claude/rules/feature-pipeline.md"
+{ grep -v 'feature-pipeline.md' "$PROSE/.claude/.template-sync"
+  printf '%s  .claude/rules/feature-pipeline.md\n' "$(sha "$PROSE/.claude/rules/feature-pipeline.md")"
+} > "$PROSE/.claude/.template-sync.new" && mv "$PROSE/.claude/.template-sync.new" "$PROSE/.claude/.template-sync"
+OUT=$(run_hook "$PROSE/specs/INDEX.md" "$TICK")
+[ "$(decision "$OUT")" = "deny" ] && ok "  ...but the same name written as scripts/<name> is" \
+              || { bad "  a path-shaped reference did NOT produce a finding"; info "$OUT"; }
 
 # =============================================================== it gets out of the way
 printf '\n[open] every way of failing to answer lets the edit through\n'
