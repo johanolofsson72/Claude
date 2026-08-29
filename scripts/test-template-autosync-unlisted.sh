@@ -22,17 +22,23 @@
 # only proved the two silences would pass just as well against a predicate that reports nothing,
 # which is the failure mode a detector fails into most quietly.
 #
-#   SC-1828  real code dependency in a CORE .sh          -> FLAG
-#   SC-1829  whole-line comment in a CORE .sh            -> silent   (the H7bk defect)
-#   SC-1830  instructional prose in a CORE .md rule      -> FLAG     (# is a heading in markdown)
-#   SC-1831  hook command in .claude/settings.json       -> silent   (merged, not overwritten)
-#   SC-1833  named by nobody                             -> silent
-#   SC-1836  code with a trailing `# … scripts/x.sh`     -> FLAG     (the rule is exact, not clever)
-#   SC-1837  whole-line comment in a CORE .py            -> silent
+#   AC-01  real code dependency in a CORE .sh          -> FLAG
+#   AC-02  whole-line comment in a CORE .sh            -> silent   (the H7bk defect)
+#   AC-03  instructional prose in a CORE .md rule      -> FLAG     (# is a heading in markdown)
+#   AC-04  hook command in .claude/settings.json       -> silent   (merged, not overwritten)
+#   AC-05  named by nobody                             -> silent
+#   AC-06  code with a trailing `# … scripts/x.sh`     -> FLAG     (the rule is exact, not clever)
+#   AC-07  whole-line comment in a CORE .py            -> silent
 #
-# SC-1832 replays 007cas own calibration corpus so the comment rule cannot silently cost recall, and
-# SC-1834 is the sabotage arm: with the rule removed, the arm that demands silence must redden. A
+# AC-08 replays the 007ca calibration corpus so the comment rule cannot silently cost recall, and
+# AC-09 is the sabotage arm: with the rule removed, the arm that demands silence must redden. A
 # gate nobody has watched fail is a report.
+#
+# AC-nn, not SC-nnnn, and that is not a style choice. This file is template CORE, so a project
+# scenario id written into it is eaten by the next sync — and until then it is a real row of ONE
+# projects map spelled inside a file shipped to every other one, where it names nothing. The
+# consuming project records the SC coverage in its own registry line instead, which is where
+# scripts/test-sync-count-honesty.sh already keeps its six for the same reason (rows H7bd, H7bh).
 #
 # Run: bash scripts/test-template-autosync-unlisted.sh
 # Exit: 0 all arms passed · 1 an arm failed
@@ -112,16 +118,16 @@ echo "== unlisted_core_shaped — five ownership cases in one run"
 R=$(build_five_way)
 OUT=$(CLAUDE_PROJECT_DIR="$R" bash "$SCRIPT" --unlisted 2>/dev/null); RC=$?
 
-has   "SC-1828 real code dependency in a CORE .sh is flagged"        "$OUT" "scripts/real-dep-helper.sh"
-hasnt "SC-1829 whole-line comment in a CORE .sh is not a dependency" "$OUT" "scripts/prose-only-helper.sh"
-hasnt "SC-1829 an INDENTED whole-line comment is a comment too"      "$OUT" "scripts/indented-prose-helper.sh"
-has   "SC-1830 instructional prose in a CORE .md rule is flagged"    "$OUT" "scripts/rule-named-helper.sh"
-hasnt "SC-1831 a hook command in settings.json is not a referrer"    "$OUT" "scripts/settings-named-helper.sh"
-hasnt "SC-1833 a script nobody names is silent"                      "$OUT" "scripts/nobody-names-me.sh"
-has   "SC-1836 a trailing mid-line # does not excuse the code line"  "$OUT" "scripts/trailing-comment-helper.sh"
-hasnt "SC-1837 whole-line comment in a CORE .py is not a dependency" "$OUT" "scripts/py-prose-helper.sh"
-same  "SC-1828 findings exit 0"                                      "$RC"  "0"
-has   "SC-1828 the referrer is named, not just the finding"          "$OUT" "bash-write-detect-hook.sh"
+has   "AC-01 real code dependency in a CORE .sh is flagged"        "$OUT" "scripts/real-dep-helper.sh"
+hasnt "AC-02 whole-line comment in a CORE .sh is not a dependency" "$OUT" "scripts/prose-only-helper.sh"
+hasnt "AC-02 an INDENTED whole-line comment is a comment too"      "$OUT" "scripts/indented-prose-helper.sh"
+has   "AC-03 instructional prose in a CORE .md rule is flagged"    "$OUT" "scripts/rule-named-helper.sh"
+hasnt "AC-04 a hook command in settings.json is not a referrer"    "$OUT" "scripts/settings-named-helper.sh"
+hasnt "AC-05 a script nobody names is silent"                      "$OUT" "scripts/nobody-names-me.sh"
+has   "AC-06 a trailing mid-line # does not excuse the code line"  "$OUT" "scripts/trailing-comment-helper.sh"
+hasnt "AC-07 whole-line comment in a CORE .py is not a dependency" "$OUT" "scripts/py-prose-helper.sh"
+same  "AC-01 findings exit 0"                                      "$RC"  "0"
+has   "AC-01 the referrer is named, not just the finding"          "$OUT" "bash-write-detect-hook.sh"
 
 # The empty half of the contract. core-owed-tick-guard-hook.sh branches on the exit code, so "no
 # findings" has to be 1 and not 0-with-empty-stdout.
@@ -131,11 +137,11 @@ R2="$TMP/quiet"; rm -rf "$R2"; mkdir -p "$R2/.git" "$R2/.claude/rules" "$R2/scri
 printf 'sha=deadbeef\nsynced=2026-01-01T00:00:00Z\nsource=/dev/null\n# manifest\n' > "$R2/.claude/.template-sync"
 : > "$R2/scripts/nobody-names-me.sh"
 OUT2=$(CLAUDE_PROJECT_DIR="$R2" bash "$SCRIPT" --unlisted 2>/dev/null); RC2=$?
-same "SC-1833 no findings exits 1" "$RC2" "1"
-same "SC-1833 no findings print nothing" "$OUT2" ""
+same "AC-05 no findings exits 1" "$RC2" "1"
+same "AC-05 no findings print nothing" "$OUT2" ""
 
 # ---------------------------------------------------------------------------------------------
-# SC-1832 — the calibration corpus. 007ca measured the predicate against msroute at 3e1d386, the
+# AC-08 — the calibration corpus. 007ca measured the predicate against msroute at 3e1d386, the
 # commit of the event it was built for: 4 findings, 0 false positives. The comment rule must not
 # move that number.
 #
@@ -147,13 +153,13 @@ same "SC-1833 no findings print nothing" "$OUT2" ""
 # prints clean is reporting about nothing.
 # ---------------------------------------------------------------------------------------------
 echo
-echo "== SC-1832 — 007ca calibration corpus, recall unchanged"
+echo "== AC-08 — 007ca calibration corpus, recall unchanged"
 CORPUS_REPO="${UNLISTED_CORPUS_REPO:-$HOME/repos/msroute}"
 CORPUS_REF="${UNLISTED_CORPUS_REF:-3e1d386}"
 if [ ! -d "$CORPUS_REPO/.git" ]; then
-  skip "SC-1832 corpus replay" "no repository at $CORPUS_REPO (set UNLISTED_CORPUS_REPO)"
+  skip "AC-08 corpus replay" "no repository at $CORPUS_REPO (set UNLISTED_CORPUS_REPO)"
 elif ! git -C "$CORPUS_REPO" rev-parse --verify -q "$CORPUS_REF^{commit}" >/dev/null 2>&1; then
-  skip "SC-1832 corpus replay" "$CORPUS_REPO has no commit $CORPUS_REF"
+  skip "AC-08 corpus replay" "$CORPUS_REPO has no commit $CORPUS_REF"
 else
   C="$TMP/corpus"; mkdir -p "$C"
   git -C "$CORPUS_REPO" archive "$CORPUS_REF" | tar -x -C "$C"
@@ -173,21 +179,21 @@ open(dst, 'w', encoding='utf-8').write(s[:m.start(1)] + '\n'.join(names) + s[m.e
 PYEOF
   COUT=$(CLAUDE_PROJECT_DIR="$C" bash "$ERA" --unlisted 2>/dev/null)
   CN=$(printf '%s\n' "$COUT" | grep -c 'scripts/')
-  same "SC-1832 corpus still yields four findings" "$CN" "4"
-  has  "SC-1832 scenario-map-layout.sh"      "$COUT" "scripts/scenario-map-layout.sh"
-  has  "SC-1832 scenario-map-rows.sh"        "$COUT" "scripts/scenario-map-rows.sh"
-  has  "SC-1832 test-scenario-map-index.py"  "$COUT" "scripts/test-scenario-map-index.py"
-  has  "SC-1832 test-scenario-map-split.sh"  "$COUT" "scripts/test-scenario-map-split.sh"
-  has  "SC-1832 the .md referrer survives the comment rule" "$COUT" "scenarios.md"
+  same "AC-08 corpus still yields four findings" "$CN" "4"
+  has  "AC-08 scenario-map-layout.sh"      "$COUT" "scripts/scenario-map-layout.sh"
+  has  "AC-08 scenario-map-rows.sh"        "$COUT" "scripts/scenario-map-rows.sh"
+  has  "AC-08 test-scenario-map-index.py"  "$COUT" "scripts/test-scenario-map-index.py"
+  has  "AC-08 test-scenario-map-split.sh"  "$COUT" "scripts/test-scenario-map-split.sh"
+  has  "AC-08 the .md referrer survives the comment rule" "$COUT" "scenarios.md"
 fi
 
 # ---------------------------------------------------------------------------------------------
-# SC-1834 — sabotage. Delete the comment rule in a copy and the tree from the five-way arm must
+# AC-09 — sabotage. Delete the comment rule in a copy and the tree from the five-way arm must
 # start reporting prose again. Without this arm every silence above is equally consistent with a
 # predicate that reports nothing at all.
 # ---------------------------------------------------------------------------------------------
 echo
-echo "== SC-1834 — the comment rule has teeth"
+echo "== AC-09 — the comment rule has teeth"
 SAB="$TMP/sabotaged-autosync.sh"
 python3 - "$SCRIPT" "$SAB" <<'PYEOF'
 import sys
@@ -200,12 +206,12 @@ if needle not in s:
 open(dst, 'w', encoding='utf-8').write(s.replace(needle, '', 1))
 PYEOF
 if [ $? -ne 0 ]; then
-  bad "SC-1834 sabotage anchor not found — the rule was reworded and this arm can no longer aim"
+  bad "AC-09 sabotage anchor not found — the rule was reworded and this arm can no longer aim"
 else
   SOUT=$(CLAUDE_PROJECT_DIR="$R" bash "$SAB" --unlisted 2>/dev/null)
-  has "SC-1834 without the rule, .sh prose is reported again"     "$SOUT" "scripts/prose-only-helper.sh"
-  has "SC-1834 without the rule, .py prose is reported again"     "$SOUT" "scripts/py-prose-helper.sh"
-  has "SC-1834 the real dependency is unaffected by the sabotage" "$SOUT" "scripts/real-dep-helper.sh"
+  has "AC-09 without the rule, .sh prose is reported again"     "$SOUT" "scripts/prose-only-helper.sh"
+  has "AC-09 without the rule, .py prose is reported again"     "$SOUT" "scripts/py-prose-helper.sh"
+  has "AC-09 the real dependency is unaffected by the sabotage" "$SOUT" "scripts/real-dep-helper.sh"
 fi
 
 echo
