@@ -228,6 +228,7 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
     # spec blocked behind the OTHER lane's current row.
     own_active = own_pending = free_active = free_pending = None
     duplicate_active = False
+    free_active_count = 0
 
     for status, ident, kind, track_field, row_owner in _rows(register_path):
         if lane and row_owner and row_owner != lane:
@@ -240,18 +241,44 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
                     own_active = entry
                 else:
                     duplicate_active = True
-            elif free_active is None:
-                free_active = entry
             else:
-                # The rule says exactly one row carries this. Report the
-                # violation rather than pretending it is invisible.
-                duplicate_active = True
+                free_active_count += 1
+                if free_active is None:
+                    free_active = entry
+                else:
+                    # The rule says exactly one row carries this. Report the
+                    # violation rather than pretending it is invisible.
+                    duplicate_active = True
         elif status == " ":
             if mine:
                 if own_pending is None:
                     own_pending = entry
             elif free_pending is None:
                 free_pending = entry
+
+    # AN AMBIGUOUS UNOWNED "[/]" LOSES TO THE NEXT UNOWNED "[ ]" — LANES ONLY.
+    #
+    # The bucket order says an unowned in-progress row outranks the next unowned
+    # row, and that is right when there is ONE of them: it is the row somebody is
+    # visibly on. It stops being right the moment there are several, because then
+    # nothing distinguishes "the" in-progress row and this picks whichever sits
+    # highest in the file — which is the OLDEST, i.e. the least likely to be the
+    # work at hand.
+    #
+    # Measured on the rocky register, 2026-08-30: 33 rows carry "[/]" (the project
+    # uses it for "code-complete, awaiting live validation", not "being typed right
+    # now"), and no row carried the lane tag, because the convention leaves it on
+    # the row last worked and that row was ticked. Every gate therefore resolved to
+    # spec 502 — a row parked since August — while the developer worked 547. Both
+    # PreToolUse guards were checking 502's artifacts and 502's interview.
+    #
+    # Guarded on `lane` so this cannot move a single-lane project by one row: with
+    # SPEC_OWNER unset, `mine` is never true, and the behaviour below is skipped
+    # entirely. Ambiguity is still reported through duplicate_active either way —
+    # this changes which row is offered, never whether the violation is mentioned.
+    if lane and own_active is None and own_pending is None \
+            and free_active_count > 1 and free_pending is not None:
+        free_active = None
 
     active = own_active or own_pending or free_active or free_pending
 
