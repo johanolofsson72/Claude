@@ -89,12 +89,76 @@ LIST_RE = re.compile(
     re.M,
 )
 
+# A list index does not have ONE shape either. This project's grew a second one partway through —
+# a heading carrying the prose and the spec slug, with the link on its own continuation line:
+#     ## Actor: ... — slug (553): ... (spec: 553-the-slug)
+#       → [scenarios/553.md](scenarios/553.md)
+# Knowing only the first shape is what produced "183 orphan feature files": not 183 unindexed
+# features, one unrecognised row shape. So the link is the anchor and the spec slug is looked up
+# from the nearest heading above it, which covers both list forms with one rule.
+LINK_RE = re.compile(r"^\s*(?:[-*]\s*)?(?:→|->)\s*\[[^\]]*\]\(scenarios/(?P<file>[a-z0-9.-]+\.md)\)", re.M)
+SPEC_IN_LINE = re.compile(r"\((?:spec|specs):\s*([^)]*)\)")
+# The same fact written without the parentheses: "— spec 377 live-correctness-batch". Both forms are
+# in this project's index, and knowing only the first one made a link borrow the slug of the heading
+# ABOVE its own — which the slug invariant then reported as index drift. It was attribution.
+SPEC_BARE = re.compile(r"\bspecs?\s+(\d{3}[a-z0-9.]*)[ \t]+([a-z0-9][a-z0-9-]*)")
+# And a third: "— responsive-appshell-and-mobile-navigation (515):", the slug before the number.
+# It sits in the heading's identifier region, right after the actor text and before the prose, so it
+# is matched there and not hunted for anywhere on the line.
+SPEC_DASH = re.compile(r"[—-]\s*([a-z][a-z0-9-]{3,})\s*\((\d{3}[a-z0-9.]*)\)\s*[:.]")
+HEADING = re.compile(r"^\s*(?:#{2,}\s|[-*]\s*#{2,}\s)")
+
+
+def spec_of(line):
+    # ORDER MATTERS, and it is least-ambiguous first. SPEC_BARE scans for "spec NNN slug" anywhere on
+    # the line, and these headings carry paragraphs of prose that cite other specs by number — it
+    # read "spec 506 has" out of the middle of one and attributed the row to spec 506. The two
+    # explicit forms are tried before the loose one for exactly that reason.
+    hit = SPEC_IN_LINE.search(line)
+    if hit:
+        return hit.group(1).strip()
+    hit = SPEC_DASH.search(line)
+    if hit:
+        return f"{hit.group(2)}-{hit.group(1)}"
+    hit = SPEC_BARE.search(line)
+    if hit:
+        return f"{hit.group(1)}-{hit.group(2)}"
+    return ""
+
+
+def list_entries(text):
+    lines = text.split("\n")
+    found = []
+    for i, line in enumerate(lines):
+        m = LINK_RE.match(line)
+        if not m:
+            continue
+        # THE WALK STOPS AT THE FIRST HEADING. A link belongs to the heading directly above it; if
+        # that heading names no spec, this row names no spec and says so. An unbounded walk happily
+        # attributes a link to a heading two features earlier, and the slug invariant then reports
+        # that as drift in the map — a checker manufacturing the defect it is checking for.
+        specs, title = "", ""
+        for j in range(i, max(-1, i - 8), -1):
+            cand = spec_of(lines[j])
+            if cand:
+                specs = cand
+                title = lines[j].lstrip("#-* ").split("(")[0].strip()
+                break
+            if j != i and HEADING.match(lines[j]):
+                title = lines[j].lstrip("#-* ").split("(")[0].strip()
+                break
+        found.append({"title": title, "file": m.group("file"), "specs": specs, "ids": "", "tally": ""})
+    return found
+
+
 entries = [m.groupdict() for m in ROW_RE.finditer(index_text)]
 INDEX_SHAPE = "table"
 if not entries:
     entries = [dict(m.groupdict(), ids="", tally="") for m in LIST_RE.finditer(index_text)]
-    if entries:
-        INDEX_SHAPE = "list"
+    INDEX_SHAPE = "list"
+    by_link = list_entries(index_text)
+    if len(by_link) > len(entries):
+        entries = by_link
 files_on_disk = sorted(f for f in os.listdir(FEAT_DIR) if f.endswith(".md"))
 
 print(f"index has {len(entries)} rows ({INDEX_SHAPE} shape); {len(files_on_disk)} feature files on disk")
