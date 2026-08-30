@@ -487,6 +487,75 @@ $(printf '%s' "$MUT_OUT" | tail -15)"
   fi
 fi
 
+# ---------------------------------------------------------------- 6. census audits
+#
+# TEMPLATE NOTE. Both halves of this section are guarded on a script existing, so on a project that
+# has neither they are a silent no-op and cost one `test -f` each. They live here rather than in the
+# project that uses them because this file is CORE: a caller added downstream is deleted by the next
+# sync, which is exactly what had happened to the first half — spec 544 wired it in the project only,
+# and it survived four days on borrowed time until spec 523 went looking.
+# Spec 544 (T027/FR-023..FR-027). The four census tests that pin the browser suite's own discipline
+# had been RED FOR NINE DAYS before anyone noticed, and the gate pin among them had been found stale
+# four specs running. The cause was never carelessness -- it was that nothing ran them. They live in
+# the E2E project, so they surface only on a full suite run: about once per spec, by whoever is
+# unlucky. scripts/e2e-wait-audit.sh existed as a wrapper and had no caller anywhere.
+#
+# This is that caller. Three properties are load-bearing:
+#   * A clean census adds NO output. Attention mode is why this script is readable, and a recurring
+#     job that speaks when nothing changed is how you learn to ignore the run that mattered -- the
+#     same disease as a red-by-default census, which is what spec 544 is about. (FR-024)
+#   * The verdict is never `$?`. `dotnet test` has been measured in this project exiting 0 on a run
+#     with five failures; the wrapper parses the summary line instead, in both of its verbosity
+#     wordings, and that is why the wrapper is reused rather than reimplemented here. (FR-026)
+#   * A tree whose E2E project does not BUILD is a NOTE, not a finding and not silence. A build
+#     failure is not census drift, so reporting it as one shows a census failure that is not
+#     happening; but a pass that silently skipped its checks is the exact false green this whole
+#     section exists to remove. `note` is the script's non-voting channel and prints in both the
+#     clean and the findings branch. (FR-027)
+# Spec 523 (FR-016). The wrapper below needs the E2E project to BUILD, and when it does not, the
+# ledger goes unchecked entirely — the note further down records that honestly but checks nothing.
+# The fast census reads the same ledger from source in under half a second with no compiler, so it
+# still answers in exactly the case the wrapper cannot. It is also the pre-commit gate, so a finding
+# here means a commit was made without it (a fresh clone that never ran install-git-hooks.sh, or
+# --no-verify). Clean adds NO output, per this script's attention-mode contract.
+FAST_CENSUS="$ROOT/scripts/e2e-gate-census.py"
+if [ -f "$FAST_CENSUS" ] && command -v python3 >/dev/null 2>&1; then
+  FAST_OUT="$(python3 "$FAST_CENSUS" --repo-root "$ROOT" 2>&1)"
+  FAST_RC=$?
+  if [ "$FAST_RC" -eq 1 ]; then
+    add "[GATE LEDGER] The E2E gate ledger has drifted, and it got past the pre-commit gate — either
+  this clone never ran scripts/install-git-hooks.sh, or a commit used --no-verify.
+$(printf '%s' "$FAST_OUT" | sed -n '3,12p')
+  Fix at the SITE. An added class is an APPEND; a CHANGED treatment is the erosion the ledger exists
+  to catch and no appended line will satisfy it."
+  elif [ "$FAST_RC" -eq 2 ]; then
+    add "[GATE LEDGER] The fast census REFUSED — it could not read what it was asked to read, which
+  is never a pass. A parser gone blind on a C# declaration form, or a ledger that moved.
+$(printf '%s' "$FAST_OUT" | head -8)
+  Re-run: python3 scripts/e2e-gate-census.py"
+  fi
+fi
+
+CENSUS_SCRIPT="$ROOT/scripts/e2e-wait-audit.sh"
+if [ -f "$CENSUS_SCRIPT" ]; then
+  CENSUS_OUT="$(bash "$CENSUS_SCRIPT" 2>&1)"
+  CENSUS_RC=$?
+  if [ "$CENSUS_RC" -eq 0 ]; then
+    :
+  elif [ "$CENSUS_RC" -eq 2 ] || printf '%s' "$CENSUS_OUT" | grep -qE ': error [A-Z]{2}[0-9]{4}|MSB[0-9]+|Build FAILED'; then
+    note "[note] census audit could not run — the E2E project did not build, so the four drift
+  censuses were neither passed nor failed. Not counted as a finding (a build failure is not census
+  drift), but recorded, because a maintenance pass that skipped its checks in silence is the false
+  green spec 544 exists to remove. Re-run: bash scripts/e2e-wait-audit.sh"
+  else
+    add "[CENSUS] A drift census is RED. These are the instruments that pin the browser suite's own
+  discipline, and spec 544 exists because four of them sat red for nine days unseen.
+$(printf '%s' "$CENSUS_OUT" | grep -E '\S+\.cs:' | head -12)
+  Fix at the SITE, never by raising a record until the red stops.
+  Full output: bash scripts/e2e-wait-audit.sh"
+  fi
+fi
+
 # ------------------------------------------------------------------------ verdict
 if [ "$FINDINGS" -eq 0 ]; then
   [ "$QUIET" -eq 1 ] && exit 0
