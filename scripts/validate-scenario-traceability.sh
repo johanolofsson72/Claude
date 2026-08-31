@@ -313,6 +313,13 @@ for root in $ROOTS; do
   fi
   # <<< root-guard
   # Match ids of ANY length. The keep-filter below used to be [0-9]{3} — see there.
+  #
+  # \b ON THE LEFT, and it is not decoration. Without it the pattern matches INSIDE a longer
+  # identifier: a property reference "DESC-1" in a test reported a dangling SC-1 that no test ever
+  # wrote. That is the harmless direction. The other one is not — a fixture named "DESC-741" would
+  # have SILENTLY COVERED SC-741, and this gate exists to refuse exactly that kind of unbacked
+  # coverage claim. Validated against known positives and negatives before it was believed:
+  # SC-741, "SC-765" and "// SC-002." still match; DESC-1 and MISC-99 no longer do.
   # BUILD OUTPUT IS PRUNED, and not only because it is slow (21.2 s -> 1.3 s on one repo whose
   # tests/ tree is 4.5 GB of which almost all is bin/obj). It is pruned because counting it is
   # WRONG. Every one of the 25 ids that a full walk found there and a pruned walk did not was inside
@@ -325,7 +332,7 @@ for root in $ROOTS; do
   find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
        -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \) \
        -prune -o -type f -print0 2>/dev/null \
-    | xargs -0 grep -hoIE "${PREFIX}-[0-9]+" 2>/dev/null >> "$TMP/refs" || true
+    | xargs -0 grep -hoIE "\\b${PREFIX}-[0-9]+" 2>/dev/null >> "$TMP/refs" || true
   # <<< build-prune
   IFS=,
 done
