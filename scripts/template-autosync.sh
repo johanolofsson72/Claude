@@ -164,6 +164,7 @@ spec_active.py resolve-active-spec.sh test-active-spec-resolution.sh
 spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-guard-hook.sh
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
 sync-feature-json-hook.sh
+lane_status.py lane-orientation-hook.sh lane-status.sh test-lane-orientation.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 scenario-map-layout.sh scenario-map-rows.sh scenario-map-baseline.sh
 test-scenario-map-layouts.sh test-scenario-map-canary.sh test-scenario-map-rows.sh
@@ -220,7 +221,7 @@ update-template.sh verify-local-llm-hooks.sh"
 
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
-security.md project-workflow.md github-actions.md allium.md"
+security.md project-workflow.md github-actions.md allium.md lane-handoff.md"
 
 is_core() {
   case "$2" in
