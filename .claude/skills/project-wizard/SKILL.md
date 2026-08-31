@@ -147,7 +147,7 @@ python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] 
 # Core-hook gate: every mandatory enforcement script must EXIST *and* be wired.
 # Checking only "present → wired" reports green on a project where the script was
 # never copied at all — i.e. a project with no guards.
-for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook lane-orientation-hook; do
   if [ ! -f "scripts/$s.sh" ]; then echo "[MISSING] scripts/$s.sh never copied — re-run the core-script mirror in sync-prompt.md Step 5c"; fail=1;
   elif ! grep -q "$s.sh" .claude/settings.json; then echo "[UNWIRED] core hook $s present on disk but not wired — run sync-core-hooks.py"; fail=1; fi
 done
