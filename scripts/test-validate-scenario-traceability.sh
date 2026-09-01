@@ -517,6 +517,82 @@ else
   bad "case29-a-longer-word-is-not-a-reference" "expected the id to stay uncovered, got $RC: $OUT"
 fi
 
+# case30 — THE ROOTS ARE DISCOVERED. A browser suite that does not live in tests/ is still evidence.
+# The default read `tests` for as long as this script existed; on the project that found it every
+# Playwright spec lives in e2e/ and this gate had never read one, so 37 rows stood reported as
+# uncovered while a spec proved each of them. The header must also SAY what it read — a verdict
+# whose reference set is invisible is a verdict nobody can check.
+proj=$(new_project)
+mkdir -p "$proj/e2e"
+{ map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+{ printf 'browser spec\n'; printf 'it covers %s\n' "$(id 902)"; } > "$proj/e2e/b.spec.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && grep -q 'roots: tests,e2e' <<< "$OUT"; then
+  ok "case30-discovery-reads-e2e"
+else
+  bad "case30-discovery-reads-e2e" "expected exit 0 with both roots in the header, got $RC: $OUT"
+fi
+
+# case31 — ...and tests/ is not privileged. A project whose only suite is a browser suite must be
+# read too; the old constant would exit 4 here, having found nothing to look at and calling that a
+# missing root rather than a wrong default.
+proj=$(new_project)
+rmdir "$proj/tests"
+mkdir -p "$proj/e2e"
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf 'browser spec\n'; printf 'it covers %s\n' "$(id 901)"; } > "$proj/e2e/b.spec.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && grep -q 'roots: e2e' <<< "$OUT"; then
+  ok "case31-discovery-without-a-tests-dir"
+else
+  bad "case31-discovery-without-a-tests-dir" "expected exit 0 reading e2e, got $RC: $OUT"
+fi
+
+# case32 — an EXPLICIT --roots is not widened by discovery. The caller narrowing the reference set on
+# purpose is a legitimate thing to do, and a default that quietly re-broadened it would make the flag
+# a suggestion. The id below is proven only from e2e/, which the caller did not ask for.
+proj=$(new_project)
+mkdir -p "$proj/e2e"
+{ map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+{ printf 'browser spec\n'; printf 'it covers %s\n' "$(id 902)"; } > "$proj/e2e/b.spec.ts"
+run_gate "$proj" --roots tests
+if [ "$RC" -eq 1 ] && grep -q "$(id 902)" <<< "$OUT" && grep -q 'uncovered' <<< "$OUT"; then
+  ok "case32-explicit-roots-are-not-widened"
+else
+  bad "case32-explicit-roots-are-not-widened" "expected exit 1 with the e2e-only id uncovered, got $RC: $OUT"
+fi
+
+# case33 — discovery finding NOTHING is not a pass. Zero roots means zero references, which on a map
+# claiming nothing renders as a clean run over no evidence at all — the "0 of 0, all clear" failure
+# this whole script is named after, arriving by a different door. The candidates must be named:
+# "no reference root found" says a gate failed and not what would fix it.
+proj=$(mktemp -d)
+mkdir -p "$proj/specs"
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+run_gate "$proj"
+if [ "$RC" -eq 4 ] && grep -q 'tried' <<< "$OUT" && grep -q 'e2e' <<< "$OUT"; then
+  ok "case33-no-root-found-is-not-a-pass"
+else
+  bad "case33-no-root-found-is-not-a-pass" "expected exit 4 naming the candidates, got $RC: $OUT"
+fi
+
+# case34 — THE MAP IS NOT EVIDENCE FOR ITSELF. specs/ holds a row for every id it owns, so a
+# candidate list admitting it would mark every row covered by its own map entry: the gate reduced to
+# a tautology, green forever, over nothing. The row below is named in SCENARIOS.md and nowhere else,
+# and must still be uncovered. This is the same argument as case19 — a coverage claim backed by
+# something that is not a live test is the one thing this gate exists to refuse.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "$(id 901)" <<< "$OUT" && grep -q 'uncovered' <<< "$OUT" \
+   && ! grep -q 'roots: .*specs' <<< "$OUT"; then
+  ok "case34-the-map-is-not-its-own-evidence"
+else
+  bad "case34-the-map-is-not-its-own-evidence" "expected the row uncovered and specs/ not a root, got $RC: $OUT"
+fi
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be
@@ -670,6 +746,19 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   sab_run "$SABDIR/f.sh"
   expect_red "root-guard-removed" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
 
+  # (l) discovery replaced by the constant it grew out of. This is the shape the gate shipped with
+  # for its whole life, and the reason it went unseen is worth stating: on a project whose tests all
+  # live in tests/ the constant is indistinguishable from the discovery, so every case above except
+  # these two stays green either way. The defect only appears where the suite is somewhere else,
+  # which is exactly where nobody was looking.
+  # Single-quoted like its siblings, but with no disable directive: the replacement holds no
+  # expansion for SC2016 to warn about, and a directive that guards nothing is the kind of noise
+  # this file is otherwise careful to keep out.
+  replace_region "$SCRIPT" "$SABDIR/l.sh" roots-discovery 'ROOTS="tests"'
+  sab_run "$SABDIR/l.sh"
+  expect_red "roots-discovery-replaced-by-constant" "$SAB_OUT" \
+    case30-discovery-reads-e2e case31-discovery-without-a-tests-dir || SAB_FAIL=1
+
   # (g) the duplicate-id check deleted — two scenarios under one handle stop being reported.
   # shellcheck disable=SC2016
   replace_region "$SCRIPT" "$SABDIR/g.sh" duplicate-check ': > "$TMP/duplicate"'
@@ -678,7 +767,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
 
   # The clean case must survive every surgical sabotage. If it broke, the sabotage was wholesale and
   # the reds above would be meaningless.
-  for s in a b c d e f g; do
+  for s in a b c d e f g l; do
     sab_run "$SABDIR/$s.sh"
     if grep -q "FAIL  case1-clean" <<< "$SAB_OUT"; then
       echo "  FAIL  sabotage/$s — case1-clean also broke, so the sabotage was not surgical"

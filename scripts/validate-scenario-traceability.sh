@@ -86,17 +86,24 @@
 # WHAT IT DOES NOT DO: it never writes. It reads the map, reads the tests, and reports.
 #
 # Usage:
-#   scripts/validate-scenario-traceability.sh                       # ./specs, roots: tests
+#   scripts/validate-scenario-traceability.sh                       # ./specs, roots discovered
 #   scripts/validate-scenario-traceability.sh --dir path/to/specs
-#   scripts/validate-scenario-traceability.sh --roots tests,src
+#   scripts/validate-scenario-traceability.sh --roots tests,src     # explicit; discovery is skipped
 #   scripts/validate-scenario-traceability.sh --quiet               # totals + failures only
+#
+# THE REFERENCE ROOTS. With no --roots, the roots are DISCOVERED: the conventional test directories
+# that actually exist at the top level of the project. With --roots, the caller's list is used
+# verbatim and a root that does not exist is an error rather than something to look past. Which
+# roots were used is always printed in the report's first line. See the `roots-discovery` region for
+# the candidate list and for the two directories deliberately excluded from it.
 #
 # Exit codes — "I cannot answer" is never reported as "the answer is fine":
 #   0  clean — nothing uncovered, nothing dangling
 #   1  uncovered and/or dangling ids found
 #   2  usage error
 #   3  the map could not be read, the extractor refused entirely, or it yielded zero rows
-#   4  a configured reference root does not exist
+#   4  no reference root to read — either one the caller NAMED does not exist, or discovery found
+#      none of its candidates. Both are "I could not look", and neither is ever reported as clean.
 #   5  checked, but part of the map was unreadable — never reported as clean
 #
 # out-of-range does NOT fail the run. It is a collision between two naming conventions, not a defect
@@ -118,7 +125,11 @@ export LC_ALL
 set -eu
 
 SPECS_DIR=""
-ROOTS="tests"
+# Empty, not "tests". The default is DISCOVERED further down, once the project root is known — see
+# the `roots-discovery` region. ROOTS_EXPLICIT is what keeps the two paths apart: a root the caller
+# NAMED is a promise and must exist, a convention that happens to be absent is not.
+ROOTS=""
+ROOTS_EXPLICIT=0
 QUIET=0
 
 # Not configurable, and deliberately so: scenario-map-rows.sh hardcodes SC- in its row pattern, so a
@@ -129,7 +140,7 @@ PREFIX="SC"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dir)       [ "$#" -ge 2 ] || { echo "--dir needs a path" >&2; exit 2; }; SPECS_DIR="$2"; shift 2 ;;
-    --roots)     [ "$#" -ge 2 ] || { echo "--roots needs a value" >&2; exit 2; }; ROOTS="$2"; shift 2 ;;
+    --roots)     [ "$#" -ge 2 ] || { echo "--roots needs a value" >&2; exit 2; }; ROOTS="$2"; ROOTS_EXPLICIT=1; shift 2 ;;
     --quiet)     QUIET=1; shift ;;
     # Print the whole leading comment block rather than a hardcoded line range: this header will
     # grow, and a range silently truncates --help when it does (the project-maintenance.sh lesson).
@@ -290,6 +301,70 @@ N_VALIDATED=$(awk -F'\t' 'index($5, "✓") == 1 {c++} END {print c+0}' "$TMP/row
 N_TESTED=$(awk -F'\t' 'index($5, "◐") == 1 {c++} END {print c+0}' "$TMP/rows")
 N_MAPPED=$(awk -F'\t' 'index($5, "☐") == 1 {c++} END {print c+0}' "$TMP/rows")
 N_STRUCK=$(awk -F'\t' '$6 == "1" {c++} END {print c+0}' "$TMP/rows")
+
+# >>> roots-discovery
+# ------------------------------------------------------------------------------- the default roots
+# DISCOVERED, never a constant. This read `ROOTS="tests"` for as long as the script existed, which is
+# right on a project whose whole suite lives there and silently wrong on every project that keeps its
+# browser tests anywhere else. On the project that found it, every Playwright spec lives in e2e/ and
+# this gate had never read one: 37 rows reported uncovered, every one of them proven by a spec the
+# gate could not see. The arithmetic closed exactly — the ids present in e2e/ and absent from tests/
+# numbered 37, and they were the 37 it named — so this was not a gate finding a gap, it was a gate
+# reporting the shape of its own blind spot.
+#
+# That is worse than it sounds. A gate permanently red for a reason outside both the map and the
+# suite is a gate that gets switched off, and the header of this file records what that looks like:
+# the last one became a comment, and the comment was then quoted as evidence.
+#
+# Same reasoning as the out-of-range floor two sections down, which derives itself from the map on
+# every run so there is no constant to go stale. A per-project constant living in a fleet-wide file
+# is wrong on every project it was not written for, and silent about it.
+#
+# A CANDIDATE IS NOT A ROOT UNTIL IT EXISTS, and an absent one is skipped rather than refused. Only
+# a root the CALLER named can be missing, because only that is a promise — which is why the guard
+# below stays exactly as it was and this region never touches it.
+#
+# WHAT IS DELIBERATELY ABSENT, and both exclusions are load-bearing:
+#
+#   specs/  The map names every id it owns. Admit it and every row is covered by its own map entry:
+#           the gate reduced to a tautology, reporting clean forever, over itself. `spec` (RSpec's
+#           convention) is excluded too rather than resting that exclusion on a singular/plural
+#           distinction of one character — no Ruby project exists in this fleet to need it, and a
+#           one-letter guard against a tautology is not a guard.
+#
+#   src/    A source comment naming an id is not a test. Counting one is the unbacked coverage claim
+#           this gate exists to refuse — the same argument that prunes stale build output below. A
+#           project that genuinely co-locates its tests can say `--roots src` and mean it.
+#
+# TOP LEVEL ONLY, no recursion: a nested test directory is in practice already inside one of these,
+# and recursing would make the root set depend on how deep a tree happens to be. The `roots:` line in
+# the report has to be something a reader can anticipate before running the command.
+ROOTS_CANDIDATES="tests test e2e __tests__ cypress playwright"
+
+if [ "$ROOTS_EXPLICIT" -eq 0 ]; then
+  ROOTS=""
+  # Iterated in the list's declared order, not by a glob: the printed `roots:` line is part of the
+  # report and a test asserts on it, so it must not depend on filesystem enumeration order.
+  for cand in $ROOTS_CANDIDATES; do
+    [ -d "$PROJECT/$cand" ] || continue
+    if [ -z "$ROOTS" ]; then ROOTS="$cand"; else ROOTS="$ROOTS,$cand"; fi
+  done
+
+  if [ -z "$ROOTS" ]; then
+    # Not a warning, and not an empty run. No roots means no references, which renders either as
+    # "every claimed scenario is uncovered" — catastrophic-looking, trivially caused — or, on a map
+    # that claims nothing, as a clean run over no evidence at all. Both are the "0 of 0, all clear"
+    # failure this script is named after, and neither may exit 0.
+    #
+    # Every candidate is named. "No reference root found" tells a reader that a gate failed and not
+    # what would fix it, and a report a reader cannot act on is the thing this file refuses.
+    echo "scenario-traceability: no reference root found under $PROJECT" >&2
+    echo "  tried, in order: $ROOTS_CANDIDATES" >&2
+    echo "  pass --roots explicitly if this project keeps its tests somewhere else." >&2
+    exit 4
+  fi
+fi
+# <<< roots-discovery
 
 # ------------------------------------------------------------------------------------- references
 # One tree walk emitting every id token, not one `grep -r` per id: 150 ids would be 150 walks.
