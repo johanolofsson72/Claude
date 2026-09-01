@@ -320,6 +320,14 @@ for root in $ROOTS; do
   # have SILENTLY COVERED SC-741, and this gate exists to refuse exactly that kind of unbacked
   # coverage claim. Validated against known positives and negatives before it was believed:
   # SC-741, "SC-765" and "// SC-002." still match; DESC-1 and MISC-99 no longer do.
+  #
+  # \b AND [a-z]? ON THE RIGHT, and that half was missing until a project found it. A map is free
+  # to insert a row between two allocated ids by suffixing a letter — SC-033b next to SC-033 — and
+  # the row extractor has always accepted that. This one did not, so it read "SC-033b" in a test as
+  # a reference to SC-033. Both directions are wrong at once, and they hide each other: SC-033b, a
+  # rehearsal gate named in six places across two files, reported as UNCOVERED, while SC-033 was
+  # reported covered on the evidence of a test that names a different scenario. The trailing \b is
+  # what stops "SC-033abc" being read as SC-033a; it matches nothing, which is the safe answer.
   # BUILD OUTPUT IS PRUNED, and not only because it is slow (21.2 s -> 1.3 s on one repo whose
   # tests/ tree is 4.5 GB of which almost all is bin/obj). It is pruned because counting it is
   # WRONG. Every one of the 25 ids that a full walk found there and a pruned walk did not was inside
@@ -332,7 +340,7 @@ for root in $ROOTS; do
   find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
        -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \) \
        -prune -o -type f -print0 2>/dev/null \
-    | xargs -0 grep -hoIE "\\b${PREFIX}-[0-9]+" 2>/dev/null >> "$TMP/refs" || true
+    | xargs -0 grep -hoIE "\\b${PREFIX}-[0-9]+[a-z]?\\b" 2>/dev/null >> "$TMP/refs" || true
   # <<< build-prune
   IFS=,
 done
@@ -345,7 +353,7 @@ IFS=$OLDIFS
 # Nobody saw it, because the extractor was refusing the map long before this line ever ran. The `-o`
 # match above is greedy, so the truncation the {3} was guarding against cannot occur anyway.
 # >>> id-length-filter
-grep -xE "${PREFIX}-[0-9]+" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" || : > "$TMP/refs.u"
+grep -xE "${PREFIX}-[0-9]+[a-z]?" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" || : > "$TMP/refs.u"
 # <<< id-length-filter
 
 # --------------------------------------------------------------------------------- the two answers

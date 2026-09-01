@@ -486,6 +486,37 @@ else
   bad "case27-the-floor-follows-the-map" "expected $(id 999) to be out-of-range against a map starting at $(id 9500), got $RC: $OUT"
 fi
 
+# case28 — a SUFFIXED id is its own scenario, and a reference to it does not credit its neighbour.
+# A map inserts a row between two allocated ids by suffixing a letter, and the row extractor has
+# always accepted that. The reference extractor did not, so both halves were wrong at once and each
+# hid the other: the suffixed row read as uncovered however many tests named it, while the bare row
+# read as covered on the evidence of a test that names a different scenario. Found on a real map
+# where the suffixed row was the no-network rehearsal gate, named in six places across two files.
+proj=$(new_project)
+{ map_header; printf '| %sb | happy | A thing happens | It works | %s |\n' "$(id 901)" "$V"; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+# Only the suffixed id is written. The bare row must therefore be the uncovered one.
+{ printf 'test file a.test.ts\n'; printf 'it covers %sb\n' "$(id 901)"; } > "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -qE "^  $(id 901) " <<< "$OUT" && ! grep -qE "^  $(id 901)b " <<< "$OUT"; then
+  ok "case28-a-suffixed-id-is-its-own-scenario"
+else
+  bad "case28-a-suffixed-id-is-its-own-scenario" "expected the bare id uncovered and the suffixed one covered, got $RC: $OUT"
+fi
+
+# case29 — ...and the suffix is one letter, not the start of a word. Without the trailing boundary
+# the same greed that reads the suffix reads the first letter of an unrelated identifier, and a
+# fixture named for something else would silently cover a scenario. Matching nothing is the safe
+# answer here: an unbacked coverage claim is the one thing this gate exists to refuse.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf 'test file a.test.ts\n'; printf 'a fixture named %sabc\n' "$(id 901)"; } > "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -qE "^  $(id 901) " <<< "$OUT" && grep -q 'uncovered' <<< "$OUT"; then
+  ok "case29-a-longer-word-is-not-a-reference"
+else
+  bad "case29-a-longer-word-is-not-a-reference" "expected the id to stay uncovered, got $RC: $OUT"
+fi
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be
