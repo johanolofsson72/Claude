@@ -299,7 +299,11 @@ fi
 # --------------------------------------------------------------- EXEMPT (SC-1441)
 if want exempt; then
   echo "FIXTURE exempt — tree-moving git verbs are exempt; content-carrying ones are not"
-  for verb in "git checkout -- ." "git stash pop" "git pull --rebase" "git reset --hard HEAD"; do
+  # The sync is on this list because row S5 put core-machinery into this layer's delegates and the very
+  # sync that landed row S5 promptly reported its own four CORE files. Exempting the sanctioned writer of
+  # CORE files is not a hole; reporting it every time is how a report stops being read.
+  for verb in "git checkout -- ." "git stash pop" "git pull --rebase" "git reset --hard HEAD" \
+              "bash scripts/template-autosync.sh --force"; do
     ROOT=$(make_fixture "exempt$(printf '%s' "$verb" | tr -cd 'a-z')")
     : > "$ROOT/.claude/.bash-write-marker"; sleep 1
     printf 'mutated\n' > "$ROOT/src/App.cs"

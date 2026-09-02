@@ -57,6 +57,20 @@
 #       These introduce content that may never have passed the gate at all. `git apply` in particular is
 #       "write these files" wearing a git verb.
 #
+#   template-autosync.sh (row S5)
+#       The sync is the SANCTIONED writer of CORE files — core-machinery-guard's own refusal ends with
+#       "land the change in the template instead", and this is what doing that looks like arriving back.
+#       Adding core-machinery to this layer's delegates made every sync that updated a CORE file report
+#       itself; measured on the sync that landed row S5, which named its own four files. A report that
+#       fires on correct routine work is one the reader learns to wave through, and then it is not a
+#       report (the argument row S6 makes about `npm run build`).
+#
+#       The bound, stated rather than glossed: this matches the command string, so
+#       `echo template-autosync.sh; sed -i s/a/b/ scripts/spec_active.py` suppresses this layer. It does
+#       NOT suppress the write — the PRE-layer reads the same command, finds the real target and denies
+#       it before anything runs. So the abuse costs detection of a write that prevention already stopped,
+#       which is the same trade every exemption in this list makes.
+#
 # SECRETS (FR-015): the command string is never echoed. Only derived file paths appear in output.
 #
 # HOW IT REPORTS (FR-016) — to the developer, not only to the model
@@ -108,7 +122,7 @@ cleanup() { rm -f "$MARKER" 2>/dev/null || true; }
 # Exemptions, checked before any work.
 case "$CMD" in
   *"git checkout"*|*"git switch"*|*"git restore"*|*"git stash"*|*"git reset"*|*"git clean"*|\
-  *"git pull"*|*"git merge"*|*"git rebase"*)
+  *"git pull"*|*"git merge"*|*"git rebase"*|*"template-autosync.sh"*|*"template-autosync-hook.sh"*)
     cleanup; exit 0 ;;
 esac
 
