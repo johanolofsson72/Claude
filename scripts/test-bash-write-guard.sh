@@ -21,6 +21,7 @@
 # Three states on purpose (spec 007l): "the suite is red" and "the harness fell over" are different facts.
 #
 # Scenario map: SC-1437..SC-1442 (row H7b) and SC-1678..SC-1682, SC-1684 (row H7t) in specs/SCENARIOS.md.
+#               SC-927..SC-933 (row S6) — the `ignored` fixture.
 
 set -u
 
@@ -609,6 +610,99 @@ if want postbytes; then
     OUT=$(run_post "$ROOT" "true")
     case "$OUT" in *"path alone"*) ok "SC-923 a finding with no readable diff says so, rather than implying the narrow verdict" ;;
                    *) bad "SC-923 no finding carried the path-only note: $(printf '%s' "$OUT" | cut -c1-90)" ;; esac
+  fi
+fi
+
+# --------------------------------------------------------------- IGNORED OUTPUT (row S6)
+#
+# `npm run build` is in CLAUDE.md's verification floor, and the post-layer reported its own gitignored
+# output as "source files the pipeline guard denies" — every build, because a fresh content hash makes
+# every build a new finding set and the escape hatch never engages. A gate that fires on required
+# routine work is one the reader learns to wave through.
+#
+# These fixtures need a REAL git repo: every other fixture here has a plain `.git` DIRECTORY, so
+# `git check-ignore` errors there and the filter fails open, which is why they were untouched by S6.
+make_git_fixture() {
+  local name="$1"
+  local root="$WORK/$name"
+  mkdir -p "$root/src" "$root/specs" "$root/.claude"
+  git -C "$root" init --quiet 2>/dev/null || return 1
+  git -C "$root" config user.email t@t; git -C "$root" config user.name t
+  : > "$root/package.json"
+  {
+    echo "# Spec register"; echo; echo "## Specs"; echo
+    echo '- [/] 007z — active-spec — full track — IN PROGRESS, no artifacts at all'
+  } > "$root/specs/INDEX.md"
+  echo "class App {}" > "$root/src/App.cs"
+  printf 'dist/\n.vite/\n' > "$root/.gitignore"
+  # App.cs must be TRACKED: check-ignore never names a tracked file, and that is the property the
+  # whole fix rests on.
+  git -C "$root" add -A >/dev/null 2>&1
+  git -C "$root" commit -qm init >/dev/null 2>&1 || return 1
+  printf '%s' "$root"
+}
+
+if want ignored; then
+  echo "FIXTURE ignored — build output is not a source edit, and a tracked file is not build output"
+  if ! command -v git >/dev/null 2>&1; then
+    echo "  ----  git is not installed — skipping (this fixture needs a real repo)"
+  elif ! ROOT=$(make_git_fixture ignored); then
+    # Not a skip. git exists, so a fixture that will not build is a broken harness, and reporting it
+    # as "unavailable" is how an empty result gets read as a clean one.
+    bad "SC-927..933 the git fixture could not be built — harness fault, not a pass"
+  else
+    stamp() { touch "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1.1; }
+
+    # CONTROL FIRST. An empty result and an uncalled probe look identical; if this one is silent every
+    # silence below means nothing (.claude/rules/mutation-timeouts.md, trap 4).
+    stamp; echo "class Changed {}" > "$ROOT/src/App.cs"
+    expect_block "SC-927 control — a tracked source file is still reported" "$(run_post "$ROOT" 'sed -i s/a/b/ src/App.cs')"
+
+    # The row itself.
+    mkdir -p "$ROOT/dist/assets"
+    stamp; echo "console.log(1)" > "$ROOT/dist/assets/index-deadbee1.js"
+    expect_silent "SC-928 gitignored build output is silent" "$(run_post "$ROOT" 'npm run build')"
+
+    # SC-929 — the measured trap. `--no-index` reports tracked files matching a pattern; plain
+    # `--stdin` does not. Asserted on the question itself, because it is what the fix is made of.
+    printf '%s\n' "$ROOT/src/App.cs" > "$WORK/ig-probe"
+    if git -C "$ROOT" check-ignore --stdin < "$WORK/ig-probe" >/dev/null 2>&1; then
+      bad "SC-929 check-ignore named a TRACKED file — the filter would blind the layer to committed source"
+    else
+      ok "SC-929 a tracked file is never named as ignored"
+    fi
+
+    # SC-930 — an ignored directory the prune list never enumerated. This is what "ask git" buys over
+    # "add dist to the list".
+    mkdir -p "$ROOT/.vite/deps"
+    stamp; echo "x" > "$ROOT/.vite/deps/chunk.js"
+    expect_silent "SC-930 an ignored dir absent from the prune list is silent too" "$(run_post "$ROOT" 'vite build')"
+
+    # SC-931 — the filter keys on IGNORED, not on untracked.
+    stamp; echo "class New {}" > "$ROOT/src/New.cs"
+    expect_block "SC-931 a new, untracked, NOT-ignored source file is still reported" "$(run_post "$ROOT" 'cat > src/New.cs')"
+    rm -f "$ROOT/src/New.cs"
+
+    # SC-932 — one command doing both.
+    stamp
+    echo "console.log(2)" > "$ROOT/dist/assets/index-deadbee2.js"
+    echo "class Mixed {}" > "$ROOT/src/App.cs"
+    MIX=$(run_post "$ROOT" 'npm run build && sed -i s/a/b/ src/App.cs')
+    case "$MIX" in
+      *"App.cs"*) case "$MIX" in
+            *"index-deadbee2.js"*) bad "SC-932 build output is still named alongside the source file" ;;
+            *) ok "SC-932 the source file is reported and the build output is not" ;; esac ;;
+      *) bad "SC-932 the source file was not reported at all" ;;
+    esac
+
+    # SC-933 — the bypass a quieter layer opens. A .gitignore line written in the same command must not
+    # buy silence: if the ignore rules moved, they are not trusted for that command.
+    stamp
+    printf 'hidden/\n' >> "$ROOT/.gitignore"
+    mkdir -p "$ROOT/hidden"
+    echo "class Hidden {}" > "$ROOT/hidden/H.cs"
+    expect_block "SC-933 a path hidden by a .gitignore line changed in the same command is still reported" \
+                 "$(run_post "$ROOT" 'echo rule >> .gitignore && cat > hidden/H.cs')"
   fi
 fi
 

@@ -84,6 +84,7 @@
 #
 # Covers: SC-1438 SC-1439 SC-1440 SC-1441 SC-1442
 #         SC-920 SC-921 SC-922 SC-923 SC-924 SC-926 (row S5)
+#         SC-927 SC-928 SC-929 SC-930 SC-931 SC-932 SC-933 (row S6)
 
 set -u
 
@@ -136,6 +137,56 @@ CHANGED=$(find "$ROOT" \
 
 if [ -z "$CHANGED" ]; then
   cleanup; exit 0
+fi
+
+# GENERATED OUTPUT IS NOT A SOURCE EDIT — ASK GIT, DO NOT GROW THE LIST ABOVE (row S6)
+# ------------------------------------------------------------------------------------
+# The prune list is a traversal cost saving, not a correctness mechanism, and as a correctness
+# mechanism it was incomplete: `dist` is absent from it, so `npm run build` — which CLAUDE.md names
+# in the verification floor before anything may be called done — was reported here as "source files
+# the pipeline guard denies". Measured: pipeline-state-guard answers `deny` on
+# src/AgentCrm.Web/dist/assets/index-<hash>.js exactly as it does on a real .tsx, and Vite writes a
+# fresh content hash every build, so the escape hatch below never engages either. A gate that fires
+# on required routine work with no way to settle it is one the reader learns to wave through.
+#
+# Adding `dist` would fix one command. In that project alone .gitignore also carries .vite/,
+# playwright-report/, test-results/, blob-report/ and .playwright/, and the next tool adds a
+# directory nobody enumerated. So the question is asked once, generally, of the thing that knows.
+#
+# `--no-index` IS NEVER PASSED, AND THAT IS THE WHOLE SAFETY ARGUMENT.
+#   git check-ignore --stdin --no-index   → reports tracked files that match a pattern (5 on the
+#                                           tree this was measured on, incl. two committed .tla files)
+#   git check-ignore --stdin              → never reports a tracked file
+# Tracked content matching a pattern is content somebody committed PAST the pattern: it is source,
+# not output. So the question asked is "untracked AND ignored", which is what generated means.
+#
+# FAILS OPEN (FR-4): no git, an errored check-ignore, or a repo where the question cannot be asked
+# all leave $CHANGED alone. A detection layer that goes quiet because a subprocess failed is worse
+# than a noisy one — and here "fails open" means noisy, which is the safe direction.
+#
+# Line-based like every other list in this hook (find -print), so a path containing a newline breaks
+# it the same way it already breaks the grouping. Not a regression; not fixed here.
+IGNORE_RULES_MOVED=0
+printf '%s\n' "$CHANGED" | grep -q '/\.gitignore$' && IGNORE_RULES_MOVED=1
+# .git is pruned above, and a global excludes file lives outside $ROOT, so both are asked directly.
+for _ex in "$ROOT/.git/info/exclude" \
+           "$(git -C "$ROOT" config --get core.excludesFile 2>/dev/null | sed "s#^~#$HOME#")"; do
+  [ -n "$_ex" ] && [ -f "$_ex" ] && [ "$_ex" -nt "$MARKER" ] && IGNORE_RULES_MOVED=1
+done
+
+# WHY THAT CHECK EXISTS: a quieter layer is where a bypass lives. After this filter, a line appended
+# to .gitignore hides a path from detection. .gitignore is tracked, so the line itself is visible in
+# `git status` and read by the PRE-layer when written through the shell — but that is visibility, not
+# a gate. This is the gate: if the ignore rules themselves moved since the marker, they are not
+# trusted for this command and the layer reports exactly as it did before row S6.
+if [ "$IGNORE_RULES_MOVED" -eq 0 ]; then
+  IGNORED=$(printf '%s\n' "$CHANGED" | git -C "$ROOT" check-ignore --stdin 2>/dev/null)
+  if [ -n "$IGNORED" ]; then
+    CHANGED=$(printf '%s\n' "$CHANGED" | grep -Fxv -f <(printf '%s\n' "$IGNORED"))
+    if [ -z "$CHANGED" ]; then
+      cleanup; exit 0
+    fi
+  fi
 fi
 
 # One representative per (directory, extension) for the three guards that decide from the path alone —
