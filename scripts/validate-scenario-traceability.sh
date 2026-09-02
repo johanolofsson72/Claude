@@ -411,11 +411,34 @@ for root in $ROOTS; do
   # test still covers its scenario, on the evidence of a build artifact. A coverage claim backed by
   # nothing live is precisely the lie this gate was written to catch, so it must not be the gate
   # that tells it.
+  # `-a`, NOT `-I`, and this is a defect that was live rather than theoretical.
+  #
+  # `-I` tells grep to skip binary files, and grep calls a file binary the moment it contains a
+  # NUL. A destructive test suite is exactly the kind of file that has one: agentcrm's
+  # create-agency.destructive.spec.ts carries a literal NUL inside its own hostile-input fixture
+  # (`['a null byte', 'Agency\0name']`). Every scenario id cited only in that file was therefore
+  # invisible to this gate, which reported them as claimed-but-uncovered — a gate wrong in the
+  # direction that looks like diligence, so nobody questions it. Found on row A1, when SC-878 was
+  # reported uncovered while the citation sat in plain sight on line 279 of that file.
+  #
+  # `-a` on its own is NOT the fix, and the first attempt at this proved it: with `-I` dropped and
+  # nothing else changed, grep read the visual-regression PNGs as text and two of them contain
+  # bytes that spell an id. The gate went from under-reporting coverage to inventing a dangling
+  # reference — wrong in the other direction, and equally confident.
+  #
+  # So the images are excluded by NAME instead. `*-snapshots` directories hold nothing but PNGs,
+  # and the extension list covers the rest. What is left is source, which `-a` now reads whether
+  # or not it happens to contain a control byte.
   # >>> build-prune
   find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
-       -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \) \
-       -prune -o -type f -print0 2>/dev/null \
-    | xargs -0 grep -hoIE "\\b${PREFIX}-[0-9]+[a-z]?\\b" 2>/dev/null >> "$TMP/refs" || true
+       -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \
+       -o -name '*-snapshots' \) \
+       -prune -o -type f \
+       ! -name '*.png' ! -name '*.jpg' ! -name '*.jpeg' ! -name '*.gif' ! -name '*.webp' \
+       ! -name '*.ico' ! -name '*.pdf' ! -name '*.zip' ! -name '*.webm' ! -name '*.mp4' \
+       ! -name '*.woff' ! -name '*.woff2' ! -name '*.ttf' ! -name '*.otf' \
+       -print0 2>/dev/null \
+    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b" 2>/dev/null >> "$TMP/refs" || true
   # <<< build-prune
   IFS=,
 done
