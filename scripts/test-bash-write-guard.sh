@@ -242,22 +242,26 @@ fi
 # the post-layer must. If this fixture ever goes green on the pre-layer arm, the bound in the header is
 # wrong. If it ever goes red on the post-layer arm, the coverage claim is wrong.
 if want bound; then
-  echo "FIXTURE bound — writes no string parser can see: pre-layer MISSES (declared), post-layer CATCHES"
+  echo "FIXTURE bound — what the parser still cannot see, and what row S5 moved out of that set"
   ROOT=$(make_fixture bound)
 
+  # Until row S5 this fixture asserted the OPPOSITE — that the pre-layer allows a python-heredoc
+  # write, as the declared bound. It was a faithful description of a working bypass, and it was
+  # used: a register tick went through this exact shape past all five guards. The bound was real;
+  # what was wrong was the belief that the post-layer covered it, which it did not (see `postfive`).
   PY_CMD="python3 - <<'PY'
 open('src/App.cs','w').write('mutated')
 PY"
-  expect_allow "pre-layer cannot see a python-heredoc write (the declared bound)" "$(run_pre "$ROOT" "$PY_CMD")"
+  expect_deny "pre-layer now sees a python-heredoc write" "$(run_pre "$ROOT" "$PY_CMD")" "src/App.cs"
 
   # The pre-layer stamped the marker on its way past — which is exactly what makes the next step possible.
-  [ -f "$ROOT/.claude/.bash-write-marker" ] && ok "pre-layer stamped the before-marker even while allowing" \
-    || bad "pre-layer allowed without stamping a marker — the post-layer is now blind"
+  [ -f "$ROOT/.claude/.bash-write-marker" ] && ok "pre-layer stamped the before-marker even while deciding" \
+    || bad "pre-layer decided without stamping a marker — the post-layer is now blind"
 
   sleep 1
   printf 'mutated\n' > "$ROOT/src/App.cs"        # what the python heredoc would have done
   OUT=$(run_post "$ROOT" "$PY_CMD")
-  expect_block "post-layer caught it on the outcome, and told the developer as well as the model" "$OUT"
+  expect_block "post-layer catches it on the outcome too, and tells the developer as well as the model" "$OUT"
   case "$OUT" in *"src/App.cs"*) ok "post-layer names the changed file" ;;
                  *) bad "post-layer blocked without naming the file" ;; esac
 
@@ -419,7 +423,7 @@ if want falsify; then
       cp "$SCRIPT_DIR/$f" "$MUT/$f" 2>/dev/null || true
     done
     cp "$PRE" "$MUT/control.sh"
-    sed 's/for guard in core-machinery-guard-hook\.sh /for guard in /' "$PRE" > "$MUT/mutant.sh"
+    sed 's/^BASENAME_GUARDS="core-machinery-guard-hook\.sh /BASENAME_GUARDS="/' "$PRE" > "$MUT/mutant.sh"
     if cmp -s "$MUT/control.sh" "$MUT/mutant.sh"; then
       bad "the mutation changed nothing — the delegation list is not written the way this block expects"
     else
@@ -432,6 +436,193 @@ if want falsify; then
       if [ -z "$MUTO" ]; then ok "mutant (delegate removed) goes silent — the delegation is load-bearing"
       else bad "mutant still denies without the CORE delegate: this fixture would pass without the fix"; fi
     fi
+  fi
+fi
+
+# --------------------------------------------------------------- OPAQUE (SC-913..SC-919, SC-925)
+if want opaque; then
+  echo "FIXTURE opaque — an interpreter with no script path, across five spellings and four controls"
+  ROOT=$(make_fixture opaque)
+
+  # SC-913 is the CONTROL, and it comes first on purpose. Four of the assertions below are "this
+  # command is denied"; if the fixture's register were misbuilt so that NOTHING is denied, every one
+  # of them would fail loudly — but if it were misbuilt so that EVERYTHING is denied, they would all
+  # pass for no reason at all. The control is the arm that catches the second case.
+  expect_deny "SC-913 control: sed -i on a gated source file" \
+    "$(run_pre "$ROOT" "sed -i 's/a/b/' src/App.cs")" "src/App.cs"
+
+  expect_deny "SC-914 the same write inside a python heredoc" "$(run_pre "$ROOT" "python3 - <<'PY'
+open('src/App.cs','a').write('x')
+PY")" "src/App.cs"
+
+  # The semicolon is load-bearing: a naive segment split would cut the region here and never reach
+  # the path. That is the shape `_split_unquoted` exists for.
+  expect_deny "SC-915 python3 -c, with a semicolon inside the program" \
+    "$(run_pre "$ROOT" "python3 -c \"import sys; open('src/App.cs','a').write('x')\"")" "src/App.cs"
+
+  expect_deny "SC-916 perl -e, path nested one quoting level down" \
+    "$(run_pre "$ROOT" "perl -e 'open(F,\">>\",\"src/App.cs\")'")" "src/App.cs"
+  expect_deny "SC-916 node -e" \
+    "$(run_pre "$ROOT" "node -e \"require('fs').appendFileSync('src/App.cs','x')\"")" "src/App.cs"
+  expect_deny "SC-916 ruby -e" \
+    "$(run_pre "$ROOT" "ruby -e 'File.write(\"src/App.cs\",\"x\")'")" "src/App.cs"
+
+  # The other half of the trade, and the one that decides whether this guard survives contact with a
+  # real session: an ordinary one-liner must cost nothing. A gate that fires on correct routine work
+  # trains its reader to wave it through, and then it is not a gate.
+  expect_allow "SC-917 an interpreter one-liner naming no path" "$(run_pre "$ROOT" "python3 -c \"print(1+1)\"")"
+  expect_allow "SC-919 an interpreter one-liner naming an unguarded path" \
+    "$(run_pre "$ROOT" "python3 -c \"open('notes.md','a').write('x')\"")"
+  expect_allow "SC-925 no interpreter, no write form" "$(run_pre "$ROOT" "echo hello")"
+  expect_allow "SC-925 a plain read of the same gated file" "$(run_pre "$ROOT" "cat src/App.cs")"
+
+  # SC-918 — accepted cost, asserted rather than hoped for. A read-only one-liner naming a gated path
+  # IS denied, because nothing here reads the program. The refusal has to carry the way out, or the
+  # developer meets a wall with no door.
+  OUT=$(run_pre "$ROOT" "python3 -c \"print(open('src/App.cs').read())\"")
+  expect_deny "SC-918 a read-only one-liner naming a gated path is denied too" "$OUT" "src/App.cs"
+  case "$OUT" in *"only READING"*) ok "SC-918 ...and the reason names the read escape" ;;
+                 *) bad "SC-918 denied without telling the reader how to read the file" ;; esac
+  case "$OUT" in *"Edit tool"*) ok "SC-918 ...and the write escape" ;;
+                 *) bad "SC-918 denied without naming the Edit tool" ;; esac
+
+  # A path built at runtime stays invisible, and the spec says so. Asserting the bound keeps the
+  # claim honest when someone later reads the deny arms above and assumes full coverage.
+  #
+  # String concatenation is the honest demonstration: `'src/App' + '.cs'` leaves no token that is
+  # both path-shaped and gated. `os.path.join('src','App.cs')` is NOT used here even though it is the
+  # more idiomatic spelling — it happens to be denied, because the fragment `App.cs` carries a source
+  # extension all by itself. That is an accident of this input, not coverage, and an assertion that
+  # depends on it would be pinning luck.
+  expect_allow "declared bound: a path assembled at runtime is still not seen" \
+    "$(run_pre "$ROOT" "python3 -c \"open('src/App' + '.cs','a')\"")"
+fi
+
+# --------------------------------------------------------------- ORDER (SC-926)
+if want order; then
+  echo "FIXTURE order — the operand order must not decide the verdict"
+  ROOT=$(make_core_fixture order) || { echo "  (skipped: template-autosync.sh not copyable)"; ROOT=""; }
+  if [ -n "$ROOT" ]; then
+    # Found while writing the fixtures above, not by looking for it. The grouping collapses files that
+    # share a directory and an extension, which is an identity for the three guards that read only the
+    # path — and NOT for core-machinery, which reads the basename. thing.sh and template-autosync.sh
+    # are both scripts/*.sh with opposite verdicts, so whichever the grouping picked answered for both.
+    expect_deny "control: the CORE file alone" \
+      "$(run_pre "$ROOT" "sed -i 's/a/b/' scripts/template-autosync.sh")" "template-autosync.sh"
+    expect_deny "CORE file first, non-CORE second" \
+      "$(run_pre "$ROOT" "sed -i 's/a/b/' scripts/template-autosync.sh scripts/thing.sh")" "template-autosync.sh"
+    expect_deny "non-CORE FIRST — this is the arm that used to ALLOW" \
+      "$(run_pre "$ROOT" "sed -i 's/a/b/' scripts/thing.sh scripts/template-autosync.sh")" "template-autosync.sh"
+    # The other direction, so the fix is a fix and not a blanket. A guard that denied everything under
+    # scripts/ would satisfy all three arms above and be useless.
+    expect_allow "a non-CORE script on its own is still allowed" \
+      "$(run_pre "$ROOT" "sed -i 's/a/b/' scripts/thing.sh")"
+  fi
+fi
+
+# --------------------------------------------------------------- POSTFIVE (SC-920)
+if want postfive; then
+  echo "FIXTURE postfive — the post-layer asks all five guards, not three"
+  ROOT=$(make_core_fixture postfive) || { echo "  (skipped: template-autosync.sh not copyable)"; ROOT=""; }
+  if [ -n "$ROOT" ]; then
+    : > "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1
+    printf '# mutated\n' >> "$ROOT/scripts/template-autosync.sh"
+    OUT=$(run_post "$ROOT" "true")
+    expect_block "a changed CORE file is reported" "$OUT"
+    case "$OUT" in *"core-machinery"*) ok "...and the report names which guard refused it" ;;
+                   *) bad "reported without naming core-machinery — the reader cannot find the repair" ;; esac
+
+    # Falsification. Cut the two guards row S5 added back out of the list and the same change must go
+    # silent again — which is the state this fixture was written to end. Without this arm the block
+    # above would pass on any project where some OTHER guard happens to object.
+    MUT="$WORK/postfive-mut"; mkdir -p "$MUT"
+    sed 's/^scan "\$ALLP" core-machinery-guard-hook\.sh core-owed-tick-guard-hook\.sh$/:/' "$POST" > "$MUT/mutant.sh"
+    if cmp -s "$POST" "$MUT/mutant.sh"; then
+      bad "the mutation changed nothing — the post-layer's delegate list is not written the way this block expects"
+    else
+      : > "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1
+      printf '# mutated again\n' >> "$ROOT/scripts/template-autosync.sh"
+      MUTO=$(jq -n --arg c "true" --arg w "$ROOT" '{tool_input:{command:$c}, cwd:$w}' \
+               | CLAUDE_PROJECT_DIR="$ROOT" bash "$MUT/mutant.sh" 2>/dev/null)
+      if [ -z "$MUTO" ]; then ok "mutant (three delegates) goes silent — this is the defect S5 closed"
+      else bad "mutant still reported: the fixture would pass without the fix"; fi
+    fi
+  fi
+fi
+
+# --------------------------------------------------------------- POSTBYTES (SC-921..SC-923)
+if want postbytes; then
+  echo "FIXTURE postbytes — the post-layer hands over the added lines, so its verdict is the narrow one"
+  ROOT="$WORK/postbytes"
+  mkdir -p "$ROOT/scripts" "$ROOT/.claude/rules" "$ROOT/specs" "$ROOT/src"
+  git -C "$ROOT" init -q 2>/dev/null || git init -q "$ROOT"
+  git -C "$ROOT" remote add origin "https://github.com/someone/not-the-template.git" 2>/dev/null
+  : > "$ROOT/package.json"
+  cp "$SCRIPT_DIR/template-autosync.sh" "$ROOT/scripts/template-autosync.sh" 2>/dev/null
+  printf 'core rule\n' > "$ROOT/.claude/rules/feature-pipeline.md"
+  printf '{}\n' > "$ROOT/.claude/settings.json"
+  {
+    echo "# Spec register"; echo; echo "## Specs"; echo
+    echo '- [x] 001 — done — spec-only track — a finished row'
+    echo '- [ ] 002 — next — spec-only track — the row after'
+  } > "$ROOT/specs/INDEX.md"
+  # A manifest that is deliberately WRONG about one CORE file, so --owed is non-empty and the tick
+  # gate has something to refuse. Everything else matches, so the arm below fails for one reason.
+  {
+    printf 'sha=deadbeefcafe\n'
+    printf 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff  .claude/rules/feature-pipeline.md\n'
+  } > "$ROOT/.claude/.template-sync"
+  git -C "$ROOT" add -A >/dev/null 2>&1
+  git -C "$ROOT" -c user.email=t@t -c user.name=t commit -qm base >/dev/null 2>&1
+
+  if ! git -C "$ROOT" rev-parse HEAD >/dev/null 2>&1; then
+    echo "  (skipped: no committable git fixture available)"
+  else
+    # SC-922 — a tick, made by any means, is reported.
+    : > "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1
+    sed -i 's/^- \[ \] 002/- [x] 002/' "$ROOT/specs/INDEX.md"
+    OUT=$(run_post "$ROOT" "true")
+    expect_block "SC-922 a register tick is reported while CORE work is owed" "$OUT"
+    case "$OUT" in *"core-owed-tick"*) ok "SC-922 ...and names the tick gate" ;;
+                   *) bad "SC-922 reported without naming core-owed-tick" ;; esac
+
+    # SC-921 — the arm that makes the bytes worth passing. Marking a row in progress is what you do
+    # ON THE WAY to landing what is owed; a layer that reported it would fire on correct routine work
+    # every time, and a report that always fires is a report nobody reads.
+    git -C "$ROOT" checkout -q -- specs/INDEX.md
+    : > "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1
+    sed -i 's/^- \[ \] 002/- [\/] 002/' "$ROOT/specs/INDEX.md"
+    OUT=$(run_post "$ROOT" "true")
+    expect_silent "SC-921 marking a row in progress stays silent — the added lines carry no tick" "$OUT"
+
+    # SC-923 — no readable diff (untracked file): the guard is still asked, on the path alone, and
+    # the report says which of the two verdicts the reader is looking at.
+    git -C "$ROOT" checkout -q -- specs/INDEX.md
+    : > "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1
+    # An UNTRACKED source file: a guard refuses it, and `git diff` has nothing to say about a file git
+    # has never seen — which is exactly the fallback arm.
+    printf 'class New {}\n' > "$ROOT/src/New.cs"
+    OUT=$(run_post "$ROOT" "true")
+    case "$OUT" in *"path alone"*) ok "SC-923 a finding with no readable diff says so, rather than implying the narrow verdict" ;;
+                   *) bad "SC-923 no finding carried the path-only note: $(printf '%s' "$OUT" | cut -c1-90)" ;; esac
+  fi
+fi
+
+# --------------------------------------------------------------- SUMMARY STRING (SC-924)
+if want summary; then
+  echo "FIXTURE summary — the developer-facing line names no foreign project"
+  # This shipped for as long as the file existed: a CORE script opened its terminal summary with a
+  # hard-coded project name belonging to somewhere else, in every project the template serves.
+  # Grepping the script beats asserting on a rendered message, because the defect is the literal.
+  if grep -q 'ConsultPilot' "$POST"; then
+    bad "SC-924 the post-layer still carries a foreign project name in its summary"
+  else
+    ok "SC-924 no foreign project name in the post-layer"
+  fi
+  if grep -q 'SUMMARY="Pipeline guard:' "$POST"; then
+    ok "SC-924 ...and the summary is project-neutral"
+  else
+    bad "SC-924 the summary line is not the expected neutral text"
   fi
 fi
 

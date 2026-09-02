@@ -10,8 +10,24 @@
 # which is the failure class this register row was carved out of.
 #
 # This layer does not read the command. It compares the filesystem against a marker stamped before the
-# command ran, and asks the three pipeline guards about whatever actually changed. How the write was
-# spelled is then irrelevant, which is the whole point.
+# command ran, and asks the guards about whatever actually changed. How the write was spelled is then
+# irrelevant, which is the whole point.
+#
+# IT ASKS ALL FIVE GUARDS — IT USED TO ASK THREE (row S5)
+# -------------------------------------------------------
+# The claim above was false for two years' worth of paths. This layer asked spec-register,
+# pipeline-state and spec-interview, and all three exit early on scripts/**, .claude/** and specs/**
+# by design. The two guards that own exactly those paths — core-machinery and core-owed-tick — were
+# in the PRE-layer's delegate list and missing from this one.
+#
+# So the pre-layer's header, which sends every uncovered form here, was writing a cheque this file
+# did not honour: a CORE file changed by an interpreter passed BOTH layers in silence. Measured
+# 2026-09-02 — with a CORE file touched and the marker stamped, this hook said nothing, while
+# core-machinery-guard-hook.sh asked directly about the same path answered `deny`. A register tick
+# went through that gap for real.
+#
+# The list is now the pre-layer's five, in the pre-layer's order. Two readings of "which guard
+# speaks first" that could differ is the trap spec 007m's regression came out of.
 #
 # PREVENTION vs DETECTION — stated plainly
 # ----------------------------------------
@@ -53,10 +69,14 @@
 # Exit: always 0. The verdict is the JSON on stdout, per the PostToolUse contract.
 #
 # Covers: SC-1438 SC-1439 SC-1440 SC-1441 SC-1442
+#         SC-920 SC-921 SC-922 SC-923 SC-924 SC-926 (row S5)
 
 set -u
 
 MAX_GROUPS=25   # detection runs after the command, so it can afford more than the pre-layer's 8
+MAX_PATHS=100   # row S5 — the two basename-sensitive guards are asked per changed path. Generous
+                # because a build or a branch switch can touch a lot, and both guards reject on a path
+                # pattern before doing any work; what is not allowed is dropping the rest in silence.
 
 INPUT=$(cat 2>/dev/null || true)
 [ -z "$INPUT" ] && exit 0
@@ -104,12 +124,19 @@ if [ -z "$CHANGED" ]; then
   cleanup; exit 0
 fi
 
-# One representative per (directory, extension): all three guards decide from the path alone, so files
-# sharing both get identical verdicts. Exact, not a sample — which is what lets the cap below be honest.
+# One representative per (directory, extension) for the three guards that decide from the path alone —
+# for those, files sharing both get identical verdicts, so this is exact and not a sample.
+#
+# It is NOT exact for the two guards row S5 added, and that was a live bypass rather than a nicety:
+# core-machinery decides from the BASENAME, so scripts/template-autosync.sh and scripts/other.sh share
+# a group and have opposite verdicts, and whichever the grouping picked answered for both. Those two
+# are asked about every changed path instead. Same defect, same fix, both layers.
 REPS=$(printf '%s\n' "$CHANGED" | python3 "$HOOK_DIR/bash_write_targets.py" --group 2>/dev/null)
 [ -z "$REPS" ] && { cleanup; exit 0; }
+ALLP="$CHANGED"
 
 GROUP_COUNT=$(printf '%s\n' "$REPS" | grep -c '')
+PATH_COUNT=$(printf '%s\n' "$ALLP" | grep -c '')
 TRUNCATED=""
 if [ "$GROUP_COUNT" -gt "$MAX_GROUPS" ]; then
   # No silent caps (scripts/run-gates.sh's rule): say what was dropped, or the report reads as coverage it
@@ -118,26 +145,80 @@ if [ "$GROUP_COUNT" -gt "$MAX_GROUPS" ]; then
 NOTE: ${GROUP_COUNT} directory/extension groups changed; only the first ${MAX_GROUPS} were checked. The rest are UNCHECKED, not cleared."
   REPS=$(printf '%s\n' "$REPS" | sed -n "1,${MAX_GROUPS}p")
 fi
+if [ "$PATH_COUNT" -gt "$MAX_PATHS" ]; then
+  TRUNCATED="${TRUNCATED}
+NOTE: ${PATH_COUNT} distinct paths changed; only the first ${MAX_PATHS} were checked for template ownership and register ticks. The rest are UNCHECKED, not cleared."
+  ALLP=$(printf '%s\n' "$ALLP" | sed -n "1,${MAX_PATHS}p")
+fi
+
+# The bytes a guard needs to answer narrowly (row S5, FR-7).
+#
+# WHY THIS LAYER SUPPLIES THEM AND THE PRE-LAYER CANNOT
+# ------------------------------------------------------
+# The pre-layer derives a PATH from a command string and has no content to give, so
+# core-owed-tick-guard-hook.sh answers about the file and says so. This layer runs after the write:
+# the bytes are on disk, so it can hand over exactly what the Edit route hands over — the lines
+# ADDED since HEAD — and get the same narrow verdict. Without them, every `- [/]` mark made
+# legitimately with the Edit tool would be reported as a tick, and a report that fires on correct
+# routine work is a report that stops being read.
+#
+# Falls back to path-only for an untracked file, a tree with no git, a read failure, or a diff past
+# the cap. The report says which of the two it used rather than leaving the reader to assume.
+ADDED_LINES=""   # set by added_lines(); empty means "ask on the path alone"
+MAX_DIFF_BYTES=65536
+added_lines() {
+  ADDED_LINES=""
+  [ -n "$ROOT" ] || return 0
+  local d n
+  # `grep '^+'` then drop the `+++ b/path` header, then strip the one marker column. Doing it in
+  # that order matters: a content line that itself begins with `+` survives, and the header does not.
+  d=$(git -C "$ROOT" diff -U0 --no-color -- "$1" 2>/dev/null \
+        | grep '^+' | grep -v '^+++ ' | cut -c2-) || return 0
+  [ -z "$d" ] && return 0
+  n=$(printf '%s' "$d" | wc -c)
+  [ "$n" -gt "$MAX_DIFF_BYTES" ] && return 0
+  ADDED_LINES="$d"
+}
 
 FINDINGS=""
 FIRST_REASON=""
-while IFS= read -r target; do
-  [ -z "$target" ] && continue
-  for guard in spec-register-guard-hook.sh pipeline-state-guard-hook.sh spec-interview-guard-hook.sh; do
-    [ -f "$HOOK_DIR/$guard" ] || continue
-    OUT=$(printf '{"tool_input":{"file_path":%s}}' "$(jq -Rn --arg p "$target" '$p')" \
-            | bash "$HOOK_DIR/$guard" 2>/dev/null)
-    [ -z "$OUT" ] && continue
-    INNER=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
-    [ -z "$INNER" ] && continue
-    FINDINGS="${FINDINGS}${target}
+
+# One scan function, two path lists and two guard lists — the same split the pre-layer makes, for the
+# same reason. Findings accumulate here rather than exiting at the first: this layer reports, and a
+# report that names one of four changed files is a report the reader has to redo by hand.
+scan() {            # $1 = newline-separated paths, $2... = guard filenames
+  local paths="$1"; shift
+  [ -z "$paths" ] && return 0
+  local target guard OUT INNER
+  while IFS= read -r target; do
+    [ -z "$target" ] && continue
+    case "$FINDINGS" in *"$target   ["*) continue ;; esac   # already reported by the other list
+    added_lines "$target"
+    for guard in "$@"; do
+      [ -f "$HOOK_DIR/$guard" ] || continue
+      OUT=$(jq -n --arg p "$target" --arg n "$ADDED_LINES" \
+              'if $n == "" then {tool_input:{file_path:$p}} else {tool_input:{file_path:$p, new_string:$n}} end' \
+              | bash "$HOOK_DIR/$guard" 2>/dev/null)
+      [ -z "$OUT" ] && continue
+      INNER=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
+      [ -z "$INNER" ] && continue
+      if [ -n "$ADDED_LINES" ]; then
+        FINDINGS="${FINDINGS}${target}   [${guard%-hook.sh}]
 "
-    [ -z "$FIRST_REASON" ] && FIRST_REASON="$INNER"
-    break
-  done
-done <<EOF
-$REPS
-EOF
+      else
+        FINDINGS="${FINDINGS}${target}   [${guard%-hook.sh}; asked on the path alone — no readable diff, so this is the wider verdict]
+"
+      fi
+      [ -z "$FIRST_REASON" ] && FIRST_REASON="$INNER"
+      break
+    done
+  done <<INNER_EOF
+$paths
+INNER_EOF
+}
+
+scan "$ALLP" core-machinery-guard-hook.sh core-owed-tick-guard-hook.sh
+scan "$REPS" spec-register-guard-hook.sh pipeline-state-guard-hook.sh spec-interview-guard-hook.sh
 
 if [ -z "$FINDINGS" ]; then
   cleanup; exit 0
@@ -154,22 +235,31 @@ fi
 printf '%s' "$FINGERPRINT" > "$BLOCKED" 2>/dev/null || true
 cleanup
 
-REASON="A shell command wrote to source files the pipeline guard denies.
+# The headline names no particular guard, because five can speak here and they answer different
+# questions: three ask "has this spec's pipeline run?" about a source file, core-machinery asks
+# "whose file is this?", core-owed-tick asks "may this register be ticked yet?". Saying "source
+# files the pipeline guard denies" over a CORE finding would be false in both halves and would send
+# the reader to the wrong repair — the mistake row H7t records for the pre-layer's provenance line.
+# The per-file bracket says which guard spoke; the headline stays true for all of them.
+REASON="A shell command changed files a guard refuses.
 
-Files changed:
+Files changed (and which guard refused each):
 ${FINDINGS}${TRUNCATED}
 This was detected AFTER the fact, on the filesystem — the write had already happened. Before row H7b it
-would not have been detected at all: the three pipeline guards are wired to Edit/Write/MultiEdit, so a
-write made through the shell met no gate, and 56 register rows shipped that way.
+would not have been detected at all: the guards are wired to Edit/Write/MultiEdit, so a write made
+through the shell met no gate, and 56 register rows shipped that way. Before row S5 only three of the
+five were asked here, so a change under scripts/ or specs/ was detected by neither layer.
 
-Either finish the active spec's pipeline phases, or revert these files. The guard's reason follows.
+Either finish what the guard asks for, or revert these files. The guard's reason follows.
 
 ────────────────────────────────────────────────────────────
 ${FIRST_REASON}
 
 (This blocks once for this set of files. Changing something else arms it again.)"
 
-SUMMARY="ConsultPilot pipeline guard: a shell command wrote to $(printf '%s' "$FINDINGS" | grep -c '') source file(s) the guard denies. See the block reason for the file list and the guard's own explanation."
+# Row S5: this line used to open with a hard-coded foreign project name. It is a CORE script, so
+# that name shipped to every project the template serves and named none of them correctly.
+SUMMARY="Pipeline guard: a shell command wrote to $(printf '%s' "$FINDINGS" | grep -c '') file(s) a guard denies. See the block reason for the file list and the guard's own explanation."
 
 jq -n --arg r "$REASON" --arg s "$SUMMARY" \
   '{decision: "block", reason: $r, systemMessage: $s}'
