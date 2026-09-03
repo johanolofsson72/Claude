@@ -154,6 +154,31 @@ else fail "FR-8 --pending reports only unstarted rows"; fi
 out="$(run "$d" --completed)"
 if grep -q '003' <<< "$out"; then defect "FR-8 scoping"; else pass "FR-8 control: --completed excludes the pending row"; fi
 
+# ------------------------------------------------------- row 009: --write-pending
+# The default must stay hands-off (FR-10 above); the opt-in must actually write.
+d="$TMP/wp"; mk "$d" "$(printf '%s\n%s' "$LONG_TODO" "$SHORT_ROW")" "" ""
+before="$(cat "$d/specs/INDEX.pending.md")"
+run "$d" >/dev/null 2>&1
+[ "$before" = "$(cat "$d/specs/INDEX.pending.md")" ] \
+  && pass "row 009 control: without the flag, pending is still untouched" \
+  || fail "row 009 control: the default wrote pending"
+out="$(run "$d" --write-pending)"
+if grep -q '003' <<< "$out" && grep -q '003' "$d/specs/INDEX.pending.md"; then
+  pass "row 009 --write-pending archives an over-budget open row"
+else
+  fail "row 009 --write-pending did not archive: $(head -2 <<<"$out")"
+fi
+# and it must be idempotent — a second run has nothing left to do
+n1=$(grep -c '^## ' "$d/specs/INDEX.pending.md")
+run "$d" --write-pending >/dev/null 2>&1
+n2=$(grep -c '^## ' "$d/specs/INDEX.pending.md")
+[ "$n1" = "$n2" ] && pass "row 009 --write-pending is idempotent" \
+  || fail "row 009 --write-pending duplicated entries ($n1 -> $n2)"
+# a compliant open row is left alone — only over-budget rows earn an archive entry
+grep -q '001' "$d/specs/INDEX.pending.md" \
+  && fail "row 009 archived a row that was already within budget" \
+  || pass "row 009 leaves within-budget rows alone"
+
 # ---------------------------------------------------------------------- FR-9
 # A register may group its rows under milestone headings instead of one flat
 # "## Specs" list. rocky has done so since its first commit, and this script

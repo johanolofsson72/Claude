@@ -99,6 +99,7 @@ set -eu
 MAX_BYTES=300
 SPECS_DIR=""
 DRY_RUN=0
+WRITE_PENDING=0
 SCOPE="all"
 
 while [ $# -gt 0 ]; do
@@ -106,6 +107,8 @@ while [ $# -gt 0 ]; do
     --max-bytes) MAX_BYTES="${2:?--max-bytes needs a number}"; shift 2 ;;
     --dir) SPECS_DIR="${2:?--dir needs a path}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
+    # Row 009. Opt-in, so the default stays hands-off and FR-10 still holds.
+    --write-pending) WRITE_PENDING=1; shift ;;
     --pending) SCOPE="pending"; shift ;;
     --completed) SCOPE="completed"; shift ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed -E 's/^# ?//'; exit 0 ;;
@@ -133,12 +136,13 @@ if [ -z "$SPECS_DIR" ]; then
 fi
 [ -n "$SPECS_DIR" ] && [ -d "$SPECS_DIR" ] || { echo "no specs/ dir found (use --dir)" >&2; exit 1; }
 
-SPECS_DIR="$SPECS_DIR" MAX_BYTES="$MAX_BYTES" DRY_RUN="$DRY_RUN" SCOPE="$SCOPE" python3 - <<'PY'
+SPECS_DIR="$SPECS_DIR" MAX_BYTES="$MAX_BYTES" DRY_RUN="$DRY_RUN" SCOPE="$SCOPE" WRITE_PENDING="$WRITE_PENDING" python3 - <<'PY'
 import os, re, sys
 
 specs = os.environ["SPECS_DIR"]
 max_bytes = int(os.environ["MAX_BYTES"])
 dry_run = os.environ["DRY_RUN"] == "1"
+write_pending = os.environ.get("WRITE_PENDING") == "1"
 scope = os.environ["SCOPE"]
 
 index = os.path.join(specs, "INDEX.md")
@@ -287,6 +291,34 @@ if max_bytes > 0:
         if scope == "completed" and r["status"] != "x":
             continue
         over.append(r)
+
+# Row 009. The archiver wrote INDEX.completed.md and never INDEX.pending.md, by
+# design (FR-10) -- and the consequence is that an OPEN row over budget is told
+# "write a pending entry by hand before shortening", which nobody does. rocky ran
+# 47 such rows and a 127 KB register that is read on every spec. The default is
+# unchanged, so FR-10's test still holds; --write-pending is the opt-in that
+# makes the advice executable.
+if write_pending and not dry_run:
+    need = [r for r in rows
+            if r["status"] in (" ", "!") and r["id"] not in in_pending
+            and r["bytes"] > max_bytes]
+    if need:
+        if not os.path.isfile(pending):
+            print(f"REFUSED: {pending} does not exist — create it before archiving", file=sys.stderr)
+            sys.exit(3)
+        body = open(pending, encoding="utf-8").read().rstrip("\n")
+        add = ""
+        for r in need:
+            # '## <id> — <slug>', the shape sections() indexes on. Writing the id
+            # alone makes the entry invisible to the membership check, so the next
+            # run archives it again -- caught by the idempotence assertion.
+            add += (f"\n\n## {r['id']} — {r['slug']}\n\n_Diagnosis moved here; the register "
+                    f"row is now a pointer. Verbatim:_\n\n{r['text']}\n")
+        open(pending, "w", encoding="utf-8").write(body + add + "\n")
+        print(f"archived {len(need)} open row(s) to {os.path.basename(pending)}: "
+              + ", ".join(r["id"] for r in need))
+        for r in need:
+            in_pending.add(r["id"])
 
 if over:
     print(f"\n{len(over)} row(s) over {max_bytes} bytes in {os.path.basename(index)}:")
