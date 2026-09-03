@@ -20,6 +20,11 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 008 — scenarios-map-canary-unheeded — spec-only — `SCENARIOS.md` is 242 KB on rocky and 254 KB on agentcrm against a 25 KB canary, read every spec by every lane. The split layout exists in the rule and has never been run.
 - [ ] 009 — held-rows-have-no-archive — spec-only — `archive-completed-rows.sh` archives `[x]` to completed and `[ ]` to pending, and does nothing for `[!]`. rocky now holds 21 held rows carrying full diagnoses inline, which is why its INDEX.md is still 127 KB after archiving.
 
+- [ ] 010 — autosync-test-writes-to-the-repo-it-tests — full track [hardened] — `test-template-autosync-*.sh` writes into the working repo instead of a fixture, so a failing run can leave the tree dirty. Found by @johan as consultpilot H7bm.
+- [ ] 011 — twenty-hand-written-sync-invocations — full track — the sync path is invoked twenty different ways by hand across the scripts, which forces each gate to be cleverer than it should need to be. Found as consultpilot H7bo.
+- [ ] 012 — core-file-comments-hold-real-scenario-ids — spec-only — a CORE file's comments cite real SC-ids as examples, so the traceability gate counts them as references and a deleted row looks covered. Found as consultpilot H7bp.
+- [ ] 013 — traceability-self-test-straddles-its-timeout — spec-only — `validate-scenario-traceability.sh`'s own self-test runs 77s against its timeout, so it passes or fails by machine speed. Found as consultpilot H7bq.
+- [ ] 014 — autosync-adds-gates-no-runner-registers — spec-only — a sync that ships new `test-*.sh` scripts leaves every project's `run-gates.sh` reporting DRIFT until someone adds them to GATES by hand. Found as consultpilot H7av.
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 
 ## Register history (newest first)
