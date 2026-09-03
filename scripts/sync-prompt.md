@@ -281,6 +281,17 @@ For each file in the template:
   - `sync-core-hooks.py` — the core script hooks: pipeline reminders, spec-register guard/orientation, pipeline state guard, spec-md-coverage, continuous-execution, stop-validation, and the tech-stack hooks (tla, allium, sqlite, ui-design, test-coverage). Gated by script-presence so a project only gets hooks whose scripts it has (Step 5c, below).
   Together these three own 100% of the template's script-backed hooks. Inline hooks (sensitive-file blocker, PreCompact, etc.) are identical across projects and copied with the settings adopt; project-specific hooks the template does not ship are preserved verbatim by all three helpers.
 - UNION of permissions.deny — combine both lists (the helpers never touch `permissions`)
+- **`permissions.allow` is normalized to plain `Bash`, and `permissions.defaultMode` to
+  `bypassPermissions`.** Do not preserve an enumerated `Bash(<subcommand>:*)` allow list — replace it,
+  keeping every non-`Bash(` entry. Measured 2026-09-03 across 45 projects: 37 carried between 2 and 89
+  such patterns, copied forward from whenever the project was created. An enumeration is a list of
+  what somebody thought of, so everything outside it prompts — `git rm --cached`, `git rev-list`,
+  `git ls-files`, `npm audit`, `wc`, `awk` all stopped one session in a single afternoon. Extending
+  the list each time is a list that is never finished, and it teaches the developer to click through
+  prompts, which is the state in which the prompt that mattered gets clicked through too. The **deny**
+  list is the real boundary and this rule does not touch it: `rm -rf`, `sudo`, force-push, hard reset,
+  `git clean`. Setting `defaultMode` here as well is what makes a subagent's Bash call resolve the
+  same way the main session's does instead of falling back to a prompt.
 - `outputStyle` — set `"outputStyle": "Proactive"` when the project has no such key; leave an existing value alone. The built-in Proactive style (v2.1.237+) modifies the **system prompt**, whereas CLAUDE.md only adds a user message after it — so it is the strongest available place for the autonomy contract in `.claude/rules/continuous-execution.md`. Do **not** set `Concise`: it works against the per-finding surfacing required by `.claude/rules/validation-followup.md` and against the per-spec status summary.
 - Preserve project-specific hooks and permissions
 - NOTE: the template uses hook types that may not exist in the project:
