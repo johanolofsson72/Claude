@@ -128,6 +128,23 @@ run_pre_raw() {
 # It reports through JSON rather than exit 2 on purpose (FR-016): exit 2 hands stderr to the model alone,
 # and a detection only the model sees is one that can be summarised away. So the harness asserts on the
 # decision AND on both audiences being addressed, not on an exit code.
+# In-place edit that works on BSD sed (macOS) and GNU sed (Linux, Git Bash) alike.
+#
+# WHY: bare `sed -i 's/x/y/' f` is GNU-only. BSD sed reads the expression as the
+# BACKUP SUFFIX and then tries to parse the filename as the script, so it fails and
+# leaves the file untouched. That is what SC-922 was: lines 588/599 never made the
+# tick, the detector correctly saw nothing changed and went SILENT, and the test
+# read a portability bug as a broken gate for as long as it ran on a Mac. The gate
+# itself was fine -- verified by making the same edit portably and watching it block.
+#
+# SC-921 was worse: it expects SILENT, so it PASSED, for exactly the wrong reason.
+# Cross-platform is a base requirement here, not a nicety.
+inplace() {  # inplace <sed-expression> <file>
+  local expr="$1" file="$2" tmp
+  tmp="${file}.inplace.$$"
+  sed "$expr" "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
 run_post() {
   local root="$1" cmd="$2" out
   out=$(jq -n --arg c "$cmd" --arg w "$root" '{tool_input:{command:$c}, cwd:$w}' \
@@ -585,7 +602,7 @@ if want postbytes; then
   else
     # SC-922 — a tick, made by any means, is reported.
     : > "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1
-    sed -i 's/^- \[ \] 002/- [x] 002/' "$ROOT/specs/INDEX.md"
+    inplace 's/^- \[ \] 002/- [x] 002/' "$ROOT/specs/INDEX.md"
     OUT=$(run_post "$ROOT" "true")
     expect_block "SC-922 a register tick is reported while CORE work is owed" "$OUT"
     case "$OUT" in *"core-owed-tick"*) ok "SC-922 ...and names the tick gate" ;;
@@ -596,7 +613,7 @@ if want postbytes; then
     # every time, and a report that always fires is a report nobody reads.
     git -C "$ROOT" checkout -q -- specs/INDEX.md
     : > "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1
-    sed -i 's/^- \[ \] 002/- [\/] 002/' "$ROOT/specs/INDEX.md"
+    inplace 's/^- \[ \] 002/- [\/] 002/' "$ROOT/specs/INDEX.md"
     OUT=$(run_post "$ROOT" "true")
     expect_silent "SC-921 marking a row in progress stays silent — the added lines carry no tick" "$OUT"
 
