@@ -245,6 +245,16 @@ if [ -f specs/INDEX.md ] && [ -x scripts/register-convergence.sh ]; then
   esac
 fi
 
+# ------------------------------------------------- 3d. is a row already written?
+# Local embedding pass over every register on the machine. Slow-ish (minutes on a
+# few hundred rows) and needs Ollama, so it runs only in --full, and its absence is
+# not a finding -- a maintenance pass that fails because a service is off gets
+# switched off.
+if [ "$FULL" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-similarity.sh ]; then
+  SIM_OUT=$(bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
+  [ "$SIM_RC" = 1 ] && add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | head -20)"
+fi
+
 # ------------------------------------------------------- 3b. spec-kit installation
 # The blind spot this section closes. Nothing in the template ever noticed that a
 # project's spec-kit was missing or years behind, because template-autosync.sh does

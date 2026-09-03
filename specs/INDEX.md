@@ -27,6 +27,8 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 015 — sigpipe-validator-scans-only-self-tests — spec-only — `validate-no-sigpipe-assertions.sh` globs `scripts/test-*.sh`, so 143 non-test scripts go unscanned; `template-autosync.sh:227` broke a unit test under load and the gate could not see it. Found as msroute 007cn.
 - [ ] 017 — canary-and-row-budget-do-not-compose — spec-only — every row can sit inside the 300-byte budget and the register still exceed the 25 KB canary: on msroute 90 archived-verbatim completed rows are 74% of the file. A compliant register with no next move. Found as msroute 007ck.
 - [x] 018 — core-owed-tick-gate-goes-silent — full track — the gate was never broken: the TEST used GNU `sed -i` on a BSD sed, so the tick never happened and the detector correctly said nothing. Portable `inplace()` helper; 89/89. Detalj: specs/INDEX.completed.md
+- [x] 019 — are-we-writing-this-row-twice — full track — nothing measured the question that opened the review: are we rebuilding what we already have. Local embedding pass over every register; found ighweld-2026 119/138, one job planned twice. Detalj: specs/INDEX.completed.md
+- [ ] 020 — quality-gate-hooks-are-unwired-because-they-were-slow — full track — 15 local-LLM hooks (test-realism, test-assertion, test-gap, secret-scan…) sit on disk unwired because they cost latency in-session. `install-nightly-maintenance.sh` now makes latency free at 02:30. Re-measure them there.
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 
 ## Register history (newest first)

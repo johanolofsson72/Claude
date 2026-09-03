@@ -51,6 +51,29 @@ three dispositions, and the default is the first:
 "Defer (track in spec)" in the `validation-followup.md` option set means *the third one* when the
 budget is spent. It has been read as "always make a row". It is not.
 
+### 1b. Before carving, ask whether the row already exists
+
+The opening question of the review that produced this rule was not about speed — it was *"vi
+sitter och skriver om redan befintlig funktionalitet"*. Nothing measured that. A carve budget stops
+the register growing; it does nothing about the same row being written twice, in two projects,
+months apart, by someone who could not have held 334 open rows in their head.
+
+`bash scripts/register-similarity.sh --text "<the row you are about to write>"` answers it in
+seconds. It embeds every register row across every project on the machine and reports the closest
+existing ones. Local embedding model, no network, no credentials.
+
+It is a **report, never a gate**. Two rows can be close in wording and different in intent; the
+point is that until 2026-09-03 nobody was looking at all. Run it before carving a row, and as part
+of the periodic maintenance pass.
+
+Its first full pass, across 28 projects and 334 open rows, found `ighweld-2026` rows **119 and 138**
+— both `scenario-map-split`, the same job planned twice nineteen rows apart, one measuring the file
+at 131 KB and the other at 169 KB.
+
+What it does **not** do is group rows by subject. The template's own 007, 013 and 016 were three
+different defects in one script; their descriptions are genuinely dissimilar and the tool correctly
+said so. That grouping is a `grep` for the filename, not an embedding.
+
 ### 2. Two carves per spec, then the budget is spent
 
 A spec may carve **at most 2 rows**. When a third finding wants a row, the spec does one of:

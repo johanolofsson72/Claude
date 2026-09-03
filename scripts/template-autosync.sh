@@ -179,6 +179,7 @@ archive-completed-rows.sh test-archive-completed-rows.sh
 register-convergence.sh test-register-convergence.sh
 install-nightly-maintenance.sh
 install-lane-merge-drivers.sh test-lane-merge-drivers.sh
+register-similarity.sh register_similarity.py test-register-similarity.sh
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
