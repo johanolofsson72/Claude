@@ -292,7 +292,23 @@ fi
 #
 # Report-only. Installing spec-kit needs a real /project-update (it re-inits, merges
 # CLAUDE.md and re-decides the tech stack), which is a judgment pass, not a sweep.
-if [ -f specs/INDEX.md ] || [ -d .specify ]; then
+# A repo with no LANGUAGE MARKER is a template or scratch tree, and every guard in
+# this family already stays silent on one -- spec-register-guard, the orientation
+# hook, the pipeline state guard. The condition here was "has a register OR has
+# .specify", and the template acquired a register on 2026-09-03 for its own
+# machinery rows. It has no source code, so /speckit-specify has nothing to
+# specify, and the pass began telling the config repo to run /project-update on
+# itself. Same not-applicable-is-not-broken distinction as the traceability
+# gate's exit 7.
+SK_IS_PROJECT=0
+for marker in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile build.gradle build.gradle.kts pom.xml pubspec.yaml; do
+  [ -f "$marker" ] && SK_IS_PROJECT=1 && break
+done
+if [ "$SK_IS_PROJECT" -eq 0 ]; then
+  ls ./*.csproj ./*.sln >/dev/null 2>&1 && SK_IS_PROJECT=1
+fi
+
+if [ "$SK_IS_PROJECT" -eq 1 ] && { [ -f specs/INDEX.md ] || [ -d .specify ]; }; then
   SK_SKILLS=$(find .claude/skills -maxdepth 1 -type d -name 'speckit*' 2>/dev/null | wc -l | tr -d ' ')
   case "$SK_SKILLS" in (''|*[!0-9]*) SK_SKILLS=0 ;; esac
   SK_VER=""
