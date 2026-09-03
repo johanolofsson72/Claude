@@ -105,6 +105,8 @@
 #   4  no reference root to read — either one the caller NAMED does not exist, or discovery found
 #      none of its candidates. Both are "I could not look", and neither is ever reported as clean.
 #   5  checked, but part of the map was unreadable — never reported as clean
+#   7  NOT APPLICABLE — the project has no scenario map at all. Distinct from 3,
+#      which means a map exists and could not be read.
 #   6  a duplicate id — one id naming more than one row. Split out of 1 because it is a
 #      different kind of fact: an ambiguous handle breaks every consumer that resolves it
 #      (spec_active.py, both PreToolUse guards, the archiver), where uncovered rows are a
@@ -183,7 +185,21 @@ PROJECT=$(CDPATH='' cd -- "$SPECS_DIR/.." && pwd)
 LAYOUT=$(scenario_map_layout "$PROJECT")
 
 INDEX="$SPECS_DIR/SCENARIOS.md"
-[ -f "$INDEX" ] || { echo "scenario-traceability: no scenario map at $INDEX" >&2; exit 3; }
+# NO MAP IS NOT A BROKEN MAP. Exit 3 means "the map could not be read, the
+# extractor refused, or it yielded zero rows" -- a project whose map is damaged.
+# A project that has never had one is a different fact: ighweld ships three specs
+# and no scenarios, which is a legitimate state, and reporting it with the same
+# code as a corrupt map makes a caller choose between treating a healthy project
+# as broken or a broken one as healthy.
+#
+# Exit 7, and it says what to do about it rather than only what is absent. Same
+# third-state discipline as rows H7t and 007br.
+if [ ! -f "$INDEX" ]; then
+  echo "scenario-traceability: NOT APPLICABLE — no scenario map at $INDEX." >&2
+  echo "  A project with interactive behaviour should have one (.claude/rules/scenarios.md);" >&2
+  echo "  a project without is a legitimate state and this is not a failure." >&2
+  exit 7
+fi
 
 MAP_FILES="$INDEX"
 if [ "$LAYOUT" = "split" ]; then

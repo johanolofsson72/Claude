@@ -426,6 +426,38 @@ case "$NESTED_DENY" in
 esac
 mv "$NESTED/specs/INDEX.off" "$NESTED/specs/INDEX.md"
 
+# --- a standing pointer row is never the active spec ----------------------
+# .claude/rules/carve-budget.md gives every product register one
+# "T0 — harness-defects — standing" row pointing at the template's register. It
+# is not a spec and owes no artifacts. Added 2026-09-03 WITHOUT excluding it
+# here, and on the two projects whose other rows were all ticked the SessionStart
+# banner immediately began announcing "next: T0 — harness-defects" as the spec to
+# build. A pointer offered as work is worse than no pointer.
+STAND=$(mktemp -d); mkdir -p "$STAND/specs"
+{ echo "# Spec register"; echo; echo "## Specs"; echo
+  echo "- [x] 001 — done — spec-only — a finished row"
+  echo "- [ ] T0 — harness-defects — standing — points at the template register"
+} > "$STAND/specs/INDEX.md"
+STAND_OUT=$(cd "$STAND" && python3 "$GUARD_DIR/spec_active.py" 2>/dev/null)
+CHECKS=$((CHECKS + 1))
+case "$STAND_OUT" in
+  *'"id": "T0"'*|*'"id":"T0"'*)
+    FAILURES=$((FAILURES + 1)); printf '  ✗ a standing row is offered as the active spec\n' ;;
+  *) printf '  ✓ a standing row is never the active spec\n' ;;
+esac
+# Control: with a real open row present, that row must still resolve.
+{ echo "# Spec register"; echo; echo "## Specs"; echo
+  echo "- [x] 001 — done — spec-only — a finished row"
+  echo "- [ ] T0 — harness-defects — standing — points at the template register"
+  echo "- [ ] 002 — real — spec-only — actual work"
+} > "$STAND/specs/INDEX.md"
+STAND_OUT2=$(cd "$STAND" && python3 "$GUARD_DIR/spec_active.py" 2>/dev/null)
+CHECKS=$((CHECKS + 1))
+case "$STAND_OUT2" in
+  *'"id": "002"'*|*'"id":"002"'*) printf '  ✓ control: a real open row still resolves past the standing one\n' ;;
+  *) FAILURES=$((FAILURES + 1)); printf '  ✗ control: the real row did not resolve\n' ;;
+esac
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "PASS — $CHECKS/$CHECKS expectations met (guards: $GUARD_DIR)"

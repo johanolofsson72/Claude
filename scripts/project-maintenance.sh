@@ -124,6 +124,10 @@ if [ -f scripts/validate-scenario-traceability.sh ] && [ -f specs/SCENARIOS.md ]
     # split out so a collision cannot hide behind a permanently-red coverage
     # backlog. Leaving it in the catch-all turned the very finding that split
     # earned into "could not run", which is the report the split existed to stop.
+    # 7 is NOT APPLICABLE: the project has no scenario map. Silent on purpose --
+    # a project that legitimately owns no scenarios should not carry a finding
+    # every pass for not having them.
+    7) : ;;
     0|1|6)
       TRACE_COV=$(printf '%s\n' "$TRACE_OUT" | grep '^coverage:' | head -1)
       [ -n "$TRACE_COV" ] && note "[TRACEABILITY] $TRACE_COV"

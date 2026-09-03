@@ -83,8 +83,17 @@ ROW_RE = re.compile(
 #     - ### Feature: Connect Fortnox   (spec: 280-fortnox-org-config)  → [scenarios/280.md](scenarios/280.md)
 # It carries a title, a spec slug and a link, and it carries NO id-range and NO tally — so the
 # invariants that compare those are not applicable to it and say so rather than passing vacuously.
+# The colon after "spec" is OPTIONAL, and that is not a nicety. rocky writes
+# "(spec 292)" on 194 of its 240 index links and "(spec: 279-…)" on the other 46.
+# Requiring the colon made the gate see 46 links where there are 240, and then
+# report 194 perfectly-linked files as orphans on disk. Measured 2026-09-03: it
+# named 88 files as orphans when exactly TWO are genuinely unreferenced.
+#
+# A gate that invents 86 findings is worse than one that finds none — the two real
+# ones were invisible inside the noise, and nobody reads the 89th line of a list
+# that is wrong at the top.
 LIST_RE = re.compile(
-    r"^[-*] +#*\s*Feature:\s*(?P<title>.+?)\s*\((?:spec|specs):\s*(?P<specs>[^)]*)\)"
+    r"^[-*] +#*\s*Feature:\s*(?P<title>.+?)\s*\((?:spec|specs):?\s*(?P<specs>[^)]*)\)"
     r".*?\]\(scenarios/(?P<file>[a-z0-9.-]+\.md)\)",
     re.M,
 )
@@ -154,11 +163,23 @@ def list_entries(text):
 entries = [m.groupdict() for m in ROW_RE.finditer(index_text)]
 INDEX_SHAPE = "table"
 if not entries:
-    entries = [dict(m.groupdict(), ids="", tally="") for m in LIST_RE.finditer(index_text)]
+    # MERGE the two list shapes, do not pick one. An index can use both, and
+    # rocky's does: 80 rows are "- ### Feature: … (spec 292) → [link]" which only
+    # LIST_RE sees, and 154 are a heading with the link on its own continuation
+    # line, which only LINK_RE sees. Taking whichever matcher found MORE threw
+    # away the other 80 and reported them as orphan files on disk — 88 findings
+    # where two are real.
+    #
+    # Keyed on the file, because that is what an entry is about; a file matched by
+    # both shapes is one entry, and LIST_RE's is preferred because it carries the
+    # spec column straight off the row rather than inferring it from a heading.
     INDEX_SHAPE = "list"
-    by_link = list_entries(index_text)
-    if len(by_link) > len(entries):
-        entries = by_link
+    merged = {}
+    for e in list_entries(index_text):
+        merged[e["file"]] = e
+    for m in LIST_RE.finditer(index_text):
+        merged[m.group("file")] = dict(m.groupdict(), ids="", tally="")
+    entries = list(merged.values())
 files_on_disk = sorted(f for f in os.listdir(FEAT_DIR) if f.endswith(".md"))
 
 print(f"index has {len(entries)} rows ({INDEX_SHAPE} shape); {len(files_on_disk)} feature files on disk")

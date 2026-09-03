@@ -172,6 +172,12 @@ def classify_id(token: str) -> tuple[str, str]:
     return re.sub(r"^\**|\**$", "", token), "malformed"
 
 
+def _is_standing(track_field: str) -> bool:
+    """A standing pointer row, in either language this project's registers use."""
+    first = (track_field.split() or [""])[0].lower().strip()
+    return first in ("standing", "st\u00e5ende")
+
+
 def _kind_for(shape: str, track_field: str) -> str:
     """What the guards branch on: "unparseable" | "checkpoint" | "spec".
 
@@ -241,6 +247,18 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
     for status, ident, kind, track_field, row_owner in _rows(register_path):
         if lane and row_owner and row_owner != lane:
             continue  # somebody else's lane
+        # A STANDING row is a pointer, never work. `.claude/rules/carve-budget.md`
+        # gives every product register one `T0 — harness-defects — standing` row
+        # that points at the template's register; it "is ticked when nothing
+        # blocks; it is never carved from". It is not a spec, owes no artifacts,
+        # and must never be offered as the next thing to build.
+        #
+        # Added 2026-09-03 with the T0 rows and NOT excluded here, which is the
+        # whole defect: on the two projects whose other rows were all ticked, the
+        # SessionStart banner immediately began announcing
+        # "next: T0 — harness-defects" as the spec to work.
+        if _is_standing(track_field):
+            continue
         mine = bool(lane) and row_owner == lane
         entry = (ident, kind, track_field, status)
         if status == "/":

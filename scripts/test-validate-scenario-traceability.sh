@@ -205,10 +205,16 @@ else
   bad "case9-missing-root" "expected exit 4 naming the root, got $RC: $OUT"
 fi
 
-# case10 — the map file is absent.
+# case10 — the map file is absent. That is NOT APPLICABLE (7), not "could not be
+# read" (3). A project that has never owned scenarios is a legitimate state —
+# ighweld ships three specs and no map — and giving it the same code as a corrupt
+# map forces every caller to treat one of the two wrongly. case11 below keeps 3
+# for the map that EXISTS and yields nothing, which is the real defect.
 proj=$(new_project)
 run_gate "$proj"
-if [ "$RC" -eq 3 ]; then ok "case10-absent-map"; else bad "case10-absent-map" "expected exit 3, got $RC: $OUT"; fi
+if [ "$RC" -eq 7 ]; then ok "case10-absent-map"; else bad "case10-absent-map" "expected exit 7, got $RC: $OUT"; fi
+case "$OUT" in *"NOT APPLICABLE"*) ok "case10-absent-map says not-applicable, not broken" ;;
+               *) bad "case10-absent-map wording" "no NOT APPLICABLE in: $OUT" ;; esac
 
 # case11 — a map with no rows. "0 of 0, all clear" is arithmetically clean and semantically empty;
 # reporting it as success is the failure this whole script is named after.
