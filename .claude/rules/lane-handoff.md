@@ -104,6 +104,40 @@ When Claude assigns a row, it writes that as a **proposal in the register**, not
 in the chat. Changing a tag takes the developer a second; asking first costs a round trip and
 a wait.
 
+## The merge cost is in the coordination files, not the code
+
+Measured on agentcrm over the two weeks both lanes ran (2026-08-20 → 09-02), the files both
+developers touched most were not source files:
+
+| File | Touches | Johan | David |
+|---|---|---|---|
+| `specs/INDEX.md` | 117 | 70 | 47 |
+| `specs/INDEX.pending.md` | 50 | 17 | 33 |
+| `specs/SCENARIOS.md` | 49 | 30 | 19 |
+| `specs/PHASE-DEBT.md` | 25 | 10 | 15 |
+
+Two source files made the top fifteen. So the hours spent merging are mostly two people appending
+to four markdown files, and git calling every append at the same end a conflict.
+
+Those files are **lists**, and two lanes appending different entries is two additions, not a
+disagreement. `bash scripts/install-lane-merge-drivers.sh` sets `merge=union` on them in
+`.gitattributes` (a built-in strategy — nothing to register per clone, unlike the custom driver
+`scripts/merge-locale-json.py` that this project already wrote for the i18n files).
+
+**The trade, stated plainly.** `union` never reports a conflict; it keeps both sides. That is right
+for an append and wrong when both lanes edit the *same* row — there you get the row twice instead of
+a conflict marker. Two things bound it: this rule already forbids touching the other lane's row, and
+`scripts/validate-register-ids.sh` fails on a duplicated id. **Run that after every merge** — it is
+the gate that makes the trade a good one. `scripts/test-lane-merge-drivers.sh` asserts both halves,
+the clean append and the duplicated row, so the risk is pinned by a test rather than remembered.
+
+`specs/SCENARIOS.md` is deliberately **excluded**: it carries Mermaid diagrams, and union would
+interleave two graphs into a block that renders as nothing while reporting a clean merge. A map that
+contended belongs in the split layout (`.claude/rules/scenarios.md`), where each lane owns its own
+feature file and the contention goes away structurally rather than being merged around. agentcrm's
+map is 254 KB in one file — ten times the context-cost canary — so that split is overdue on its own
+merits.
+
 ## What this rule forbids
 
 - Reporting a finding that concerns the other lane **only** in the chat. The chat may summarise

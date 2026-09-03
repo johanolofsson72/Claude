@@ -84,6 +84,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `feature-pipeline.md`
 - `spec-register.md`
 - `spec-hardening.md`
+- `carve-budget.md`
 - `project-workflow.md`
 - `sqlite.md`
 - `spot-resilience.md`

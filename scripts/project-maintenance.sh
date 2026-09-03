@@ -231,6 +231,20 @@ if [ -f specs/INDEX.md ]; then
   fi
 fi
 
+# ------------------------------------------------- 3c. does the register converge?
+# The one measurement that says whether the pipeline is finishing anything. Every
+# other check here finds work; this one asks whether the finding is outrunning the
+# closing. Measured 2026-09-03 across five projects: rocky 2.15, agentcrm 2.08,
+# consultpilot 1.30 -- all diverging. See .claude/rules/carve-budget.md.
+if [ -f specs/INDEX.md ] && [ -x scripts/register-convergence.sh ]; then
+  CONV_OUT=$(bash scripts/register-convergence.sh --quiet 2>&1); CONV_RC=$?
+  case "$CONV_RC" in
+    2) add "[CONVERGENCE] $CONV_OUT" ;;
+    1) note "[note] $CONV_OUT" ;;
+    3|4) : ;;  # too little history, or no register -- not a finding
+  esac
+fi
+
 # ------------------------------------------------------- 3b. spec-kit installation
 # The blind spot this section closes. Nothing in the template ever noticed that a
 # project's spec-kit was missing or years behind, because template-autosync.sh does

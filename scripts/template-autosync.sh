@@ -176,6 +176,9 @@ prune-dangling-hooks.py prune-agent-worktrees.sh
 speckit-extension-policy.sh
 archive-spec-history.sh test-archive-spec-history.sh
 archive-completed-rows.sh test-archive-completed-rows.sh
+register-convergence.sh test-register-convergence.sh
+install-nightly-maintenance.sh
+install-lane-merge-drivers.sh test-lane-merge-drivers.sh
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
@@ -221,7 +224,8 @@ update-template.sh verify-local-llm-hooks.sh"
 
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
-security.md project-workflow.md github-actions.md allium.md lane-handoff.md"
+security.md project-workflow.md github-actions.md allium.md lane-handoff.md
+carve-budget.md"
 
 is_core() {
   case "$2" in

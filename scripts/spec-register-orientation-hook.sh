@@ -316,7 +316,33 @@ ${TAIL_LINES}"
   not-actually-started ones to \`- [ ]\`, and leave exactly one \`- [/]\`."
   fi
 
-  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}"
+  # Is the register closing faster than it grows? (.claude/rules/carve-budget.md)
+  # This is the only banner that describes the project's direction rather than its
+  # state, and it belongs at SessionStart because the decision it informs -- carve
+  # another row, or fold the findings -- is made at the start of a spec, not after.
+  # The check is lazy: a handful of `git show` calls, ~1-2 s on a 359 KB register.
+  CONVERGE_WARN=""
+  if [ -x "$PROJECT_ROOT/scripts/register-convergence.sh" ]; then
+    # Capture the exit code from the SCRIPT, not from the `head` that trims it --
+    # piping first makes $? the trimmer's, which is always 0, and the banner then
+    # never fires however badly the register diverges.
+    CONV_RAW=$(cd "$PROJECT_ROOT" && bash scripts/register-convergence.sh --quiet 2>/dev/null)
+    CONV_RC=$?
+    CONV_LINE=$(printf '%s\n' "$CONV_RAW" | head -1)
+    if [ "$CONV_RC" = "2" ] && [ -n "$CONV_LINE" ]; then
+      CONVERGE_WARN="
+⚠ ${CONV_LINE}
+  Per .claude/rules/carve-budget.md this is a CONVERGENCE STOP. Work the current row,
+  then stop and put the three ways out to the developer (freeze carving · batch the open
+  spec-only rows into one · cut what no longer matters). Do not carve further rows in the
+  meantime: a finding gets fixed in place, or declined in the run log with a reason."
+    elif [ "$CONV_RC" = "1" ] && [ -n "$CONV_LINE" ]; then
+      CONVERGE_WARN="
+· ${CONV_LINE}"
+    fi
+  fi
+
+  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
     MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
     jq -n --arg m "$MSG" '{systemMessage: $m}'
@@ -325,7 +351,7 @@ ${TAIL_LINES}"
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   jq -n --arg m "$MSG" '{systemMessage: $m}'
