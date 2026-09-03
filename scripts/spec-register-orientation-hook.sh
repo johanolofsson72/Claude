@@ -90,6 +90,16 @@ if [ -n "$FOUND_REG" ]; then
       /^- \[[ \/]\]/ {
         inprog = ($0 ~ /^- \[\/\]/)
         if (only_prog != "" && !inprog) next
+        # A STANDING row is a pointer, not work — the same reason "- [!]" is
+        # excluded above. .claude/rules/carve-budget.md gives every register one
+        # "T0 — harness-defects — standing" row pointing at the template register;
+        # it owes no artifacts and is never carved from. Without this, the two
+        # projects whose other rows were all ticked greeted every session with
+        # "next: T0 — harness-defects" as the spec to build.
+        #
+        # Both spellings, because agentcrm, consultpilot and msroute write their
+        # registers in Swedish.
+        if ($0 ~ /—[[:space:]]*(standing|st\303\245ende)[[:space:]]*—/) next
         owner = ""
         if (match($0, /—[[:space:]]*@[A-Za-z0-9._-]+[[:space:]]*$/)) {
           owner = substr($0, RSTART, RLENGTH)
