@@ -102,3 +102,51 @@ its own — the index itself grows. msroute is the shape to copy: split, 5 KB.
 Per-project work with its own spec, not a sweep: moving a map must not reword,
 re-status or drop a row, and `scripts/scenario-map-rows.sh` +
 `scripts/test-scenario-map-split.sh` are the pair that proves it mechanically.
+
+## 006 — nothing-checks-the-design-gate-exists
+
+- [ ] 006 — nothing-checks-the-design-gate-exists — spec-only — corrected on measurement 2026-09-03.
+
+_Row as it stood, and as it was wrong:_
+
+- [ ] 006 — frontend-design-is-a-plugin-not-a-skill — spec-only — four CORE files call `frontend-design` as BLOCKING by bare name; it ships in the plugin cache, not `.claude/skills/`. Without that plugin the gate cannot fire and says nothing. Found by @david as agentcrm S20.
+
+The row made two claims and only one survives.
+
+**Refuted — the bare name resolves.** Measured from film-i-vast-demo, 2026-09-03, by
+invoking `Skill(skill: "frontend-design")` and reading where it loaded from:
+
+    Base directory for this skill:
+    ~/.claude/plugins/cache/claude-plugins-official/frontend-design/0120fb83da5d/skills/frontend-design
+
+The harness resolves an unqualified skill name against installed plugins, so the
+nine files naming the bare form — `CLAUDE.md`'s BLOCKING line, `.claude/rules/frontend.md`,
+`.claude/rules/design-references.md`, `.claude/docs/workflows.md`, `project-wizard`,
+`scripts/ui-design-hook.sh`, `scripts/stop-validation-hook.sh`, `scripts/sync-prompt.md`
+and the `settings.json` PostToolUse hook — are all correct as written. Renaming them to
+`frontend-design:frontend-design` would be churn, and would break the day the skill moves
+back out of a plugin.
+
+The claim was never measured. It was inferred from the skill's absence in
+`.claude/skills/`, which is true and irrelevant: `.claude/skills/` is not the only
+namespace the Skill tool reads.
+
+**Stands — nothing verifies the plugin is present.** The failure the row was reaching for
+is real, one level in. Every caller above is prose telling a model to invoke a skill; none
+of them checks it can be invoked. On a machine where the plugin is not installed —
+a fresh clone, a second lane, a teammate who never ran `/project-wizard` Step 6 — the
+`Skill` call fails, and the BLOCKING design gate degrades to nothing. No hook fires, no
+gate reports, and the UI ships undesigned with a clean run log. That is the same shape as
+row 004 (three documents said nightly, nothing scheduled it) and row 018 (the gate was
+fine, its test never reached it).
+
+Fix is a presence check, not a rename: one predicate that answers "is the design gate
+reachable", called where the gate is already claimed to be enforced —
+`scripts/ui-design-hook.sh` (PreToolUse, where the model is being told to invoke it) and
+`scripts/project-maintenance.sh` (so a missing plugin is reported once a night rather than
+discovered by a UI spec). `project-wizard` Step 6 installs it; the check is what notices
+when Step 6 did not run or the cache was cleared.
+
+Scope note: the same argument applies to every external skill the ruleset calls BLOCKING
+by name. Enumerate them before writing the predicate — a check that covers only
+`frontend-design` is the same gap with a smaller radius.
