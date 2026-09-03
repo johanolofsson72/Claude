@@ -95,9 +95,9 @@ grep -q 'claude lane merge drivers' "$TMP/idem/.gitattributes" \
 # this assertion without exercising anything.
 setup "$TMP/heredoc" no
 out=$( cd "$TMP/heredoc" && bash "$SCRIPT_DIR/install-lane-merge-drivers.sh" 2>&1 )
-printf '%s' "$out" | grep -q 'is a built-in git merge strategy' \
+grep -q 'is a built-in git merge strategy' <<< "$out" \
   || bad "success message did not print — the assertion below would be vacuous"
-printf '%s' "$out" | grep -q 'command not found' \
+grep -q 'command not found' <<< "$out" \
   && bad "success message runs its own backticks (unquoted heredoc)" \
   || ok "success message does not execute its backticks"
 

@@ -242,12 +242,42 @@ FILES=0
 HITS=0
 UNDECIDED=0
 EXEMPT=0
+BACKLOG=0   # findings in production scripts: reported, not fatal unless --strict
 
 # `find … -print0`-free on purpose: the paths are ours and contain no spaces, and a while-read over a glob
 # keeps the gate readable. If that ever stops being true this loop is the place to harden.
+# Row 015. The default population is scripts/test-*.sh, and that is the gate's
+# contract: an assertion returning 141 silently inverts a claim, which is the
+# defect this exists to find. Its own meta-test, its K5 "nothing was scanned"
+# refusal and its sync-owned exemption are all written against that population.
+#
+# But 104 of this repo's 139 shell scripts were never looked at, and
+# template-autosync.sh:227 carried the same shape and broke a unit test under
+# load. So the wider scan is available, and OPT-IN:
+#
+#   --all      scan every scripts/*.sh; production findings are a reported
+#              backlog and do not change the exit code
+#   --strict   with --all, fail on them too
+#
+# Making the wide scan the DEFAULT was tried and reverted: it reports 54
+# production pipelines, nearly all legitimate diagnostics where a 141 costs
+# nothing, and it broke three arms of the gate's own meta-test — including the
+# one guaranteeing a tree with nothing to scan is refused rather than called
+# clean. A gate bent to fit a wider net is worse than a narrow net plus a flag.
+SCAN_ALL=0
+STRICT=0
+case " $* " in *" --all "*) SCAN_ALL=1 ;; esac
+case " $* " in *" --strict "*) STRICT=1; SCAN_ALL=1 ;; esac
 shopt -s nullglob
-TESTS=("$SCAN_ROOT"/scripts/test-*.sh)
+if [ "$SCAN_ALL" -eq 1 ]; then
+  TESTS=("$SCAN_ROOT"/scripts/*.sh)
+  POP_LABEL="scripts/*.sh"
+else
+  TESTS=("$SCAN_ROOT"/scripts/test-*.sh)
+  POP_LABEL="scripts/test-*.sh"
+fi
 shopt -u nullglob
+is_selftest() { case "$(basename "$1")" in test-*) return 0 ;; *) return 1 ;; esac; }
 
 if [ "${#TESTS[@]}" -eq 0 ]; then
   echo "ERROR: no scripts/test-*.sh under $SCAN_ROOT — nothing was scanned." >&2
@@ -277,13 +307,13 @@ for f in "${TESTS[@]}"; do
     is_assertion "$body"; verdict=$?
     case $verdict in
       0)
-        HITS=$((HITS + 1))
+        if is_selftest "$f"; then HITS=$((HITS + 1)); else BACKLOG=$((BACKLOG + 1)); fi
         printf '%s:%s\n' "${f#"$SCAN_ROOT"/}" "$lineno"
         printf '    %s\n' "${body#"${body%%[![:space:]]*}"}"
         printf '    -> use a here-string: grep -q PATTERN <<< "$VAR"   (or grep -q PATTERN FILE)\n'
         ;;
       2)
-        UNDECIDED=$((UNDECIDED + 1))
+        if is_selftest "$f"; then UNDECIDED=$((UNDECIDED + 1)); else BACKLOG=$((BACKLOG + 1)); fi
         printf '%s:%s  UNDECIDED — cannot tell assertion from diagnostic on this line alone\n' \
           "${f#"$SCAN_ROOT"/}" "$lineno"
         printf '    %s\n' "${body#"${body%%[![:space:]]*}"}"
@@ -292,15 +322,24 @@ for f in "${TESTS[@]}"; do
   done < <(scan_lines "$f")
 done
 
-TOTAL=$((HITS + UNDECIDED))
+# --strict folds the production backlog into the verdict; by default it is
+# reported and the exit code speaks only for the self-tests, where a 141 silently
+# inverts an assertion.
+if [ "$STRICT" -eq 1 ]; then TOTAL=$((HITS + UNDECIDED + BACKLOG)); else TOTAL=$((HITS + UNDECIDED)); fi
+if [ "$BACKLOG" -gt 0 ]; then
+  printf '\n[backlog] %s pipeline(s) in production scripts (not self-tests).\n' "$BACKLOG" >&2
+  printf '          Usually a diagnostic, where 141 costs nothing. Re-run with --strict to fail on\n' >&2
+  printf '          them, and fix them ONE AT A TIME: a bulk regex pass over 34 of these turned a\n' >&2
+  printf '          real suite red on 2026-09-03 (msroute row M2).\n' >&2
+fi
 
 # Printed in EVERY branch, clean or not. The one fact that would have caught this gate going blind
 # upstream is how many files it opened out of how many it found, and that fact must not be conditional
 # on the verdict — a number you only see when something else already went wrong is a number nobody has.
 mode_line() {
   printf 'mode: %s — %s\n' "$MODE_LABEL" "$MODE_WHY"
-  printf 'population: %s of %s scripts/test-*.sh in scope, %s exempt as sync-owned\n' \
-    "$FILES" "${#TESTS[@]}" "$EXEMPT"
+  printf 'population: %s of %s %s in scope, %s exempt as sync-owned\n' \
+    "$FILES" "${#TESTS[@]}" "${POP_LABEL:-scripts/test-*.sh}" "$EXEMPT"
 }
 
 if [ "$LIST" -eq 1 ]; then

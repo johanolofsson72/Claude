@@ -34,8 +34,8 @@ run() { CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER="$1" bash "$HOOK" 2>/dev/null | jq
 check() {
   # $1 = label, $2 = haystack, $3 = needle, $4 = present|absent
   case "$4" in
-    present) if printf '%s' "$2" | grep -qF -- "$3"; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); printf 'FAIL %s — missing "%s"\n' "$1" "$3"; fi ;;
-    absent)  if printf '%s' "$2" | grep -qF -- "$3"; then FAIL=$((FAIL+1)); printf 'FAIL %s — should not contain "%s"\n' "$1" "$3"; else PASS=$((PASS+1)); fi ;;
+    present) if grep -qF -- "$3" <<< "$2"; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); printf 'FAIL %s — missing "%s"\n' "$1" "$3"; fi ;;
+    absent)  if grep -qF -- "$3" <<< "$2"; then FAIL=$((FAIL+1)); printf 'FAIL %s — should not contain "%s"\n' "$1" "$3"; else PASS=$((PASS+1)); fi ;;
   esac
 }
 

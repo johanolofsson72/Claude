@@ -18,7 +18,7 @@ PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS+1)); }
 bad() { echo "  FAIL  $1"; FAIL=$((FAIL+1)); }
 
-if ! curl -s -o /dev/null -m 3 "$HOST/api/tags" || ! curl -s -m 3 "$HOST/api/tags" | grep -q "\"$MODEL"; then
+if ! curl -s -o /dev/null -m 3 "$HOST/api/tags" || ! grep -q "\"$MODEL" <<< "$(curl -s -m 3 "$HOST/api/tags")"; then
   echo "register-similarity: SKIPPED — no Ollama at $HOST with model '$MODEL'."
   exit 0
 fi

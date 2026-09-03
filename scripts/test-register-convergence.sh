@@ -33,7 +33,7 @@ check() { # check <label> <dir> <expected verdict> <expected exit>
   local label="$1" d="$2" want="$3" wantrc="$4"
   local out rc
   out=$(bash "$SUT" --dir "$d" --json 2>&1); rc=$?
-  if printf '%s' "$out" | grep -q "\"verdict\":\"$want\"" && [ "$rc" = "$wantrc" ]; then
+  if grep -q "\"verdict\":\"$want\"" <<< "$out" && [ "$rc" = "$wantrc" ]; then
     echo "  PASS  $label"; PASS=$((PASS+1))
   else
     echo "  FAIL  $label — want $want/rc$wantrc, got rc$rc: $out"; FAIL=$((FAIL+1))
@@ -68,7 +68,7 @@ check "thin window stays quiet" "$TMP/thin" thin 0
 # A quiet week ticks nothing; dividing by zero would print infinity and cry wolf.
 mk "$TMP/noticks" "10 5" "14 5" "18 5"
 out=$(bash "$SUT" --dir "$TMP/noticks" 2>&1); rc=$?
-if [ "$rc" = 3 ] && printf '%s' "$out" | grep -q "nothing to measure"; then
+if [ "$rc" = 3 ] && grep -q "nothing to measure" <<< "$out"; then
   echo "  PASS  no ticks in window -> rc3"; PASS=$((PASS+1))
 else echo "  FAIL  no ticks in window — got rc$rc: $out"; FAIL=$((FAIL+1)); fi
 
