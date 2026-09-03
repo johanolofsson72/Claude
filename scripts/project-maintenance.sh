@@ -245,6 +245,18 @@ if [ -f specs/INDEX.md ] && [ -x scripts/register-convergence.sh ]; then
   esac
 fi
 
+# ------------------------------------------------------- 3e. script mode drift
+# A .sh without its executable bit still runs as `bash X`, so nothing fails --
+# it fails only where something guards with `-x`, and then it fails SILENTLY.
+# Eight CORE scripts shipped that way and the sync copied the modes faithfully
+# to every project; the defect surfaced only when a new script guarded with -x
+# and skipped its whole check without a word.
+if [ -d scripts ]; then
+  NOEXEC=$(for f in scripts/*.sh; do [ -f "$f" ] && [ ! -x "$f" ] && basename "$f"; done | tr '\n' ' ')
+  [ -n "$NOEXEC" ] && add "[SCRIPT MODE] shell script(s) without the executable bit: $NOEXEC
+Harmless under \`bash X\`, silent under an \`-x\` guard. Fix: chmod +x scripts/<name>"
+fi
+
 # ------------------------------------------------- 3d. is a row already written?
 # Local embedding pass over every register on the machine. Slow-ish (minutes on a
 # few hundred rows) and needs Ollama, so it runs only in --full, and its absence is

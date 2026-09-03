@@ -138,6 +138,29 @@ feature file and the contention goes away structurally rather than being merged 
 map is 254 KB in one file — ten times the context-cost canary — so that split is overdue on its own
 merits.
 
+## Bringing a lane level again (`scripts/lane-catchup.sh`)
+
+A lane that sets `CLAUDE_TEMPLATE_AUTOSYNC=0` — which the second machine is told to
+do, so the two do not race each other's config commits — receives nothing on its
+own. When the other lane changes the rules or the shared machinery, this is the one
+command that says what is missing:
+
+```bash
+bash scripts/lane-catchup.sh            # report only
+bash scripts/lane-catchup.sh --apply    # also make the two machine-local fixes
+```
+
+It checks, in this order: the permission denies that make ordinary commands prompt,
+the repository's position against origin, whether the shared machinery landed, the
+nightly cron (a crontab entry is not in git), and what this lane owns.
+
+**The order is the point.** The first draft of this was a written list sent to a
+person, and it put the permission fix fourth — so the developer approved a prompt
+per command on the way to the step that stops the prompts. It also ended with
+"report back", which makes a person the transport between two machines that already
+share a disk: the thing this rule exists to remove. A finding that concerns the
+other lane goes in `specs/INDEX.pending.md` or a new row, committed and pushed.
+
 ## What this rule forbids
 
 - Reporting a finding that concerns the other lane **only** in the chat. The chat may summarise
