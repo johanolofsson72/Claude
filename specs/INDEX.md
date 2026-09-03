@@ -25,6 +25,10 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 012 — core-file-comments-hold-real-scenario-ids — spec-only — a CORE file's comments cite real SC-ids as examples, so the traceability gate counts them as references and a deleted row looks covered. Found as consultpilot H7bp.
 - [ ] 013 — traceability-self-test-straddles-its-timeout — spec-only — `validate-scenario-traceability.sh`'s own self-test runs 77s against its timeout, so it passes or fails by machine speed. Found as consultpilot H7bq.
 - [ ] 014 — autosync-adds-gates-no-runner-registers — spec-only — a sync that ships new `test-*.sh` scripts leaves every project's `run-gates.sh` reporting DRIFT until someone adds them to GATES by hand. Found as consultpilot H7av.
+- [ ] 015 — sigpipe-validator-scans-only-self-tests — spec-only — `validate-no-sigpipe-assertions.sh` globs `scripts/test-*.sh`, so 143 non-test scripts go unscanned; `template-autosync.sh:227` broke a unit test under load and the gate could not see it. Found as msroute 007cn.
+- [ ] 016 — traceability-gate-floor-and-letter-ids — spec-only — the out-of-range floor is the map's lowest id, useless on a map starting at SC-001 (11 ids misfiled), and the gate cannot see letter ids, so nine `SC-A11` audits trace to nothing. Found as msroute 007cp + 007cw.
+- [ ] 017 — canary-and-row-budget-do-not-compose — spec-only — every row can sit inside the 300-byte budget and the register still exceed the 25 KB canary: on msroute 90 archived-verbatim completed rows are 74% of the file. A compliant register with no next move. Found as msroute 007ck.
+- [ ] 018 — core-owed-tick-gate-goes-silent — full track — `test-bash-write-guard.sh` SC-922 expects the tick gate to block a register tick while CORE work is owed and gets SILENT; 2 of 89 expectations. Pre-existing, confirmed against 3264482. A gate that never fires is not a gate.
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 
 ## Register history (newest first)
