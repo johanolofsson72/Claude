@@ -129,6 +129,14 @@ The register is read (and often re-read) on essentially every spec. If it balloo
   project already knew how to pay. A mechanism that depends on memory is a mechanism with an expiry
   date.
 
+- **Never pick a row id by eye.** `bash scripts/next-register-id.sh` returns the next free one
+  (`--count N`, `--alpha S`, `--checkpoint`). An id is a permanent handle: `spec_active.py` resolves
+  it, both PreToolUse guards glob `specs/<id>-*` from it, and the archiver keys on it. Reading a
+  150-row register and guessing is a coin toss — three colliding ids were picked by hand on
+  2026-09-03 alone, each caught by `validate-register-ids.sh` and each costing a commit, a renumber
+  and a second push. The allocator appends past the highest id in the register AND in every
+  `INDEX*.md` archive beside it, so it cannot collide with a row that has already been moved out.
+
 - **Ticking a row is an Edit, not a rewrite.** Change `- [ ]` to `- [x]` on the one row with a surgical `Edit`; do not read-and-rewrite the whole register to tick one box.
 - **A tick is refused while the project owes the template CORE work.** `scripts/core-owed-tick-guard-hook.sh` (layer 3 under Enforcement below) checks that at the moment of the tick and denies it if `--owed` or `--unlisted` has anything to say. If you meet that deny, the fix is to land the change in the template and sync it back — not to reach for the override.
 
