@@ -150,3 +150,28 @@ when Step 6 did not run or the cache was cleared.
 Scope note: the same argument applies to every external skill the ruleset calls BLOCKING
 by name. Enumerate them before writing the predicate — a check that covers only
 `frontend-design` is the same gap with a smaller radius.
+
+## 026 — port-drive-sync-and-its-gate-upstream
+
+The 2026-08-30 incident — a harness syncing the real repository against a three-file sandbox template,
+54 `chore(sync)` commits pushed to origin/main, 505 lines deleted — was diagnosed and fixed by
+consultpilot as row H7bo. It built two things this repository does not have:
+
+- a `drive_sync` helper every harness routes its `template-autosync.sh` calls through, and
+- `validate-sync-sandbox-declarations.sh`, the gate that refuses any other call shape.
+
+The one dangerous call site here is already fixed (`test-template-autosync-stranded.sh:63`, commit
+9b0b5ad). What is missing is the mechanism that stops the next one being written, and the reason it
+matters is that this template is where every project's copy comes from.
+
+**Why it cannot be fixed downstream.** consultpilot's gate reports 17 direct invocations across six
+harnesses — `test-template-autosync-stranded`, `-owed`, `-eol`, `-unlisted`, `test-sync-count-honesty`,
+`test-core-owed-tick-guard`. Every one is CORE. A fix written into any of them is eaten by the next
+`chore(sync)`, which is the H7t lesson; the gate is therefore permanently red in that project for a
+defect it is not allowed to repair. Third time today a check has been found judging files the project
+does not own — the other two were `test-sync-prompt-core-parity.sh` and the stale `sync-prompt.md`
+copies.
+
+**Scope:** port `drive_sync` and the gate; convert the call sites in the CORE harnesses; ship both as
+CORE so the gate arrives with the shape it enforces. Audit first — two of the four call sites here
+already pass `CLAUDE_PROJECT_DIR` and need only rerouting, not a behaviour change.

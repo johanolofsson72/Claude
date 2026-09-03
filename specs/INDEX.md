@@ -34,6 +34,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 023 — secret-scan-misses-signing-material — full track [hardened] — two repos commit an ASP.NET Data Protection key and `project-freshness.sh` reports "no verified secrets" on both. trufflehog matches verifiable credentials; a signing key is none. Needs a file-shape arm.
 - [ ] 024 — sigpipe-backlog-in-production-scripts — spec-only — `validate-no-sigpipe-assertions.sh --all` reports 54 pipelines outside the self-tests. Mostly diagnostics where 141 costs nothing. One at a time: a bulk pass turned msroute's suite red (M2).
 - [x] 025 — speckit-check-fired-on-the-template — spec-only — the pass told this config repo to install spec-kit once it grew a register; now gated on a language marker, the predicate every other guard uses. Third not-applicable case today.
+- [ ] 026 — port-drive-sync-and-its-gate-upstream — full track — consultpilot authored H7bo (a `drive_sync` helper + `validate-sync-sandbox-declarations.sh`) after the 2026-08-30 incident; neither exists here, so its gate is red downstream on 17 CORE call sites it cannot fix. Diagnos: `specs/INDEX.pending.md`
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 
 ## Register history (newest first)
