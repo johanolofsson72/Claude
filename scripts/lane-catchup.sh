@@ -146,32 +146,37 @@ else
 fi
 
 # ── 5. Where the register stands, and what this lane owns.
+#
+# DELEGATED, not reimplemented. .claude/rules/lane-handoff.md is explicit: "There is
+# exactly one engine, scripts/lane_status.py. The hook renders the brief at session
+# start, the script the full report on demand. Two readers of one register that
+# could answer differently about who owns what is precisely what
+# .claude/rules/spec-register.md warns about."
+#
+# The first draft of this file grepped for "@$OWNER" itself, which made three
+# implementations of one question -- and they did not agree: spec_active.py requires
+# an em-dash before the tag (OWNER_RE), that grep did not. It also answered far less:
+# your rows and nothing about what the other lane holds, what is unclaimed and
+# actually runnable, or what is held and why.
 head_ "5. This lane"
-OWNER="${SPEC_OWNER:-}"
-if [ -z "$OWNER" ]; then
+if [ -z "${SPEC_OWNER:-}" ]; then
   say "  SPEC_OWNER is unset — set it in .claude/settings.local.json so the"
   say "  guards resolve YOUR row and not the other lane's:"
   say '    { "env": { "SPEC_OWNER": "yourname", "CLAUDE_TEMPLATE_AUTOSYNC": "0" } }'
   todo "set SPEC_OWNER"
+elif [ -f scripts/lane-status.sh ]; then
+  bash scripts/lane-status.sh 2>/dev/null | sed 's/^/  /'
 else
-  say "  SPEC_OWNER=$OWNER"
-  MINE=$(grep -E "^- \[[ /!]\].*@${OWNER}[[:space:]]*$" specs/INDEX.md 2>/dev/null | wc -l | tr -d ' ')
-  say "  $MINE open row(s) owned by you:"
-  grep -E "^- \[[ /!]\].*@${OWNER}[[:space:]]*$" specs/INDEX.md 2>/dev/null \
-    | sed -E 's/^- \[([ \/!])\] +([^ —]+) — ([^—]+) —.*/    [\1] \2 — \3/' | head -10
+  say "  scripts/lane-status.sh is not here yet (pull first)"
 fi
+
+# Convergence is a different question from ownership -- how fast the register closes,
+# not who owns what -- so it keeps its own engine and its own line.
 if [ -f scripts/register-convergence.sh ]; then
-  # Capture the exit code from the SCRIPT, not from the `head` that trims it.
-  # Piping first makes $? the trimmer's, which is always 0, so the convergence
-  # stop never fires however badly the register diverges. Same defect as the one
-  # fixed in spec-register-orientation-hook.sh the same day.
   CONV_RAW=$(bash scripts/register-convergence.sh 2>&1); RC=$?
-  CONV=$(printf '%s\n' "$CONV_RAW" | head -1)
-  say "  $CONV"
+  say "  $(printf '%s\n' "$CONV_RAW" | head -1)"
   [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row"
 fi
-HELD=$(grep -cE '^- \[!\]' specs/INDEX.md 2>/dev/null || echo 0)
-[ "${HELD:-0}" -gt 0 ] && say "  $HELD held row(s) — read the Register history for why before starting one"
 
 head_ "Summary"
 if [ "$NEEDS_HUMAN" -eq 0 ]; then
