@@ -155,12 +155,43 @@ out="$(run "$d" --completed)"
 if grep -q '003' <<< "$out"; then defect "FR-8 scoping"; else pass "FR-8 control: --completed excludes the pending row"; fi
 
 # ---------------------------------------------------------------------- FR-9
+# A register may group its rows under milestone headings instead of one flat
+# "## Specs" list. rocky has done so since its first commit, and this script
+# refused it on every invocation while that register grew to 359 KB with 62 of
+# its 123 rows in an INLINE "## Archives" section. ROW_RE already tells a row
+# from a prose bullet by shape -- on rocky, 193 bullets and 123 rows -- so the
+# heading was a proxy for a job the regex was already doing.
+#
+# These two cases previously passed for the WRONG reason: the fixtures had no
+# INDEX.completed.md, and that refusal (also exit 3) stood in for the heading
+# refusal after it was removed. Both now supply one, so the assertion is about
+# the heading and nothing else.
 d="$TMP/fr9"; mkdir -p "$d/specs"
-printf '# Spec register\n\n- [x] 001 — alpha — spec-only track — no Specs heading.\n' > "$d/specs/INDEX.md"
-[ "$(code "$d")" = "3" ] && pass "FR-9 exit 3 when '## Specs' is missing" || fail "FR-9 exit 3 when '## Specs' is missing"
-# negative control: adding the heading must clear the refusal
+printf '# Spec register\n\n## Milestone: one\n\n%s\n\n## Register history (newest first)\n\n- 2026-09-03 — seed\n' "$SHORT_ROW" > "$d/specs/INDEX.md"
+printf '# Completed-spec retrospectives (archive)\n' > "$d/specs/INDEX.completed.md"
+[ "$(code "$d")" = "3" ] && fail "FR-9 a milestone-grouped register is accepted" || pass "FR-9 a milestone-grouped register is accepted"
+
+# ...and its rows are actually SEEN, not merely tolerated. SHORT_ROW is compliant,
+# so it is correctly reported as nothing; the probe needs a row the script has
+# something to say about, hence LONG_ROW (over budget, not yet archived).
+d="$TMP/fr9seen"; mkdir -p "$d/specs"
+printf '# Spec register\n\n## Milestone: one\n\n%s\n\n## Register history (newest first)\n\n- 2026-09-03 — seed\n' "$LONG_ROW" > "$d/specs/INDEX.md"
+printf '# Completed-spec retrospectives (archive)\n' > "$d/specs/INDEX.completed.md"
+out="$(run "$d/" --completed)"
+grep -q '002' <<< "$out" && pass "FR-9 rows under a milestone heading are found" || fail "FR-9 rows under a milestone heading are found"
+
+# The history section stays out of the row region even with no "## Specs" --
+# archive-spec-history.sh owns it, and a history bullet must never be archived
+# as a row.
+d="$TMP/fr9hist"; mkdir -p "$d/specs"
+printf '# Spec register\n\n## Milestone: one\n\n%s\n\n## Register history (newest first)\n\n- [x] 999 — decoy — spec-only track — a bullet in history shaped like a row.\n' "$SHORT_ROW" > "$d/specs/INDEX.md"
+printf '# Completed-spec retrospectives (archive)\n' > "$d/specs/INDEX.completed.md"
+out="$(run "$d" --completed)"
+grep -q '999' <<< "$out" && fail "FR-9 history bullets stay out of the row region" || pass "FR-9 history bullets stay out of the row region"
+
+# negative control: the flat "## Specs" layout still works unchanged.
 mk "$d" "$SHORT_ROW" ""
-[ "$(code "$d")" = "3" ] && defect "FR-9 heading" || pass "FR-9 control: with the heading the refusal clears"
+[ "$(code "$d")" = "3" ] && defect "FR-9 heading" || pass "FR-9 control: the flat ## Specs layout still works"
 
 d="$TMP/fr9b"; mk "$d" '- [x] beta — no-numeric-id — spec-only track — bad id.' ""
 [ "$(code "$d")" = "3" ] && pass "FR-9 exit 3 on an unparseable id" || fail "FR-9 exit 3 on an unparseable id"
@@ -168,6 +199,15 @@ d="$TMP/fr9c"; mk "$d" '- [x] H12 — checkpoint — checkpoint — a checkpoint
 [ "$(code "$d")" = "3" ] && defect "FR-9 checkpoint id" || pass "FR-9 control: a checkpoint id (H12) is accepted"
 d="$TMP/fr9d"; mk "$d" '- [x] 007ce — suffixed — spec-only track — a letter-suffixed id parses.' ""
 [ "$(code "$d")" = "3" ] && defect "FR-9 suffixed id" || pass "FR-9 control: a letter-suffixed id (007ce) is accepted"
+# The two grammars must agree. Each of these was a live refusal on a real register
+# while validate-register-ids.sh passed the same id: agentcrm's S-rows (any
+# letter-led id, not just HN) and rocky's dotted sub-specs.
+d="$TMP/fr9e"; mk "$d" '- [x] S1 — letter-led — spec-only track — a letter-led id that is not a checkpoint.' ""
+[ "$(code "$d")" = "3" ] && fail "FR-9 a letter-led id (S1) is accepted" || pass "FR-9 a letter-led id (S1) is accepted"
+d="$TMP/fr9f"; mk "$d" '- [x] 501.1 — dotted — spec-only track — a dotted sub-spec id.' ""
+[ "$(code "$d")" = "3" ] && fail "FR-9 a dotted sub-spec id (501.1) is accepted" || pass "FR-9 a dotted sub-spec id (501.1) is accepted"
+d="$TMP/fr9g"; mk "$d" '- [x] **404e** — bolded — spec-only track — a register that bolds its ids.' ""
+[ "$(code "$d")" = "3" ] && fail "FR-9 a bolded id (**404e**) is accepted" || pass "FR-9 a bolded id (**404e**) is accepted"
 
 # A malformed row that starts like one must refuse, not be silently skipped.
 d="$TMP/fr9e"; mk "$d" '- [x] 001-alpha no em-dash separator at all' ""
@@ -204,8 +244,10 @@ if grep -qF -- "no-such-text-anywhere" <<< "$arch"; then defect "Q19"; else pass
 
 # ------------------------------------------------------------- exit precedence
 # 3 BEATS 4: a refused register reports the refusal, not the byte count.
+# The refusal here is the unparseable-row one; the previous fixture relied on the
+# missing-"## Specs" refusal, which no longer exists.
 d="$TMP/prec"; mkdir -p "$d/specs"
-printf '# Spec register\n\n%s\n' "$LONG_ROW" > "$d/specs/INDEX.md"
+mk "$d" "$(printf '%s\n- [x] nope — unparseable-id — spec-only track — refuses.' "$LONG_ROW")" ""
 [ "$(code "$d")" = "3" ] && pass "exit precedence: 3 beats 4 (refusal outranks over-budget)" || fail "exit precedence: 3 beats 4"
 
 echo

@@ -111,7 +111,15 @@ ROW_RE = re.compile(r"^-\s+\[([ xX/!])\]\s+(.+?)\s+—\s+(.+?)\s+—\s+(.+?)\s+�
 # remaining register. `*` rather than `?`, and the anchors are what keep the
 # promise that matters: "007ab" is returned whole or not at all, never quietly
 # truncated to "007a", which is a different real spec.
-NUMERIC_ID_RE = re.compile(r"^\**\s*([0-9]+[a-z]*)\**\s*$")
+# 2026-09-03: the SAME defect, a third generation on. rocky numbers a sub-spec
+# by dotting its parent -- 501.1, 450.7, 505.2 -- and 22 of its 123 rows carried
+# an id this pattern could not classify, so both PreToolUse guards were failing
+# closed on them exactly as 007ab describes. The dotted segment is optional and
+# repeatable, and it sits BEFORE the letter suffix because that is the order the
+# register writes them (450.7, not 450a.7). Anchored like its siblings: "501.1"
+# comes back whole or not at all, never truncated to "501", which is a different
+# real spec and the row directly above it.
+NUMERIC_ID_RE = re.compile(r"^\**\s*([0-9]+(?:\.[0-9]+)*[a-z]*)\**\s*$")
 
 # H7b. The letter-led form had the identical defect one alphabet over: it read
 # `[A-Za-z]+[0-9]+` and so knew H1 and H6 but not H6a, and not H6s2 — 69 of 114

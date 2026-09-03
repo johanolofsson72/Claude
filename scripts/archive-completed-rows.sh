@@ -159,24 +159,61 @@ for i, l in enumerate(lines):
     if re.match(r"^##\s+Specs\s*$", l):
         start = i + 1
         break
-if start is None:
-    print(f"REFUSED: {index} has no '## Specs' heading — cannot tell a spec row from prose", file=sys.stderr)
-    sys.exit(3)
 
-# The region ends at the next "## " heading (the history section), or EOF.
-end = len(lines)
-for i in range(start, len(lines)):
-    if lines[i].startswith("## "):
-        end = i
-        break
+if start is not None:
+    # The region ends at the next "## " heading (the history section), or EOF.
+    end = len(lines)
+    for i in range(start, len(lines)):
+        if lines[i].startswith("## "):
+            end = i
+            break
+    regions = [(start, end)]
+else:
+    # No "## Specs" heading. A register may legitimately group its rows under
+    # milestone headings instead of one flat list -- rocky has done so since its
+    # first commit, and this script refused it on every invocation for as long as
+    # it has been synced there, while that register grew to 359 KB with 62 of its
+    # 123 rows sitting in an INLINE "## Archives" section. Refusing was the safe
+    # default when the alternative was guessing, but it is not the only safe
+    # option: ROW_RE below already discriminates a row from a prose bullet by
+    # shape, which is the job the heading was standing in for. On rocky, 193
+    # bullets, 123 rows -- the regex tells them apart without help.
+    #
+    # So: take the whole file as row region, minus the history section, which is
+    # the one place a bullet can look enough like a row to matter and the one
+    # section that must never be archived by THIS script (archive-spec-history.sh
+    # owns it). An "## Archives" section is deliberately NOT excluded -- rows
+    # parked there are precisely what this script exists to move out of the file.
+    hist = len(lines)
+    for i, l in enumerate(lines):
+        if re.match(r"^##\s+(Register history|Scenario history)\b", l):
+            hist = i
+            break
+    regions = [(0, hist)]
 
-# One regex for a row. The id shapes accepted here are the ones spec_active.py
-# resolves — NNN with an optional letter suffix, or a checkpoint HN with an
-# optional letter suffix. This script only reads ids, it never resolves them, so
-# it does not import spec_active; but it must not DISAGREE with it about what an
-# id looks like, which is why the shapes are pinned rather than left as \S+.
+start, end = regions[0]
+
+# One regex for a row. This script only reads ids, it never resolves them, so it
+# does not import spec_active; but it must not DISAGREE with it about what an id
+# looks like, which is why the shapes are pinned rather than left as \S+.
+#
+# The comment that stood here claimed these WERE spec_active.py's shapes. It was
+# wrong in both directions, and each error cost a project its archiver outright:
+#
+#   * the numeric form read \d{3}[a-z]* and so rejected rocky's dotted sub-specs
+#     (501.1, 450.7) -- 22 of 123 rows;
+#   * the letter-led form read H\d+[a-z]*, i.e. checkpoints ONLY, while
+#     spec_active.py's ALPHA_ID_RE reads [A-Za-z]+[0-9]+[A-Za-z0-9]* -- any
+#     letter-led id. agentcrm's S-rows are well-formed by that grammar and
+#     validate-register-ids.sh passes them, yet this script refused the whole
+#     register on the first one, so nothing had ever been archived there.
+#
+# Both are the same mistake: a copy of a grammar that then drifted from it in
+# silence. The shapes below are transcribed from spec_active.py directly, and
+# scripts/test-archive-completed-rows.sh now asserts a letter-led id is accepted,
+# so the next divergence is a red test rather than an inert archiver.
 ROW = re.compile(r"^- \[([ x/!])\] (\S+) — (.*)$")
-ID_OK = re.compile(r"^(?:\d{3}[a-z]*|H\d+[a-z]*)$")
+ID_OK = re.compile(r"^(?:[0-9]+(?:\.[0-9]+)*[a-z]*|[A-Za-z]+[0-9]+[A-Za-z0-9]*)$")
 
 rows = []
 for i in range(start, end):
@@ -192,6 +229,11 @@ for i in range(start, end):
         print(f"REFUSED: {index}:{i+1} looks like a row but does not parse: {l[:80]!r}", file=sys.stderr)
         sys.exit(3)
     status, rid, rest = m.group(1), m.group(2), m.group(3)
+    # A register may bold its id (`- [/] **404e — ...`). spec_active.py's patterns
+    # strip the markers with a leading `\**`; this one captured them into the id
+    # and then refused the row. Same class as the two grammar mismatches above:
+    # a second reader of the same field, normalising it differently.
+    rid = rid.strip("*")
     if not ID_OK.match(rid):
         print(f"REFUSED: {index}:{i+1} id {rid!r} is not a spec id (NNN[a-z]* or HN[a-z]*)", file=sys.stderr)
         sys.exit(3)
