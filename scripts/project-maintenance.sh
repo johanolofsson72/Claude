@@ -120,7 +120,11 @@ if [ -f scripts/validate-scenario-traceability.sh ] && [ -f specs/SCENARIOS.md ]
   TRACE_OUT=$(bash scripts/validate-scenario-traceability.sh --quiet 2>&1)
   TRACE_RC=$?
   case "$TRACE_RC" in
-    0|1)
+    # 6 is a VERDICT, not a failure to run: it is exit 1 with the duplicate-id half
+    # split out so a collision cannot hide behind a permanently-red coverage
+    # backlog. Leaving it in the catch-all turned the very finding that split
+    # earned into "could not run", which is the report the split existed to stop.
+    0|1|6)
       TRACE_COV=$(printf '%s\n' "$TRACE_OUT" | grep '^coverage:' | head -1)
       [ -n "$TRACE_COV" ] && note "[TRACEABILITY] $TRACE_COV"
       TRACE_DANGL=$(printf '%s\n' "$TRACE_OUT" | sed -n 's/^dangling .*(\([0-9]*\)):$/\1/p')

@@ -105,6 +105,12 @@
 #   4  no reference root to read — either one the caller NAMED does not exist, or discovery found
 #      none of its candidates. Both are "I could not look", and neither is ever reported as clean.
 #   5  checked, but part of the map was unreadable — never reported as clean
+#   6  a duplicate id — one id naming more than one row. Split out of 1 because it is a
+#      different kind of fact: an ambiguous handle breaks every consumer that resolves it
+#      (spec_active.py, both PreToolUse guards, the archiver), where uncovered rows are a
+#      backlog that is red on any project with a roadmap. Sharing one code made the
+#      collision invisible behind a permanent red. A CALLER MUST TREAT 6 AS A VERDICT,
+#      not as a failure to run.
 #
 # out-of-range does NOT fail the run. It is a collision between two naming conventions, not a defect
 # in either the map or the suite, and there is nothing a reader could fix reference by reference. It
