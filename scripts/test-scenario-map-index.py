@@ -259,24 +259,42 @@ if not retired_bad:
         ok("retired rows named separately where present")
 
 # --- 5. the id ranges in the index cover exactly that file's ids ----------------------
+# An id may carry a letter suffix: SC-023a, SC-033b. .claude/rules/scenarios.md
+# permits them (a sub-scenario carved from an existing row keeps its parent's
+# number), and both spec_active.py and the traceability gate read them. This test
+# did not: it called int() on the whole tail and CRASHED with a traceback rather
+# than failing, on the first split project that had one. msroute has none, which
+# is why it went unseen until film-i-vast was split on 2026-09-03.
+#
+# The suffix is dropped for range arithmetic on purpose. A range "SC-030..035"
+# is a statement about numbers, and SC-033b lives inside it — comparing the
+# numeric part is what makes the index's range and the file's contents
+# comparable at all.
+def _num(tok):
+    """Numeric part of an id tail, suffix ignored. '033b' -> 33."""
+    digits = "".join(c for c in tok if c.isdigit())
+    return int(digits) if digits else None
+
 def expand(spec):
     out = set()
     for part in spec.split(","):
         part = part.strip()
         if ".." in part:
             a, b = part.split("..")
-            lo = int(a[3:])
-            hi = int(b) if b.isdigit() else int(b[3:])
-            out |= set(range(lo, hi + 1))
+            lo, hi = _num(a[3:]), _num(b[3:] if b.startswith("SC-") else b)
+            if lo is not None and hi is not None:
+                out |= set(range(lo, hi + 1))
         elif part.startswith("SC-"):
-            out.add(int(part[3:]))
+            n = _num(part[3:])
+            if n is not None:
+                out.add(n)
     return out
 
 
 range_bad = 0
 for e in [] if SKIP_TALLY else entries:
     claimed = expand(e["ids"])
-    actual = {int(r[0][3:]) for r in rows_of(os.path.join(FEAT_DIR, e["file"]))}
+    actual = {n for n in (_num(r[0][3:]) for r in rows_of(os.path.join(FEAT_DIR, e["file"]))) if n is not None}
     if claimed != actual:
         bad("index id-ranges match the file", f"{e['file']}: only-in-index {sorted(claimed-actual)}, only-in-file {sorted(actual-claimed)}")
         range_bad += 1
