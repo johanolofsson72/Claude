@@ -77,3 +77,28 @@ read `.claude/.template-sync` and retire `.sync-version`. Prefer the second — 
 reader, and the prose stops owning a fact the automation already knows. Check
 `project-wizard` in the same pass; it writes the marker on a path where no autosync has run
 yet, so retiring the file means giving the wizard the other one.
+
+## 008 — scenarios-map-canary-unheeded
+
+Measured 2026-09-03 across all seven projects:
+
+    consultpilot   682 KB  single-file   27x the canary
+    agentcrm       252 KB  single-file   10x
+    rocky          242 KB  SPLIT          9x
+    film-i-vast    137 KB  single-file    5x
+    fundit          30 KB  single-file    1x
+    msroute          5 KB  SPLIT          under
+    ighweld        (no map)
+
+The row named only rocky and agentcrm until today, which is how film-i-vast's
+137 KB came back as a fresh finding from a /project-update run that was right to
+report it: nothing in that project's register pointed here, and this row did not
+name it either. A row that lists two of five instances is a row that lets the
+other three read as untracked.
+
+Note rocky is ALREADY split and still 242 KB, so splitting is not sufficient on
+its own — the index itself grows. msroute is the shape to copy: split, 5 KB.
+
+Per-project work with its own spec, not a sweep: moving a map must not reword,
+re-status or drop a row, and `scripts/scenario-map-rows.sh` +
+`scripts/test-scenario-map-split.sh` are the pair that proves it mechanically.
