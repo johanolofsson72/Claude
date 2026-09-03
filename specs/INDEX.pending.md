@@ -20,3 +20,60 @@ _2026-09-03: folded into row 007 — one script, three defects. Row as it stood:
 _2026-09-03: folded into row 007 — one script, three defects. Row as it stood:_
 
 - [ ] 016 — traceability-gate-floor-and-letter-ids — spec-only — the out-of-range floor is the map's lowest id, useless on a map starting at SC-001 (11 ids misfiled), and the gate cannot see letter ids, so nine `SC-A11` audits trace to nothing. Found as msroute 007cp + 007cw.
+
+## 021
+
+- [ ] 021 — core-set-excludes-docs-and-skills — spec-only — found on msroute during `/project-update`, 2026-09-03.
+
+`core_divergence()` builds its candidate set from `CORE_SCRIPTS` (prefixed `scripts/`) and
+`CORE_RULES` (prefixed `.claude/rules/`). Nothing else is asked about. So a project-authored
+change to a template-owned file under `.claude/docs/` or `.claude/skills/` is not
+under-reported — it is absent from the question, the same structural shape the `[unlisted]`
+block already names for scripts the template has never shipped.
+
+Measured on msroute, which reported `--owed` empty and `--unlisted` empty while carrying two:
+
+- `.claude/docs/conventions.md` — an OOM-catch convention with `OomCatchConventionTests`
+  behind it (msroute 007bm).
+- `.claude/skills/allium/SKILL.md` — `exposes: a, b` comma lists are rejected by allium-cli,
+  measured 2026-09-02.
+
+Both hash-differ from `.claude/.template-sync`, so by the rule's own definition of owed they
+are owed. `core-owed-tick-guard-hook.sh` consults `--owed`, is told nothing, and allows the
+tick — which is precisely the 007bl failure the gate was built to stop, reached by a route
+018 did not close. 018 found the tick gate's TEST was broken (GNU `sed` on BSD); this is the
+detector's SCOPE, and the two are independent.
+
+Note before choosing a fix: these two directories are not overwritten unconditionally the way
+CORE is. The manifest-hash rule preserves a locally edited doc or skill rather than
+reverting it. So the loss here is not destroyed work, it is work that never propagates: it
+stays in the one project that wrote it and the other five never see it. That is a weaker
+failure than 007bl's and it argues for reporting rather than for widening CORE, which would
+change overwrite semantics for two whole directories as a side effect.
+
+## 022
+
+- [ ] 022 — sync-version-marker-abandoned — spec-only — found on msroute during `/project-update`, 2026-09-03.
+
+Two markers record "which template revision is this project at", and only one is maintained:
+
+- `.claude/.sync-version` — written ONLY by `scripts/sync-prompt.md` (Step 0) and
+  `.claude/skills/project-wizard/SKILL.md`. Both are prose executed by a model.
+- `.claude/.template-sync` — written by `scripts/template-autosync.sh`, the automated path
+  that actually runs at every session start.
+
+On msroute the first sat at `4407255` (2026-08-22) while the second read `sha=ac2dad5c9d9b`
+synced the same morning, and three intervening `chore(sync)` commits had moved the project
+without touching it. Step 0's whole purpose is to skip Steps 1-8 when the project is current;
+reading the abandoned marker inverts it, so a current project takes the full-sync path every
+time and the token saving the step exists for is never collected.
+
+Independent content verification at the time: 221 of 223 manifest files byte-identical to the
+template, the 2 exceptions being row 021's finding. The project was current; only the marker
+disagreed.
+
+Fix is a choice, not a patch: either have `template-autosync.sh` write both, or have Step 0
+read `.claude/.template-sync` and retire `.sync-version`. Prefer the second — one writer, one
+reader, and the prose stops owning a fact the automation already knows. Check
+`project-wizard` in the same pass; it writes the marker on a path where no autosync has run
+yet, so retiring the file means giving the wizard the other one.
