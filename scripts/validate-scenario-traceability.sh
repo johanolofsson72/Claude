@@ -465,9 +465,28 @@ comm -13 "$TMP/allids"  "$TMP/refs.u" > "$TMP/dangling.all"
 # it moves when the map does and there is no constant here to go stale. It is printed with the
 # bucket for the same reason: a reader has to be able to see which rule reclassified what.
 MAP_MIN=$(sed "s/^${PREFIX}-//" "$TMP/allids" | sort -n | head -1)
+# The map's own DIGIT WIDTH, and it is the discriminator the floor could not be.
+#
+# A floor of "the map's lowest id" is useless on a map that starts at SC-001 — nothing can be
+# below 1 — and that is the ordinary case, not a corner: msroute, film-i-vast and consultpilot
+# all start there, and all three reported spec-kit Success Criteria (SC-01, SC-1, SC-02) as
+# dangling scenario ids. The two namespaces are not separated by magnitude; they are separated
+# by PADDING. This map's ids are zero-padded to a fixed width and spec-kit's criteria are not,
+# so a reference with FEWER digits than the map's narrowest id belongs to the other sequence.
+#
+# Derived from the map on every run, exactly like the floor, so there is no constant to go stale.
+# Both rules apply: width catches SC-01 against a 3-digit map, the floor still catches a genuinely
+# low id on a map that starts high.
+MAP_WIDTH=$(sed "s/^${PREFIX}-//" "$TMP/allids" | sed 's/[^0-9].*$//' | awk '{ print length($0) }' | sort -n | head -1)
 if [ -n "$MAP_MIN" ]; then
-  awk -v pre="$PREFIX" -v floor="$MAP_MIN" '
-    { n = $0; sub("^" pre "-", "", n); if (n + 0 < floor + 0) print > "/dev/stderr"; else print }
+  awk -v pre="$PREFIX" -v floor="$MAP_MIN" -v width="${MAP_WIDTH:-0}" '
+    {
+      n = $0; sub("^" pre "-", "", n)
+      d = n; sub(/[^0-9].*$/, "", d)          # digits only, so 1404b measures as 1404
+      if (length(d) > 0 && width > 0 && length(d) < width) { print > "/dev/stderr"; next }
+      if (n + 0 < floor + 0) { print > "/dev/stderr"; next }
+      print
+    }
   ' "$TMP/dangling.all" > "$TMP/dangling" 2> "$TMP/outofrange"
 else
   cp "$TMP/dangling.all" "$TMP/dangling"
@@ -520,7 +539,7 @@ if [ "$N_DANGL" -gt 0 ]; then
 fi
 
 if [ "$N_OOR" -gt 0 ]; then
-  echo "out-of-range — a reference below ${PREFIX}-${MAP_MIN}, the lowest id this map owns ($N_OOR):"
+  echo "out-of-range — narrower than this map's ${MAP_WIDTH}-digit ids, or below ${PREFIX}-${MAP_MIN} ($N_OOR):"
   echo "  Almost certainly a spec's own Success Criteria, which spec-kit numbers with the same"
   echo "  ${PREFIX}- prefix. Not counted as dangling, and not a failure. See --help."
   if [ "$QUIET" -eq 0 ]; then
@@ -558,4 +577,11 @@ fi
 # <<< partial-exit
 
 [ "$N_UNCOV" -eq 0 ] && [ "$N_DANGL" -eq 0 ] && [ "$N_DUP" -eq 0 ] && exit 0
+
+# A DUPLICATE id is a different kind of fact from an uncovered row, and it used to share `exit 1`
+# with it. An id naming two rows breaks the handle every consumer resolves — spec_active.py, both
+# PreToolUse guards, the archiver — whereas uncovered rows are a backlog that is red on any project
+# with a roadmap. Sharing one code meant the collision was invisible behind a permanent red, which
+# is what row 007 recorded. Exit 6 says "an id is ambiguous"; exit 1 keeps its old meaning.
+[ "$N_DUP" -gt 0 ] && exit 6
 exit 1

@@ -295,10 +295,13 @@ proj=$(new_project)
 } > "$proj/specs/SCENARIOS.md"
 write_test "$proj" "a.test.ts" 917
 run_gate "$proj"
-if [ "$RC" -eq 1 ] && grep -q 'duplicate' <<< "$OUT" && grep -q "$(id 917)" <<< "$OUT"; then
+# Exit 6, not 1: a duplicate id breaks the handle every consumer resolves, where an uncovered row
+# is a backlog that is red on any project with a roadmap. They shared `exit 1` and the collision was
+# therefore invisible behind a permanent red — row 007.
+if [ "$RC" -eq 6 ] && grep -q 'duplicate' <<< "$OUT" && grep -q "$(id 917)" <<< "$OUT"; then
   ok "case17-duplicate-id"
 else
-  bad "case17-duplicate-id" "expected exit 1 naming the id under duplicate, got $RC: $OUT"
+  bad "case17-duplicate-id" "expected exit 6 naming the id under duplicate, got $RC: $OUT"
 fi
 
 # case16 — an EMPTY cell, which is the trap the tab delimiter brought with it. A tab is IFS
