@@ -16,6 +16,38 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 SRC="$PWD/scripts/sync-prompt.md"
+
+# THIS HARNESS ONLY HAS A SUBJECT UPSTREAM.
+#
+# It extracts the Step -1 block out of scripts/sync-prompt.md and runs it. That file is
+# authoritative in exactly one place: /project-update fetches it from
+# raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/sync-prompt.md (project-update
+# SKILL.md, Step 4), so a project-local copy is a snapshot nobody reads. Two of the eight projects
+# do not carry one at all and this harness failed there with "sync-prompt.md not found" — a red
+# test for the absence of a file the project has no reason to have.
+#
+# Same predicate and same reasoning as test-sync-prompt-core-parity.sh and
+# validate-no-sigpipe-assertions.sh: compare origin against the template slug, fall back to the
+# sync stamp, and exempt nothing when neither answers.
+_origin() {
+  local top phys
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
+  phys="$(pwd -P)" || return 0
+  [ "$top" = "$phys" ] || return 0
+  git remote get-url origin 2>/dev/null || true
+}
+_O="$(_origin)"
+case "$_O" in
+  *johanolofsson72/Claude|*johanolofsson72/Claude.git|*johanolofsson72/Claude/|*johanolofsson72/Claude.git/) ;;
+  "") [ -f .claude/.template-sync ] && {
+        echo "SKIP: downstream (.claude/.template-sync is present) — the sync-prompt.md this would test"
+        echo "      is not the one /project-update reads; the authoritative copy is fetched from GitHub."
+        exit 0; } ;;
+  *)  echo "SKIP: downstream (origin is $_O, not johanolofsson72/Claude) — the sync-prompt.md this would"
+      echo "      test is not the one /project-update reads; the authoritative copy is fetched from GitHub."
+      exit 0 ;;
+esac
+
 [ -f "$SRC" ] || { echo "FAIL: sync-prompt.md not found"; exit 1; }
 
 # This tests a TEMPLATE artifact. A synced project also carries a scripts/
