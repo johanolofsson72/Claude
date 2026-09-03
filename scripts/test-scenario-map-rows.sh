@@ -379,6 +379,40 @@ else
 fi
 
 printf '\n'
+# ---------------------------------------------------- comment inside a ledger
+# .claude/rules/scenarios.md shows comments inside a map in its own example, and
+# this project uses them to record why a row carries the status it does. Treating
+# one as "the table ended here" dropped every row after it, in silence: measured
+# on consultpilot 2026-09-03 a five-line note cost 12 rows, and all 18 of that
+# gate's dangling findings were this rather than one real one.
+CT=$(mktemp -d)
+{
+  echo "# Scenario map"; echo
+  echo "## Actor: X"; echo
+  echo "### Feature: thing   (spec: 001-thing)"; echo
+  echo "| ID     | Type  | Scenario   | Expected outcome | Status |"
+  echo "|--------|-------|------------|------------------|--------|"
+  echo "| SC-001 | happy | before     | it works         | ✓      |"
+  echo "<!-- a one-line note about the row above -->"
+  echo "| SC-002 | happy | after one  | it works         | ✓      |"
+  echo "<!-- a note that spans"
+  echo "     more than one line, which is"
+  echo "     how the real map writes them -->"
+  echo "| SC-003 | happy | after many | it works         | ✓      |"
+} > "$CT/map.md"
+N=$("$SCRIPT_DIR/scenario-map-rows.sh" --partial "$CT/map.md" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$N" = "3" ]; then
+  ok "a comment inside a ledger does not end the table"
+else
+  bad "a comment inside a ledger ended the table" "got $N rows, want 3"
+fi
+# and the ids must be the right three, not any three
+IDS=$("$SCRIPT_DIR/scenario-map-rows.sh" --partial "$CT/map.md" 2>/dev/null | cut -f1 | tr '\n' ' ')
+[ "$IDS" = "SC-001 SC-002 SC-003 " ] \
+  && ok "the rows after a comment are the rows that follow it" \
+  || bad "the rows after a comment" "wrong ids: $IDS"
+rm -rf "$CT"
+
 if [ "$FAILED" -eq 0 ]; then
   printf 'scenario-map-rows: all cases pass\n'
   exit 0

@@ -134,6 +134,28 @@ EXTRACT='
     next
   }
 
+  # An HTML comment inside a table does NOT end it. .claude/rules/scenarios.md
+  # shows comments inside a map in its own worked example, and this project uses
+  # them to record why a row carries the status it does -- so they belong in the
+  # middle of a ledger, not only between tables.
+  #
+  # Treating one as "left the table" silently dropped every row after it. Measured
+  # on consultpilot 2026-09-03: a five-line note between SC-176 and SC-937 cost 12
+  # rows, and the gate then reported all 12 as ids the map "does not have" -- 18 of
+  # its 18 dangling findings were this, not one real one. A fixture proved a
+  # ONE-line comment does it too: three rows became one.
+  #
+  # NOTE FOR THE NEXT EDITOR: this awk program is inside a single-quoted shell
+  # string, so an apostrophe here ends the program. The first draft of this very
+  # comment wrote "the map-apostrophe-s own example" and turned the whole
+  # extractor into "own: command not found" -- zero rows, on every map.
+  #
+  # Comment state is tracked across lines because a comment can open on one line
+  # and close on a later one. Anything inside is skipped without touching
+  # in_ledger, so the table survives it.
+  /^[[:space:]]*<!--/ { if ($0 !~ /-->/) in_comment = 1; prev = $0; next }
+  in_comment { if ($0 ~ /-->/) in_comment = 0; prev = $0; next }
+
   # Leaving the table (any line that is not a table row) resets the context.
   !/^[[:space:]]*\|/ { in_ledger = 0; prev = $0; next }
 
