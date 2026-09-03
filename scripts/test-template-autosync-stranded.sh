@@ -60,7 +60,18 @@ build() {
   git -C "$T" add -A; git -C "$T" commit -qm bump
 }
 
-sync() { _p="$1"; _t="$2"; shift 2; ( cd "$_p" && CLAUDE_TEMPLATE_DIR="$_t" bash scripts/template-autosync.sh "$@" 2>&1 ); }
+# CLAUDE_PROJECT_DIR IS THE TARGET, and `cd` is not.
+#
+# template-autosync.sh resolves its target as ${CLAUDE_PROJECT_DIR:-$PWD}. A caller that selects
+# the sandbox with `cd` alone has therefore not selected it: under a Claude Code hook the harness
+# has already exported CLAUDE_PROJECT_DIR pointing at the REAL repository, and the export wins over
+# the cd. This exact line did that on 2026-08-30 -- it synced the real repository against a
+# three-file sandbox template, made and PUSHED 54 chore(sync) commits to origin/main, and deleted
+# 505 lines in the working tree including 61 of the 62 lines of continuous-execution.md.
+#
+# The cd stays, because the relative `scripts/template-autosync.sh` below needs it. The export is
+# what makes the sandbox the target rather than a hope about the environment.
+sync() { _p="$1"; _t="$2"; shift 2; ( cd "$_p" && CLAUDE_PROJECT_DIR="$_p" CLAUDE_TEMPLATE_DIR="$_t" bash scripts/template-autosync.sh "$@" 2>&1 ); }
 
 echo "== AC-01: --no-commit strands, and every later run says so =="
 build ac01
