@@ -87,7 +87,21 @@ n=$(grep -c '>>> claude lane merge drivers' "$TMP/idem/.gitattributes")
 grep -q 'claude lane merge drivers' "$TMP/idem/.gitattributes" \
   && bad "--remove left the block behind" || ok "--remove removes the block"
 
-# 7. SCENARIOS.md must NOT be union-merged: interleaving two Mermaid graphs
+# 7. The success message must not execute its own backticks. An unquoted heredoc
+#    printed "union: command not found" into the middle of it on the first real
+#    run against agentcrm.
+# The fixture must be a fresh repo: on an already-installed one the script prints
+# "already installed" and never reaches the message under test, which would pass
+# this assertion without exercising anything.
+setup "$TMP/heredoc" no
+out=$( cd "$TMP/heredoc" && bash "$SCRIPT_DIR/install-lane-merge-drivers.sh" 2>&1 )
+printf '%s' "$out" | grep -q 'is a built-in git merge strategy' \
+  || bad "success message did not print — the assertion below would be vacuous"
+printf '%s' "$out" | grep -q 'command not found' \
+  && bad "success message runs its own backticks (unquoted heredoc)" \
+  || ok "success message does not execute its backticks"
+
+# 8. SCENARIOS.md must NOT be union-merged: interleaving two Mermaid graphs
 #    produces a diagram that renders as nothing, and nothing would report it.
 grep -qE '^specs/SCENARIOS\.md\s+merge=union' "$SCRIPT_DIR/install-lane-merge-drivers.sh" \
   && bad "SCENARIOS.md is union-merged — Mermaid blocks would interleave" \

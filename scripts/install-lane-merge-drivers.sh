@@ -104,7 +104,10 @@ else
   echo "lane merge drivers: installed in $GA"
 fi
 
-cat <<MSG
+# Quoted delimiter: the body contains backticks, and an unquoted heredoc runs them
+# as command substitution -- which it did, printing "union: command not found"
+# into the middle of a success message on the first real run.
+cat <<'MSG'
 
   `union` is a built-in git merge strategy — nothing to register per clone, unlike
   a custom driver. Commit .gitattributes so both lanes get it.
