@@ -388,19 +388,35 @@ Three checks run: (1) the wired set matches the template's exactly, (2) every wi
 `sync-core-hooks.py` gates wiring on script presence, which is exactly right for the tech-stack hooks (a non-UI project should not get `tla-hook.sh` back) — but it means a core script that was never COPIED is silently never wired, and the verify loop below, which only checks "present on disk → wired", reports green on a project that has no guards at all. The enforcement family is mandatory on every project regardless of stack; copy it deterministically instead of trusting a prose file list:
 
 ```bash
-for s in \
-  pipeline-trigger-match.sh emit-pipeline-reminder.sh emit-analyze-reminder.sh emit-clarify-reminder.sh \
-  feature-pipeline-detect.sh spec-register-guard-hook.sh pipeline-state-guard-hook.sh \
-  spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh spec-register-orientation-hook.sh \
-  scenario-map-reminder-hook.sh scenario-map-orientation-hook.sh after-specify-hook.sh \
-  continuous-execution-hook.sh stop-validation-hook.sh repeat-failure-guard-hook.sh \
-  spec-run-log-hook.sh stack-marker-canary-hook.sh detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh speckit-extension-policy.sh \
-  archive-spec-history.sh project-maintenance.sh project-freshness.sh \
-  sync-core-hooks.py pipeline-trigger-match.py; do
-  [ -f "$TEMPLATE/scripts/$s" ] && cp "$TEMPLATE/scripts/$s" "scripts/$s"
+# Ask the template what CORE is; do not keep a second list of it here.
+#
+# This block used to hardcode 27 script names. CORE_SCRIPTS in
+# template-autosync.sh is 96, and measured on 2026-09-03 the two had drifted so
+# far that 70 CORE scripts were never copied by /project-update at all — every
+# PreToolUse guard, every test harness, the row archiver, the convergence check.
+# Nothing reported it, because a list that is merely INCOMPLETE looks exactly
+# like a list that is finished.
+CORE_SCRIPTS_LIST=$(bash "$TEMPLATE/scripts/template-autosync.sh" --list-core-scripts 2>/dev/null)
+if [ -z "$CORE_SCRIPTS_LIST" ]; then
+  echo "[FAIL] could not read CORE_SCRIPTS from the template — is \$TEMPLATE right, and is the clone current?" >&2
+  echo "       Refusing to fall back to a hardcoded list: that is the drift this replaced." >&2
+  exit 1
+fi
+COPIED=0; ABSENT=""
+for s in $CORE_SCRIPTS_LIST; do
+  if [ -f "$TEMPLATE/scripts/$s" ]; then
+    cp "$TEMPLATE/scripts/$s" "scripts/$s"
+    # cp over an EXISTING file keeps the destination's mode, so a script that was
+    # once non-executable stays that way through every future sync. Set it from
+    # the source rather than blanket-chmod, which would mark data files +x too.
+    if [ -x "$TEMPLATE/scripts/$s" ]; then chmod +x "scripts/$s" 2>/dev/null; fi
+    COPIED=$((COPIED+1))
+  else
+    ABSENT="$ABSENT $s"
+  fi
 done
-chmod +x scripts/*.sh scripts/*.py 2>/dev/null
-echo "[OK] core enforcement scripts mirrored from template"
+[ -n "$ABSENT" ] && echo "[WARN] named in CORE_SCRIPTS but absent from the template clone:$ABSENT" >&2
+echo "[OK] $COPIED core enforcement script(s) mirrored from template"
 ```
 
 **Wire the CORE hooks deterministically** (pipeline / spec-register / execution / tech-stack — the family that prose-merge kept dropping):

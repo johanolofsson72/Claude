@@ -264,7 +264,12 @@ fi
 # switched off.
 if [ "$FULL" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-similarity.sh ]; then
   SIM_OUT=$(bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
-  [ "$SIM_RC" = 1 ] && add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | head -20)"
+  case "$SIM_RC" in
+    1) add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | head -20)" ;;
+    2) note "[note] duplicate-row check skipped — no local embedding model reachable. It is the
+only check here that needs one; everything else above ran. \`ollama pull paraphrase-multilingual\`
+to enable it, or ignore this line: a machine without Ollama is a supported configuration." ;;
+  esac
 fi
 
 # ------------------------------------------------------- 3b. spec-kit installation

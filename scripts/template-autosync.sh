@@ -102,6 +102,7 @@ TEMPLATE_TARBALL="https://codeload.github.com/johanolofsson72/Claude/tar.gz/refs
 
 MODE_CHECK=0; MODE_DRYRUN=0; FORCE=0; DO_COMMIT=1; QUIET=0; MODE_ACCEPT=0; ACCEPT_PATHS=""
 MODE_IS_CORE=0; IS_CORE_PATH=""
+MODE_LIST_SCRIPTS=0; MODE_LIST_RULES=0
 # Spec 007ca. Declared beside MODE_IS_CORE because it is the same shape of question — a query mode
 # that answers and exits rather than syncing — and because `set -u` is on and the report block below
 # runs on every path, including the ones that never reach the flag loop's default.
@@ -131,6 +132,14 @@ while [ $# -gt 0 ]; do
       done
       ;;
     --unlisted) MODE_UNLISTED=1 ;;
+    # Spec: /project-update carried its OWN hardcoded list of scripts to mirror,
+    # written when CORE was 27 files. CORE is 96. Measured 2026-09-03: 70 of them
+    # were never copied by /project-update at all -- every guard, every test, the
+    # archiver, the convergence check. A second list of the same thing is a list
+    # that drifts, and this one drifted for months in silence. These two modes are
+    # how the other reader asks the question instead of answering it itself.
+    --list-core-scripts) MODE_LIST_SCRIPTS=1 ;;
+    --list-core-rules)   MODE_LIST_RULES=1 ;;
     --owed)     MODE_OWED=1 ;;
     --is-core)
       MODE_IS_CORE=1
@@ -180,7 +189,7 @@ register-convergence.sh test-register-convergence.sh
 install-nightly-maintenance.sh
 install-lane-merge-drivers.sh test-lane-merge-drivers.sh
 register-similarity.sh register_similarity.py test-register-similarity.sh
-lane-catchup.sh
+lane-catchup.sh test-sync-prompt-core-parity.sh
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
@@ -228,6 +237,11 @@ CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
 security.md project-workflow.md github-actions.md allium.md lane-handoff.md
 carve-budget.md"
+
+# Answered from the sets above and nothing else: no clone, no network, no stamp.
+# A caller in a project asks the template what CORE is; it does not keep a copy.
+if [ "$MODE_LIST_SCRIPTS" -eq 1 ]; then printf '%s\n' $CORE_SCRIPTS; exit 0; fi
+if [ "$MODE_LIST_RULES"   -eq 1 ]; then printf '%s\n' $CORE_RULES;   exit 0; fi
 
 is_core() {
   case "$2" in
