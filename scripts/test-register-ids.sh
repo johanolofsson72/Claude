@@ -378,8 +378,50 @@ done <<NARROWEOF
 $NARROWINGS
 NARROWEOF
 
+# SECOND PASS, on a SYNTHETIC register, and only when the real one fell nothing.
+#
+# The arm was written to run against the real register on purpose: a synthetic one proves the
+# grammar rejects what it was told to reject, which is what the unit block above already proves.
+# That reasoning holds, and it has an expiry date. This repo's register was rewritten on
+# 2026-09-03 to 001..025 plus H1 — no letter suffix, no letters-digits-letter-digit — so no
+# narrowing can ever fell a row here again, and the arm went permanently INCONCLUSIVE. A verdict
+# that can never change is a verdict nobody reads, which is the failure this whole file is about
+# one level down.
+#
+# So the fallback runs the SAME shipped gate over a register holding exactly the shapes each
+# narrowing removes, and says out loud that it is synthetic. That is strictly more than silence:
+# it still cannot claim the live register exercises the grammar — it does not, and the line below
+# says so — but it does establish that a narrowed grammar turns the shipped gate red.
+if [ "$LIVE" -eq 0 ] && [ "$fail" -eq 0 ] && [ -n "$NARROWINGS" ]; then
+  SYNTH=$(make_register falsification-synthetic \
+    "- [x] 007m — numeric-with-one-letter — spec-only — the pre-007m shape" \
+    "- [ ] 007ab — numeric-with-two-letters — spec-only — the pre-007ab shape" \
+    "- [ ] H6s2 — letters-digits-letter-digit — checkpoint — the pre-H7b shape")
+  while IFS='|' read -r LABEL ATTR PATTERN CANARY; do
+    [ -n "$LABEL" ] || continue
+    NDIR="$WORK/narrow-$LABEL"
+    [ -f "$NDIR/validate-register-ids.sh" ] || continue
+    GOUT=$(REGISTER="$SYNTH" bash "$NDIR/validate-register-ids.sh" 2>&1); GRC=$?
+    GN=$(printf '%s\n' "$GOUT" | sed -n 's/.*unparseable: \([0-9]*\).*/\1/p' | head -1)
+    [ -n "$GN" ] || GN=-1
+    if [ "$GRC" -eq 1 ] && [ "$GN" -gt 0 ]; then
+      SLIVE=$((${SLIVE:-0} + 1))
+      ok "$LABEL (synthetic register): the shipped gate goes red — $GN row(s) unparseable"
+    else
+      bad "$LABEL (synthetic register): a register built to hold this shape did not fell it — rc=$GRC unparseable=$GN"
+    fi
+  done <<SNAREOF
+$NARROWINGS
+SNAREOF
+fi
+
 if [ "$LIVE" -gt 0 ]; then
   ok "the falsification arm is live —$LIVE_DESC"
+elif [ "${SLIVE:-0}" -gt 0 ] && [ "$fail" -eq 0 ]; then
+  # The gate is proven to catch a narrowed grammar. What is NOT proven is that this repo's own
+  # register exercises it — it does not, and that stays on the record rather than being rounded up.
+  echo "  ----  every narrowing applied and none fells a row of THIS register (001..025, H1);"
+  echo "        falsified against a synthetic register instead — $SLIVE of 3 narrowings caught."
 elif [ "$fail" -eq 0 ]; then
   # Every narrowing applied and none of them found anything to fell. That is a fact about THIS
   # register, not about the gate, and the two must not share a verdict.

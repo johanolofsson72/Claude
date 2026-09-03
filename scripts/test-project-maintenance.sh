@@ -92,7 +92,13 @@ mkstale() {
   find "$1" -exec touch -t 202001010000 {} + 2>/dev/null
 }
 
-run() { ( cd "$1" && shift; env "$@" bash "$MAINT" 2>&1 ); }
+# Every fixture stub is made executable before the run. A real project's scripts carry
+# the bit, and project-maintenance.sh's [SCRIPT MODE] check reports the ones that do not
+# -- so without this, seven assertions across this file failed on the fixtures rather
+# than on the behaviour under test, and the two `expect_absent "worktree"` ones failed
+# because the finding NAMES prune-agent-worktrees.sh. The check gets cases of its own
+# (C26/C27) instead of being tripped by accident everywhere.
+run() { ( cd "$1" && chmod +x scripts/*.sh 2>/dev/null; shift; env "$@" bash "$MAINT" 2>&1 ); }
 
 snapshot() {
   ( cd "$1" && find . -type f -not -path './.git/*' -print0 2>/dev/null |
@@ -403,6 +409,25 @@ printf '#!/bin/bash\necho "no-sigpipe-assertions: clean — 21 self-test(s)"\nex
 OUT=$(run "$D"); RC=$?
 expect_absent "C25 clean gate — no SIGPIPE line" "[SIGPIPE]" "$OUT"
 expect_rc     "C25 clean gate — clean exit" 0 "$RC"
+
+
+# --- C26: a script without the executable bit is a finding -------------------------------------------
+# `bash X` runs it either way, so the defect is silent until something guards on `-x` -- which
+# lane-catchup.sh did, and skipped its entire shared-machinery check on six projects in silence.
+D=$(mkfix c26)
+printf '#!/bin/bash\nexit 0\n' > "$D/scripts/some-helper.sh"
+chmod -x "$D/scripts/some-helper.sh"
+OUT=$( ( cd "$D" && bash "$MAINT" 2>&1 ) ); RC=$?
+expect_contains "C26 non-exec script — a SCRIPT MODE finding" "[SCRIPT MODE]" "$OUT"
+expect_contains "C26 the finding names the script"            "some-helper.sh"  "$OUT"
+expect_rc       "C26 non-exec script — verdict is red" 1 "$RC"
+
+# --- C27: every script executable says nothing -------------------------------------------------------
+D=$(mkfix c27)
+printf '#!/bin/bash\nexit 0\n' > "$D/scripts/some-helper.sh"
+OUT=$(run "$D"); RC=$?
+expect_absent "C27 all executable — no SCRIPT MODE line" "[SCRIPT MODE]" "$OUT"
+expect_rc     "C27 all executable — clean exit" 0 "$RC"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
