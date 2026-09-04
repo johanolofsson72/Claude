@@ -198,6 +198,18 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
       ;;
   esac
 
+  # What this project OWES, and what made it owe it. The checkpoint cadence below has worked this
+  # way since spec-hardening.md was written -- DONE % 5 -- and it was the only recurring job with a
+  # due state. maintenance-due.sh generalises it to the other four, so a stale mutation gate or an
+  # unrun suite is surfaced here rather than depending on a nightly cron firing on a sleeping
+  # laptop. Delegated, never recomputed: three readers, one engine.
+  MAINT_DUE=""
+  if [ -x "${_ORIENT_SCRIPT_DIR}/maintenance-due.sh" ] || [ -f "${_ORIENT_SCRIPT_DIR}/maintenance-due.sh" ]; then
+    MAINT_DUE=$(cd "$PROJECT_ROOT" 2>/dev/null && bash "${_ORIENT_SCRIPT_DIR}/maintenance-due.sh" --brief 2>/dev/null)
+    [ -n "$MAINT_DUE" ] && MAINT_DUE="
+$MAINT_DUE"
+  fi
+
   # Cross-spec integration-hardening checkpoint cadence (every 5 completed specs).
   # If DONE is a nonzero multiple of 5 and the next row is NOT already a checkpoint,
   # flag that a checkpoint row is due before the next feature spec.
@@ -352,7 +364,7 @@ ${TAIL_LINES}"
     fi
   fi
 
-  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}"
+  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${MAINT_DUE}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
     MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
     jq -n --arg m "$MSG" '{systemMessage: $m}'
@@ -361,7 +373,7 @@ ${TAIL_LINES}"
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   jq -n --arg m "$MSG" '{systemMessage: $m}'

@@ -266,6 +266,7 @@ Ensure the project's `.gitignore` covers these patterns. Add any that are missin
 - `.claude/state/` (repeat-failure guard's attempt counters, TTL-pruned)
 - `.claude/.bash-write-marker` (bash-write guard's timestamp, re-stamped on every Bash write)
 - `.claude/.bash-write-blocked` (bash-write guard's escape-hatch record — a second file on purpose, see `bash-write-detect-hook.sh:29`)
+- `.claude/.maintenance-state` (maintenance due-state — when each recurring job last ran ON THIS MACHINE; per-machine for the same reason a crontab entry is)
 
 This list is not advisory and it is not maintained by hand alone: `scripts/test-runtime-markers-ignored.sh`
 fails when a machine-local `.claude/` path the scripts write is missing from it, or from the project's

@@ -63,10 +63,10 @@ install-nightly-maintenance.sh: no crontab on this machine.
 On Windows (Git Bash / PowerShell) use Task Scheduler instead:
 
   schtasks /Create /SC DAILY /ST $AT /TN "claude-nightly-$PROJECT" ^
-    /TR "C:\\Program Files\\Git\\bin\\bash.exe -lc \"cd '$ROOT' && bash scripts/project-maintenance.sh --full\""
+    /TR "C:\\Program Files\\Git\\bin\\bash.exe -lc \"cd '$ROOT' && bash scripts/project-maintenance.sh --full --suite --if-due\""
 
 Or, on any platform, from a Claude Code session in this project:
-  /loop 1d  bash scripts/project-maintenance.sh --full
+  /loop 1d  bash scripts/project-maintenance.sh --full --suite --if-due
 MSG
   exit 3
 fi
@@ -92,7 +92,7 @@ fi
 # `--full` is the point of running at night: it is what adds the mutation pass.
 # The log is truncated per run, not appended, so a nightly job cannot quietly fill
 # a disk over a year -- and the only run anyone reads is the last one.
-LINE="$MM $HH * * * cd $ROOT && /bin/bash scripts/project-maintenance.sh --full > $LOG 2>&1 $MARKER"
+LINE="$MM $HH * * * cd $ROOT && /bin/bash scripts/project-maintenance.sh --full --suite --if-due > $LOG 2>&1 $MARKER"
 
 if [ "$DRY" -eq 1 ]; then
   echo "(dry-run) would install:"; echo "  $LINE"; exit 0
@@ -105,7 +105,7 @@ printf '%s\n%s\n' "$cleaned" "$LINE" | sed '/^$/d' | crontab - || {
 cat <<MSG
 installed: $PROJECT — nightly maintenance at $(printf '%02d:%02d' "$HH" "$MM")
 
-  runs:  scripts/project-maintenance.sh --full   (secrets + CVEs, register drift,
+  runs:  scripts/project-maintenance.sh --full --suite --if-due   (secrets + CVEs, register drift,
          convergence, context-cost canary, hardening cadence, mutation kill rate)
   log:   $LOG
   check: bash scripts/install-nightly-maintenance.sh --list

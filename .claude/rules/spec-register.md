@@ -166,6 +166,7 @@ When a spec is complete, Claude's stop message uses this exact shape:
 - Pipeline: spec → interview (<I> answers, <interview mode>) → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
 - Hardening: <hardening status>
 - Open findings: <count> (or "none")
+- Maintenance due: <what ticking this row just made stale, or "nothing">
 
 **Next: NNN — <slug>** (or "register complete")
 
@@ -180,6 +181,15 @@ Fields:
 - `<allium status>` — `allium ok` / `allium skipped (spec-only track)` / `allium with N open questions surfaced`
 - `<tla status>` — `tla clean` / `tla skipped (spec-only or trivial state)` / `tla with N gaps surfaced`
 - `<hardening status>` — `n/a (not a hardened spec)` / `threat-model + stress + mutation-gate + adversarial-review all passed` / `hardened with N findings surfaced` (per `.claude/rules/spec-hardening.md`). For a checkpoint row, this line instead reads `integration checkpoint: regression + security sweep + scenario reconciliation + mutation spot-check — <result>`.
+- `Maintenance due` — read from `bash scripts/maintenance-due.sh --brief`, never composed by hand.
+  Ticking a row is what makes the whole-project suite stale (one spec) and moves the mutation gate
+  toward its cadence (five), so the moment a spec closes is exactly when the developer can decide to
+  run it now or leave it for the night. Deferring is safe and explicitly allowed: nothing is cleared
+  until the job actually runs, so the next session's banner says so again. This replaces the blind
+  nightly cron — a scheduled `project-maintenance.sh --if-due` now exits in a second on a night with
+  no work, and a night the laptop sleeps through costs nothing, because the obligation is still
+  recorded in the state file rather than in a missed timer.
+
 - If `Open findings` is non-zero, the findings MUST have been surfaced individually per `validation-followup.md` before this status summary is written — the summary cites the count for the audit trail, not as a deferral mechanism.
 
 After printing the summary, Claude stops. No follow-up question like "want me to continue with 004?" — the stop **is** the question.

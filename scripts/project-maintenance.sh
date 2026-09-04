@@ -38,10 +38,14 @@
 set -uo pipefail
 
 FULL=0
+IF_DUE=0
+SUITE=0
 QUIET=0
 for arg in "$@"; do
   case "$arg" in
     --full)  FULL=1 ;;
+    --if-due) IF_DUE=1 ;;
+    --suite) SUITE=1 ;;
     --quiet) QUIET=1 ;;
     # Print the whole leading comment block, not a hardcoded line range: this header
     # has grown twice now, and a range silently truncates --help when it does.
@@ -52,6 +56,24 @@ done
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
 cd "$ROOT" || exit 2
+
+# --if-due: the whole point of scripts/maintenance-due.sh. A scheduled run that has nothing to do
+# should cost nothing, so a cron entry stops being a bet that tonight is a night with work in it.
+#
+# It FAILS OPEN. If the due engine cannot answer -- missing, unreadable, a python3 that is not there
+# -- this runs the full pass rather than skipping it. The opposite default would turn any breakage
+# in a reporting script into a maintenance pass that silently never runs again, which is the exact
+# shape .claude/rules/github-actions.md records twice as "nightly quietly meaning never".
+if [ "$IF_DUE" -eq 1 ]; then
+  if [ -f scripts/maintenance-due.sh ]; then
+    if bash scripts/maintenance-due.sh --any >/dev/null 2>&1; then
+      : # something is due -- fall through and do the work
+    elif [ "$?" -eq 1 ]; then
+      [ "$QUIET" -eq 1 ] || echo "project-maintenance: nothing due — skipped (bash scripts/maintenance-due.sh to see why)."
+      exit 0
+    fi
+  fi
+fi
 
 FINDINGS=0
 REPORT=""
@@ -618,6 +640,74 @@ if [ -f "$CENSUS_SCRIPT" ]; then
 $(printf '%s' "$CENSUS_OUT" | grep -E '\S+\.cs:' | head -12)
   Fix at the SITE, never by raising a record until the red stops.
   Full output: bash scripts/e2e-wait-audit.sh"
+  fi
+fi
+
+# ------------------------------------------------------- 6b. carve SHAPE (budget + depth)
+#
+# The convergence ratio above answers "is the register closing". It cannot answer "was the budget
+# respected", and until 2026-09-04 nothing could: carve-budget.md sections 2 and 3 were prose.
+# Reported, never fatal on its own -- an over-budget carve is a fact about rows already written, and
+# the decision it wants is the developer's.
+if [ -f scripts/register-convergence.sh ] && [ -f scripts/carve_audit.py ] && [ -f specs/INDEX.md ]; then
+  CARVE_OUT=$(bash scripts/register-convergence.sh --carves 2>&1); CARVE_RC=$?
+  if [ "$CARVE_RC" -eq 1 ]; then
+    add "[CARVE SHAPE] the carve budget or the depth limit is exceeded (.claude/rules/carve-budget.md):
+$(printf '%s' "$CARVE_OUT" | head -12)
+  Section 2 caps a spec at 2 carves; section 3 says there is no depth 3. Both were unmeasured until
+  now, so these are pre-existing. Fold the excess into one consolidated row, or decide otherwise —
+  but decide, rather than letting the tree keep growing."
+  fi
+fi
+
+# ------------------------------------------------------------- 7. the test suite (--suite)
+#
+# THE PART THAT ACTUALLY COST THE DAYS. Sections 1-6 are hygiene: seconds to minutes. What made
+# afternoons disappear is the thing none of them ran — the suite itself. CLAUDE.md's Definition of
+# Done requires unit + integration + E2E + visual regression, and every one of those was invoked by
+# hand, in the middle of the work, competing with it. agentcrm's integration suite grew the test
+# host to 11.5 GB over 45 minutes and ended a session on 2026-09-01 by OOM-killing it.
+#
+# So it moves here, behind its own flag, and `maintenance-due.sh` decides when it is stale: one
+# ticked spec. Not a clock — a green suite is invalidated by code landing, and specs are how code
+# lands.
+#
+# THE STACK IS DETECTED, NEVER ASSUMED, and a project with no detectable suite says so rather than
+# reporting a pass. An unrun suite and a green one must not render identically
+# (.claude/rules/mutation-timeouts.md, trap 4).
+if [ "$SUITE" -eq 1 ]; then
+  SUITE_CMD=""
+  if [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
+    SUITE_CMD="dotnet test"
+  elif [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json 2>/dev/null; then
+    SUITE_CMD="npm test"
+  fi
+
+  if [ -z "$SUITE_CMD" ]; then
+    note "[note] --suite: no .NET solution and no npm test script — nothing to run. Not a pass."
+  else
+    SUITE_OUT=$(eval "$SUITE_CMD" 2>&1); SUITE_RC=$?
+    SUITE_TAIL=$(printf '%s' "$SUITE_OUT" | tail -12)
+    if [ "$SUITE_RC" -eq 0 ]; then
+      note "[note] suite green — \`$SUITE_CMD\`"
+      [ -f scripts/maintenance-due.sh ] && bash scripts/maintenance-due.sh --stamp suite 2>/dev/null
+    else
+      # NOT stamped. A red suite has not satisfied the obligation, and stamping it would mark the
+      # job done and stop reporting it — the failure this whole mechanism exists to prevent.
+      add "[SUITE] \`$SUITE_CMD\` failed (exit $SUITE_RC). Not stamped: the job stays due until it is green.
+$SUITE_TAIL"
+    fi
+  fi
+fi
+
+# --------------------------------------------------------------------- stamp what ran
+# Only what this invocation actually performed. Sections 1-6 always run, so `secrets` is stamped on
+# every pass; mutation and similarity are --full only. `suite` is stamped above, and only on green.
+if [ -f scripts/maintenance-due.sh ]; then
+  bash scripts/maintenance-due.sh --stamp secrets 2>/dev/null
+  if [ "$FULL" -eq 1 ]; then
+    bash scripts/maintenance-due.sh --stamp mutation 2>/dev/null
+    bash scripts/maintenance-due.sh --stamp similarity 2>/dev/null
   fi
 fi
 

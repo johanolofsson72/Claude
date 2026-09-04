@@ -39,7 +39,8 @@ set -u
 
 # --------------------------------------------------------------- the declared buckets
 # path%reason.  Machine-local: MUST be gitignored.
-MACHINE_LOCAL='.claude/.bash-write-marker%bash-write guard timestamp, re-stamped on every Bash write
+MACHINE_LOCAL='.claude/.maintenance-state%maintenance due-state: when each recurring job last ran ON THIS MACHINE. Per-machine for the same reason the crontab entry is (.claude/rules/lane-handoff.md) — David running the suite on Linux says nothing about whether it has run here, and committing it would let one lane mark the other lane clean
+.claude/.bash-write-marker%bash-write guard timestamp, re-stamped on every Bash write
 .claude/.bash-write-blocked%bash-write guard escape-hatch record (the file set of the last block)
 .claude/.template-sync-check%auto-sync rate-limit marker (mtime only; the manifest .template-sync is tracked)
 .claude/.local-llm-cache%local-LLM response cache

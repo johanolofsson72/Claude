@@ -666,7 +666,18 @@ echo
 echo "── spec-register-orientation quiet/attention mode ─────"
 echo
 
-QOT=$(mktemp -d); mkdir -p "$QOT/.git" "$QOT/specs"; : > "$QOT/package.json"
+QOT=$(mktemp -d); mkdir -p "$QOT/.git" "$QOT/specs" "$QOT/.claude"; : > "$QOT/package.json"
+# "Nothing actionable" now includes "nothing is due". maintenance-due.sh reports a never-stamped
+# project as owing all four recurring jobs, which is true and is the point of it -- so a fixture that
+# wants the QUIET branch has to establish that state rather than inherit it. One ticked spec, all
+# four jobs stamped at that count: nothing stale, nothing owed.
+_qot_stamp() {
+  { echo "secrets	$(date +%Y-%m-%d)	1	2"
+    echo "suite	$(date +%Y-%m-%d)	1	2"
+    echo "mutation	$(date +%Y-%m-%d)	1	2"
+    echo "similarity	$(date +%Y-%m-%d)	1	2"; } > "$QOT/.claude/.maintenance-state"
+}
+_qot_stamp
 _orient_lines() { (cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""' | grep -c .); }
 printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — b — light track — y\n' > "$QOT/specs/INDEX.md"
 [ "$(_orient_lines)" -eq 1 ] && _record "nothing actionable → one-line quiet mode" 0 \

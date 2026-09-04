@@ -40,16 +40,44 @@ DIR="."; WINDOW=10; JSON=0; QUIET=0
 # rule cannot drift apart silently.
 FLAT_AT="1.0"; DIVERGE_AT="1.3"
 
+CARVES=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir) DIR="${2:-}"; shift 2 ;;
     --window) WINDOW="${2:-}"; shift 2 ;;
     --json) JSON=1; shift ;;
+    --carves) CARVES=1; shift ;;
     --quiet) QUIET=1; shift ;;
     -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "register-convergence.sh: unknown argument '$1'" >&2; exit 4 ;;
   esac
 done
+
+# ── the two rules the ratio does NOT measure (--carves) ──────────────────────────────────────────
+#
+# carve-budget.md states three limits and until now exactly one was measured:
+#
+#   section 5  carve ratio >= 1.3   measured above, and it is what fires the convergence stop
+#   section 2  max 2 carves/spec    measured by nothing
+#   section 3  no depth 3           measured by nothing
+#
+# David's session found both gaps on agentcrm by hand on 2026-09-04: S11 carved SIX rows in one run
+# against a budget of two, and S6 -> S9 -> S11 -> S18 sits at depth 3. His report also named why
+# nothing caught it -- "Ingen rad bär (d2)-markör". The rule asks the author to write the depth onto
+# the row, and a rule that depends on remembering to annotate has an expiry date; that is the same
+# lesson archive-completed-rows.sh records about a row archive built by hand twice and then forgotten.
+#
+# So depth is DERIVED from the attribution rather than trusted from a marker. The engine is
+# scripts/carve_audit.py -- a separate file, not an inline heredoc, because this script is itself
+# read through heredocs by three test harnesses.
+if [ "$CARVES" -eq 1 ]; then
+  REG_FILE="$DIR/specs/INDEX.md"
+  [ -f "$REG_FILE" ] || { echo "register-convergence: no register at $REG_FILE" >&2; exit 4; }
+  AUDIT="$(dirname "$0")/carve_audit.py"
+  [ -f "$AUDIT" ] || { echo "register-convergence: scripts/carve_audit.py is missing" >&2; exit 4; }
+  REG="$REG_FILE" BUDGET="${SPEC_CARVE_BUDGET:-2}" python3 "$AUDIT"
+  exit $?
+fi
 
 case "$WINDOW" in ''|*[!0-9]*) echo "register-convergence.sh: --window wants an integer" >&2; exit 4 ;; esac
 [ "$WINDOW" -ge 1 ] || { echo "register-convergence.sh: --window must be >= 1" >&2; exit 4; }

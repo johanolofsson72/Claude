@@ -120,6 +120,28 @@ with the product for the register's one-row-at-a-time throughput and for the dev
   file the template row in the same commit. Fixing it locally and not filing it is how five projects
   end up with five divergent copies of the same guard.
 
+### 4b. All three limits are measured, not just the ratio
+
+Sections 2 and 3 were prose until 2026-09-04. Nothing counted carves per spec and nothing computed
+depth, so both were obeyed only when somebody remembered. They were not: consultpilot carries a
+depth-**7** chain (`H6w → H7h → H7x → H7aw → H7az → H7bc → H7bd → H7be`) and five rows over the
+2-carve budget, and agentcrm's `S11` carved six rows in one run.
+
+`bash scripts/register-convergence.sh --carves` measures both. **Depth is derived from the
+attribution, never trusted from a marker** — the rule asks authors to write `(d2)` on the row, and
+across every register on this machine exactly two rows carry one. A limit enforced by an annotation
+somebody has to remember is a limit with an expiry date.
+
+`carved by <id>` is the canonical attribution and what the parser looks for first; `found by`,
+`opened by` and `from` are accepted because real registers use them. A row citing a parent the
+register does not hold is **reported, never dropped** — an unparseable attribution and no
+attribution must not render identically (`.claude/rules/mutation-timeouts.md`, trap 4). A register
+with no attributions at all reports `0 attributed row(s)`, which is itself the finding: agentcrm's
+S-series carries none, which is why its depth-3 chain had to be traced by hand.
+
+`project-maintenance.sh` runs it and reports it as a finding. It never fails a build on its own: an
+over-budget carve is a fact about rows already written, and what it wants is a decision.
+
 ### 5. The register reports its own convergence
 
 `scripts/register-convergence.sh` computes the carve ratio over a trailing window and prints it. It
