@@ -84,8 +84,8 @@ if [ "$rc" = 4 ]; then echo "  PASS  non-numeric --window -> rc4"; PASS=$((PASS+
 else echo "  FAIL  non-numeric --window -> rc$rc"; FAIL=$((FAIL+1)); fi
 
 # bash 3.2 is the floor: macOS ships it and cross-platform is a base requirement.
-if grep -qE '^\s*mapfile|readarray' "$SUT"; then
-  echo "  FAIL  uses mapfile/readarray (bash 4+); macOS ships bash 3.2"; FAIL=$((FAIL+1))
+if grep -qE '^\s*mapfile|readarray' "$SUT"; then  # portability-ok — this line IS the check
+  echo "  FAIL  uses mapfile/readarray (bash 4+); macOS ships bash 3.2"; FAIL=$((FAIL+1))  # portability-ok
 else echo "  PASS  no bash-4-only builtins"; PASS=$((PASS+1)); fi
 
 echo "register-convergence: $PASS passed, $FAIL failed"

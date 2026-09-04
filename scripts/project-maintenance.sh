@@ -660,6 +660,20 @@ $(printf '%s' "$CARVE_OUT" | head -12)
   fi
 fi
 
+# ------------------------------------------------------ 6c. cross-platform portability
+#
+# Two developers, two platforms, and cross-platform is a base requirement rather than a preference.
+# A construct that works on one is a script the other never successfully runs -- and it fails
+# QUIETLY, because the usual symptom is an empty result, not an error.
+if [ -f scripts/validate-portability.sh ] && [ -f scripts/portability_audit.py ]; then
+  PORT_OUT=$(bash scripts/validate-portability.sh --all 2>&1); PORT_RC=$?
+  if [ "$PORT_RC" -eq 1 ]; then
+    add "[PORTABILITY] construct(s) that run on one developer's platform and not the other's:
+$(printf '%s' "$PORT_OUT" | grep -E '^\s+scripts/' -A2 | head -12)
+  Run: bash scripts/validate-portability.sh --all"
+  fi
+fi
+
 # ------------------------------------------------------------- 7. the test suite (--suite)
 #
 # THE PART THAT ACTUALLY COST THE DAYS. Sections 1-6 are hygiene: seconds to minutes. What made

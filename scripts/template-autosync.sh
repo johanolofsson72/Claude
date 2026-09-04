@@ -192,6 +192,7 @@ register-similarity.sh register_similarity.py test-register-similarity.sh
 lane-catchup.sh test-sync-prompt-core-parity.sh
 next-register-id.sh test-next-register-id.sh
 maintenance-due.sh test-maintenance-due.sh carve_audit.py
+validate-portability.sh portability_audit.py
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
