@@ -106,16 +106,38 @@ fi
 
 # ── 3. Did the shared machinery actually land?
 head_ "3. Shared machinery"
+# ASKED, not listed. This used to name four files, and the list was written before
+# maintenance-due.sh, carve_audit.py and validate-portability.sh existed -- so on the day
+# those landed, the one command whose job is "tell me what my machine is missing" would
+# have said everything was present. That is the third time today the same shape has bitten:
+# an enumeration is a list of what somebody thought of, and it goes stale silently because
+# there is no error state for "you forgot to add it here too". The Bash allow list and
+# sync-prompt.md's 27-script list were the other two.
+#
+# template-autosync.sh --list-core-scripts is the manifest, and it answers locally without
+# a clone or a network round.
 MISS=""
-for f in .claude/rules/carve-budget.md scripts/register-convergence.sh \
-         scripts/install-nightly-maintenance.sh scripts/archive-completed-rows.sh; do
+CORE_LIST=""
+[ -f scripts/template-autosync.sh ] && \
+  CORE_LIST=$(bash scripts/template-autosync.sh --list-core-scripts 2>/dev/null)
+if [ -n "$CORE_LIST" ]; then
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ -f "scripts/$f" ] || MISS="$MISS scripts/$f"
+  done <<< "$CORE_LIST"
+  N_CORE=$(printf '%s\n' "$CORE_LIST" | grep -c .)
+else
+  # No manifest to ask: fall back to the rules, which are not in it.
+  N_CORE=0
+fi
+for f in .claude/rules/carve-budget.md .claude/rules/spec-register.md .claude/rules/lane-handoff.md; do
   [ -f "$f" ] || MISS="$MISS $f"
 done
 if [ -n "$MISS" ]; then
   say "  missing:$MISS"
-  todo "pull first, then re-run this"
+  todo "git pull first, then re-run this"
 else
-  say "  carve-budget rule, convergence, nightly installer, archiver — all present"
+  say "  $N_CORE CORE script(s) + the lane rules — all present"
   # -f, not -x. Eight CORE scripts in the template were shipped without their
   # executable bit and the sync copies modes faithfully, so an -x guard here
   # skipped this entire check in silence on all six projects. The SessionStart
@@ -176,6 +198,36 @@ if [ -f scripts/register-convergence.sh ]; then
   CONV_RAW=$(bash scripts/register-convergence.sh 2>&1); RC=$?
   say "  $(printf '%s\n' "$CONV_RAW" | head -1)"
   [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row"
+  # The two limits the ratio does not measure. Reported here because a lane arriving at a
+  # register that already breaches them should know before it carves anything of its own.
+  if [ -f scripts/carve_audit.py ]; then
+    CARVE_RAW=$(bash scripts/register-convergence.sh --carves 2>&1)
+    printf '%s\n' "$CARVE_RAW" | grep -E '^\[CARVE|^carve shape' | sed 's/^/  /' | head -4
+  fi
+fi
+
+# ── 6. Does the shared machinery run on THIS machine?
+#
+# The point of this section is the asymmetry: Johan is on macOS and David on Linux, and a
+# construct that works on one is a script the other never successfully runs -- usually with
+# an empty result rather than an error. agentcrm's test-order-varied.sh enumerated 0 of 135
+# test classes on macOS for months because of `find -printf`.
+head_ "6. This machine"
+if [ -f scripts/validate-portability.sh ]; then
+  PORT_RAW=$(bash scripts/validate-portability.sh --all 2>&1); PRC=$?
+  say "  $(printf '%s\n' "$PORT_RAW" | grep -E '^portability:' | head -1)"
+  [ "$PRC" = 1 ] && todo "portability findings — bash scripts/validate-portability.sh --all"
+else
+  say "  scripts/validate-portability.sh is not here yet (pull first)"
+fi
+if [ -f scripts/maintenance-due.sh ]; then
+  DUE_RAW=$(bash scripts/maintenance-due.sh --brief 2>&1)
+  if [ -n "$DUE_RAW" ]; then
+    printf '%s\n' "$DUE_RAW" | sed 's/^/  /'
+    todo "maintenance is due on this machine — bash scripts/project-maintenance.sh --full --suite"
+  else
+    say "  maintenance: nothing due on this machine"
+  fi
 fi
 
 head_ "Summary"
