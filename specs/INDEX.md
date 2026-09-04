@@ -35,9 +35,12 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 024 — sigpipe-backlog-in-production-scripts — spec-only — `validate-no-sigpipe-assertions.sh --all` reports 54 pipelines outside the self-tests. Mostly diagnostics where 141 costs nothing. One at a time: a bulk pass turned msroute's suite red (M2).
 - [x] 025 — speckit-check-fired-on-the-template — spec-only — the pass told this config repo to install spec-kit once it grew a register; now gated on a language marker, the predicate every other guard uses. Third not-applicable case today.
 - [ ] 026 — port-drive-sync-and-its-gate-upstream — full track — consultpilot authored H7bo (a `drive_sync` helper + `validate-sync-sandbox-declarations.sh`) after the 2026-08-30 incident; neither exists here, so its gate is red downstream on 17 CORE call sites it cannot fix. Diagnos: `specs/INDEX.pending.md`
+- [ ] 027 — zero-attributions-reports-clean — spec-only — `carve_audit.py` prints "clean" and exits 0 when `len(parent)` is 0, so a register that never attributed a carve reads like a flat one. §4b says that count *is* the finding. Diagnos: `specs/INDEX.pending.md`
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 
 ## Register history (newest first)
+
+- 2026-09-04 — 027 ur agentcrm: `--carves` kallade ett register clean vars djup-3-kedja just spårats för hand. Regeln säger att noll attributioner *är* fyndet; skriptet exitar 0 och `project-maintenance.sh` ser grönt.
 
 - 2026-09-03 — 006 corrected on measurement: the bare skill name resolves to the plugin cache, so the rename half is refuted; what stands is that nothing checks the plugin is installed.
 - 2026-09-03 — 021 + 022 filed from an msroute `/project-update`; the two orphaned CORE-adjacent improvements landed here in the same pass.

@@ -175,3 +175,47 @@ copies.
 **Scope:** port `drive_sync` and the gate; convert the call sites in the CORE harnesses; ship both as
 CORE so the gate arrives with the shape it enforces. Audit first — two of the four call sites here
 already pass `CLAUDE_PROJECT_DIR` and need only rerouting, not a behaviour change.
+
+## 027 — zero-attributions-reports-clean
+
+Found on agentcrm 2026-09-04, immediately after a convergence stop that the same tool
+could not see.
+
+`scripts/carve_audit.py:63-66`:
+
+```python
+if not over and not deep:
+    extra = f" ({len(unresolved)} unresolved attribution(s) above.)" if unresolved else ""
+    print(f"carve shape: clean — {len(parent)} attributed row(s), none over {budget} carves, none past depth 2.")
+sys.exit(1 if bad else 0)
+```
+
+`parent` is built from `carved by` / `found by` / `opened by` / `from`. On a register that
+uses none of them `parent` is empty, so `over` and `deep` are necessarily empty too, and the
+verdict is the word **clean** with exit 0.
+
+`.claude/rules/carve-budget.md` §4b already states the intended reading:
+
+> A register with no attributions at all reports `0 attributed row(s)`, which is itself the
+> finding: agentcrm's S-series carries none, which is why its depth-3 chain had to be traced
+> by hand.
+
+The count is printed faithfully. What is wrong is the label and the exit code around it. §4b
+also says `project-maintenance.sh` "runs it and reports it as a finding" — on exit 0 with the
+word clean, it reports nothing.
+
+**agentcrm is the proof, on the day the tool shipped.** Its register carried
+`S6 → S9 → S11 → S18`, depth 3, and `S11` carved six rows against a budget of two. Both are
+exactly what §§2–3 forbid, both were traced by hand out of the Register history, and
+`--carves` answered `carve shape: clean — 0 attributed row(s)` over that same file.
+
+This is `.claude/rules/mutation-timeouts.md` trap 4 in the tool written to stop trap 4: an
+enumeration that finds nothing rendering identically to a count of zero. The rule's own
+authors saw it — the sentence in §4b is that observation — and the script did not follow.
+
+**Fix shape** (not started): `len(parent) == 0` on a register with more than a handful of rows
+is its own verdict — `carve shape: unmeasurable — 0 attributed row(s) of N; depth and budget
+cannot be computed from this register`, with a non-zero exit so the maintenance pass surfaces
+it. Keep `clean` for the case it was meant for: attributions present, none over budget, none
+past depth 2. The threshold below which "no attributions" is honest (a young register really
+has no carves yet) needs measuring across the machine's registers, not guessing.
