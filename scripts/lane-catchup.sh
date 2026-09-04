@@ -154,17 +154,21 @@ else
   fi
 fi
 
-# ── 4. The nightly pass. Per machine: a crontab entry is not in git.
-head_ "4. Nightly maintenance"
-if [ ! -f scripts/install-nightly-maintenance.sh ]; then
-  say "  installer not present yet (pull first)"
-elif bash scripts/install-nightly-maintenance.sh --list 2>/dev/null | grep -q "$ROOT"; then
-  say "  already scheduled on this machine"
-elif [ "$APPLY" -eq 1 ]; then
-  bash scripts/install-nightly-maintenance.sh --at "$AT" 2>&1 | sed 's/^/  /'
+# ── 4. Recurring work: what this project owes, not what a timer says.
+#
+# This section used to install a crontab entry. That was the wrong answer and it is now the
+# rule's own example of the wrong answer (.claude/rules/github-actions.md): a cron runs whether
+# or not there is anything to do, runs at 02:00 on a sleeping laptop, and does not catch up a
+# job it missed. Seven were installed on 2026-09-03 and not one had produced a log by morning.
+#
+# The project keeps its own due-state instead, and the developer plans the expensive work around
+# their day. Reported in section 6 below, with the rest of what is true of THIS machine.
+head_ "4. Recurring work"
+if [ -f scripts/maintenance-due.sh ]; then
+  say "  tracked by scripts/maintenance-due.sh — reported at every session start and after"
+  say "  every ticked row, so an expensive pass is planned rather than scheduled. See section 6."
 else
-  say "  not scheduled — the mutation gate has never run on this machine"
-  todo "run with --apply to schedule it at $AT"
+  say "  scripts/maintenance-due.sh is not here yet (pull first)"
 fi
 
 # ── 5. Where the register stands, and what this lane owns.
