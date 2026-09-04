@@ -363,7 +363,63 @@ N_STRUCK=$(awk -F'\t' '$6 == "1" {c++} END {print c+0}' "$TMP/rows")
 # the report has to be something a reader can anticipate before running the command.
 ROOTS_CANDIDATES="tests test e2e __tests__ cypress playwright"
 
-if [ "$ROOTS_EXPLICIT" -eq 0 ]; then
+# ----------------------------------------------------------- the per-project roots DECLARATION
+# Discovery above is a fleet default and it is right for most projects. It is silently wrong for a
+# project whose test trees are not top-level, and `src/` is deliberately not a candidate (a source
+# comment naming an id is not a test), so such a project cannot be served by widening the list.
+#
+# ighweld keeps ~3,500 xUnit tests under src/welding/Welding.Api.Tests/ and ~1,345 vitest suites
+# under src/welding/client/src/**/__tests__/. Discovery yielded `tests` alone, so 75 rows proven by
+# those suites read as UNCOVERED — and, less obviously, SEVEN dangling ids stayed invisible, because
+# an id named only by an unscanned test is not seen at all. That second direction was explicitly
+# ruled out in writing ("the error is one-way") and measurement refuted it: 4 dangling under the
+# narrow roots, 11 under the real ones.
+#
+# So a project may DECLARE its roots, in `specs/traceability-roots`: one root per line, `#` comments
+# and blank lines ignored. Precedence, most specific first:
+#
+#   --roots            the caller's promise, for this one invocation
+#   the declaration    the project's promise, for every invocation
+#   discovery          the fleet default
+#
+# A DECLARED root that does not exist REFUSES, exactly as a --roots one does, via the same guard
+# further down. That is the point of the distinction the guard already draws: discovery skips an
+# absent candidate because a candidate is a guess, and both flags are promises. Nothing in that
+# guard changed.
+#
+# The declaration cannot be a route to reporting clean over no evidence: a file that yields no roots
+# falls through to the same refusal an empty discovery hits, rather than to a silent empty run.
+#
+# Additive by construction — a project without the file behaves exactly as it did before.
+#
+# The `>>> name` / `<<< name` markers make this region a sabotage target, like locale-pin,
+# root-guard and roots-discovery above: the harness swaps exactly one marked region at a time so a
+# red case proves WHICH defence carries it.
+# >>> roots-declaration
+ROOTS_DECL="$SPECS_DIR/traceability-roots"
+ROOTS_DECLARED=0
+
+if [ "$ROOTS_EXPLICIT" -eq 0 ] && [ -f "$ROOTS_DECL" ]; then
+  DECL=""
+  # Strip comments and blanks. No `read -r` loop with a pipe: this must work under `set -eu` on a
+  # file whose last line has no newline, which a hand-edited config often does.
+  for line in $(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$ROOTS_DECL"); do
+    [ -n "$line" ] || continue
+    if [ -z "$DECL" ]; then DECL="$line"; else DECL="$DECL,$line"; fi
+  done
+  if [ -n "$DECL" ]; then
+    ROOTS="$DECL"
+    ROOTS_DECLARED=1
+  else
+    echo "scenario-traceability: $ROOTS_DECL exists but declares no roots" >&2
+    echo "  Either list one root per line, or delete the file to fall back to discovery." >&2
+    echo "  An empty declaration is not the same as no declaration, and must not read as clean." >&2
+    exit 4
+  fi
+fi
+# <<< roots-declaration
+
+if [ "$ROOTS_EXPLICIT" -eq 0 ] && [ "$ROOTS_DECLARED" -eq 0 ]; then
   ROOTS=""
   # Iterated in the list's declared order, not by a glob: the printed `roots:` line is part of the
   # report and a test asserts on it, so it must not depend on filesystem enumeration order.
@@ -541,7 +597,16 @@ row_detail() { # <id> — echo "  ID  status  scenario"
   awk -F'\t' -v want="$1" '$1 == want {printf "  %s  %s  %s\n", $1, $5, $3; exit}' "$TMP/rows"
 }
 
-echo "scenario traceability — $LAYOUT layout, $MAP_COUNT map file(s), roots: $ROOTS"
+# Say WHERE the roots came from, not just what they are. A reader looking at a coverage figure that
+# seems too low needs to know whether they are seeing a project's declared roots or the fleet
+# default having guessed — which is the exact confusion that let ighweld report 443 of 814 for as
+# long as it did.
+case "$ROOTS_EXPLICIT$ROOTS_DECLARED" in
+  1*) ROOTS_SRC=" (--roots)" ;;
+  01) ROOTS_SRC=" (declared in specs/traceability-roots)" ;;
+  *)  ROOTS_SRC=" (discovered)" ;;
+esac
+echo "scenario traceability — $LAYOUT layout, $MAP_COUNT map file(s), roots: $ROOTS$ROOTS_SRC"
 echo
 
 if [ "$N_UNCOV" -gt 0 ]; then

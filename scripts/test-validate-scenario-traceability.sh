@@ -587,6 +587,82 @@ else
   bad "case33-no-root-found-is-not-a-pass" "expected exit 4 naming the candidates, got $RC: $OUT"
 fi
 
+# case35 — A PROJECT MAY DECLARE ITS ROOTS. Discovery is a fleet default and it is silently wrong on
+# a project whose test trees are not top-level. ighweld keeps ~3,500 xUnit tests under
+# src/welding/Welding.Api.Tests/, which discovery cannot reach and must not reach by widening (a
+# source comment naming an id is not a test). 75 rows read as uncovered for as long as that stood.
+proj=$(new_project)
+mkdir -p "$proj/src/backend.Tests"
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf 'backend test\n'; printf 'it covers %s\n' "$(id 901)"; } > "$proj/src/backend.Tests/a.cs"
+printf 'tests\nsrc/backend.Tests\n' > "$proj/specs/traceability-roots"
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && grep -q 'src/backend.Tests' <<< "$OUT" && grep -q 'declared in specs/traceability-roots' <<< "$OUT"; then
+  ok "case35-declaration-is-honoured"
+else
+  bad "case35-declaration-is-honoured" "expected exit 0 reading the declared root, got $RC: $OUT"
+fi
+
+# case36 — ...and --roots still wins over it. The flag is the caller's promise for one invocation;
+# the file is the project's standing one. A file that could override the flag would make the flag a
+# suggestion, which is the same defect case32 pins for discovery.
+proj=$(new_project)
+mkdir -p "$proj/src/backend.Tests"
+{ map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf 'in tests\n'; printf 'it covers %s\n' "$(id 901)"; } > "$proj/tests/a.spec.ts"
+{ printf 'backend\n'; printf 'it covers %s\n' "$(id 902)"; } > "$proj/src/backend.Tests/a.cs"
+printf 'tests\nsrc/backend.Tests\n' > "$proj/specs/traceability-roots"
+run_gate "$proj" --roots tests
+if [ "$RC" -eq 1 ] && grep -q "$(id 902)" <<< "$OUT" && grep -q -- '(--roots)' <<< "$OUT"; then
+  ok "case36-explicit-roots-beat-the-declaration"
+else
+  bad "case36-explicit-roots-beat-the-declaration" "expected exit 1 with 902 uncovered under --roots, got $RC: $OUT"
+fi
+
+# case37 — A DECLARED ROOT THAT DOES NOT EXIST REFUSES. This is the distinction the root-guard
+# already draws and the reason it is not touched here: discovery SKIPS an absent candidate because a
+# candidate is a guess, while --roots and the declaration are both promises. A project that renames
+# its test tree and forgets the file must be told, not quietly given a coverage figure computed over
+# less than it asked for.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf 'spec\n'; printf 'it covers %s\n' "$(id 901)"; } > "$proj/tests/a.spec.ts"
+printf 'tests\nsrc/gone\n' > "$proj/specs/traceability-roots"
+run_gate "$proj"
+if [ "$RC" -eq 4 ] && grep -q 'src/gone' <<< "$OUT"; then
+  ok "case37-absent-declared-root-refuses"
+else
+  bad "case37-absent-declared-root-refuses" "expected exit 4 naming src/gone, got $RC: $OUT"
+fi
+
+# case38 — AN EMPTY DECLARATION IS NOT NO DECLARATION. A file of nothing but comments must not fall
+# through to discovery, and must certainly not yield a clean run over no roots at all. This is the
+# sabotage direction that matters: the whole point of a per-project override is that it cannot
+# become a route to the "0 of 0, all clear" report this script is named after.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf 'spec\n'; printf 'it covers %s\n' "$(id 901)"; } > "$proj/tests/a.spec.ts"
+printf '# only a comment\n\n' > "$proj/specs/traceability-roots"
+run_gate "$proj"
+if [ "$RC" -eq 4 ] && grep -q 'declares no roots' <<< "$OUT"; then
+  ok "case38-empty-declaration-refuses"
+else
+  bad "case38-empty-declaration-refuses" "expected exit 4 for an empty declaration, got $RC: $OUT"
+fi
+
+# case39 — NO DECLARATION MEANS NOTHING CHANGED. The additive property, asserted rather than
+# assumed: every project in the fleet that does not carry the file must behave exactly as it did
+# before this feature existed.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf 'spec\n'; printf 'it covers %s\n' "$(id 901)"; } > "$proj/tests/a.spec.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && grep -q '(discovered)' <<< "$OUT"; then
+  ok "case39-no-declaration-is-unchanged"
+else
+  bad "case39-no-declaration-is-unchanged" "expected exit 0 via discovery, got $RC: $OUT"
+fi
+
 # case34 — THE MAP IS NOT EVIDENCE FOR ITSELF. specs/ holds a row for every id it owns, so a
 # candidate list admitting it would mark every row covered by its own map entry: the gate reduced to
 # a tautology, green forever, over nothing. The row below is named in SCENARIOS.md and nowhere else,
@@ -768,6 +844,16 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   expect_red "roots-discovery-replaced-by-constant" "$SAB_OUT" \
     case30-discovery-reads-e2e case31-discovery-without-a-tests-dir || SAB_FAIL=1
 
+  # (m) the roots DECLARATION neutralised — the file is read and then ignored, so a project whose
+  # tests are not top-level silently falls back to discovery and under-reports its own coverage.
+  # That is the state ighweld was in, and the reason it survived is that on every project whose
+  # tests DO live in tests/ this sabotage is invisible.
+  # shellcheck disable=SC2016
+  replace_region "$SCRIPT" "$SABDIR/m.sh" roots-declaration 'ROOTS_DECL=""; ROOTS_DECLARED=0'
+  sab_run "$SABDIR/m.sh"
+  expect_red "roots-declaration-neutralised" "$SAB_OUT" \
+    case35-declaration-is-honoured case38-empty-declaration-refuses || SAB_FAIL=1
+
   # (g) the duplicate-id check deleted — two scenarios under one handle stop being reported.
   # shellcheck disable=SC2016
   replace_region "$SCRIPT" "$SABDIR/g.sh" duplicate-check ': > "$TMP/duplicate"'
@@ -776,7 +862,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
 
   # The clean case must survive every surgical sabotage. If it broke, the sabotage was wholesale and
   # the reds above would be meaningless.
-  for s in a b c d e f g l; do
+  for s in a b c d e f g l m; do
     sab_run "$SABDIR/$s.sh"
     if grep -q "FAIL  case1-clean" <<< "$SAB_OUT"; then
       echo "  FAIL  sabotage/$s — case1-clean also broke, so the sabotage was not surgical"
