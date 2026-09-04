@@ -79,7 +79,8 @@ TODAY_N=$(today_days "$TODAY")
 #                  so one ticked spec is exactly what makes the whole-project suite stale
 #   secrets  7   — .claude/rules/github-actions.md calls the local pass weekly
 #   similar 10   — .claude/rules/carve-budget.md runs it "as part of the periodic maintenance pass"
-JOBS='secrets|days|7|secrets + dependency CVEs
+JOBS='findings|specs|5|findings review (decide what becomes a row — scripts/finding.sh --list)
+secrets|days|7|secrets + dependency CVEs
 suite|specs|1|full test suite (unit + integration + E2E + visual regression)
 mutation|specs|5|mutation kill rate (Stryker)
 similarity|rows|10|register similarity (duplicate-row scan)'
@@ -120,6 +121,17 @@ for line in $JOBS; do
   kind=$(printf '%s' "$line" | cut -d'|' -f2)
   thresh=$(printf '%s' "$line" | cut -d'|' -f3)
   label=$(printf '%s' "$line" | cut -d'|' -f4)
+
+  # A findings review with an empty ledger is not due. The cadence exists to force a DECISION on
+  # what accumulated; with nothing accumulated there is nothing to decide, and firing anyway would
+  # make the loudest banner in the project the one that means least.
+  if [ "$job" = findings ]; then
+    NF=0
+    [ -f "$ROOT/specs/FINDINGS.md" ] && NF=$(grep -cE '^- \[ \]' "$ROOT/specs/FINDINGS.md" 2>/dev/null | head -1)
+    case "$NF" in ''|*[!0-9]*) NF=0 ;; esac
+    [ "$NF" -eq 0 ] && continue
+    label="$label — $NF open"
+  fi
 
   rec=$(state_get "$job")
   if [ -z "$rec" ]; then

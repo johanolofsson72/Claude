@@ -35,62 +35,79 @@ honestly recorded, which is exactly why nobody stopped it.
 
 ## The contract (BLOCKING)
 
-### 1. A finding is not automatically a row
+### 1. A finding is recorded, not rowed
 
 `validation-followup.md` requires every finding be **surfaced**. It does not require every finding
-become a **row**, and reading it that way is what produced the table above. Every finding gets one of
-three dispositions, and the default is the first:
+become a **row**, and reading it that way is what produced the table above. But "max 2 carves per
+spec" was still the wrong correction, because it assumes carving is the normal outcome of finding
+something. It is not.
 
-- **Fix it inside the current spec.** If the fix is smaller than the ceremony of a row — and a row
-  costs a spec directory, an interview, a plan, tasks, a test matrix and a status summary — then
-  fixing it now is cheaper than recording it. This is the default disposition. Reach for it first.
-- **Carve a row**, against the budget below.
-- **Decline it, in writing.** One line in `<spec-dir>/run-log.md`: what it was and why it does not
-  earn a row. A declined finding is a decision with an audit trail, not a thing that was missed.
+**The normal outcome is that a finding is written down and decided later, in a batch.** A spec that
+finds something records it and keeps going:
 
-"Defer (track in spec)" in the `validation-followup.md` option set means *the third one* when the
-budget is spent. It has been read as "always make a row". It is not.
+```bash
+bash scripts/finding.sh --add "the index and its feature files can disagree on a tally" --spec 031 --kind gap
+```
 
-### 1b. Before carving, ask whether the row already exists
+That lands in `specs/FINDINGS.md` — git-tracked, so a finding one lane records is one the other
+sees — and the spec finishes. Nothing about the register changed.
 
-The opening question of the review that produced this rule was not about speed — it was *"vi
+The three dispositions still exist, and their order has changed:
+
+1. **Fix it inside the current spec**, when the fix is smaller than the ceremony of recording it.
+2. **Record it as a finding.** This is now the default for everything else.
+3. **Carve a row immediately** — the exception, for work that genuinely blocks the next spec and
+   cannot wait for the review. It costs the same as it always did and it is now rare by design.
+
+### 2. Findings are reviewed every 5 specs, and only the review grows the register
+
+Every 5 ticked specs — the cadence `spec-hardening.md` already uses for the integration checkpoint,
+and the one `maintenance-due.sh` already tracks — the open findings are presented as **one batch**
+and the developer decides per finding: fix it now, make it a row, or drop it.
+
+This is the same shape the maintenance due-state uses, and for the same reason: **the project
+collects, presents at a decision point, and the developer decides.** A pipeline that acts on every
+finding the moment it appears is a pipeline that plans its own work, and the measured result of that
+was five registers growing faster than they close.
+
+Reviewing in a batch is not just cheaper, it is **better**, because a batch has a shape a single
+finding does not. agentcrm's nine open spec-only rows turned out to be one thing — "the test suite's
+floor" — visible only once they sat next to each other. Nine decisions became one.
+
+A review with an empty ledger is not due. The cadence exists to force a decision about what
+accumulated; with nothing accumulated there is nothing to decide, and firing anyway would make the
+loudest banner in the project the one that means least.
+
+**`SPEC_CARVE_BUDGET` still caps immediate carves** (default 2, and 0 is a legitimate setting for a
+project that wants the review to be the only route). It is a ceiling on the exception, not an
+allowance to spend.
+
+### 2b. At review time, ask whether the row already exists
+
+The question that opened the review which produced this rule was not about speed — it was *"vi
 sitter och skriver om redan befintlig funktionalitet"*. Nothing measured that. A carve budget stops
 the register growing; it does nothing about the same row being written twice, in two projects,
 months apart, by someone who could not have held 334 open rows in their head.
 
 `bash scripts/register-similarity.sh --text "<the row you are about to write>"` answers it in
-seconds. It embeds every register row across every project on the machine and reports the closest
-existing ones. Local embedding model, no network, no credentials.
+seconds, and **the batch review is exactly when to run it** — you are about to decide which findings
+become rows, which is the one moment the question is live. It embeds every register row across every
+project on the machine and reports the closest existing ones. Local embedding model, no network, no
+credentials.
 
-It is a **report, never a gate**. Two rows can be close in wording and different in intent; the
-point is that until 2026-09-03 nobody was looking at all. Run it before carving a row, and as part
-of the periodic maintenance pass.
-
-Its first full pass, across 28 projects and 334 open rows, found `ighweld-2026` rows **119 and 138**
-— both `scenario-map-split`, the same job planned twice nineteen rows apart, one measuring the file
-at 131 KB and the other at 169 KB.
+It is a **report, never a gate**. Two rows can be close in wording and different in intent. Its first
+full pass, across 28 projects and 334 open rows, found `ighweld-2026` rows **119 and 138** — both
+`scenario-map-split`, the same job planned twice nineteen rows apart, one measuring the file at
+131 KB and the other at 169 KB. A later pass found `matchpilot` **018** and **073** describing one
+contact form.
 
 What it does **not** do is group rows by subject. The template's own 007, 013 and 016 were three
 different defects in one script; their descriptions are genuinely dissimilar and the tool correctly
 said so. That grouping is a `grep` for the filename, not an embedding.
 
-### 2. Two carves per spec, then the budget is spent
-
-A spec may carve **at most 2 rows**. When a third finding wants a row, the spec does one of:
-
-- fold every remaining finding into **one** consolidated row ("the six things S11 found"), or
-- write them to `specs/INDEX.pending.md` under a single new row that points at them.
-
-Two is not arbitrary. At 2 carves per spec the ratio only stays under 1.0 if most specs carve
-nothing, which is the intended shape: a routine spec finishes and produces no rows at all. The budget
-is a ceiling on the exceptional spec, not an allowance every spec is meant to spend.
-
-`SPEC_CARVE_BUDGET=N` overrides it per project. Raising it is a deliberate, recorded choice — put the
-reason in a Register history line — not a reflex when a spec finds three things.
-
 ### 3. Carve depth stops at 2
 
-A row carved by an original spec is **depth 1**. A row carved by a depth-1 row is **depth 2**. There
+Carving is now the exception (section 1), so depth should rarely be reachable at all. When it is: a row carved by an original spec is **depth 1**. A row carved by a depth-1 row is **depth 2**. There
 is no depth 3.
 
 When a depth-2 row wants to carve, the pipeline has stopped working on the product and started
@@ -183,8 +200,11 @@ one.
 
 ## What this rule forbids
 
-- Turning every `validation-followup.md` finding into a register row. Surface all of them; row the
-  ones that earn it.
+- Turning a finding into a register row on the spot. Record it (`scripts/finding.sh --add`) and let
+  the 5-spec review decide. An immediate carve is the exception and needs a reason that names why it
+  cannot wait.
+- Treating the 2-carve ceiling as an allowance to spend. It bounds the exception; the expected number
+  of carves for an ordinary spec is **zero**.
 - Carving a third row from one spec without folding the rest into one.
 - Carving at depth 3. That is a convergence stop, not a row.
 - Putting a harness/tooling defect on a product register as anything but the standing `T0` row.

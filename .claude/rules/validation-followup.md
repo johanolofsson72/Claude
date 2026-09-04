@@ -37,10 +37,11 @@ register growing faster than it closes, measured 2026-09-03 at 2.15 on rocky and
 
 Surface all of them. Then give each one of three dispositions, defaulting to the first:
 
-1. **Fix it inside the current spec** — when the fix is smaller than the ceremony of a row.
-2. **Carve a row** — against the 2-per-spec budget in `carve-budget.md`.
-3. **Decline it in writing** — one line in `<spec-dir>/run-log.md` saying what it was and why it does
-   not earn a row.
+1. **Fix it inside the current spec** — when the fix is smaller than the ceremony of recording it.
+2. **Record it as a finding** — `bash scripts/finding.sh --add "<one line>" --spec NNN`. This is the
+   default for everything else. It goes to `specs/FINDINGS.md` and is decided at the next 5-spec
+   review, not now.
+3. **Carve a row immediately** — the exception, for work that blocks the next spec and cannot wait.
 
 All three satisfy this rule: the finding was named, decided, and recorded. Only the second one grows
 the register. "Defer (track in spec)" in the option set below means the third when the budget is
