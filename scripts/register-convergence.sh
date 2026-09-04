@@ -142,6 +142,21 @@ if [ "$TICKED" -le 0 ]; then
   exit 3
 fi
 
+# A NEGATIVE delta is not a ratio, it is a batch or a cut.
+#
+# carve-budget.md section 2 tells a spec to fold its excess findings into one row, and section 7
+# allows a row to be deleted outright. Both REMOVE rows, so ADDED goes negative — and `a/t` then
+# prints something like "-0.45", which reads as a broken instrument rather than as the register
+# doing exactly what the rule asked. Measured on ighweld-2026 on 2026-09-04, minutes after its
+# session batched its light rows: -5 added over 11 ticked, 52 open down to 36. The best outcome the
+# rule can produce rendered as its most confusing number.
+if [ "$ADDED" -lt 0 ]; then
+  REMOVED=$(( -ADDED ))
+  [ "$QUIET" -eq 1 ] || echo "register-convergence: CLOSING — $REMOVED row(s) folded or cut and $TICKED ticked since $BASE_DATE, $OPEN_BASE → $OPEN_NOW open. No ratio: the register shrank."
+  [ "$JSON" -eq 1 ] && printf '{"verdict":"closing","ratio":null,"added":%d,"ticked":%d,"open_now":%d,"open_base":%d,"from":"%s","to":"%s"}\n' \
+    "$ADDED" "$TICKED" "$OPEN_NOW" "$OPEN_BASE" "$BASE_DATE" "$NOW_DATE"
+  exit 0
+fi
 RATIO=$(awk -v a="$ADDED" -v t="$TICKED" 'BEGIN{printf "%.2f", a/t}')
 
 # The threshold only bites at a real window. Under it, report the number and stay quiet:
