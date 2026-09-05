@@ -121,8 +121,8 @@ to four markdown files, and git calling every append at the same end a conflict.
 
 Those files are **lists**, and two lanes appending different entries is two additions, not a
 disagreement. `bash scripts/install-lane-merge-drivers.sh` sets `merge=union` on them in
-`.gitattributes` (a built-in strategy — nothing to register per clone, unlike the custom driver
-`scripts/merge-locale-json.py` that this project already wrote for the i18n files).
+`.gitattributes` (a built-in strategy — nothing to register per clone, unlike a custom merge driver,
+which every clone has to register by hand before it does anything).
 
 **The trade, stated plainly.** `union` never reports a conflict; it keeps both sides. That is right
 for an append and wrong when both lanes edit the *same* row — there you get the row twice instead of
