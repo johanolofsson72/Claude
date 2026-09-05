@@ -39,9 +39,16 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 028 — traceability-roots-declaration — spec-only — the gate discovered top-level test dirs only, so a project with suites under `src/` was under-reported. Projects may now declare roots in `specs/traceability-roots`. Verbatim in `INDEX.completed.md`.
 - [ ] 029 — pretooluse-deny-is-inert-under-bypass-permissions — full track [hardened] — five guards deny correctly when asked and the identical live `Edit` passes; the PostToolUse shell detector still bites, so the teeth are on the path the rules do not name. Diagnos: `specs/INDEX.pending.md`
 - [ ] 030 — unlisted-fires-forever-on-an-optional-callee — spec-only — a CORE file calling a project script behind `[ -f ]` is a use, not a dependency; three reported forever here, tick guard permanently red. Diagnos: `specs/INDEX.pending.md`
+- [ ] 031 — dotnet-test-prints-passed-over-an-aborted-run — spec-only — a crashed test host reported `Passed!` with 45% of the suite unrun; no wrapper reads the abort line. Diagnos: `specs/INDEX.pending.md`
+- [ ] 032 — spec-dir-absent-leaves-both-guards-inert — spec-only — a row worked without a spec directory resolves to found:false in spec_active.py, so pipeline-state-guard and spec-interview-guard both pass everything; fundit's 016a shipped that way. Reported by fundit F001.
+- [ ] 033 — portability-check-fails-open-and-says-nothing — spec-only — project-maintenance.sh guards the portability audit behind `[ -f ]`, so a clone without scripts/portability_audit.py skips it silently. A check that fails open must say so. Reported by fundit F002.
+- [ ] 034 — freshness-reports-seven-bogus-lockfile-skips — spec-only — project-freshness.sh prints `[SKIP] No lockfile` per npm workspace package; in a workspace only the root has one and it covers them, so seven noise lines sit where a real skip would hide. Reported by fundit F003.
+- [ ] 035 — a11y-suite-runs-at-one-viewport-only — spec-only — the shared a11y/visual template asserts at the default 1280px, so a horizontal-overflow defect shipped in fundit spec 001 and survived until spec 004 measured 375px by hand. A viewport dimension belongs in the shared suite, not per spec. Reported by fundit F024.
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 
 ## Register history (newest first)
+
+- 2026-09-05 — 032-035 filed from fundit's findings review (carve-budget §4: a harness defect belongs here, not on a product register)
 
 - 2026-09-04 — 028 ur ighweld 173: traceability-gaten läste bara toppnivå-testkataloger; projekt får nu deklarera sina roots.
 - 2026-09-04 — 027 ur agentcrm: `--carves` kallade ett register clean vars djup-3-kedja just spårats för hand. Regeln säger att noll attributioner *är* fyndet; skriptet exitar 0 och `project-maintenance.sh` ser grönt.

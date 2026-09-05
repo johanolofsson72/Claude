@@ -272,3 +272,27 @@ cannot be computed from this register`, with a non-zero exit so the maintenance 
 it. Keep `clean` for the case it was meant for: attributions present, none over budget, none
 past depth 2. The threshold below which "no attributions" is honest (a young register really
 has no carves yet) needs measuring across the machine's registers, not guessing.
+
+
+## 031 — dotnet-test-prints-passed-over-an-aborted-run
+
+_Opened 2026-09-05 by rocky's 5-spec findings review (finding F006, from checkpoint H13). Template-owned per `.claude/rules/carve-budget.md` §4: this is a defect in how the harness READS a run, not in any product._
+
+Measured on rocky 2026-09-05. The integration host crashed and the output block read, in this order:
+
+```
+The active test run was aborted. Reason: Test host process crashed
+Passed!  - Failed: 0, Passed: 1673, Skipped: 7, Total: 1680
+Test Run Aborted.
+```
+
+Exit code was 1. The suite is **3050 tests** — proven by a completing `--blame` re-run (3040 passed, 3 failed, 7 skipped) — so **45% of it never ran and the summary word was `Passed!`**.
+
+**The reporting defect is independent of the crash.** The crash did not reproduce on a quieter machine and its cause is unidentified; that does not matter here. What matters is that a reader — human or script — is told in English that the run passed, over a run that covered barely half the suite.
+
+This is the **third** way this command misreports, and the most persuasive. `project_495` already records `dotnet test` exiting **0** on failures; F006 adds a run that aborts, reports a truthful-looking per-assembly summary for the part that did run, and labels it `Passed!`.
+
+**What any wrapper that judges a run must do:** treat `Test Run Aborted.` as fatal, and trust **neither** `$?` **nor** the summary word. `scripts/e2e-wait-audit.sh` already parses the summary line for this family of reason and is the natural place to start; **nothing currently reads the abort line**.
+
+Scope: a shared run-verdict helper the CORE scripts call, plus the two existing call sites. Bite-proof it in both directions — a genuinely green run must stay green, and a captured aborted-run transcript must go red.
+
