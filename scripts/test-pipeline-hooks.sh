@@ -660,6 +660,42 @@ chmod 555 "$RLN/specs/003-readonly"
 _rl_note "a write that failed is reported, not swallowed" 4 "could not write" \
          --note "into a read-only dir" --spec "$RLN/specs/003-readonly"
 chmod 755 "$RLN/specs/003-readonly"
+
+# ── argv is parsed, not pattern-matched at $1 (spec 495 / I-11) ──────────────
+#
+# The mode selector was `[ "$1" = "--note" ]` and the operands were positional, so
+# `--spec DIR --note TEXT` fell through to HOOK mode, read an empty stdin and
+# exited 0 having written nothing. Every _note_stop above is unreachable on that
+# path, which is why none of them caught it.
+#
+# The reversed-order case asserts on a WRITE and not on an exit code, deliberately:
+# the unfixed script exits 0 there too, so an exit-code assertion passes against
+# the bug. What separates fixed from unfixed is whether the line is on disk.
+printf '# R\n\n## Specs\n\n- [/] 002 — search — full track — free-text search\n' > "$RLN/specs/INDEX.md"
+: > "$RLN/specs/002-search/run-log.md"
+CLAUDE_PROJECT_DIR="$RLN" bash "$RLN/bin/spec-run-log-hook.sh" \
+  --spec "$RLN/specs/002-search" --note "I-11 reversed flag order" >/dev/null 2>&1
+grep -q 'I-11 reversed flag order' "$RLN/specs/002-search/run-log.md" 2>/dev/null \
+  && _record "--spec before --note still records the note" 0 \
+  || _record "--spec before --note still records the note" 1
+
+# A malformed CLI call must be a usage error, never a silent slide into hook mode.
+_rl_note "unknown flag exits 2 and names it"        2 "unknown argument: --spek" --note "x" --spek "y"
+_rl_note "--note with no value exits 2"             2 "--note requires a value"  --note
+_rl_note "--spec with no value exits 2"             2 "--spec requires a value"  --note "x" --spec
+_rl_note "argv with no --note at all exits 2"       2 "no --note in"             --spec "$RLN/specs/002-search"
+_rl_note "an empty --note is reported, not a no-op" 2 "empty value"              --note ""
+
+# The acceptance case: hook mode is still argv-free, so the selector change cannot
+# have turned every PostToolUse invocation into a usage error. Without this, a
+# script that exited 2 on everything would satisfy all five assertions above.
+echo "{\"tool_input\":{\"file_path\":\"$RLN/specs/002-search/tasks.md\"}}" \
+  | CLAUDE_PROJECT_DIR="$RLN" bash "$RLN/bin/spec-run-log-hook.sh" >/dev/null 2>&1
+rc=$?
+[ "$rc" = 0 ] && grep -q 'tasks' "$RLN/specs/002-search/run-log.md" 2>/dev/null \
+  && _record "hook mode (no argv) still logs a phase transition" 0 \
+  || _record "hook mode (no argv) still logs a phase transition (rc=$rc)" 1
+
 rm -rf "$RLN"
 
 echo
