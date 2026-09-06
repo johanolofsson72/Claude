@@ -58,7 +58,7 @@ Findings from either are surfaced one by one for explicit decisions. No "looks g
 
 ### Local-LLM hooks
 
-About 45 of the hook scripts delegate small jobs (commit drafts, README skeletons, test-name checks, secret scans, stacktrace triage) to a local LLM instead of burning Claude tokens. They're opt-in per project; only the token-saver subset is wired by default. `scripts/local-llm-stats.sh` reports what they saved.
+About 45 of the hook scripts delegate small jobs (commit drafts, README skeletons, test-name checks, secret scans, stacktrace triage) to a local LLM instead of burning Claude tokens. They're opt-in per project, and since 2026-09-06 none are wired by default: the 18 GB model the set was tuned for could not share a machine with the pipeline. See `.claude/docs/local-llm.md`. `scripts/local-llm-stats.sh` reports what they saved.
 
 ### Testing policy
 
