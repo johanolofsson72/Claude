@@ -296,3 +296,85 @@ This is the **third** way this command misreports, and the most persuasive. `pro
 
 Scope: a shared run-verdict helper the CORE scripts call, plus the two existing call sites. Bite-proof it in both directions — a genuinely green run must stay green, and a captured aborted-run transcript must go red.
 
+
+## 037 — sync-copies-nothing-under-zsh
+
+_Opened 2026-09-07 from hetznerradar's bootstrap (T0). Template-owned per `.claude/rules/carve-budget.md` §4._
+
+`scripts/sync-prompt.md` Step 5c mirrors the CORE scripts into a project with:
+
+```bash
+CORE_SCRIPTS_LIST=$(bash "$TEMPLATE/scripts/template-autosync.sh" --list-core-scripts)
+for s in $CORE_SCRIPTS_LIST; do
+```
+
+An unquoted parameter expansion word-splits in bash and **does not** in zsh, which is the
+developer's login shell. The 105 newline-separated names arrive as **one** value, `[ -f
+"$TEMPLATE/scripts/$s" ]` is false for that one impossible filename, and the loop copies nothing.
+
+What makes this the expensive kind: the failure path and the success path print the same sentence.
+`ABSENT` collects the one bogus name and `[WARN]` names it, but the line the reader takes away is
+`[OK] 0 core enforcement script(s) mirrored`. **A project bootstrapped this way gets no PreToolUse
+guards at all, and a green report saying so.** That is the same shape the block's own comment
+records for the hardcoded list it replaced — "a list that is merely INCOMPLETE looks exactly like a
+list that is finished" — reappearing one layer down, in the iteration rather than the list.
+
+Fix: `while IFS= read -r s; do … done <<< "$CORE_SCRIPTS_LIST"` (or a `printf %s | while read`
+pipeline), which splits on newlines in both shells. Then make the count load-bearing: a copy pass
+that mirrors **zero** of a non-empty CORE list is a failure, not an `[OK]`. The guard against the
+next variant of this is the assertion, not the loop.
+
+Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
+command-substituted list survives elsewhere in the sync path.
+
+## 038 — freshness-calls-a-scan-error-a-verified-secret
+
+_Opened 2026-09-07 from hetznerradar's bootstrap (T0). Template-owned per §4._
+
+`scripts/project-freshness.sh` runs `trufflehog … --fail` inside a bare `if`, so **every** non-zero
+exit becomes the same conclusion:
+
+```
+[FINDING] trufflehog found verified secret(s) above. Rotate them NOW —
+```
+
+`--fail` promises a distinct exit code for *results found*. It says nothing about the codes
+trufflehog uses for *unable to scan*, and the `if` cannot tell them apart. Observed on
+hetznerradar before its first commit: trufflehog exited non-zero with `failed to read index file:
+.git/index: no such file` — a repo with no history, nothing scanned — and the script reported a
+verified secret. Confirmed false by re-running after the first commit: `verified_secrets: 0`.
+
+This is `CLAUDE.md`'s Principle IX in the harness itself: an error and a finding are two states, and
+collapsing them costs in both directions. A false breach burns a rotation that was never needed; the
+same conflation would let a genuine scan failure ride out as "we looked, it's clean" if the codes
+ever landed the other way round.
+
+Fix: capture the exit code, branch on it. Findings → `[FINDING]`. A documented error code, or any
+code the script does not recognise → a **third** status (`SECRETS_STATUS="scan failed — …"`) that is
+neither clean nor a finding, carries trufflehog's own stderr, and does not set `FINDINGS=1`. Both
+call sites (`trufflehog git` and `trufflehog filesystem`) have the defect.
+
+## 039 — core-guard-blocks-its-own-first-install
+
+_Opened 2026-09-07 from hetznerradar's bootstrap (T0). Template-owned per §4._
+
+`scripts/core-machinery-guard-hook.sh` decides on the **path**: a write to a CORE file is denied
+unless the override is set. During a first `/project-update` on a fresh project, every CORE script
+is being placed for the first time — and the guard refused `scripts/tlc-cleanup.sh` on exactly that
+basis. All seven tech-stack hook scripts in that pass were byte-identical to the template's copies.
+
+The guard's purpose is to stop a project **diverging** from the template. A write whose bytes equal
+the template's copy diverges from nothing; it is the sync doing its job. Denying it means a
+first-time install cannot complete without `ALLOW_CORE_MACHINERY_EDIT=1`, and an override reached
+for as routine bootstrap ceremony is an override that stops meaning anything — which is the real
+cost here, since that variable is also the escape hatch for the deliberate local repair the guard's
+own deny message describes.
+
+Fix: before denying, compare the content being written against `$TEMPLATE/scripts/<name>`. Byte-
+identical → allow, silently. Different, or the template copy unreadable → deny as today. That keeps
+the guard's teeth on every write that actually changes a CORE file while making the install path
+pass on its own merits rather than on a burned override.
+
+Bound worth stating: the comparison needs the template clone resolvable. When it is not, the guard
+must deny (fail closed) — it protects a file the template owns, and with no template to compare
+against there is nothing to prove the write benign.
