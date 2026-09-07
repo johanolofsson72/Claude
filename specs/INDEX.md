@@ -48,10 +48,13 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 037 — sync-copies-nothing-under-zsh — spec-only — Step 5c iterates `for s in $CORE_SCRIPTS_LIST`; zsh does not word-split, so 105 names became one filename, 0 scripts were copied, and it reported `[OK] 0 core enforcement script(s) mirrored`. Diagnos: `specs/INDEX.pending.md`
 - [ ] 038 — freshness-calls-a-scan-error-a-verified-secret — spec-only — trufflehog exits non-zero on error as well as on findings, and the `if` reads both as `[FINDING] verified secret(s) — rotate NOW`. A repo with no commits reported a breach. Diagnos: `specs/INDEX.pending.md`
 - [ ] 039 — core-guard-blocks-its-own-first-install — spec-only — the guard denies on the path alone, so the sync that places a CORE script for the first time is refused by the guard that exists to protect it. Byte-identical copy, override burned. Diagnos: `specs/INDEX.pending.md`
+- [ ] 040 — harness-writes-what-no-project-ignores — spec-only — `.gitignore` is deliberately outside the synced set, so each project must independently know the harness writes 8 machine-local paths. hetznerradar knew none: 109 `.claude/state/` files tracked. Diagnos: `specs/INDEX.pending.md`
+- [ ] 041 — mutation-timeouts-rule-was-never-written — spec-only — ten files cite `.claude/rules/mutation-timeouts.md` and its "trap 4" as an authority — two rules, six scripts. It exists in no project and never has. Carries the gremlins family. Diagnos: `specs/INDEX.pending.md`
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 
 ## Register history (newest first)
 
+- 2026-09-07 — 040-041 filed from the same T0 pass: the ignore set never reaches a project, and a rule ten files cite was never written.
 - 2026-09-07 — 037-039 filed from hetznerradar's T0: the three defects its bootstrap hit (carve-budget §4).
 - 2026-09-07 — 036 fixed in place from ighweld-2026 180: the tally alternation learns `✓ int`, longest-first.
 - 2026-09-05 — 032-035 filed from fundit's findings review (carve-budget §4: a harness defect belongs here, not on a product register)
