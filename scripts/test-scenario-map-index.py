@@ -253,8 +253,19 @@ for e in [] if SKIP_TALLY else entries:
     # invariant exists to catch, and exactly what a total-only version of it let through
     # when the mutation check was run. "✓ *" is its own status and must not collapse into
     # "✓", so the alternation puts the longer token first.
+    #
+    # "✓ int" is a second decorated variant, and it is here for the same reason. ighweld-2026's map
+    # documents it as "validated at the integration layer" and carries three such rows (spec 100).
+    # It is a real distinction, not drift, so the map must be able to keep it — and the tally is
+    # built from the rows' literal status strings, so a token the alternation does not know can
+    # never be tallied correctly. Without this the owning feature's row is unsatisfiable: every
+    # index it could be given claims {"✓": 3} while the file holds {"✓ int": 3}.
+    #
+    # LONGEST FIRST IS LOAD-BEARING, and it is the whole of the change. With "✓" ahead of it,
+    # "3 ✓ int" matches as "3 ✓" and the accommodation silently does nothing — the gate would still
+    # fail, and it would fail claiming the index undercounts a status it had just been taught.
     claimed = {}
-    for n, st in re.findall(r"(\d+)\s+(✓ \*|✓|◐|☐)", head):
+    for n, st in re.findall(r"(\d+)\s+(✓ \*|✓ int|✓|◐|☐)", head):
         claimed[st] = claimed.get(st, 0) + int(n)
     actual = {}
     for r in live:
