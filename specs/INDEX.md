@@ -50,6 +50,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 039 — core-guard-blocks-its-own-first-install — spec-only — the guard denies on the path alone, so the sync that places a CORE script for the first time is refused by the guard that exists to protect it. Byte-identical copy, override burned. Diagnos: `specs/INDEX.pending.md`
 - [ ] 040 — harness-writes-what-no-project-ignores — spec-only — `.gitignore` is deliberately outside the synced set, so each project must independently know the harness writes 8 machine-local paths. hetznerradar knew none: 109 `.claude/state/` files tracked. Diagnos: `specs/INDEX.pending.md`
 - [ ] 041 — mutation-timeouts-rule-was-never-written — spec-only — ten files cite `.claude/rules/mutation-timeouts.md` and its "trap 4" as an authority — two rules, six scripts. It exists in no project and never has. Carries the gremlins family. Diagnos: `specs/INDEX.pending.md`
+- [ ] 042 — needs-clause-swallows-a-null-dependency — spec-only — `lane_status.py:196` treats a row's `needs` as ids, so a register written in another language (`needs inget`, `needs nothing`) reports a dependency that is never ticked. Six of nine runnable rows were invisible in agentcrm's "what can I start" list, two of them carved security rows. Diagnos: `specs/INDEX.pending.md`
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 
 ## Register history (newest first)
