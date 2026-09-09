@@ -472,7 +472,23 @@ fi
 MUTATION_CMD=""
 # `find`, not a glob: bash globstar is off by default, so `./**/*.csproj` would
 # silently only match one level deep — and would miss src/Foo/Foo.csproj.
-if [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
+if [ -x scripts/run-mutation-gate.sh ]; then
+  # A project-local bounded runner wins when there is one. This line is the fix
+  # for a real runaway: on 2026-09-08 the bare form below was started twice on
+  # fundit, ran for five hours at 400% CPU across 63 test workers, and produced
+  # no score at all — Stryker scopes to the test project it is RUN FROM, so at a
+  # repo root it discovers the whole suite, integration containers included. A
+  # runner cds into the fast test projects and wraps each pass in `timeout`.
+  #
+  # The `eval` further down has no timeout of its own, so whatever is chosen
+  # here runs until somebody notices. That is the whole reason to prefer a
+  # bounded command when the project ships one.
+  #
+  # run-mutation-gate.sh is deliberately NOT a CORE script (see the
+  # not-shipped list in template-autosync.sh): the bounding logic is general but
+  # the test-project names are not. Absence is normal and falls through here.
+  MUTATION_CMD="bash scripts/run-mutation-gate.sh"
+elif [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
   MUTATION_CMD="dotnet stryker"
 elif [ -f package.json ] && grep -q '"@stryker-mutator/core"' package.json 2>/dev/null; then
   MUTATION_CMD="npx stryker run"
@@ -691,10 +707,26 @@ fi
 # (.claude/rules/mutation-timeouts.md, trap 4).
 if [ "$SUITE" -eq 1 ]; then
   SUITE_CMD=""
-  if [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
-    SUITE_CMD="dotnet test"
-  elif [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json 2>/dev/null; then
+  # THE PROJECT'S OWN `test` SCRIPT WINS, and this order used to be reversed.
+  # On a project that is both .NET and web, `dotnet test` matched first and
+  # `npm test` was never reached — so the step ran unit and integration tests,
+  # skipped E2E and visual regression entirely, and then STAMPED the obligation
+  # that maintenance-due.sh describes as "unit + integration + E2E + visual
+  # regression". A green half-suite marked the job done and stopped reporting
+  # it, which is the failure this whole mechanism exists to prevent.
+  #
+  # A package.json `test` script is the project's own statement of what its
+  # suite is. Preferring it is also why it must not be ASSUMED to cover .NET on
+  # a project where it only covers the frontend — hence the note rather than
+  # silence.
+  if [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json 2>/dev/null; then
     SUITE_CMD="npm test"
+    if [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ] \
+       && ! grep -q 'dotnet test' package.json 2>/dev/null; then
+      note "[note] --suite: using \`npm test\`, which does not mention \`dotnet test\` on a project that has a .NET solution. If the .NET suite is not run by it, this step is not covering it."
+    fi
+  elif [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
+    SUITE_CMD="dotnet test"
   fi
 
   if [ -z "$SUITE_CMD" ]; then

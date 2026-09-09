@@ -211,7 +211,8 @@ template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
 test-template-autosync-unlisted.sh
-test-sync-prompt-bootstrap.sh"
+test-sync-prompt-bootstrap.sh
+run-mutation-gate.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the
@@ -225,6 +226,15 @@ test-sync-prompt-bootstrap.sh"
 #   "a project that dropped tla-hook.sh (not a UI/spec project) simply never gets the tla hook
 #   re-added." Adding these to CORE_SCRIPTS would push a TLA+ hook onto every project in the fleet
 #   and delete that gate. The absence is the feature.
+#
+#   Project-local bounded runners. run-mutation-gate.sh wraps the mutation gate in a timeout and
+#   cds into the fast test projects, because Stryker scopes to the test project it is RUN FROM and
+#   a bare `dotnet stryker` at a repo root discovers the whole suite — the shape that ran five
+#   hours on fundit and produced no score. The BOUNDING is general; the test-project names are not
+#   (`tests/Server.UnitTests`, `--project Server.csproj`), and a discovery rule that guesses wrong
+#   silently scopes the gate to the wrong tests, which is the failure this file is a monument to.
+#   project-maintenance.sh prefers it when present and falls back to `dotnet stryker` when absent,
+#   so a project without one loses nothing it had.
 #
 #   Template-authoring tools. update-template.sh drives THIS repository's own refresh and
 #   verify-local-llm-hooks.sh checks the template's local-LLM wiring. A project has no use for
