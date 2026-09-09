@@ -91,7 +91,25 @@ case "$MODE" in
   resolve)
     [ -f "$LEDGER" ] || { echo "finding.sh: no ledger at $LEDGER" >&2; exit 2; }
     [ -n "$NUM" ] && [ -n "$TEXT" ] || { echo "finding.sh: --resolve needs a number and a decision" >&2; exit 2; }
-    ID=$(printf 'F%03d' "$NUM" 2>/dev/null || echo "$NUM")
+    # STRIP LEADING ZEROS BEFORE printf, and refuse anything that is not digits.
+    #
+    # `printf 'F%03d' 033` reads 033 as OCTAL and yields F027. The ledger writes
+    # ids as F027, F033, F090 — so "033" is the obvious thing to type, and it
+    # silently resolved a DIFFERENT finding with the decision text meant for
+    # another one. Found 2026-09-09 by doing exactly that: --resolve 033 071 044
+    # 034 047 marked F027 F057 F036 F028 F039 resolved, each with a decision
+    # about an unrelated issue, and reported success five times.
+    #
+    # An id above 07 with a leading zero is not even valid octal, so those
+    # errored — printf emitted "F000", returned non-zero, and the `|| echo`
+    # appended the raw argument, producing "F000090 not found". The two halves
+    # of one bug: silently wrong below 070, confusingly wrong above it. The
+    # failing half is how the working half got noticed.
+    case "$NUM" in
+      ''|*[!0-9]*) echo "finding.sh: --resolve takes a number, got '$NUM'" >&2; exit 2 ;;
+    esac
+    NUM=$(printf '%s' "$NUM" | sed 's/^0*//'); [ -n "$NUM" ] || NUM=0
+    ID=$(printf 'F%03d' "$NUM")
     grep -q -- "$ID " "$LEDGER" || { echo "finding.sh: $ID not found" >&2; exit 2; }
     python3 - "$LEDGER" "$ID" "$TEXT" <<'PY'
 import sys, pathlib
