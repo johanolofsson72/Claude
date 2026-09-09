@@ -218,6 +218,34 @@ if [ "$DO_DEPS" -eq 1 ]; then
     fi
     # npm audit needs a lockfile; without one it errors (ENOLOCK), which is NOT a vulnerability finding.
     if [ ! -f "$dir/package-lock.json" ] && [ ! -f "$dir/npm-shrinkwrap.json" ]; then
+      # A workspaces MEMBER has no lockfile of its own BY DESIGN. The root holds one
+      # lockfile and one node_modules for the whole tree, and `npm audit` at that root
+      # already covers every member — so this is not an unscanned package, it is the
+      # same package counted twice.
+      #
+      # The advice this used to print was not merely noise, it was harmful: `npm install`
+      # inside a member creates a nested lockfile and breaks the hoisting the workspace
+      # depends on. Measured on fundit, whose src/web is a correct npm-workspaces root
+      # with eight members — the pass reported eight SKIPs and a RESULT of "findings need
+      # attention" on a tree it had fully audited.
+      ws_root=""
+      ws_dir="$dir"
+      while [ "$ws_dir" != "/" ] && [ "$ws_dir" != "." ] && [ -n "$ws_dir" ]; do
+        ws_dir="$(dirname "$ws_dir")"
+        case "$ws_dir" in "$ROOT"|"$ROOT"/*) ;; *) break ;; esac
+        if [ -f "$ws_dir/package.json" ] \
+           && { [ -f "$ws_dir/package-lock.json" ] || [ -f "$ws_dir/npm-shrinkwrap.json" ]; } \
+           && grep -qE '"workspaces"[[:space:]]*:' "$ws_dir/package.json" 2>/dev/null; then
+          ws_root="$ws_dir"
+          break
+        fi
+      done
+
+      if [ -n "$ws_root" ]; then
+        echo "  [OK] npm workspaces member — covered by the audit of ${ws_root#"$ROOT"/}."
+        continue
+      fi
+
       echo "  [SKIP] No lockfile — run 'npm install' in $dir first, then re-run the freshness pass."
       DEPS_SKIPPED=1
       continue

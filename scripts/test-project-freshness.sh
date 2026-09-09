@@ -182,6 +182,36 @@ OUT=$(run "$P")
 expect_pkg_count "only the project's own manifest is audited" 1 "$OUT"
 expect_absent    "node_modules is not walked" "left-pad" "$OUT"
 
+# --------------------------------------------------- C10 — an npm workspaces member is covered
+#
+# A member has no lockfile of its own by design: the root holds one lockfile and one
+# node_modules for the whole tree, and `npm audit` at the root covers every member. The
+# pass used to report each member as "No lockfile — run 'npm install' in <dir>", which is
+# both a false unscanned-package report AND harmful advice — that command creates a nested
+# lockfile and breaks the hoisting the workspace depends on. Measured on fundit: eight
+# members, eight SKIPs, and a red verdict on a tree that had been fully audited.
+printf '\n  -- C10 an npm workspaces member is covered by its root, not reported unscanned\n'
+P=$(mkrepo workspaces)
+mkpkg "$P/src/web/package.json" web-root
+# Make the root a workspaces root WITH a lockfile; members deliberately get neither.
+printf '{ "name": "web-root", "version": "1.0.0", "workspaces": ["packages/*"] }\n' > "$P/src/web/package.json"
+printf '{ "name": "web-root", "lockfileVersion": 3, "packages": {} }\n' > "$P/src/web/package-lock.json"
+mkpkg "$P/src/web/packages/ui/package.json" ui
+mkpkg "$P/src/web/packages/api/package.json" api
+OUT=$(run "$P")
+expect_contains "the member is reported as covered by its root" "npm workspaces member" "$OUT"
+expect_absent   "…and is NOT told to run npm install in itself" \
+                "run 'npm install' in $P/src/web/packages/ui" "$OUT"
+
+# The sabotage arm: a lockfile-less package that is NOT under a workspaces root must still
+# be reported. Without this, "covered" could be returned for everything and read as a pass.
+printf '\n  -- C10 a lone lockfile-less package is still reported\n'
+P=$(mkrepo lonepkg)
+mkpkg "$P/client/package.json" lonely
+OUT=$(run "$P")
+expect_contains "it is still skipped for want of a lockfile" "No lockfile" "$OUT"
+expect_absent   "…and is not claimed to be a workspaces member" "npm workspaces member" "$OUT"
+
 # ------------------------------------------------------------------------------- verdict
 printf '\n%s\n' "----------------------------------------------------------"
 printf 'project-freshness self-test: %d passed, %d failed\n' "$PASS" "$FAIL"
