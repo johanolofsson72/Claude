@@ -52,6 +52,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 041 — mutation-timeouts-rule-was-never-written — spec-only — ten files cite `.claude/rules/mutation-timeouts.md` and its "trap 4" as an authority — two rules, six scripts. It exists in no project and never has. Carries the gremlins family. Diagnos: `specs/INDEX.pending.md`
 - [ ] 042 — needs-clause-swallows-a-null-dependency — spec-only — `lane_status.py:196` treats a row's `needs` as ids, so a register written in another language (`needs inget`, `needs nothing`) reports a dependency that is never ticked. Six of nine runnable rows were invisible in agentcrm's "what can I start" list, two of them carved security rows. Diagnos: `specs/INDEX.pending.md`
 - [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
+- [ ] 043 — mutation-gate-reports-a-headline-only — spec-only — `run-mutation-gate.sh` passes `--reporter progress`, and a CLI reporter REPLACES the config's list, so no json report is written and per-module scores cannot be read. `spec-hardening.md` gates on the changed critical MODULE. Found in fundit 006: headline 88.21% PASS while PushEndpointPolicy (SSRF decision) killed 65.79%. Fix: add `--reporter json` + print every module under the break. The file is CORE but absent from the template — land it too.
 
 ## Register history (newest first)
 
