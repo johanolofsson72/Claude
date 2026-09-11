@@ -193,7 +193,7 @@ lane-catchup.sh test-sync-prompt-core-parity.sh
 next-register-id.sh test-next-register-id.sh
 maintenance-due.sh test-maintenance-due.sh carve_audit.py
 validate-portability.sh portability_audit.py
-finding.sh
+finding.sh test-finding.sh
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
@@ -211,8 +211,7 @@ template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
 test-template-autosync-unlisted.sh
-test-sync-prompt-bootstrap.sh
-run-mutation-gate.sh"
+test-sync-prompt-bootstrap.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the
@@ -236,6 +235,13 @@ run-mutation-gate.sh"
 #   project-maintenance.sh prefers it when present and falls back to `dotnet stryker` when absent,
 #   so a project without one loses nothing it had.
 #
+#   That paragraph was written on 2026-09-04 and the NAME went onto the last line of CORE_SCRIPTS
+#   instead, where it sat until rocky F041 found it. The two lists say opposite things about one
+#   file and nothing compared them, so `--is-core` answered CORE for a script the template has
+#   never held: core-machinery-guard-hook.sh refused every edit to it in every project, the sync
+#   had no bytes to copy, and the one place it could legitimately be authored was the one place it
+#   does not belong. A name is the claim; the prose around it is not.
+#
 #   Template-authoring tools. update-template.sh drives THIS repository's own refresh and
 #   verify-local-llm-hooks.sh checks the template's local-LLM wiring. A project has no use for
 #   either; both are already present in older projects only because a long-ago prose sync copied
@@ -245,6 +251,7 @@ run-mutation-gate.sh"
 # is the fix when the claim turns out to be wrong.
 TEMPLATE_ONLY_SCRIPTS="after-specify-hook.sh allium-hook.sh tla-hook.sh ui-design-hook.sh
 sqlite-nfs-safety-hook.sh test-coverage-hook.sh
+run-mutation-gate.sh
 update-template.sh verify-local-llm-hooks.sh"
 
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
@@ -360,6 +367,24 @@ $_b
 "*) continue ;; esac
         printf '%s\tabsent from CORE_SCRIPTS — ships to no project\n' "$_f"
       done
+
+      # AND THE INVERSE, which is the half that was missing. The loop above walks files and asks
+      # whether the list names them; this walks the list and asks whether a file is behind the name.
+      # A name with no file is not a harmless stale entry: --is-core answers CORE, so
+      # core-machinery-guard-hook.sh refuses every edit to that path in every project, while the
+      # sync has nothing to copy there and never will. The path becomes one nobody may author
+      # downstream and nobody has authored here.
+      #
+      # That is not hypothetical. run-mutation-gate.sh sat on the last line of CORE_SCRIPTS from
+      # 2026-09-04 to 2026-09-11 while the TEMPLATE_ONLY_SCRIPTS block above carried a paragraph
+      # explaining why it is deliberately NOT shipped, and project-maintenance.sh said the same in
+      # as many words. Two prose statements and one name, disagreeing, with nothing comparing them —
+      # and the symptom was read the wrong way round on register row 043, which concluded the file
+      # should be landed here. A list and a directory that disagree is a measurable disagreement.
+      for _n in $CORE_SCRIPTS; do
+        [ -f "scripts/$_n" ] && continue
+        printf 'scripts/%s\tnamed by CORE_SCRIPTS — no such file, so --is-core says CORE and the sync copies nothing\n' "$_n"
+      done
       exit 0
     fi
 
@@ -438,8 +463,41 @@ scripts/$_b"
     for _c in $_core_files; do [ -f "$_c" ] && _present="$_present $_c"; done
     [ -n "$_present" ] || exit 0
 
+    # A CORE file may DECLARE that a script it names is optional and project-provided:
+    #
+    #   # template-autosync: optional-project-script scripts/e2e-gate-census.py
+    #
+    # which excuses that file, and only that file, from being a referrer for that one path.
+    #
+    # WHY THE PREDICATE NEEDS AN EXIT AT ALL. Its rule is "a CORE file names it, therefore the
+    # reference either vanishes at the next sync or the template must ship it". That disjunction is
+    # sound for an UNGUARDED call and false for a guarded one: project-maintenance.sh section 6 sets
+    # `FAST_CENSUS=.../e2e-gate-census.py` and runs it only `if [ -f ]`, and its own TEMPLATE NOTE
+    # says why the caller lives in CORE while the script does not — on a project with neither half
+    # the section is a silent no-op costing one test -f. Nothing vanishes and nothing is owed, yet
+    # the finding fired, and core-owed-tick-guard-hook.sh denies a tick on any finding. Rocky could
+    # not tick a row from 2026-09-04 to 2026-09-11 for a design this repository documents as
+    # correct. That is row H7bk arriving a second time by a second route: an exception taken every
+    # time is the rule with extra steps.
+    #
+    # WHY A DECLARATION AND NOT AN INFERENCE. Reading `[ -f "$X" ]` out of shell needs a parser, and
+    # the guard is three lines from the reference in this very file. The comment rule above already
+    # took exact-not-clever for that reason. A declaration also carries the author intent that a
+    # parse cannot: install-git-hooks.sh is named ONLY inside a diagnostic string here and is not a
+    # dependency in any sense, which no guard-detector would ever discover.
+    #
+    # WHY IT CANNOT BE ABUSED DOWNSTREAM. It is read only from $_present, i.e. CORE files, whose
+    # bytes the sync overwrites unconditionally. Writing one into a project moves that file off its
+    # manifest hash and [owed] names it by the next session start, so the declaration is grantable
+    # only in the template. That is exactly where the decision belongs.
+    #
+    # A MISSPELLED PATH FAILS TOWARD REPORTING. The declaration keys on the exact candidate path, so
+    # a typo matches no pair and the finding simply still fires. The safe direction: unlike a
+    # detector that goes silent, a dead declaration costs a line of noise, never a missed finding.
     {
       printf 'C\t%s\n' $_cands
+      grep -HE '^[[:space:]]*#[[:space:]]*template-autosync:[[:space:]]*optional-project-script[[:space:]]' \
+        $_present 2>/dev/null | sed 's/^/X\t/'
       printf '%s\n' "$_cands" | grep -HF -f - $_present 2>/dev/null | sed 's/^/M\t/'
     } \
       | awk '
@@ -450,6 +508,23 @@ scripts/$_b"
           {
             kind = substr($0, 1, 1); rec = substr($0, 3)
             if (kind == "C") { if (rec != "") cand[++nc] = rec; next }
+
+            # X = a CORE file declaring one path optional and project-provided. Keyed on the PAIR,
+            # never on the path alone: file A calling it under a test -f says nothing about file B
+            # calling it bare, and a global exemption would hide exactly that second case. Every X
+            # arrives before every M, so the table is complete before the first lookup.
+            #
+            # The declared path is the LAST whitespace-separated field, after trailing blanks are
+            # stripped. Exact, for the same reason the comment rule is exact: a marker that tolerated
+            # trailing prose would need to decide where the prose starts.
+            if (kind == "X") {
+              i = index(rec, ":"); if (i == 0) next
+              xf = substr(rec, 1, i - 1); xbody = substr(rec, i + 1)
+              sub(/[ \t]+$/, "", xbody)
+              nx = split(xbody, xp, /[ \t]+/)
+              if (nx > 0 && xp[nx] != "") optout[xf SUBSEP xp[nx]] = 1
+              next
+            }
             # First colon only, via index(): a path has none and a line of code has several.
             i = index(rec, ":"); if (i == 0) next
             f = substr(rec, 1, i - 1); body = substr(rec, i + 1)
@@ -485,6 +560,7 @@ scripts/$_b"
               # not on either side alone.
               if (c == f) continue
               if (index(body, c) == 0) continue
+              if ((f SUBSEP c) in optout) continue
               n = f; sub(/.*\//, "", n)
               if (index(seen[c], " " n " ") == 0) { seen[c] = seen[c] " " n " "; refs[c] = refs[c] " " n }
             }
@@ -515,6 +591,9 @@ report_unlisted() {
   done
   tell "           CORE_SCRIPTS is what copy_file adds a new file from, so a script missing from it"
   tell "           reaches no project. Add it there in the template, push, then sync."
+  tell "           If the reference is deliberately optional — the CORE file guards on the script"
+  tell "           existing, or only names it in a message — declare that in the referring file,"
+  tell "           in the template: # template-autosync: optional-project-script <path>"
 }
 
 # ------------------------------------------------------------ --is-core (spec 007ao)

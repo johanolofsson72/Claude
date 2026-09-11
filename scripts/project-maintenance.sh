@@ -487,6 +487,17 @@ if [ -x scripts/run-mutation-gate.sh ]; then
   # run-mutation-gate.sh is deliberately NOT a CORE script (see the
   # not-shipped list in template-autosync.sh): the bounding logic is general but
   # the test-project names are not. Absence is normal and falls through here.
+  #
+  # ITS OUTPUT CONTRACT, because a project-local script and a CORE reader are two files nobody
+  # diffs. The classifier below greps `mutation score` followed by a number, so a runner MUST
+  # print a line containing that phrase and its percentage; Stryker own summary already does, so
+  # a wrapper that forwards Stryker output satisfies it for free and one that reformats must
+  # reproduce the phrase. Rocky F045: its runner printed `Score: 94.1%`, every field correct and
+  # the phrase absent, so a completed gate was discarded as unclassifiable and the developer was
+  # told the run could not be read. The script output was fine; the contract with its reader was
+  # never written down, and the runner own smoke test could not see that because it only read the
+  # script own output. This comment is that contract, and the unclassifiable branch below quotes
+  # it so the next reader does not have to find their way here.
   MUTATION_CMD="bash scripts/run-mutation-gate.sh"
 elif [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
   MUTATION_CMD="dotnet stryker"
@@ -536,6 +547,12 @@ if isinstance(b, (int, float)):
 PY
 }
 
+# Did this invocation actually MEASURE the gate? Not "did it try" — the due-state stamp below is a
+# claim that the obligation was discharged, and a crash or an unreadable run discharges nothing.
+# Set only on the two branches where a score came back (gate passed, or gate failed on the number —
+# both are measurements and both leave the developer a result to act on).
+MUT_MEASURED=0
+
 if [ -n "$MUTATION_CMD" ]; then
   if [ "$FULL" -eq 1 ]; then
     # Which config this bare invocation will actually read, and how many exist. Both tools default to a
@@ -564,6 +581,7 @@ if [ -n "$MUTATION_CMD" ]; then
 
     if [ "$MUT_RC" -ne 0 ] && [ -n "$SCORE" ]; then
       # A number came back, so the tool ran. Non-zero here is the gate doing its job.
+      MUT_MEASURED=1
       add "[MUTATION] GATE FAILED — Stryker's own score ${SCORE}% against $MUT_LIMIT_SRC ($MUT_LIMIT).
   This is the gate failing, not the tool crashing: Stryker exits non-zero when the score is under break.
   Scope: $MUT_SCOPE.
@@ -573,6 +591,7 @@ if [ -n "$MUTATION_CMD" ]; then
       add "[MUTATION] \`$MUTATION_CMD\` failed to complete — no score was produced:
 $(printf '%s' "$MUT_OUT" | tail -15)"
     elif [ -n "$SCORE" ]; then
+      MUT_MEASURED=1
       if [ "${INT_SCORE:-0}" -lt "$MUT_LIMIT" ]; then
         add "[MUTATION] Stryker's own score ${SCORE}% is below $MUT_LIMIT_SRC ($MUT_LIMIT).
   Scope: $MUT_SCOPE.
@@ -582,7 +601,11 @@ $(printf '%s' "$MUT_OUT" | tail -15)"
       # Exit 0 and no parseable score is not a pass -- it is a run this section cannot classify, and
       # saying nothing about it would report an unmeasured gate as a measured one.
       add "[MUTATION] \`$MUTATION_CMD\` exited 0 but printed no mutation score — the run cannot be classified.
-  Scope: $MUT_SCOPE."
+  Scope: $MUT_SCOPE.
+  The classifier greps the phrase \`mutation score\` followed by a number. A run that finished but
+  worded its summary differently lands here with everything measured and nothing readable; fix the
+  runner to print the phrase rather than widening this grep, which would start reading numbers out
+  of any tool that happens to be in the output. Not stamped: the job stays due."
     fi
   else
     REPORT="${REPORT}[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow, and it covers only the working-directory config).
@@ -591,6 +614,19 @@ $(printf '%s' "$MUT_OUT" | tail -15)"
 fi
 
 # ---------------------------------------------------------------- 6. census audits
+#
+# template-autosync: optional-project-script scripts/e2e-gate-census.py
+# template-autosync: optional-project-script scripts/e2e-wait-audit.sh
+# template-autosync: optional-project-script scripts/install-git-hooks.sh
+#
+# Those three lines are machine-read by unlisted_core_shaped in scripts/template-autosync.sh, and
+# they are the declaration this note has always been making in prose. The first two are guarded on
+# the file existing, a few lines below each. The third is never CALLED at all — it appears only
+# inside a diagnostic string, telling a reader which command they skipped. All three are
+# project-specific by design (a C# Playwright ledger, a dotnet-test wrapper, a hook installer that
+# names this project own hooks), so the template must not ship them; without the declaration the
+# predicate reads the reference as proof that it must, and denies every register tick on the
+# project that authored them. Rocky F042.
 #
 # TEMPLATE NOTE. Both halves of this section are guarded on a script existing, so on a project that
 # has neither they are a silent no-op and cost one `test -f` each. They live here rather than in the
@@ -749,10 +785,19 @@ fi
 # --------------------------------------------------------------------- stamp what ran
 # Only what this invocation actually performed. Sections 1-6 always run, so `secrets` is stamped on
 # every pass; mutation and similarity are --full only. `suite` is stamped above, and only on green.
+#
+# MUTATION IS STAMPED ONLY ON A RUN THAT PRODUCED A SCORE, which until rocky F044 it was not: the
+# stamp fired on `--full` alone, so a run this section had ITSELF just called unclassifiable cleared
+# the due-state and the banner went quiet — and on a project with no Stryker config and no runner,
+# where $MUTATION_CMD is empty and nothing executes at all, the job was marked done by a pass that
+# never touched it. Its sibling twelve lines above already had this right and said why: "a red suite
+# has not satisfied the obligation, and stamping it would mark the job done and stop reporting it".
+# Two stamps for two recurring jobs in one file, one of them honest. A gate failing on the NUMBER
+# does stamp: that is a measurement, and it leaves a finding the developer can act on.
 if [ -f scripts/maintenance-due.sh ]; then
   bash scripts/maintenance-due.sh --stamp secrets 2>/dev/null
   if [ "$FULL" -eq 1 ]; then
-    bash scripts/maintenance-due.sh --stamp mutation 2>/dev/null
+    [ "$MUT_MEASURED" -eq 1 ] && bash scripts/maintenance-due.sh --stamp mutation 2>/dev/null
     bash scripts/maintenance-due.sh --stamp similarity 2>/dev/null
   fi
 fi

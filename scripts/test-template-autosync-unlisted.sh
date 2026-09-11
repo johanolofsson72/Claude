@@ -29,6 +29,16 @@
 #   AC-05  named by nobody                             -> silent
 #   AC-06  code with a trailing `# … scripts/x.sh`     -> FLAG     (the rule is exact, not clever)
 #   AC-07  whole-line comment in a CORE .py            -> silent
+#   AC-10  code dependency the SAME CORE file declares optional      -> silent
+#   AC-11  declared optional by one CORE file, called bare by another -> FLAG, naming only the second
+#
+# AC-10/AC-11 are the opt-out declaration (rocky F042). The predicate rule -- a CORE file names it,
+# so either the template ships it or the sync deletes the reference -- is sound for an UNGUARDED
+# call and false for a guarded one, and project-maintenance.sh has three guarded ones. That held
+# rocky register tick permanently red for a design this repository documents as correct. The
+# declaration is scoped to the PAIR, so AC-11 is the arm that matters: an exemption that leaked to
+# every referrer would hide the real dependency next door, which is the failure a blanket exemption
+# fails into and the reason AC-11 asserts the referrer LIST and not merely the finding.
 #
 # AC-08 replays the 007ca calibration corpus so the comment rule cannot silently cost recall, and
 # AC-09 is the sabotage arm: with the rule removed, the arm that demands silence must redden. A
@@ -86,12 +96,17 @@ build_five_way() {
 . "$(dirname "$0")/real-dep-helper.sh"
 bash scripts/real-dep-helper.sh --check
 bash scripts/trailing-comment-helper.sh   # see scripts/trailing-comment-helper.sh for why
+# template-autosync: optional-project-script scripts/declared-optional-helper.sh
+# template-autosync: optional-project-script scripts/declared-elsewhere-helper.sh
+[ -f scripts/declared-optional-helper.sh ] && bash scripts/declared-optional-helper.sh
+[ -f scripts/declared-elsewhere-helper.sh ] && bash scripts/declared-elsewhere-helper.sh
 EOF
 
   cat > "$R/$CORE_PY" <<'EOF'
 #!/usr/bin/env python3
 # Ported from scripts/py-prose-helper.sh; the shell version is gone.
-import sys
+import subprocess, sys
+subprocess.run(["bash", "scripts/declared-elsewhere-helper.sh"], check=False)
 sys.exit(0)
 EOF
 
@@ -108,7 +123,8 @@ EOF
 EOF
 
   for f in real-dep-helper prose-only-helper indented-prose-helper py-prose-helper \
-           rule-named-helper settings-named-helper trailing-comment-helper nobody-names-me; do
+           rule-named-helper settings-named-helper trailing-comment-helper nobody-names-me \
+           declared-optional-helper declared-elsewhere-helper; do
     : > "$R/scripts/$f.sh"
   done
   printf '%s' "$R"
@@ -128,6 +144,16 @@ has   "AC-06 a trailing mid-line # does not excuse the code line"  "$OUT" "scrip
 hasnt "AC-07 whole-line comment in a CORE .py is not a dependency" "$OUT" "scripts/py-prose-helper.sh"
 same  "AC-01 findings exit 0"                                      "$RC"  "0"
 has   "AC-01 the referrer is named, not just the finding"          "$OUT" "bash-write-detect-hook.sh"
+hasnt "AC-10 a declared-optional dependency is silent"             "$OUT" "scripts/declared-optional-helper.sh"
+has   "AC-11 declared by one file, called bare by another: flagged" "$OUT" "scripts/declared-elsewhere-helper.sh"
+
+# The pair-scoping assertion, and the only one that can tell a scoped exemption from a global one.
+# Read the finding row for that path and require the declaring file to be ABSENT from its referrer
+# list while the undeclared caller is present. Asserting the path alone would pass against a
+# predicate whose exemption did nothing at all.
+AC11_ROW=$(printf '%s\n' "$OUT" | grep -F 'scripts/declared-elsewhere-helper.sh')
+has   "AC-11 the undeclared .py caller is named as referrer"       "$AC11_ROW" "sync-core-hooks.py"
+hasnt "AC-11 the declaring .sh is NOT named as referrer"           "$AC11_ROW" "bash-write-detect-hook.sh"
 
 # The empty half of the contract. core-owed-tick-guard-hook.sh branches on the exit code, so "no
 # findings" has to be 1 and not 0-with-empty-stdout.
@@ -212,6 +238,74 @@ else
   has "AC-09 without the rule, .sh prose is reported again"     "$SOUT" "scripts/prose-only-helper.sh"
   has "AC-09 without the rule, .py prose is reported again"     "$SOUT" "scripts/py-prose-helper.sh"
   has "AC-09 the real dependency is unaffected by the sabotage" "$SOUT" "scripts/real-dep-helper.sh"
+fi
+
+# ---------------------------------------------------------------------------------------------
+# AC-12 — sabotage the opt-out. Delete the pair lookup in a copy and AC-10 silence must turn back
+# into a finding. Without this arm AC-10 passes equally against a declaration that is parsed,
+# stored, and never consulted -- which is what a silent exemption looks like from the outside.
+# ---------------------------------------------------------------------------------------------
+echo
+echo "== AC-12 — the opt-out declaration has teeth"
+SAB2="$TMP/sabotaged-optout.sh"
+python3 - "$SCRIPT" "$SAB2" <<'PYEOF'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src, encoding='utf-8').read()
+needle = '              if ((f SUBSEP c) in optout) continue\n'
+if needle not in s:
+    sys.stderr.write('SABOTAGE-ANCHOR-MISSING\n')
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(s.replace(needle, '', 1))
+PYEOF
+if [ $? -ne 0 ]; then
+  bad "AC-12 sabotage anchor not found — the lookup was reworded and this arm can no longer aim"
+else
+  SOUT2=$(CLAUDE_PROJECT_DIR="$R" bash "$SAB2" --unlisted 2>/dev/null)
+  has "AC-12 without the lookup, the declared script is reported"  "$SOUT2" "scripts/declared-optional-helper.sh"
+  SAB2_ROW=$(printf '%s\n' "$SOUT2" | grep -F 'scripts/declared-elsewhere-helper.sh')
+  has "AC-12 and the declaring file reappears as a referrer"       "$SAB2_ROW" "bash-write-detect-hook.sh"
+fi
+
+# ---------------------------------------------------------------------------------------------
+# AC-13 — TEMPLATE mode, the inverse question. The file loop asks "does the list name this file";
+# this asks "is there a file behind this name", and until 2026-09-11 nothing did. A name with no
+# file makes --is-core answer CORE, so core-machinery-guard-hook.sh refuses every edit to that path
+# in every project while the sync has nothing to copy there — a path nobody may author downstream
+# and nobody has authored here. run-mutation-gate.sh sat in that state for a week, with two prose
+# blocks in this repository saying it is deliberately NOT shipped.
+#
+# The arm rewrites CORE_SCRIPTS down to two names in a copy, for the reason AC-08 rewrites it: the
+# real list is ~110 names and a fixture holding none of them would report ~110 findings, which
+# proves nothing about the one under test.
+# ---------------------------------------------------------------------------------------------
+echo
+echo "== AC-13 — a CORE_SCRIPTS name with no file behind it"
+TR="$TMP/tmplmode"; rm -rf "$TR"; mkdir -p "$TR/scripts"
+( cd "$TR" && git init -q . >/dev/null 2>&1 && git remote add origin \
+    "https://github.com/johanolofsson72/Claude.git" >/dev/null 2>&1 )
+mkdir -p "$TR/.claude"
+: > "$TR/scripts/present-core.sh"
+
+TWO="$TMP/two-name-autosync.sh"
+python3 - "$SCRIPT" "$TWO" <<'PYEOF'
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src, encoding='utf-8').read()
+m = re.search(r'^CORE_SCRIPTS="(.*?)"$', s, re.S | re.M)
+if not m:
+    sys.stderr.write('CORE_SCRIPTS-ANCHOR-MISSING\n'); sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(
+    s[:m.start(1)] + 'present-core.sh\nvanished-core.sh' + s[m.end(1):])
+PYEOF
+if [ $? -ne 0 ]; then
+  bad "AC-13 CORE_SCRIPTS anchor not found — the list was reshaped and this arm cannot aim"
+else
+  TOUT=$(CLAUDE_PROJECT_DIR="$TR" bash "$TWO" --unlisted 2>/dev/null); TRC=$?
+  same "AC-13 a missing name is a finding, so exit 0"        "$TRC"  "0"
+  has  "AC-13 the missing name is reported"                  "$TOUT" "scripts/vanished-core.sh"
+  has  "AC-13 and the report says why it matters"            "$TOUT" "no such file"
+  hasnt "AC-13 the name that HAS a file is not reported"     "$TOUT" "scripts/present-core.sh"
 fi
 
 echo

@@ -429,5 +429,52 @@ OUT=$(run "$D"); RC=$?
 expect_absent "C27 all executable — no SCRIPT MODE line" "[SCRIPT MODE]" "$OUT"
 expect_rc     "C27 all executable — clean exit" 0 "$RC"
 
+# === the mutation due-state stamp (rocky F044) ========================================================
+#
+# The stamp is a CLAIM that a recurring obligation was discharged, and it is the only half of the
+# mechanism nothing could see: every C14-C20 arm above reads the SENTENCE the section prints, and the
+# stamp prints nothing at all. So `--stamp mutation` fired on `--full` alone — on a run this very
+# section had just called unclassifiable, and on a project with no Stryker and no runner where nothing
+# executed. The banner then went quiet about a gate nobody had measured.
+#
+# These arms stub scripts/maintenance-due.sh to record what it is asked to stamp. C29 is the one that
+# matters and C28 is what keeps it honest: an arm that only demanded the absence would pass just as
+# well against a stamp that never fires, which is the stricter defect of the two.
+mkfix_stamp() { # mkfix_stamp <name> <break or "none">  -> dir with a recording maintenance-due stub
+  d=$(mkfix_mut "$1" "$2")
+  printf '%s\n' '#!/bin/bash' \
+    'while [ $# -gt 0 ]; do [ "$1" = "--stamp" ] && { shift; printf "%s\n" "$1" >> "$PWD/.stamped"; }; shift; done' \
+    'exit 0' > "$d/scripts/maintenance-due.sh"
+  chmod +x "$d/scripts/maintenance-due.sh"
+  printf '%s' "$d"
+}
+
+# --- C28: a run that produced a score DOES stamp -----------------------------------------------------
+D=$(mkfix_stamp c28 79); mk_dotnet "$D" 90.00 0
+OUT=$(run_full "$D")
+expect_contains "C28 a measured gate stamps mutation" "mutation" "$(cat "$D/.stamped" 2>/dev/null)"
+
+# --- C29: a run that produced NO score does not ------------------------------------------------------
+# Same fixture, same --full, same everything but the tool's output. `secrets` must still be there:
+# without that half, a stub that recorded nothing would satisfy this arm.
+D=$(mkfix_stamp c29 79)
+printf '%s\n' '#!/bin/bash' 'echo "nothing useful"' 'exit 0' > "$D/bin/dotnet"; chmod +x "$D/bin/dotnet"
+OUT=$(run_full "$D")
+expect_contains "C29 the run is still reported as unclassifiable" "cannot be classified" "$OUT"
+expect_absent   "C29 an unclassifiable run does NOT stamp mutation" "mutation" "$(cat "$D/.stamped" 2>/dev/null)"
+expect_contains "C29 and secrets still stamps, so the stub is live" "secrets" "$(cat "$D/.stamped" 2>/dev/null)"
+
+# --- C30: no mutation tooling at all — nothing ran, so nothing is stamped -----------------------------
+# The quietest case and the one the old code got most wrong: $MUTATION_CMD is empty, the section never
+# executes a line, and the job was marked done anyway.
+D=$(mkfix c30)
+printf '%s\n' '#!/bin/bash' \
+  'while [ $# -gt 0 ]; do [ "$1" = "--stamp" ] && { shift; printf "%s\n" "$1" >> "$PWD/.stamped"; }; shift; done' \
+  'exit 0' > "$D/scripts/maintenance-due.sh"
+chmod +x "$D/scripts/maintenance-due.sh"
+OUT=$( cd "$D" && bash "$MAINT" --full 2>&1 )
+expect_absent   "C30 no gate at all — mutation is not stamped" "mutation" "$(cat "$D/.stamped" 2>/dev/null)"
+expect_contains "C30 and the pass still ran, so the absence means something" "secrets" "$(cat "$D/.stamped" 2>/dev/null)"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
