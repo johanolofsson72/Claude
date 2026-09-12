@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
+            "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
           }
         ]
       },
@@ -126,12 +126,12 @@
           {
             "type": "command",
             "if": "Edit(**/*.cs)",
-            "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(cs|csproj)$'; then echo '{\"systemMessage\": \"Reminder: run dotnet build to verify compilation\"}'; fi"
+            "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(cs|csproj)$'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Reminder: run dotnet build to verify compilation\"}}'; fi"
           },
           {
             "type": "command",
             "if": "Edit(**/*.csproj)",
-            "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(cs|csproj)$'; then echo '{\"systemMessage\": \"Reminder: run dotnet build to verify compilation\"}'; fi"
+            "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(cs|csproj)$'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Reminder: run dotnet build to verify compilation\"}}'; fi"
           }
         ]
       },
@@ -319,7 +319,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"systemMessage\": \"IMPORTANT: Preserve the full list of modified files, error messages, test commands, and current task context during compaction.\"}'"
+            "command": "echo \"IMPORTANT: Preserve the full list of modified files, error messages, test commands, and current task context during compaction.\""
           }
         ]
       }
@@ -330,7 +330,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"systemMessage\": \"Context was compacted. Re-read any files you were working on before continuing.\"}'"
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Context was compacted. Re-read any files you were working on before continuing.\"}}'"
           }
         ]
       },
@@ -377,6 +377,15 @@
             "statusMessage": "Syncing .specify/feature.json with the register..."
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/harness-state-gc.sh\"",
+            "statusMessage": "Collecting harness scratch files..."
+          }
+        ]
       }
     ],
     "Stop": [
@@ -420,6 +429,11 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tlc-cleanup.sh\" 2>/dev/null; true"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/harness-state-gc.sh\"",
+            "statusMessage": "Collecting harness scratch files..."
           }
         ]
       }

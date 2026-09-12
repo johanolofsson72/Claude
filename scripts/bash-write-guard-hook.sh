@@ -157,7 +157,7 @@ Two caps because there are two questions. The three pipeline guards decide from 
 Past either cap it stops rather than guessing: waving a write through unmeasured is the exact failure this guard exists to remove.
 
 Split the command into smaller writes, or make the edits with the Edit tool, which is gated the same way one file at a time."
-  jq -n --arg r "$REASON" '{hookSpecificOutput: {permissionDecision: "deny", permissionDecisionReason: $r}}'
+  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
   exit 0
 fi
 
@@ -203,7 +203,7 @@ The guard's own reason follows.
 
 ────────────────────────────────────────────────────────────
 ${INNER}"
-    jq -n --arg r "$REASON" '{hookSpecificOutput: {permissionDecision: "deny", permissionDecisionReason: $r}}'
+    jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
     exit 0
   fi
     # The provenance line has to be true, and there are two different truths here. The pipeline guards
@@ -247,7 +247,7 @@ The gate is the same one Edit/Write/MultiEdit have always passed through; before
 ${INNER}"
         ;;
     esac
-  jq -n --arg r "$REASON" '{hookSpecificOutput: {permissionDecision: "deny", permissionDecisionReason: $r}}'
+  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
   exit 0
 }
 

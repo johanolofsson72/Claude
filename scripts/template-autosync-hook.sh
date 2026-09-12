@@ -162,7 +162,6 @@ rm -f "$OUTFILE" 2>/dev/null
 # two chances to fix one of them and ship malformed JSON from the other, on a hook whose stdout IS
 # the JSON channel. Escapes the quote, turns each line ending into a literal \n, then collapses the
 # real newlines.
-as_json() { printf '%s' "$1" | sed -e 's/"/\\"/g' -e 's/$/\\n/' | tr -d '\n'; }
 
 # Classify the run BEFORE reading its output. A sync killed mid-flight has
 # usually already printed its "[synced]" header, so matching the output first
@@ -183,6 +182,14 @@ if [ "$VERDICT" = "completed" ]; then
   case "$OUT" in *"[deferred]"*) VERDICT="deferred" ;; esac
 fi
 
+# SPEC 046 — each branch below is real news for the developer (files moved on
+# disk, a sync stopped halfway), so each keeps the developer's channel. What it
+# loses is the BODY: $OUT lists one rewritten file per line, and the UI renders
+# one notification per line, so "9 files synced" arrived as nine red warnings.
+# notice_both sends the headline to the person and the file list to Claude,
+# which is the half that actually has to act on which files changed.
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+
 # Written AFTER the run, and carrying which kind of run it was. Writing it
 # first is what let a sync that never finished suppress its own retries.
 case "$VERDICT" in
@@ -192,8 +199,9 @@ case "$VERDICT" in
 esac
 
 if [ "$VERDICT" = "timeout" ]; then
-  printf '{"systemMessage": "Template auto-sync timed out after %s s and was stopped, so it may have changed some files and not others. It runs again at the first session start after %s s. If it keeps timing out, run scripts/template-autosync.sh by hand to see where it sticks."}\n' \
-    "$LIMIT" "$BACKOFF"
+  notice_both SessionStart \
+    "Template auto-sync timed out after ${LIMIT}s and was stopped — it may have changed some files and not others." \
+    "Template auto-sync timed out after ${LIMIT} s and was stopped, so it may have changed some files and not others. It runs again at the first session start after ${BACKOFF} s. If it keeps timing out, run scripts/template-autosync.sh by hand to see where it sticks."
   exit 0
 fi
 
@@ -209,7 +217,10 @@ fi
 # stamp is unchanged so the next session start picks it up, and which flag overrides it; the
 # "Config files changed on disk" paragraph below would be false here, because none did.
 if [ "$VERDICT" = "deferred" ]; then
-  printf '{"systemMessage": "Template auto-sync deferred on this project.\\n%s"}\n' "$(as_json "$OUT")"
+  notice_both SessionStart \
+    "Template auto-sync deferred on this project." \
+    "Template auto-sync deferred on this project.
+$OUT"
   exit 0
 fi
 
@@ -229,7 +240,10 @@ fi
 # text: the block already names the files and the one command that fixes the clone.
 case "$OUT" in
   *"[eol]"*)
-    printf '{"systemMessage": "Template auto-sync: the template clone is byte-divergent.\\n%s"}\n' "$(as_json "$OUT")"
+    notice_both SessionStart \
+      "Template auto-sync: the template clone is byte-divergent." \
+      "Template auto-sync: the template clone is byte-divergent.
+$OUT"
     exit 0
     ;;
 esac
@@ -245,5 +259,9 @@ case "$OUT" in
   *"0 updated, 0 added"*) exit 0 ;;
 esac
 
-printf '{"systemMessage": "Template auto-sync ran on this project.\\n%s\\nConfig files changed on disk. Hooks and rules reload at session start, so this session already has the new versions. If the summary lists locally-modified files that were skipped, run /project-update to merge those by hand."}\n' "$(as_json "$OUT")"
+notice_both SessionStart \
+  "Template auto-sync updated this project's config — see the session context for the file list." \
+  "Template auto-sync ran on this project.
+$OUT
+Config files changed on disk. Hooks and rules reload at session start, so this session already has the new versions. If the summary lists locally-modified files that were skipped, run /project-update to merge those by hand."
 exit 0

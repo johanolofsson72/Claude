@@ -4,15 +4,21 @@
 # interactive behaviour.
 #
 # Behavior contract:
-#   - NEVER blocks. Output is always a systemMessage (advisory) or nothing.
+#   - NEVER blocks. Output is advisory context for the model, or nothing.
 #   - Fires only on spec*.md / tasks*.md / plan*.md that mention interactive UI.
 #   - Silent on template/scratch repos (no language marker at the .git root).
 #   - Suppresses when specs/SCENARIOS.md already references this spec's slug.
 #
 # See .claude/rules/scenarios.md for the artifact this guards.
 
+# SPEC 046 — the reminder tells Claude to start a scenario interview, so it goes
+# to Claude. As a systemMessage it was a paragraph of red warning at the
+# developer, repeated on every pass over the same spec file.
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+
 INPUT=$(cat)
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+SID=$(hn_session_id "$INPUT")
 
 [ -z "$FILE" ] && exit 0
 [ ! -f "$FILE" ] && exit 0
@@ -67,7 +73,7 @@ MAP="$ROOT/specs/SCENARIOS.md"
 SLUG=$(basename "$(dirname "$FILE")")
 
 if [ ! -f "$MAP" ]; then
-  jq -n '{systemMessage: "Scenario gap: specs/SCENARIOS.md does not exist yet and this spec has interactive behaviour. START A SCENARIO INTERVIEW now (AskUserQuestion, one feature at a time) to capture every use case — happy / edge / adversarial / error / offline — with the user as the completeness check, then write the map with SC-ids. Do NOT invent the scenarios silently and proceed. See .claude/rules/scenarios.md (Scenario gap or drift → START AN INTERVIEW)."}'
+  notice_once PostToolUse "$SID" "scenario:no-map" "Scenario gap: specs/SCENARIOS.md does not exist yet and this spec has interactive behaviour. START A SCENARIO INTERVIEW now (AskUserQuestion, one feature at a time) to capture every use case — happy / edge / adversarial / error / offline — with the user as the completeness check, then write the map with SC-ids. Do NOT invent the scenarios silently and proceed. See .claude/rules/scenarios.md (Scenario gap or drift → START AN INTERVIEW)."
   exit 0
 fi
 
@@ -105,5 +111,5 @@ if [ -n "$SLUG" ]; then
   [ "$?" -eq 17 ] && exit 0
 fi
 
-jq -n --arg slug "$SLUG" '{systemMessage: ("Scenario gap: specs/SCENARIOS.md has no rows for this spec (" + $slug + "). This is the failure mode where a missed user-case slips into the code. START A SCENARIO INTERVIEW now (AskUserQuestion, one feature at a time; recommended answers the user confirms) to capture happy / edge / adversarial / error / offline scenarios, then write the SC-id rows. The map is the source the functional inventory and destructive suite derive from. See .claude/rules/scenarios.md.")}'
+notice_once PostToolUse "$SID" "scenario:no-rows:$SLUG" "Scenario gap: specs/SCENARIOS.md has no rows for this spec ($SLUG). This is the failure mode where a missed user-case slips into the code. START A SCENARIO INTERVIEW now (AskUserQuestion, one feature at a time; recommended answers the user confirms) to capture happy / edge / adversarial / error / offline scenarios, then write the SC-id rows. The map is the source the functional inventory and destructive suite derive from. See .claude/rules/scenarios.md."
 exit 0

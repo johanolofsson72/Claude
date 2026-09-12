@@ -1,10 +1,9 @@
 #!/bin/bash
 # SessionStart hook: orients to specs/INDEX.md.
 #
-# Case 1: register exists → emit a status systemMessage with counts and the
-#         next unchecked spec. Tells Claude exactly which row is on deck.
-# Case 2: register missing AND project has language markers → emit a bootstrap
-#         reminder systemMessage.
+# Case 1: register exists → tell Claude the counts and the next unchecked spec,
+#         so it knows which row is on deck.
+# Case 2: register missing AND project has language markers → bootstrap reminder.
 # Case 3: register missing AND no language markers (template/scratch) → silent.
 #
 # Walk semantics match scripts/spec-register-guard-hook.sh: walk up from $PWD
@@ -23,6 +22,13 @@ set -u
 # feature.json naming the PREVIOUS spec. That last one is the defect 007m exists
 # to prevent, re-entering through the lookup path rather than the parser.
 _ORIENT_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+
+# SPEC 046 — this brief is written FOR Claude: which row is next, what is due,
+# what the run log said last time. It went out as `systemMessage`, which the CLI
+# defines as "Warning shown to user in UI", and the UI renders one notification
+# per line — so a 26-line orientation became 26 red warnings at every /clear.
+# additionalContext puts it where it was always addressed.
+. "$_ORIENT_SCRIPT_DIR/hook-notice.sh"
 
 DIR="$PWD"
 FOUND_REG=""
@@ -367,7 +373,7 @@ ${TAIL_LINES}"
   ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${MAINT_DUE}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
     MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
-    jq -n --arg m "$MSG" '{systemMessage: $m}'
+    notice_model SessionStart "$MSG"
     exit 0
   fi
 
@@ -376,7 +382,7 @@ Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${B
 Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
-  jq -n --arg m "$MSG" '{systemMessage: $m}'
+  notice_model SessionStart "$MSG"
   exit 0
 fi
 
@@ -390,7 +396,7 @@ Bootstrap:
   3. Write specs/INDEX.md with the register + a dated Register history entry.
   4. git commit + git push origin main.
   5. Then start spec 001 with /specify."
-  jq -n --arg m "$MSG" '{systemMessage: $m}'
+  notice_model SessionStart "$MSG"
   exit 0
 fi
 

@@ -159,8 +159,12 @@ Put the command that proves this project still works in .claude/.template-sync-v
   fi
 fi
 
-# Same escaping as template-autosync-hook.sh: quotes, then newlines to \n. jq is not
-# assumed present — this hook must work on a machine that has nothing installed.
-MSG=$(printf '%s' "$BODY" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/$/\\n/' | tr -d '\n')
-printf '{"systemMessage": "%s"}\n' "$MSG"
+# SPEC 046 — this is a standing obligation addressed to Claude ("N sync commits
+# are unverified, run this command"), and it ran to ten lines. As a
+# systemMessage that was ten red warnings at every session start, on every
+# project carrying the obligation — which is most of them, which is how the
+# reminder became wallpaper. hook-notice.sh carries the same jq-free escaping
+# this hook hand-rolled, so the no-jq machine is still covered.
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+notice_model SessionStart "$BODY"
 exit 0

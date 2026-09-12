@@ -201,5 +201,5 @@ only the tick. Marking a row in progress is what you do on the way to fixing thi
 If the tick you are making IS the one that closes the spec which lands this work, set
 ALLOW_TICK_WITH_CORE_OWED=1 for the session. It says so in the transcript rather than passing quietly."
 
-jq -n --arg r "$REASON" '{hookSpecificOutput: {permissionDecision: "deny", permissionDecisionReason: $r}}'
+jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
 exit 0

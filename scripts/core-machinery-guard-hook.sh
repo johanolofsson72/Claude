@@ -158,5 +158,5 @@ If you are knowingly making a temporary local repair — restoring work a sync d
 
 This guard is scoped to the CORE set only. Every other file under scripts/ and .claude/rules/ is yours, and the three pipeline guards deliberately leave all of scripts/** open so the tooling can always be repaired."
 
-jq -n --arg r "$REASON" '{hookSpecificOutput: {permissionDecision: "deny", permissionDecisionReason: $r}}'
+jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
 exit 0

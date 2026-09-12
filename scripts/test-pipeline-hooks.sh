@@ -613,6 +613,7 @@ printf '# R\n\n## Specs\n\n- [/] 002 — search — full track — free-text sea
 # an autosync is cut short (the .py pass runs after every .sh) or when python3 is
 # absent. The hook must say so, not go quiet.
 cp scripts/spec-run-log-hook.sh "$RLN/bin/spec-run-log-hook.sh"
+cp scripts/hook-notice.sh "$RLN/bin/hook-notice.sh"
 
 # $1 name, $2 expected rc, $3 stderr must contain ("" = must be silent), $4.. = argv
 _rl_note() {
@@ -639,7 +640,7 @@ _rl_note "--spec pointing at no directory exits 4 and says so" 4 "$RLN/nope"    
 # Every row ticked is an ANSWER, not a failure: exit 3, and still say it out loud
 # so a note that was never recorded cannot pass for one that was.
 printf '# R\n\n## Specs\n\n- [x] 002 — search — full track — free-text search\n' > "$RLN/specs/INDEX.md"
-cp scripts/resolve-active-spec.sh scripts/spec_active.py "$RLN/bin/"
+cp scripts/resolve-active-spec.sh scripts/spec_active.py scripts/hook-notice.sh "$RLN/bin/"
 _rl_note "fully-ticked register → exit 3, not 4, and reports"  3 "no active spec"         --note "nothing active"
 
 # ...and with the resolver reachable beside the hook, the happy path is silent
@@ -714,7 +715,7 @@ _qot_stamp() {
     echo "similarity	$(date +%Y-%m-%d)	1	2"; } > "$QOT/.claude/.maintenance-state"
 }
 _qot_stamp
-_orient_lines() { (cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""' | grep -c .); }
+_orient_lines() { (cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.hookSpecificOutput.additionalContext // .systemMessage // ""' | grep -c .); }
 printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — b — light track — y\n' > "$QOT/specs/INDEX.md"
 [ "$(_orient_lines)" -eq 1 ] && _record "nothing actionable → one-line quiet mode" 0 \
                              || _record "nothing actionable → one-line quiet mode" 1
@@ -742,7 +743,7 @@ mkdir -p "$QOT/specs/004-tail"
 printf '# R\n\n## Specs\n\n- [/] 004 — tail — full track — y\n' > "$QOT/specs/INDEX.md"
 printf '# Run log\n\n- 2026-01-01T00:00Z · mutation gate FAILED at 41%%\n' > "$QOT/specs/004-tail/run-log.md"
 grep -q 'mutation gate FAILED' \
-  <<< "$(cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""')" \
+  <<< "$(cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.hookSpecificOutput.additionalContext // .systemMessage // ""')" \
   && _record "in-progress row → run-log tail is surfaced" 0 \
   || _record "in-progress row → run-log tail is surfaced" 1
 rm -rf "$QOT"
@@ -865,6 +866,11 @@ autosync_sandbox() {
   git -C "$d" init -q .
   git -C "$d" remote add origin https://example.invalid/someone/other.git
   cp "$ROOT/scripts/template-autosync-hook.sh" "$d/scripts/"
+  # Spec 046 — the hook sources this. A fixture missing it produces
+  # "notice_both: command not found" and a test failure that reads like a
+  # behaviour regression instead of a missing file, which is how a new CORE
+  # dependency hides (register row 014).
+  cp "$ROOT/scripts/hook-notice.sh" "$d/scripts/"
   { echo '#!/bin/bash'
     echo 'echo run >> "$(dirname "$0")/../.sync-runs"'
     printf '%s\n' "$1"

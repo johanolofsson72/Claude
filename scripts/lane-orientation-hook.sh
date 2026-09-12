@@ -46,5 +46,7 @@ MSG="$MSG
 
 Ask \"is there anything for me to do?\" for the full picture (bash scripts/lane-status.sh)."
 
-jq -n --arg m "$MSG" '{systemMessage: $m}'
+# SPEC 046 — orientation is addressed to Claude, not to the developer.
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+notice_model SessionStart "$MSG"
 exit 0
