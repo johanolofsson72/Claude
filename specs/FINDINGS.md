@@ -14,3 +14,4 @@ Status: `[ ]` open · `[x]` decided (the decision is on the line)
 
 - [ ] F001 — gap — 2026-09-10 — nothing verifies that a user-global hook command actually resolves: superpowers' hooks.json carried a literal ${CLAUDE_PLUGIN_ROOT} and failed at every session start and /clear, in every project, unnoticed since February
 - [ ] F002 — defect — 2026-09-11 · from spec 045 — four register rows (036, 042, 043, 044) exceed the 300-byte row budget; 043 and 044 need an INDEX.pending.md entry before they can be shortened
+- [ ] F003 — gap — 2026-09-12 · from spec 046 — project-authored hooks are invisible to every template gate: rocky's two SC-id guards carried the same inert-deny defect as the six CORE guards, and nothing in --owed, --unlisted or test-hook-channels could see them because they are not CORE. The fleet sweep that found them was written by hand.

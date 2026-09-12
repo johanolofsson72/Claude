@@ -27,7 +27,13 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
 echo "== 1. no hook emits a top-level additionalContext =="
 # The CLI answers such a payload with "Did you mean
 # hookSpecificOutput.additionalContext (with a hookEventName)?" and drops it.
+# Test scripts are excluded because they carry the pattern as DATA — this very
+# file greps for it. Until 2026-09-12 that exclusion was accidental: this file
+# happened to also mention hookSpecificOutput, which the filter below read as
+# "nested, therefore fine". A test that passes itself by coincidence is a test
+# that stops passing when someone edits an unrelated line.
 HITS=$(grep -ln "'{additionalContext:\|\"additionalContext\":" scripts/*.sh 2>/dev/null \
+       | grep -v '/test-' \
        | while read -r f; do
            grep -q 'hookSpecificOutput' "$f" || printf '%s\n' "$f"
          done)
