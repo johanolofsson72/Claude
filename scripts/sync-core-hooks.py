@@ -88,16 +88,23 @@ _TEMPLATE_INLINE_MIGRATIONS: list[tuple[str, str, str]] = [
 ]
 
 # PreCompact is special: its documented channel is plain stdout, not JSON.
-_PRECOMPACT_OLD = ('echo \'{"systemMessage": "IMPORTANT: Preserve the full list of modified files, '
-                   'error messages, test commands, and current task context during compaction."}\'')
-_PRECOMPACT_NEW = ('echo "IMPORTANT: Preserve the full list of modified files, error messages, '
-                   'test commands, and current task context during compaction."')
+#
+# Matched by SHAPE, not by exact text. The first version of this compared the
+# whole string and missed cv, whose copy drifted by three words ("modified
+# files, error messages, and current task context" — no "test commands").
+# Projects edit these notes; a migration keyed to one exact wording repairs the
+# projects that never touched theirs and silently skips the ones that did.
+_PRECOMPACT_RE = re.compile(
+    r"""echo\s+'\{"systemMessage":\s*"(?P<body>[^"]*Preserve the full list[^"]*)"\}'""")
 
 
 def migrate_template_inline(cmd: str, event: str) -> tuple[str, list[str]]:
     notes: list[str] = []
-    if event == "PreCompact" and _PRECOMPACT_OLD in cmd:
-        return cmd.replace(_PRECOMPACT_OLD, _PRECOMPACT_NEW), ["PreCompact note -> stdout"]
+    if event == "PreCompact":
+        m = _PRECOMPACT_RE.search(cmd)
+        if m:
+            return (cmd[:m.start()] + 'echo "%s"' % m.group("body") + cmd[m.end():],
+                    ["PreCompact note -> stdout"])
     for ev, old, new in _TEMPLATE_INLINE_MIGRATIONS:
         if ev == event and old in cmd:
             cmd = cmd.replace(old, new)
