@@ -54,7 +54,8 @@ echo "== 2. every hookSpecificOutput carries a hookEventName =="
 MISSING=""
 for f in scripts/*-hook.sh scripts/emit-*.sh scripts/feature-pipeline-detect.sh; do
   [ -f "$f" ] || continue
-  grep 'hookSpecificOutput' "$f" | grep -qv 'jq -r' || continue
+  EMITS=$(grep 'hookSpecificOutput' "$f" 2>/dev/null | grep -cv 'jq -r')
+  [ "${EMITS:-0}" -eq 0 ] && continue
   grep -q 'hookEventName' "$f" || MISSING="$MISSING $f"
 done
 [ -z "$MISSING" ] && ok "all nested payloads name their event" \
@@ -94,8 +95,10 @@ print(d.get('systemMessage','').count(chr(10))+1)")
 
 echo "== 5. notice_model produces no user-visible field =="
 OUT=$(notice_model PostToolUse "hello")
-printf '%s' "$OUT" | grep -q systemMessage && bad "notice_model leaked a systemMessage" \
-  || ok "notice_model is model-only"
+case "$OUT" in
+  *systemMessage*) bad "notice_model leaked a systemMessage" ;;
+  *)               ok  "notice_model is model-only" ;;
+esac
 printf '%s' "$OUT" | python3 -c "
 import sys,json; d=json.load(sys.stdin)
 h=d['hookSpecificOutput']
