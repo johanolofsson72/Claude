@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How every feature is specified, gated, tested and formally verified before it ships.">
+<style>
+  html{color-scheme:light dark}
+  body{margin:0}
+  img{max-width:100%}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<title>Spec-Driven Delivery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+  :root{
+    --paper:#F4F5F3;
+    --raise:#FFFFFF;
+    --ink:#1B2127;
+    --slate:#5D6771;
+    --faint:#8A929A;
+    --rule:#D8DCD8;
+    --rule-soft:#E7EAE6;
+    --gate:#8C2F39;
+    --gate-bg:#F3E7E8;
+    --advis:#8A6018;
+    --advis-bg:#F5EDDD;
+    --proof:#2F6355;
+    --proof-bg:#E3EDE9;
+    --accent:#2C5578;
+
+    --f-display:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+    --f-body:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+    --measure:68ch;
+    --s1:.35rem; --s2:.6rem; --s3:1rem; --s4:1.6rem; --s5:2.6rem; --s6:4.2rem;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#14181C;
+      --raise:#1B2026;
+      --ink:#E4E7E4;
+      --slate:#9AA3AB;
+      --faint:#727C85;
+      --rule:#2C333A;
+      --rule-soft:#232A30;
+      --gate:#D98A92;
+      --gate-bg:#2A1C1F;
+      --advis:#D6AC62;
+      --advis-bg:#272016;
+      --proof:#7FB8A6;
+      --proof-bg:#16241F;
+      --accent:#8FB4D6;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#14181C;
+    --raise:#1B2026;
+    --ink:#E4E7E4;
+    --slate:#9AA3AB;
+    --faint:#727C85;
+    --rule:#2C333A;
+    --rule-soft:#232A30;
+    --gate:#D98A92;
+    --gate-bg:#2A1C1F;
+    --advis:#D6AC62;
+    --advis-bg:#272016;
+    --proof:#7FB8A6;
+    --proof-bg:#16241F;
+    --accent:#8FB4D6;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--f-body); font-size:16px; line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding-inline:24px; padding-block:0}
+  @media (max-width:560px){ .wrap{padding-inline:18px} }
+
+  h1,h2,h3{font-family:var(--f-display); text-wrap:balance; margin:0}
+  h1{font-size:clamp(2rem,5.2vw,3.05rem); font-weight:600; line-height:1.08; letter-spacing:-.015em}
+  h2{font-size:clamp(1.3rem,3vw,1.62rem); font-weight:600; line-height:1.22}
+  h3{font-size:1.02rem; font-weight:600; line-height:1.3}
+  p{margin:0; max-width:var(--measure)}
+  a{color:var(--accent)}
+
+
+  /* ---- masthead ---- */
+  header{border-bottom:1px solid var(--rule); padding-block:var(--s6) var(--s5)}
+  .masthead{display:flex; flex-direction:column; gap:var(--s3)}
+  .lede{font-size:1.12rem; color:var(--slate); max-width:60ch}
+  .meta{
+    display:grid; grid-template-columns:max-content 1fr; gap:var(--s1) var(--s3);
+    margin:var(--s3) 0 0; padding-top:var(--s3); border-top:1px solid var(--rule-soft);
+    font-size:.88rem; max-width:44ch;
+  }
+  .meta dt{color:var(--faint)}
+  .meta dd{margin:0; color:var(--slate)}
+
+  section{padding-block:var(--s5); border-bottom:1px solid var(--rule-soft)}
+  section:last-of-type{border-bottom:0}
+  .sec-head{display:flex; flex-direction:column; gap:var(--s2); margin-bottom:var(--s4); max-width:var(--measure)}
+  .stack{display:flex; flex-direction:column; gap:var(--s3)}
+  .stack-tight{display:flex; flex-direction:column; gap:var(--s2)}
+
+  /* ---- the phase chain: a real sequence, so it is numbered ---- */
+  ol.chain{list-style:none; margin:0; padding:0; display:flex; flex-direction:column}
+  ol.chain li{
+    display:grid; grid-template-columns:3.1rem 1fr; gap:var(--s3);
+    padding-block:var(--s3); border-top:1px solid var(--rule-soft);
+  }
+  ol.chain li:first-child{border-top:0; padding-top:0}
+  .num{
+    font-family:var(--f-mono); font-size:.78rem; font-weight:500; color:var(--faint);
+    padding-top:.28rem; font-variant-numeric:tabular-nums;
+  }
+  .phase-name{font-family:var(--f-mono); font-size:.9rem; font-weight:600; color:var(--ink)}
+  .phase-body{display:flex; flex-direction:column; gap:var(--s1)}
+  .phase-why{color:var(--slate); font-size:.94rem}
+  .tracks{display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.2rem}
+
+  .tag{
+    font-size:.82rem; font-style:italic; color:var(--faint);
+  }
+  .tag::before{content:"— "}
+  .tag.on{color:var(--slate)}
+
+  /* ---- enforcement tiers: hardness is the information ---- */
+  .tier{
+    display:grid; grid-template-columns:auto 1fr; gap:var(--s3);
+    padding:var(--s3); border-left:3px solid var(--rule); background:var(--raise);
+  }
+  .tier.block{border-left-color:var(--gate); background:var(--gate-bg)}
+  .tier.advise{border-left-color:var(--advis); background:var(--advis-bg)}
+  .tier.prove{border-left-color:var(--proof); background:var(--proof-bg)}
+  .tier-k{
+    font-family:var(--f-display); font-size:1rem; font-weight:600;
+    white-space:nowrap; padding-top:.12rem;
+  }
+  .tier.block .tier-k{color:var(--gate)}
+  .tier.advise .tier-k{color:var(--advis)}
+  .tier.prove .tier-k{color:var(--proof)}
+  .tier-b{display:flex; flex-direction:column; gap:var(--s1)}
+  .tier-b p{font-size:.94rem}
+  @media (max-width:560px){ .tier{grid-template-columns:1fr; gap:var(--s2)} }
+
+  /* ---- tables ---- */
+  .scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; min-width:520px}
+  th,td{text-align:left; padding:.62rem .7rem; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+  th{
+    font-family:var(--f-body); font-size:.82rem; font-weight:600;
+    color:var(--slate); border-bottom:1px solid var(--rule);
+  }
+  td.k{font-family:var(--f-mono); font-size:.82rem; white-space:nowrap; color:var(--ink)}
+  td.n{font-family:var(--f-mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+
+  /* ---- the register: the project's own syntax, used as itself ---- */
+  .register{
+    font-family:var(--f-mono); font-size:.82rem; line-height:1.9;
+    background:var(--raise); border:1px solid var(--rule); padding:var(--s3);
+    overflow-x:auto; white-space:pre;
+  }
+  .register .done{color:var(--proof)}
+  .register .prog{color:var(--advis)}
+  .register .held{color:var(--gate)}
+  .register .todo{color:var(--slate)}
+  .register .note{color:var(--faint)}
+
+  .marks{display:flex; flex-direction:column; gap:var(--s1); font-size:.92rem}
+  .mark{display:grid; grid-template-columns:3.4rem 1fr; gap:var(--s2); align-items:baseline}
+  .mark code{font-family:var(--f-mono); font-size:.82rem; color:var(--slate)}
+
+  ul.plain{margin:0; padding-left:1.1rem; display:flex; flex-direction:column; gap:var(--s1)}
+  ul.plain li{max-width:var(--measure)}
+  ul.plain li::marker{color:var(--faint)}
+
+  .cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:var(--s4)}
+
+  .figure{
+    border:1px solid var(--rule); background:var(--raise);
+    padding:var(--s3) var(--s4); display:flex; flex-direction:column; gap:var(--s1);
+  }
+  .figure .n{font-family:var(--f-mono); font-size:1.5rem; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums}
+  .figure .l{font-size:.86rem; color:var(--slate)}
+
+  .callout{
+    border-left:3px solid var(--accent); padding:var(--s2) 0 var(--s2) var(--s3);
+    color:var(--slate); font-size:.95rem; max-width:var(--measure);
+  }
+  .callout strong{color:var(--ink); font-weight:600}
+
+  footer{padding-block:var(--s5) var(--s6); color:var(--faint); font-size:.85rem}
+  footer p{max-width:var(--measure)}
+  code{font-family:var(--f-mono); font-size:.86em}
+  strong{font-weight:600}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+
+<style media="print">
+  :root, :root[data-theme="dark"]{
+    --paper:#FFFFFF; --raise:#FFFFFF; --ink:#15191E; --slate:#464F58; --faint:#6A727A;
+    --rule:#C4CAC4; --rule-soft:#E0E4DF;
+    --gate:#7E2A33; --gate-bg:#FAF2F3; --advis:#76510F; --advis-bg:#FBF6EC;
+    --proof:#27564A; --proof-bg:#EFF5F2; --accent:#24486A;
+  }
+  @page{ margin:18mm 16mm; }
+  body{ font-size:10.5pt; line-height:1.5 }
+  .wrap{ max-width:none; padding-inline:0 }
+  header{ padding-block:0 18pt; }
+  section{ padding-block:15pt }
+  h1{ font-size:25pt }
+  h2{ font-size:14pt; break-after:avoid }
+  h3{ font-size:10.5pt; break-after:avoid }
+  ol.chain li, .tier, .figure, .mark, tr, .register, .callout{ break-inside:avoid }
+  /* A column of prose split across a page boundary lands mid-sentence. */
+  .cols > *, .stack-tight, ul.plain li{ break-inside:avoid }
+  .scroll{ overflow:visible }
+  table{ min-width:0 }
+  .cols{ gap:13pt }
+  footer{ padding-block:13pt 0 }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="masthead">
+    <h1>Spec-Driven Delivery</h1>
+    <p class="lede">Every feature is written down before it is built, verified against what was written, and blocked from shipping until it proves itself. The method is enforced by machinery, not by discipline.</p>
+    <dl class="meta">
+      <dt>Stack</dt><dd>.NET, React, SQLite, containerised</dd>
+      <dt>In use on</dt><dd>46 active projects</dd>
+      <dt>Revised</dt><dd>12 September 2026</dd>
+    </dl>
+  </div>
+</header>
+
+<section>
+  <div class="sec-head">
+    <h2>Why a method at all</h2>
+  </div>
+  <div class="stack">
+    <p>AI-assisted development is fast and confidently wrong. It writes code that compiles, passes the tests it wrote for itself, and quietly implements nine of the twelve behaviours the requirement described. The failure is never loud — it looks exactly like finished work.</p>
+    <p>Three defects account for most of it: the requirement was never written down precisely enough to check against; the tests covered the happy path of a subset of the functions; and nobody could tell the difference between a check that passed and a check that never ran.</p>
+    <p>Everything below exists to close one of those three. The design principle throughout is that <strong>a rule nobody can enforce is a rule nobody follows</strong> — so each requirement is paired with something deterministic that refuses to proceed without it.</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>What happens to a requirement</h2>
+    <p class="phase-why">Twelve phases. Each produces an artifact the next one reads. The chain runs to completion as a single unit of work — there are no approval checkpoints between phases, because the work was already approved when it was commissioned.</p>
+  </div>
+
+  <ol class="chain">
+    <li>
+      <span class="num">01</span>
+      <div class="phase-body">
+        <span class="phase-name">specify</span>
+        <span class="phase-why">The requirement becomes a written specification: scope, actors, data, the states a user can observe. Nothing is implemented from a conversation.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">02</span>
+      <div class="phase-body">
+        <span class="phase-name">interview</span>
+        <span class="phase-why">15–25 recorded questions against the spec: scope boundaries, validation rules, authorization, concurrency, error semantics, edge cases, non-goals, reversibility. This is the anti-drift pass — it is where an assumption that would have become a defect gets named instead.</span>
+        <span class="tracks"><span class="tag on">hard floor: 15 answers</span></span>
+      </div>
+    </li>
+    <li>
+      <span class="num">03</span>
+      <div class="phase-body">
+        <span class="phase-name">clarify</span>
+        <span class="phase-why">Residual ambiguity the interview did not reach. Anything genuinely undecidable is escalated to you rather than guessed.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">04</span>
+      <div class="phase-body">
+        <span class="phase-name">elicit</span>
+        <span class="phase-why">The spec is restated as a formal model — entities, transitions, invariants. This is the baseline that later makes <em>drift</em> detectable: a difference between what was specified and what was built.</span>
+        <span class="tracks"><span class="tag">skipped on non-behavioural work</span></span>
+      </div>
+    </li>
+    <li>
+      <span class="num">05</span>
+      <div class="phase-body">
+        <span class="phase-name">plan</span>
+        <span class="phase-why">Architecture and approach, derived from the clarified spec rather than from habit.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">06</span>
+      <div class="phase-body">
+        <span class="phase-name">tasks</span>
+        <span class="phase-why">The functional inventory: every behaviour the spec describes, itemised. This list is what test coverage is later measured against — which is how "nine of twelve" becomes visible.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">07</span>
+      <div class="phase-body">
+        <span class="phase-name">analyze</span>
+        <span class="phase-why">Consistency check across spec, plan and tasks. Contradictions are resolved before any code exists.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">08</span>
+      <div class="phase-body">
+        <span class="phase-name">implement</span>
+        <span class="phase-why">The code, written against the task list and the patterns already in the codebase.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">09</span>
+      <div class="phase-body">
+        <span class="phase-name">converge</span>
+        <span class="phase-why">The codebase is re-assessed against the spec and any unbuilt work is appended back to the task list. It loops until it appends nothing. This is the mechanical catch for partial implementation — it does not depend on anyone noticing.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">10</span>
+      <div class="phase-body">
+        <span class="phase-name">simplify</span>
+        <span class="phase-why">A quality-only pass on the changed code — reuse, duplication, altitude. Run before the tests are written, so the tests are written against the code that will actually ship.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">11</span>
+      <div class="phase-body">
+        <span class="phase-name">test</span>
+        <span class="phase-why">Unit, integration, end-to-end, property-based, visual regression, and a destructive suite sized per interactive function. Detailed below.</span>
+      </div>
+    </li>
+    <li>
+      <span class="num">12</span>
+      <div class="phase-body">
+        <span class="phase-name">verify</span>
+        <span class="phase-why">Formal verification with TLA+ on state machines and concurrency: race conditions, unreachable states, missing invariants — the class of defect testing is structurally bad at finding, because it requires guessing the interleaving.</span>
+        <span class="tracks"><span class="tag">state machines &amp; concurrency</span></span>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Four tracks, chosen by risk</h2>
+    <p class="phase-why">Running the full chain on a dependency bump is waste, and waste is how a process gets abandoned. Each specification is triaged at the point it is written.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>Track</th><th>When</th><th>What runs</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="k">hardened</td>
+          <td>Authentication, payments, personal data, file upload, a new external surface, or a new entity</td>
+          <td>The full chain <em>plus</em> a threat model over each new trust boundary, an expanded destructive and load suite, a blocking mutation-score gate, and two independent adversarial reviews</td>
+        </tr>
+        <tr>
+          <td class="k">full</td>
+          <td>New behaviour, new state machine, new concurrency</td>
+          <td>All 12 phases</td>
+        </tr>
+        <tr>
+          <td class="k">light</td>
+          <td>Single-actor UI work with no concurrency — a form, a filter, a linear flow</td>
+          <td>All but formal verification</td>
+        </tr>
+        <tr>
+          <td class="k">spec-only</td>
+          <td>Refactor, documentation, configuration, dependency bump</td>
+          <td>Spec and clarify, then implement. No formal model.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout" style="margin-top:1.6rem">
+    <strong>Hardened is additive, not alternative.</strong> A payments feature runs everything a full-track feature runs and then four more checks on top. Over-applying it costs review time; under-applying it costs a breach, so the tie is broken toward hardening.
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>How the method is held in place</h2>
+    <p class="phase-why">The method is not documentation that people are asked to follow. It is 59 automated hooks across 8 lifecycle events, in three tiers distinguished by what they can actually do.</p>
+  </div>
+  <div class="stack">
+
+    <div class="tier block">
+      <span class="tier-k">Blocks</span>
+      <div class="tier-b">
+        <h3>Six deterministic refusals</h3>
+        <p>These do not warn — they deny the operation. Editing application source is refused outright until the specification exists, until its phases are complete, and until the interview records its answers. Three further guards protect shared machinery and refuse writes to sensitive files.</p>
+        <p>They fail <em>closed</em>: a guard that cannot establish what it is guarding refuses rather than waves work through.</p>
+      </div>
+    </div>
+
+    <div class="tier advise">
+      <span class="tier-k">Reminds</span>
+      <div class="tier-b">
+        <h3>Context, not interruption</h3>
+        <p>Coverage gaps, scenario drift, missing formal models and stale verification are surfaced to the agent as it works, once per subject per session. They inform the work without stopping it, and without filling the operator's screen.</p>
+      </div>
+    </div>
+
+    <div class="tier prove">
+      <span class="tier-k">Proves</span>
+      <div class="tier-b">
+        <h3>The harness tests itself</h3>
+        <p>36 test suites and 5 validators — roughly 580 assertions — run against the enforcement machinery itself, so a gate that has silently stopped working is caught. This matters more than it sounds: a guard that permits everything and a guard with nothing to stop produce identical output, and only a test can tell them apart.</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>What "tested" is required to mean</h2>
+  </div>
+  <div class="stack">
+    <p>Test count is not evidence. A suite can be large, green, and prove nothing. Six layers are required, each answering a question the others cannot.</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Layer</th><th>What it proves</th><th>Sizing</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Unit</td><td>The logic is right in isolation</td><td class="n">per function</td></tr>
+          <tr><td class="k">Integration</td><td>The seams hold — where AI-written code most often fails, because the parts pass and the joins do not</td><td class="n">per boundary</td></tr>
+          <tr><td class="k">End-to-end</td><td>The feature works in a real browser against a real stack</td><td class="n">one per behaviour</td></tr>
+          <tr><td class="k">Destructive</td><td>It fails correctly — invalid input, wrong order, skipped steps, boundaries, races</td><td class="n">3 → 30+</td></tr>
+          <tr><td class="k">Property-based</td><td>It holds across a generated input domain, not three chosen examples</td><td class="n">wide-input logic</td></tr>
+          <tr><td class="k">Visual regression</td><td>The interface did not change where it was not meant to</td><td class="n">per key state</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cols" style="margin-top:2.6rem">
+      <div class="stack-tight">
+        <h3>Destructive tests are sized, not counted</h3>
+        <p class="phase-why">The suite for an interactive element is derived from its input domain, using equivalence partitioning and boundary analysis. A toggle earns about three tests; a multi-step authenticated flow earns twenty to thirty. A flat quota per feature is how a login form and a checkbox end up equally tested.</p>
+      </div>
+      <div class="stack-tight">
+        <h3>The mutation score is the real gate</h3>
+        <p class="phase-why">Faults are injected into the changed code and the suite is asked to catch them. The kill rate — target ~80% on critical modules — is what proves the tests actually bite. On hardened work it blocks completion outright; elsewhere it runs on demand, because it is expensive and a check that costs an afternoon is a check that gets skipped.</p>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:2.6rem">
+      <strong>Every interactive element must prove four states at runtime</strong> — success, a specific and visible error, empty, and loading. A failure that is silent counts as a defect, not as an edge case. "It works" means observed working, not compiled.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>One list, one item at a time</h2>
+    <p class="phase-why">Every project carries an ordered register of the specifications planned for it. It is the single source of truth for what gets built, in what order, and how far the work has come.</p>
+  </div>
+
+  <div class="register" aria-label="Example of a project register">
+<span class="done">- [x] 001 — user-auth — full track [hardened] — sign-in, sessions, lockout</span>
+<span class="done">- [x] 002 — profile-page — light track — view and edit own profile</span>
+<span class="prog">- [/] 003 — search — full track — free-text search over the catalogue</span>
+<span class="todo">- [ ] 004 — admin-dashboard — full track — operator overview</span>
+<span class="held">- [!] 005 — billing — full track [hardened] — blocked: VAT rules unconfirmed</span>
+<span class="todo">- [ ] H1 — integration-hardening — checkpoint — full regression + security sweep</span>
+  </div>
+
+  <div class="marks" style="margin-top:1.6rem">
+    <div class="mark"><code>- [ ]</code><span>Not started</span></div>
+    <div class="mark"><code>- [/]</code><span>In progress — only ever one at a time</span></div>
+    <div class="mark"><code>- [x]</code><span>Done, tested, committed, pushed</span></div>
+    <div class="mark"><code>- [!]</code><span>Held — and the row says why, so the reason survives the week</span></div>
+  </div>
+
+  <div class="cols" style="margin-top:2.6rem">
+    <div class="stack-tight">
+      <h3>One stop per specification</h3>
+      <p class="phase-why">A specification runs end to end without interruption, then stops with a status summary: which track, what was tested, what was found, what is next. That stop is the natural reporting point — frequent enough to steer, rare enough to make progress.</p>
+    </div>
+    <div class="stack-tight">
+      <h3>A checkpoint every fifth item</h3>
+      <p class="phase-why">Five individually correct features can still interact badly. After every fifth, a full-system pass runs: complete regression, a security sweep across the whole surface, reconciliation of the scenario map, and a mutation spot-check on what changed most.</p>
+    </div>
+    <div class="stack-tight">
+      <h3>The backlog has to converge</h3>
+      <p class="phase-why">Good gates find problems faster than a team can close them, and a backlog that grows faster than it drains never finishes regardless of effort. The ratio of items added to items closed is measured; past a threshold the project stops and the list is renegotiated rather than quietly extended.</p>
+    </div>
+    <div class="stack-tight">
+      <h3>Findings are batched, not acted on</h3>
+      <p class="phase-why">A finding is recorded and decided at the next review, in a batch, where a dozen separate observations often turn out to be one thing. A pipeline that acts on every finding the moment it appears is a pipeline planning its own work.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>What has to be true before we say it works</h2>
+  </div>
+  <ul class="plain">
+    <li>Every scenario in the specification observed working at runtime — real behaviour, not a stub — with all four observable states proven.</li>
+    <li>Unit and integration tests green. Property-based tests present for wide-input logic.</li>
+    <li>End-to-end tests green, with one test per implemented behaviour and a destructive suite sized to each interactive element.</li>
+    <li>Visual-regression baselines recorded for the key states.</li>
+    <li>Mutation score on the changed critical modules at target.</li>
+    <li>Formal verification run on state machines and concurrency.</li>
+    <li>Clean build, full suite green, and the application running both locally and in its container — because the container is the artifact that ships.</li>
+    <li>Visually confirmed in a browser.</li>
+  </ul>
+  <p class="callout" style="margin-top:1.6rem">If any of these could not be run, we say so explicitly rather than reporting a pass. <strong>An unrun check is never reported as a passed one</strong> — that rule is enforced in the tooling's own exit codes, not only in the prose.</p>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Shipping and infrastructure</h2>
+  </div>
+  <div class="cols">
+    <div class="stack-tight">
+      <h3>One image, one cluster</h3>
+      <p class="phase-why">Applications build to a single container — .NET backend with the React frontend compiled into it — and deploy to a Docker Swarm cluster. Deployment is deliberate and manually triggered, never automatic on a commit.</p>
+    </div>
+    <div class="stack-tight">
+      <h3>Validated locally before it leaves</h3>
+      <p class="phase-why">The full suite, the security scan and the container run happen on the developer's machine before anything is deployed. Continuous-integration minutes are spent on the deployment itself, not on re-buying information already in hand — a deliberate cost discipline after a previous project exhausted a month's budget in four days.</p>
+    </div>
+    <div class="stack-tight">
+      <h3>Built for interruption</h3>
+      <p class="phase-why">The worker fleet runs on pre-emptible capacity that can be reclaimed at short notice. Stateful services are designed around that rather than assuming it away, with durable state on shared storage and documented constraints for the database layer.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>What this method costs</h2>
+  </div>
+  <div class="stack">
+    <p>It is front-loaded. A feature that a less formal process would start coding within the hour spends that hour being specified, interviewed and planned. That time is recovered on anything non-trivial and is not recovered on a genuinely tiny change — which is why trivial work is allowed to bypass the chain, provided the classification is stated on the record.</p>
+    <p>It is deliberately serial. One specification is worked at a time so that what is in flight is always knowable. This trades peak throughput for the ability to answer "what is the state of the project" precisely, at any moment.</p>
+    <p>The expensive proofs run on a cadence, not on every commit. Mutation testing, full-system regression and the dependency and secret scans are scheduled against what actually invalidates them and presented when due. They are tracked so they cannot be forgotten, and they are not pretended to be continuous.</p>
+    <p>And the machinery is itself under test, because we have found it wrong. Gates have been discovered inert — present in configuration, correct-looking, and doing nothing. That is the failure mode this whole approach is built against, and finding one in our own tooling is the reason the harness carries a test suite of its own.</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>What the system is made of</h2>
+  </div>
+  <div class="cols">
+    <div class="figure"><span class="n">12</span><span class="l">pipeline phases, each producing an artifact the next one reads</span></div>
+    <div class="figure"><span class="n">59</span><span class="l">automated hooks across 8 lifecycle events</span></div>
+    <div class="figure"><span class="n">6</span><span class="l">deterministic blocks that refuse rather than warn</span></div>
+    <div class="figure"><span class="n">21</span><span class="l">enforced engineering rules, loaded every session</span></div>
+    <div class="figure"><span class="n">41</span><span class="l">test suites and validators over the machinery itself</span></div>
+    <div class="figure"><span class="n">46</span><span class="l">projects running this pipeline today</span></div>
+  </div>
+  <p class="callout" style="margin-top:2.6rem">The method ships as a versioned configuration that every project synchronises from. An improvement found on one project reaches all of them — and so does a defect, which is why the shared machinery is the most heavily tested part of the system.</p>
+</section>
+
+<footer>
+  <p>Prepared as a reference for clients asking how our engineering work is organised. Figures are counted from the working system on 12 September 2026, not estimated. Infrastructure specifics, credentials and client-identifying details are deliberately excluded.</p>
+</footer>
+
+</div>
+
+</body>
+</html>

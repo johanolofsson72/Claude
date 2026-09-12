@@ -48,3 +48,7 @@ __pycache__/
 # it is written as `{}` — which is enough to report the working tree dirty and
 # stamp every downstream sync "…-dirty".
 .specify/feature.json
+
+# Playwright MCP scratch — screenshots and snapshots from a browser session,
+# written into whatever directory the tool ran from.
+.playwright-mcp/
