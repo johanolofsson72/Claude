@@ -178,6 +178,37 @@ CLAUDE_PROJECT_DIR="$GCT" bash "$ROOT/scripts/harness-state-gc.sh" >/dev/null 2>
   || bad "GC left TLC scratch behind"
 rm -rf "$GCT"
 
+echo "== 10. the sync repairs an inline payload the CLI would discard =="
+# sync-core-hooks.py preserves inline hooks verbatim by design, which is right
+# for what a hook SAYS and wrong for whether it is heard. The template fixed its
+# own settings.json and nothing moved: 41 projects kept an inert .ssh/.aws/.env
+# read-block — a security rule that was present in the file and did nothing.
+RT=$(mktemp -d) || exit 1
+mkdir -p "$RT/.claude" "$RT/scripts"
+cat > "$RT/.claude/settings.json" <<'JSON'
+{ "hooks": { "PreToolUse": [ { "matcher": "Read",
+  "hooks": [ { "type": "command",
+    "command": "echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"no\"}}'" } ] } ],
+  "PostToolUse": [ { "hooks": [ { "type": "command",
+    "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"fine\"}}'" } ] } ] } }
+JSON
+BEFORE=$(cat "$RT/.claude/settings.json")
+( cd "$RT" && python3 "$ROOT/scripts/sync-core-hooks.py" "$ROOT/.claude/settings.json" ) >/dev/null 2>&1
+python3 - "$RT/.claude/settings.json" <<'PY2'
+import json,sys
+d=json.load(open(sys.argv[1]))
+pre=d["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+post=[h["command"] for g in d["hooks"]["PostToolUse"] for h in g["hooks"] if "fine" in h["command"]]
+assert '"hookEventName": "PreToolUse"' in pre, "deny not repaired"
+assert post and post[0].count("hookEventName")==1, "correct hook was rewritten"
+PY2
+[ $? -eq 0 ] && ok "inert deny repaired, correct hook left alone" || bad "repair pass wrong"
+# idempotent: a second run must change nothing
+A=$(cat "$RT/.claude/settings.json")
+( cd "$RT" && python3 "$ROOT/scripts/sync-core-hooks.py" "$ROOT/.claude/settings.json" ) >/dev/null 2>&1
+[ "$A" = "$(cat "$RT/.claude/settings.json")" ] && ok "repair is idempotent" || bad "repair is not idempotent"
+rm -rf "$RT"
+
 echo
 printf 'passed %s, failed %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

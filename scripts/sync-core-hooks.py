@@ -25,7 +25,9 @@ Model (mirrors sync-local-llm-hooks.py):
     Script-presence is the tech-stack gate: a project that dropped tla-hook.sh
     (not a UI/spec project) simply never gets the tla hook re-added.
   - Inline hooks (no script reference), local-LLM hooks, graphify hooks, and any
-    project-specific script hook the template does not ship are preserved verbatim.
+    project-specific script hook the template does not ship are preserved verbatim
+    — with ONE exception, added by spec 046: a payload that Claude Code would
+    discard is repaired in place. See `repair_payload` below.
   - Permissions and every other top-level key are never touched.
 
 Usage:
@@ -40,6 +42,88 @@ import sys
 from pathlib import Path
 
 SCRIPT_RE = re.compile(r"scripts/([A-Za-z0-9._-]+\.(?:sh|py))")
+
+# --- spec 046: repair payloads Claude Code silently discards ------------------
+#
+# "Preserved verbatim" is right for what an inline hook SAYS and wrong for
+# whether it is heard at all. Two shapes are dropped by the CLI without a word:
+#
+#   * `hookSpecificOutput` with no `hookEventName` — the field is the schema's
+#     discriminator, so the whole object fails to match and is thrown away.
+#     Proven live: the same edit was ALLOWED without it and DENIED with it.
+#   * a TOP-LEVEL `additionalContext` — "Did you mean
+#     hookSpecificOutput.additionalContext (with a hookEventName)?"
+#
+# The template fixed both in its own settings.json and nothing moved, because
+# this file preserves inline hooks verbatim by design. 41 projects were left
+# with an inert `.ssh` / `.aws` / `.env` read-block — a security rule that
+# looked present in the file and did nothing.
+#
+# So this is a repair, not an overwrite: it adds a missing field and re-nests a
+# misplaced one. It never changes what a hook says, which script it calls, or
+# whether it fires, so a project's own inline hooks keep their behaviour and
+# gain the one thing they need to be heard.
+
+_MISSING_EVENT = re.compile(
+    r'("hookSpecificOutput"\s*:\s*\{)(?!\s*\\?"hookEventName)', re.S)
+_MISSING_EVENT_ESC = re.compile(
+    r'(\\"hookSpecificOutput\\"\s*:\s*\{)(?!\s*\\\\?"hookEventName)', re.S)
+
+
+# Inline hooks the TEMPLATE itself shipped, matched by their exact old text so a
+# project's own inline hooks are never touched. These were not discarded — they
+# worked, on the wrong channel. "Reminder: run dotnet build" fired as a red
+# warning on every single .cs edit; the compaction note is an instruction to
+# Claude; the PreCompact line has a documented channel of its own (exit-0 stdout
+# is appended as compact instructions).
+_TEMPLATE_INLINE_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("PostToolUse",
+     '{"systemMessage": "Reminder: run dotnet build to verify compilation"}',
+     '{"hookSpecificOutput":{"hookEventName":"PostToolUse",'
+     '"additionalContext":"Reminder: run dotnet build to verify compilation"}}'),
+    ("SessionStart",
+     '{"systemMessage": "Context was compacted. Re-read any files you were working on before continuing."}',
+     '{"hookSpecificOutput":{"hookEventName":"SessionStart",'
+     '"additionalContext":"Context was compacted. Re-read any files you were working on before continuing."}}'),
+]
+
+# PreCompact is special: its documented channel is plain stdout, not JSON.
+_PRECOMPACT_OLD = ('echo \'{"systemMessage": "IMPORTANT: Preserve the full list of modified files, '
+                   'error messages, test commands, and current task context during compaction."}\'')
+_PRECOMPACT_NEW = ('echo "IMPORTANT: Preserve the full list of modified files, error messages, '
+                   'test commands, and current task context during compaction."')
+
+
+def migrate_template_inline(cmd: str, event: str) -> tuple[str, list[str]]:
+    notes: list[str] = []
+    if event == "PreCompact" and _PRECOMPACT_OLD in cmd:
+        return cmd.replace(_PRECOMPACT_OLD, _PRECOMPACT_NEW), ["PreCompact note -> stdout"]
+    for ev, old, new in _TEMPLATE_INLINE_MIGRATIONS:
+        if ev == event and old in cmd:
+            cmd = cmd.replace(old, new)
+            notes.append("systemMessage -> additionalContext")
+    return cmd, notes
+
+
+def repair_payload(cmd: str, event: str) -> tuple[str, list[str]]:
+    """Return (repaired command, list of what was repaired)."""
+    notes: list[str] = []
+    if "hookSpecificOutput" not in cmd:
+        return cmd, notes
+
+    # Escaped form first (a JSON string inside a shell single-quoted echo, as
+    # settings.json stores it); then the plain form.
+    for rx, ins in ((_MISSING_EVENT_ESC, '\\1\\\\"hookEventName\\\\": \\\\"%s\\\\", ' % event),
+                    (_MISSING_EVENT, '\\1"hookEventName": "%s", ' % event)):
+        if "hookEventName" in cmd:
+            break
+        new = rx.sub(ins, cmd, count=1)
+        if new != cmd:
+            cmd = new
+            notes.append(f"added hookEventName={event}")
+            break
+    return cmd, notes
+
 
 
 def script_refs(hook: dict) -> set[str]:
@@ -134,6 +218,21 @@ def main() -> int:
             project.setdefault("hooks", {}).setdefault(event, []).append(block)
             added += len(qualifying)
 
+    # 2b. Repair payloads the CLI would discard — inline hooks included.
+    repaired: list[str] = []
+    for event, configs in project.get("hooks", {}).items():
+        for config in configs:
+            for h in config.get("hooks", []):
+                cmd = h.get("command", "")
+                if not cmd:
+                    continue
+                new, notes = migrate_template_inline(cmd, event)
+                new2, notes2 = repair_payload(new, event)
+                new, notes = new2, notes + notes2
+                if notes:
+                    h["command"] = new
+                    repaired.append(f"{event}: {'; '.join(notes)} — {cmd[:60]}")
+
     project_path.write_text(json.dumps(project, indent=2) + "\n")
 
     # 3. Post-check: every wired core hook has its scripts on disk.
@@ -144,6 +243,10 @@ def main() -> int:
     )
 
     print(f"core-hooks: removed {removed} stale, added {added} from template")
+    if repaired:
+        print(f"repaired {len(repaired)} hook payload(s) the CLI would have discarded:")
+        for r in repaired:
+            print(f"  - {r}")
     if skipped:
         print(f"skipped {len(skipped)} tech-stack hook(s) whose scripts are absent (pruned by stack):")
         for s in skipped:
