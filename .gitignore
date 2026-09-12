@@ -42,3 +42,9 @@ __pycache__/
 # never clean and the noise hides real changes. scripts/prune-agent-worktrees.sh
 # removes abandoned ones; this keeps them out of the index in the first place.
 .claude/worktrees/
+
+# spec-kit's runtime marker, rewritten at every session start to name the active
+# spec. It is derived state, it differs per machine, and in a repo with no specs
+# it is written as `{}` — which is enough to report the working tree dirty and
+# stamp every downstream sync "…-dirty".
+.specify/feature.json
