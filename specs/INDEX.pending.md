@@ -516,3 +516,67 @@ That distinction is the whole content of this row: an unresolvable reference and
 must not render identically (`.claude/rules/mutation-timeouts.md`, trap 4).
 
 `validate-register-ids.sh` does not catch it — it validates row ids, not the ids rows cite.
+
+## 047 — stryker-spans-fail-silently-and-score-well (from ighweld-2026, 2026-09-16)
+
+Three findings, one theme: Stryker.NET's per-file targeting fails in ways that read as success.
+
+- **F184 — an invalid line span matches nothing and scores well.** `'**/X.cs{845-1080}'` uses a hyphen
+  where Stryker wants `..`. It is not an error; the glob simply matches no file, so the run mutates
+  nothing in that file and reports a clean result. A gate that measures nothing and passes is worse
+  than no gate.
+- **F197 — spans are CHARACTER offsets, not line numbers.** `SyncService.cs{98..120}` selects
+  characters 98–120 of the file. ighweld spec 161's first run was scoped to a couple of dozen
+  characters and nobody could tell from the output.
+- **F185 — spans are unusable as a per-spec gate anyway.** With `'**/WpqrService.cs{840..1140}'` the
+  file still generates its whole mutant set; the span does not reduce the run.
+- **F069 — a concurrent `dotnet build` or `dotnet test` silently destroys the measurement.** The
+  sibling build overwrites the mutated assembly, and the run scores ~0% with no warning. ighweld
+  carries this as a project memory (`stryker_runs_alone`) because it cost a full run. It belongs in
+  the mutation docs and, better, in a guard.
+
+Distinct from 043 (which is about the reporter list) and 041 (the timeouts rule). The common fix
+shape: refuse a mutate glob that matches no file, and say so.
+
+## 048 — sc-id-space-is-three-digits-and-full (from ighweld-2026, 2026-09-16)
+
+`.claude/rules/scenarios.md` specifies `SC-NNN`, "three digits, padded". ighweld-2026 has used 961 of
+the 999 (F065; F057 measured 950 a week earlier), and the free ids are all in low gaps, which are the
+worst ones to reuse because an old test may still name them.
+
+It has already overflowed in practice: spec 112 minted `SC-1000..1006` for the public API block
+(F078), so the project is running four-digit ids against a rule that says three.
+
+**The interaction that makes this more than a widening.** Row 007 split the two `SC-` namespaces — the
+scenario map's permanent handles and spec-kit's per-spec Success Criteria — **by digit width**,
+deliberately, because a magnitude floor is useless on a map that starts at SC-001. Four-digit map ids
+walk straight into that discriminator. Decide the two together or the traceability gate starts
+mis-bucketing.
+
+## 049 — a-held-row-cannot-be-written-to (from ighweld-2026, 2026-09-16)
+
+`spec_active.py` resolves the active spec and skips `- [!]` held rows — correct, and
+`.claude/rules/spec-register.md` says so explicitly: a held row must never be offered as the active
+row, or a banner quietly overrules the decision to hold it.
+
+`scripts/spec-run-log-hook.sh` resolves through that same function. So the moment a row is held, the
+run log for it can no longer be appended to (F139, F195).
+
+Holding a row is precisely the moment the note matters — somebody stopped for a reason the register
+cannot express as a dependency, and the next session needs to know what it was. The two needs are not
+in conflict; they are two different questions asked of one resolver. "Which row should I work?" must
+skip held rows. "Which row is this note about?" must not.
+
+## 050 — allium-cli-warns-on-every-spec-it-has (from ighweld-2026, 2026-09-16)
+
+`allium check` emits "deferred specification should include a location hint" for every `deferred` in
+every spec in the project (F080). ighweld probed the syntax the lint seems to want — `in "p"`, `"p"`,
+`{ lo… }` — and its own parser rejects each one (F001, F031), so there is no spelling that satisfies
+it.
+
+A warning that fires on every spec and cannot be satisfied is noise that trains people to skip the
+whole report — which then hides the warnings that mean something. Either implement the syntax, or drop
+the lint.
+
+F089 is a second allium-cli defect found the same way: a rule that assigns a status through a
+trigger-param binding (`when: SyncPush(item)` + `ensures: item.status = …`) is not accepted.
