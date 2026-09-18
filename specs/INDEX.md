@@ -61,7 +61,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 051 — maintenance-suite-blind-to-standalone-node-tests — spec-only — `project-maintenance.sh --suite` detects only `npm test`/.NET, so a repo of bare `node tests/*.mjs` never stamps `suite`; mutation is unwired too. Diagnosis: `specs/INDEX.pending.md`
 - [x] 046 — hooks-shout-at-the-developer-and-whisper-to-the-model — full track — every advisory hook emits `systemMessage` ("Warning shown to user in UI" per the CLI's own reference), so reminders addressed to the model land as red warnings in the transcript; and 42 hooks — including all four wired UserPromptSubmit pipeline reminders — emit top-level `additionalContext`, which Claude Code silently ignores. Both channels are backwards.
 - [x] 045 — unlisted-predicate-denies-a-tick-it-cannot-clear — full track — four defects in the CORE-ownership machinery, each already recorded and never landed. Detalj: specs/INDEX.completed.md
-- [ ] 052 — maintenance-runs-what-it-finds — spec-only — `project-maintenance.sh` runs no `check-*.sh` ratchet, and `--suite`/`--full` run a bare `dotnet test`/`dotnet stryker` at the root, which took a dead .sln and reported red on a green project. From ighweld-2026. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 052 — maintenance-runs-what-it-finds — spec-only — `project-maintenance.sh` runs no `check-*.sh` ratchet, and `--suite`/`--full` build whatever .sln is at the root: a dead one turned a green project red. From ighweld-2026. Diagnosis: `specs/INDEX.pending.md`
 
 ## Register history (newest first)
 
