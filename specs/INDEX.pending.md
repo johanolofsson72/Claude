@@ -580,3 +580,14 @@ the lint.
 
 F089 is a second allium-cli defect found the same way: a rule that assigns a status through a
 trigger-param binding (`when: SyncPush(item)` + `ensures: item.status = …`) is not accepted.
+
+## 051 — maintenance-suite-blind-to-standalone-node-tests (from emaljen, 2026-09-18)
+
+emaljen runs its whole suite as standalone Playwright scripts (`node tests/*.mjs`, about 20 files,
+plus `tests/vrt/`), with no `package.json`. `project-maintenance.sh --suite` looks only for
+`npm test` or a .NET test project, so it prints "nothing to run" and never stamps `suite`. The
+due flag therefore can't clear through `--full`, and emaljen stamps it by hand after a real green
+run (emaljen F027). Mutation has the same gap: no `run-mutation-gate.sh` stack for PHP/WordPress.
+
+Fix direction: read `.claude/.template-sync-verify` (or a sibling `.claude/.suite-command`) as the
+suite command when no stack is detected, rather than adding one more hard-coded stack.
