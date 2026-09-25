@@ -592,6 +592,12 @@ run (emaljen F027). Mutation has the same gap: no `run-mutation-gate.sh` stack f
 Fix direction: read `.claude/.template-sync-verify` (or a sibling `.claude/.suite-command`) as the
 suite command when no stack is detected, rather than adding one more hard-coded stack.
 
+Second case (iskvalp, 2026-09-25) — worse, because it stamps instead of refusing: the jest suite
+lives in `client/package.json` and the repo root has only `iskvalp.sln`, so `--suite` runs
+`dotnet test` alone (1194 tests) and on green stamps `suite` — "unit + integration + E2E + visual
+regression" — without the 4138 jest tests, Maestro E2E or VRT. The package.json probe only looks at
+the root. The same override file fixes both; a detected stack should not outrank a declared one.
+
 ---
 
 ## 052 — maintenance-runs-what-it-finds
