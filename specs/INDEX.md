@@ -63,9 +63,21 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 045 — unlisted-predicate-denies-a-tick-it-cannot-clear — full track — four defects in the CORE-ownership machinery, each already recorded and never landed. Detalj: specs/INDEX.completed.md
 - [ ] 052 — maintenance-runs-what-it-finds — spec-only — `project-maintenance.sh` runs no `check-*.sh` ratchet, and `--suite`/`--full` build whatever .sln is at the root: a dead one turned a green project red. From ighweld-2026. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 053 — stryker-tmp-outlives-its-run — spec-only — abandoned `.stryker-tmp` sandboxes stay in the tree, so four consumers (project-freshness, project-maintenance, vitest, eslint) each exclude it. Stop it existing instead. From msroute. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 054 — finding-ids-collide-across-lanes — spec-only — `finding.sh` numbers by COUNTING the local ledger, so two lanes mint the same F-id and a resolved row lets the next reuse a number. agentcrm: F141–F143 named six findings. Diagnosis: `specs/INDEX.pending.md`
+- [x] 055 — findings-review-never-clears-its-due-state — spec-only — `--stamp findings` existed and nothing ever called it, so the banner said "never run in this project" through four reviews that decided 33 findings. Deciding a finding now stamps it. From agentcrm F078.
+- [x] 056 — the-pkill-rule-kills-the-shell-that-runs-it — spec-only — `dotnet.md` mandated `pkill -f "<abs>/src/X"`, which matches the running shell's own command line: probe died with exit 144 and the build never ran. Bracketed literal, verified both ways. From agentcrm F101.
+- [x] 057 — traceability-cannot-read-its-own-naming-convention — spec-only — the extractor matched only `SC-NNN`, while `scenarios.md:113` prescribes `Checkout_SC014_...` and a C# method name cannot carry a hyphen. agentcrm coverage 1716 → 1767 of 1824. From agentcrm F331.
+- [ ] 058 — write-guard-resolves-paths-against-the-wrong-root — spec-only — `bash-write-detect` ignores a command's own `cd`, and reads any token ending in a source extension (a git URL) as a file. Reproduced twice, 2026-09-25. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 059 — pipeline-state-guard-denies-during-a-merge — spec-only — the tick moves "the active spec" on while the merge closing the previous row is still in flight, so the edit finishing it is judged against a spec with no artifacts. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 060 — sc-ids-have-no-allocator — full track — rows have `next-register-id.sh`; scenario ids have nothing, so every parallel merge collides. agentcrm: 47 collisions, 26 from two lanes taking one range. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 061 — spec-criteria-numbering-reads-as-a-dangling-scenario — spec-only — criteria numbered `SC-044-01` are read by the traceability gate as a reference to `SC-044`. `scenarios.md` warns against it; nothing enforces it. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 062 — the-map-has-no-way-to-say-superseded — spec-only — a row a later spec replaced is none of the four states the gates know. agentcrm wrote `⊘ superseded`, then retired both rows because no gate reads it. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 063 — e2e-startup-has-no-declared-port — spec-only — `webServer` appears nowhere in the template, so each project invents its own startup: agentcrm holds the web port in four places and has no `webServer` key. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 064 — a-sabotage-arm-is-not-surgical — spec-only — `test-validate-scenario-traceability.sh` arm `l` breaks `case1-clean` too, so it proves nothing and the suite is 1-red on every run. Predates 2026-09-25. Diagnosis: `specs/INDEX.pending.md`
 
 ## Register history (newest first)
 
+- 2026-09-25 — 054-064 filed from agentcrm's T0 pass (two findings reviews, 2026-09-19 and H5 2026-09-23); 055-057 fixed in the same pass, 064 found while running the suite.
 - 2026-09-25 — 053 filed from msroute F007; msroute F008 (autosync printf SIGPIPE) added as evidence to 024 (carve-budget §4).
 - 2026-09-18 — 052 filed from ighweld-2026's second findings review; the rest of its tooling findings were already rows 047, 049 and 050.
 - 2026-09-18 — 051 filed from emaljen's H3 findings review (F027, carve-budget §4).

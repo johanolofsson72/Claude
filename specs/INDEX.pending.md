@@ -204,6 +204,20 @@ Scope note: the same argument applies to every external skill the ruleset calls 
 by name. Enumerate them before writing the predicate — a check that covers only
 `frontend-design` is the same gap with a smaller radius.
 
+**The predicted machine exists, measured 2026-09-25** (agentcrm F281, then F296, confirmed again on
+its second lane during the T0 pass). `frontend-design` is absent from `.claude/skills/`, absent from
+`~/.claude/plugins/**`, and absent from the session's own skill list — `Skill` answers *Unknown
+skill*. On this machine `CLAUDE.md`'s BLOCKING line and the eight other callers name something that
+cannot be invoked, so the design gate has been silently inert for every UI spec this lane has run.
+agentcrm spec 058 substituted `design-system/MASTER.md` plus the existing `Invoices.tsx` /
+`Contracts.tsx` patterns and shipped, with nothing in the run log to say the gate never fired.
+
+Worth recording rather than re-arguing: the refuted half above ("the bare name resolves") was
+measured on a machine where the plugin happened to be installed, and read as a property of the
+harness. It is a property of **that machine**. Resolution is per-machine, which is precisely why a
+presence check is the only thing that can answer it — the standing half, now with the failing case
+in hand instead of hypothesised.
+
 ## 026 — port-drive-sync-and-its-gate-upstream
 
 The 2026-08-30 incident — a harness syncing the real repository against a three-file sandbox template,
@@ -643,3 +657,193 @@ Related product-side row: msroute `007cm — stryker-tmp-untracked-and-trips-the
 half was closed 2026-09-03 by syncing 16 CORE scripts. Each new consumer of the tree has had to learn
 the exclusion separately; a fifth will too. Fix at the source: sweep stale `.stryker-tmp` when a
 mutation run starts, or point Stryker's `tempDirName` outside the working tree.
+
+## 054 — finding-ids-collide-across-lanes
+
+**Two defects in one line.** `scripts/finding.sh` allocates by counting:
+
+```
+N=$(grep -cE '^- \[[ x]\]' "$LEDGER"); N=$((N + 1))
+```
+
+That is a count of ROWS in the LOCAL file, so:
+
+1. **Two lanes collide.** Each branch counts its own ledger and both mint the same next id. Proven on
+   agentcrm 2026-09-17: `origin/main` carried F141 (a person's name missing, spec 034), F142
+   (DemoPhotoTests red on clean main) and F143 (language links too small), while the branch
+   `spec/044-named-refusals` carried a different F141 (FeedRunner:191 stale guard), F142 and F143.
+   Three numbers, six findings. `merge=union` on `FINDINGS.md` keeps both sides without a conflict
+   marker, so the collision is **silent** — `validate-register-ids.sh` protects the register and
+   nothing protects the ledger. The three branch ids were moved to F202–F204 by hand at the merge.
+2. **A deleted row reuses a number**, even in one lane, because the count falls when a line goes.
+
+The fix is the one the register already uses: read the highest id, not the count, and read it in
+this branch AND in `origin/main` — `next-register-id.sh` does exactly that for rows and is the
+model. Both halves need it; fixing only the first leaves the reuse.
+
+## 058 — write-guard-resolves-paths-against-the-wrong-root
+
+**Reproduced twice while working the T0 row it was filed from, 2026-09-25.** Both times the command
+ran in `/home/daol/repos/Claude` or a scratchpad directory and the guard named a path in agentcrm:
+
+- `cd /home/daol/repos/Claude && python3 - <<'PY' ... p="scripts/validate-scenario-traceability.sh"`
+  → *"Target: /home/daol/Github/agentcrm/scripts/validate-scenario-traceability.sh"*.
+- `cd "$T" && ... > scripts/finding.sh` where `$T` was a scratchpad fixture
+  → *"Target: /home/daol/Github/agentcrm/scripts/finding.sh"*.
+
+Neither command could touch agentcrm. The guard takes a relative path out of a command line and
+joins it to the project root, ignoring the `cd` the same command line performs — so a relative write
+to **any** other tree is judged as a write to this one. Absolute paths pass, which is why the defect
+is survivable and why it has lasted.
+
+The second arm (agentcrm F237) is the mirror image: a token that merely ENDS in a source extension —
+a git URL, or free text like `whisper.cpp` — is read as a repo file and denied, including inside an
+argument to `finding.sh`. One is a path that is not where it says; the other is not a path at all.
+
+Both live in `scripts/bash-write-detect-hook.sh`. The honest fix is narrow: resolve against the
+command's own working directory when one is established in the same line, and require a path-shaped
+context (a redirect target, an argument to a writer) rather than an extension match anywhere.
+
+## 060 — sc-ids-have-no-allocator
+
+**Root cause, not a tidy-up.** Register rows have `scripts/next-register-id.sh`, which appends past
+the highest id in the register AND in every `INDEX*.md` archive beside it. Scenario ids have no
+equivalent, so every lane picks by eye and every parallel merge collides.
+
+agentcrm measured **47 colliding ids on 2026-09-21**. Twenty-six were specs 052 and 055 in one
+window: both lanes took SC-1625..SC-1650 independently and met in the merge. The same defect
+produced S1 (104 ids), S2 (13) and F196 (`fragor.md` numbered by hand). Twenty-one older collisions
+span both lanes' specs — 017/017b (4), 008b/022 (3), 055/063 (3).
+
+**A cleanup without an allocator recreates the defect at the next parallel spec**, which is the
+reason this is a row rather than a chore. Row 048 (the three-digit id space is full) is the adjacent
+problem and wants deciding in the same pass: an allocator that mints `SC-1000+` settles both.
+
+## 017 — canary-and-row-budget-do-not-compose
+
+**Second measurement, agentcrm, 2026-09-25.** The row was filed from msroute, where 90
+archived-verbatim completed rows were 74% of the file. agentcrm is the same defect with the bytes
+somewhere else entirely:
+
+| part of `specs/INDEX.md` | bytes | share |
+|---|---|---|
+| the 111 spec rows | 26 212 | 44.0% |
+| `## Register history` | 2 062 | 3.5% |
+| **everything else inside `## Specs`** | **31 358** | **52.6%** |
+| total | 59 632 | 2.4× the 25 KB canary |
+
+Mean row 236 bytes; **one** row over the 300-byte budget. Both archivers report clean. So the
+project is told every session that the file is too large, is pointed at
+`archive-completed-rows.sh`, and that script correctly has nothing to do.
+
+The "everything else" is prose written *inside* the Specs section: a two-lane explainer, dependency
+tables, a file-conflict table, rule commentary. It is useful and it is not rows, and no gate in the
+template has an opinion about it.
+
+Two halves, and they are separable:
+
+1. **The canary should measure where the bytes are** rather than assuming rows, and name the part
+   that is large. `spec-register-orientation-hook.sh` already reads the file; the arithmetic above is
+   four lines.
+2. **The advice should follow the measurement.** Prose belongs in a sibling the pipeline does not
+   read — `INDEX.history.md` and `INDEX.pending.md` are the precedent. Recommending the row archiver
+   to a register whose rows already comply is advice that cannot be taken, which is how a banner
+   becomes noise: agentcrm has carried this one, unactionable, every session since 2026-08-29.
+
+`spec-register-orientation-hook.sh` is CORE (`template-autosync.sh:173`), so the fix lands here.
+From agentcrm F201.
+
+## 044 — traceability-gate-cannot-tell-zero-from-broken
+
+**A second reporting defect in the same script, from agentcrm F316, 2026-09-22.** The gate printed
+
+    part of the map was unreadable (see above)
+
+with nothing above it naming what. The cause was one map row with six cells instead of five (a
+doubled pipe); the parser dropped 31 rows silently, and the only trace was a row count that did not
+add up. The reader is told a fraction of the map was lost and given no way to find it.
+
+Same class as the row's own subject — a catastrophic-sounding report with a trivial cause and no
+handle — so it wants fixing in the same pass: name the file and the line number of every row the
+parser refused, and say how many were dropped. "See above" must not be printed unless something was.
+
+## 059 — pipeline-state-guard-denies-during-a-merge
+
+**From agentcrm F094, spec V1, 2026-09-08.** The guard fired on a one-line namespace fix to a
+migration the *other* lane had just landed, while the merge closing the previous row was in flight.
+
+The guard is not wrong about the rule; the hazard is ordering. Ticking a row moves "the active spec"
+to the next one, and a merge that closes the previous row is finished *after* the tick — so any
+source edit the merge still needs is judged against a spec that has not started and has no
+artifacts. The work is legitimate and the guard has no way to see that.
+
+`branch-per-spec-guard` already reads `MERGE_HEAD`, and `template-autosync.sh:721` does too, so the
+precedent for "this repository is mid-merge" exists in two places. Decide whether
+`pipeline-state-guard-hook.sh` should join them, or whether the tick should move later. Either
+answer is fine; the current state — a guard that blocks the last step of a merge — is not.
+
+## 061 — spec-criteria-numbering-reads-as-a-dangling-scenario
+
+**From agentcrm F208, 2026-09-18.** agentcrm spec 044 numbers its own success criteria
+`SC-044-01 … SC-044-04`. The traceability extractor matches `\bSC-[0-9]+[a-z]?\b`, and `-` is not a
+word character, so `SC-044-01` yields a reference to **SC-044** — an id the map does not have, which
+surfaces as dangling.
+
+`.claude/rules/scenarios.md` already warns against a second numeric SC- sequence and tells authors to
+use letters; nothing enforces it, and row 007 solved the neighbouring case (spec-kit's own `SC-001`
+criteria) by digit WIDTH, which cannot help here because the width matches.
+
+Two candidate fixes, and they are not equivalent: refuse the shape in the gate (a reference
+immediately followed by `-<digits>` is not a scenario id), or refuse it at the source (a checklist
+gate on spec files). The first is cheap and local; the second stops the collision being minted.
+
+## 062 — the-map-has-no-way-to-say-superseded
+
+**From agentcrm F270 / F279 / F330 / F334, 2026-09-21.** `scenarios.md` defines three statuses —
+`☐ mapped`, `◐ tested`, `✓ validated` — plus retired (`~~SC-nnn~~`, status `—`). A row that a later
+spec **replaced** is none of those: it was validated, the behaviour is gone, and the replacement has
+its own id.
+
+agentcrm documented a fourth, `⊘ superseded`, in its own map header, and then could not use it:
+`test-scenario-map-index.py` reads the tally alternation `✓ *|✓ int|✓|◐|☐` and nothing else, so an
+index stating `⊘` cannot match the file. Both rows that had carried `⊘` were retired at H5 instead,
+each keeping the history in its text — `_(retired at H5; had carried ⊘.)_`.
+
+That retreat may well be the right answer, and that is the point: **the template has never decided.**
+Either the gates learn a fourth status, or `scenarios.md` says plainly that retired-with-a-pointer is
+how a superseded row is written, so the next project does not spend a spec rediscovering it. Row 036
+already taught the alternation `✓ int` once, so the mechanism is known.
+
+## 063 — e2e-startup-has-no-declared-port
+
+**From agentcrm F205, 2026-09-18.** `webServer` appears nowhere in the template — not in
+`.claude/docs/testing.md`, not in any rule — so every project invents its own browser-suite startup.
+
+agentcrm holds the web port in **four** independent places: `vite.config.ts`,
+`appsettings.Development.json` (`Tenancy:PublicLinkPort`), `playwright.config.ts` and
+`tests/e2e/support/urls.ts`. Its `playwright.config.ts` has no `webServer` key at all, so the server
+is started by hand and three values are kept in sync by memory. A fourth value, `--host`, is needed
+because without it vite listens on `::1` only and `crm-*.agentcrm.localhost` gets ECONNREFUSED over
+IPv4. That combination cost four runs in one evening.
+
+`strictPort` makes the drift loud but does not remove the duplication. What the template can offer is
+the shape: one declaration that feeds all consumers, plus a `webServer` block with
+`reuseExistingServer` so the suite starts what it needs and does not fight a running dev server.
+
+## 064 — a-sabotage-arm-is-not-surgical
+
+**Found while running the suite during agentcrm's T0 pass, 2026-09-25**, and confirmed to predate the
+session's own changes by re-running against `HEAD` (39 passed · 1 failed · 2 inconclusive, both
+before and after).
+
+`scripts/test-validate-scenario-traceability.sh` checks its own teeth by sabotaging a copy of the
+gate one marked region at a time, then asserting that the right cases go red **and** that
+`case1-clean` survives. Arm `l` replaces the roots-discovery region with the constant `ROOTS="tests"`
+— and `case1-clean` breaks too, so the arm proves nothing about the defence it targets and the suite
+reports a failure on every run.
+
+The script's own comment at that arm ("tests DO live in tests/ this sabotage is invisible") says what
+was expected; the fixture evidently does not satisfy it. Either the fixture grows a root outside
+`tests/` so the sabotage becomes surgical, or the arm is retired with a line saying why. **A suite
+that is permanently 1-red is a suite whose next real red goes unread**, which is the failure this
+whole file exists to prevent.
