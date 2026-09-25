@@ -32,7 +32,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 021 — core-set-excludes-docs-and-skills — spec-only — `core_divergence` walks only CORE_SCRIPTS+CORE_RULES, so project-authored work under `.claude/docs/` or `.claude/skills/` is absent from `--owed` and a tick passes. Third gap after 018. Diagnos: `specs/INDEX.pending.md`.
 - [ ] 022 — sync-version-marker-abandoned — spec-only — only `sync-prompt.md` and `project-wizard` write `.claude/.sync-version`; autosync maintains `.claude/.template-sync`. Step 0 reads the stale one and reports "sync needed" on a current project. Diagnos: `specs/INDEX.pending.md`.
 - [ ] 023 — secret-scan-misses-signing-material — full track [hardened] — two repos commit an ASP.NET Data Protection key and `project-freshness.sh` reports "no verified secrets" on both. trufflehog matches verifiable credentials; a signing key is none. Needs a file-shape arm.
-- [ ] 024 — sigpipe-backlog-in-production-scripts — spec-only — `validate-no-sigpipe-assertions.sh --all` reports 54 pipelines outside the self-tests. Mostly diagnostics where 141 costs nothing. One at a time: a bulk pass turned msroute's suite red (M2).
+- [ ] 024 — sigpipe-backlog-in-production-scripts — spec-only — `validate-no-sigpipe-assertions.sh --all` reports 54 pipelines outside the self-tests. Mostly diagnostics where 141 costs nothing. One at a time: a bulk pass turned msroute's suite red (M2). Evidence: `specs/INDEX.pending.md`
 - [x] 025 — speckit-check-fired-on-the-template — spec-only — the pass told this config repo to install spec-kit once it grew a register; now gated on a language marker, the predicate every other guard uses. Third not-applicable case today.
 - [ ] 026 — port-drive-sync-and-its-gate-upstream — full track — consultpilot authored H7bo (a `drive_sync` helper + `validate-sync-sandbox-declarations.sh`) after the 2026-08-30 incident; neither exists here, so its gate is red downstream on 17 CORE call sites it cannot fix. Diagnos: `specs/INDEX.pending.md`
 - [ ] 027 — zero-attributions-reports-clean — spec-only — `carve_audit.py` prints "clean" and exits 0 when `len(parent)` is 0, so a register that never attributed a carve reads like a flat one. §4b says that count *is* the finding. Diagnos: `specs/INDEX.pending.md`
@@ -62,9 +62,11 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 046 — hooks-shout-at-the-developer-and-whisper-to-the-model — full track — every advisory hook emits `systemMessage` ("Warning shown to user in UI" per the CLI's own reference), so reminders addressed to the model land as red warnings in the transcript; and 42 hooks — including all four wired UserPromptSubmit pipeline reminders — emit top-level `additionalContext`, which Claude Code silently ignores. Both channels are backwards.
 - [x] 045 — unlisted-predicate-denies-a-tick-it-cannot-clear — full track — four defects in the CORE-ownership machinery, each already recorded and never landed. Detalj: specs/INDEX.completed.md
 - [ ] 052 — maintenance-runs-what-it-finds — spec-only — `project-maintenance.sh` runs no `check-*.sh` ratchet, and `--suite`/`--full` build whatever .sln is at the root: a dead one turned a green project red. From ighweld-2026. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 053 — stryker-tmp-outlives-its-run — spec-only — abandoned `.stryker-tmp` sandboxes stay in the tree, so four consumers (project-freshness, project-maintenance, vitest, eslint) each exclude it. Stop it existing instead. From msroute. Diagnosis: `specs/INDEX.pending.md`
 
 ## Register history (newest first)
 
+- 2026-09-25 — 053 filed from msroute F007; msroute F008 (autosync printf SIGPIPE) added as evidence to 024 (carve-budget §4).
 - 2026-09-18 — 052 filed from ighweld-2026's second findings review; the rest of its tooling findings were already rows 047, 049 and 050.
 - 2026-09-18 — 051 filed from emaljen's H3 findings review (F027, carve-budget §4).
 - 2026-09-16 — 047-050 filed from ighweld-2026's first findings review (carve-budget §4); F003/F059/F085 closed there instead, already fixed by 028.

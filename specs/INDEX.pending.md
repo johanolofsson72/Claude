@@ -618,3 +618,28 @@ config there, only `stryker-config.NNN.json` files, one per spec. Proposed fix: 
 declare its solution and test project (as `specs/traceability-roots` does for test roots) and fail
 loudly when no declaration exists and more than one candidate is present, rather than taking
 whatever the root holds.
+
+## 024 — sigpipe-backlog-in-production-scripts
+
+**Evidence from msroute F008, reported 2026-09-25** (verbatim):
+
+> F008 — harness — 2026-09-08 · from spec 010 — TemplateSyncDirectionTests.The_commit_named_is_the_one_holding_the_restored_content fails only under the full unit suite: template-autosync.sh:252 printf hits SIGPIPE and the SubprocessStderr guard expects silence. Passes in isolation. Same class as M2. Template-owned
+
+Line 252 is msroute's copy at the time. In the template as of 2026-09-25 the matching pipelines are
+`is_core()` at `scripts/template-autosync.sh:270-271` (`printf '%s\n' $CORE_SCRIPTS | grep -qx "$1"`):
+`grep -q` exits on the first match, the still-writing `printf` takes SIGPIPE, and bash prints a
+write error to stderr. `validate-no-sigpipe-assertions.sh --all` lists both lines as UNDECIDED.
+This one is not a harmless diagnostic: a consumer that asserts an empty stderr fails, and only under
+load, which is why it passes in isolation. A candidate for the first of the one-at-a-time fixes
+(e.g. `case " $CORE_SCRIPTS " in *" $1 "*)` with no pipe at all).
+
+## 053 — stryker-tmp-outlives-its-run (from msroute, 2026-09-25)
+
+Reported by msroute F007, 2026-09-25 (verbatim):
+
+> F007 — harness — 2026-09-08 · from spec 010 — Abandoned .stryker-tmp sandboxes are now excluded by four separate consumers (project-freshness, project-maintenance, vitest, eslint); the fix is to stop the directory existing — sweep on entry of the next run, or move tempDirName out of the tree. Template-owned
+
+Related product-side row: msroute `007cm — stryker-tmp-untracked-and-trips-the-guard`, whose guard
+half was closed 2026-09-03 by syncing 16 CORE scripts. Each new consumer of the tree has had to learn
+the exclusion separately; a fifth will too. Fix at the source: sweep stale `.stryker-tmp` when a
+mutation run starts, or point Stryker's `tempDirName` outside the working tree.
