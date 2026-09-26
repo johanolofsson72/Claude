@@ -212,7 +212,8 @@ template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
 test-template-autosync-unlisted.sh
 test-sync-prompt-bootstrap.sh
-hook-notice.sh harness-state-gc.sh test-hook-channels.sh"
+hook-notice.sh harness-state-gc.sh test-hook-channels.sh
+allium-check-hook.sh test-allium-check-hook.sh allium-census.sh test-allium-census.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the

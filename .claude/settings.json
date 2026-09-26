@@ -256,6 +256,12 @@
           },
           {
             "type": "command",
+            "if": "Edit(**/*.allium)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/allium-check-hook.sh\"",
+            "statusMessage": "Validating Allium spec with allium check..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/spec.md)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/after-specify-hook.sh\"",
             "statusMessage": "after_specify: auto-commit check..."

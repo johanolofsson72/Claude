@@ -275,6 +275,20 @@ if [ -f specs/INDEX.md ] && [ -x scripts/register-convergence.sh ]; then
   esac
 fi
 
+# --------------------------------------------------- 3f. allium baseline census
+# /tla compares its distilled spec against each spec.allium, so a baseline the CLI cannot parse
+# makes the drift report meaningless. New writes are blocked by allium-check-hook.sh; this is
+# the backlog, reported and never failed on (rocky carried 131 closed-row baselines with errors
+# when the hook landed, and a run that is red every night is a run nobody reads).
+if [ -f scripts/allium-census.sh ] && ls specs/*/spec.allium >/dev/null 2>&1; then
+  ALLIUM_OUT=$(bash scripts/allium-census.sh 2>&1); ALLIUM_RC=$?
+  case "$ALLIUM_RC" in
+    0) : ;;
+    1) note "[note] $(printf '%s\n' "$ALLIUM_OUT" | tail -1) — list: bash scripts/allium-census.sh" ;;
+    *) note "[note] allium census could not tell: $(printf '%s\n' "$ALLIUM_OUT" | tail -1)" ;;
+  esac
+fi
+
 # ------------------------------------------------------- 3e. script mode drift
 # A .sh without its executable bit still runs as `bash X`, so nothing fails --
 # it fails only where something guards with `-x`, and then it fails SILENTLY.
