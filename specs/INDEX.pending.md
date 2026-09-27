@@ -883,3 +883,16 @@ the every-5 checkpoint cadence, checkpoint rows (H1, H2) and carved rows (016a) 
 "checkpoint due" at 20 done when only four feature specs had been ticked since H2. The register's
 own precedent counts feature specs since the last checkpoint. Fix: count ticked rows that are not
 H rows and carry no `carved by`, since the last ticked H row.
+
+## 069 — tlc-cleanup-kills-the-run-it-guards
+
+From ekofak spec 005 (2026-09-28). `scripts/tlc-cleanup.sh` does `pkill -f "tla2tools"` and
+`pkill -f "tlc2.TLC"`, and `.claude/settings.json` runs it from a PreToolUse Bash hook whenever the
+command mentions `tlc|tla2tools|tlc2.TLC`, and from Stop/SubagentStop. Three failures, all observed:
+the PreToolUse run matches the hook's own `bash -c` (its grep pattern contains the string) and the
+Bash tool's shell, so every `/tla` command as the skill writes it dies with exit 144 before TLC
+starts; a TLC run in the background is killed the moment any subagent stops; and `pkill -f` in the
+same command kills the shell running it (the 056 trap). `/tla` is unrunnable as documented.
+Workaround used: a renamed jar (`java -jar modelcheck.jar`) through a wrapper script. Fix: track
+the TLC PID the skill starts (a pidfile) and kill only that, or use the bracketed-literal pattern
+056 adopted (`pkill -f "[t]la2tools"`) and drop the PreToolUse trigger, which runs before TLC exists.
