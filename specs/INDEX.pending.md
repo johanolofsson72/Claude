@@ -847,3 +847,39 @@ was expected; the fixture evidently does not satisfy it. Either the fixture grow
 `tests/` so the sabotage becomes surgical, or the arm is retired with a line saying why. **A suite
 that is permanently 1-red is a suite whose next real red goes unread**, which is the failure this
 whole file exists to prevent.
+
+## 065 — nightly-cron-line-runs-blind
+
+From fundit F084 and F086 (2026-09-08/09). The crontab line `install-nightly-maintenance.sh`
+writes runs under cron's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), where none of dotnet, node, npm,
+npx, docker or timeout exist; fundit's mutation pass failed every night from 2026-09-04 with
+`dotnet: command not found`. Separately, a line whose command fails to parse writes nothing, since
+the redirect is part of the unparsed command, so "never fired", "failed to parse" and "ran and wrote
+nothing" look identical. It took four probes to separate them. Fix: write an explicit PATH captured
+at install time, and wrap the command so the redirect survives a parse failure. The script is
+opt-in now (`github-actions.md`), which lowers the priority, not the defect.
+
+## 066 — allocator-cannot-make-a-carved-suffix
+
+From fundit F095 (2026-09-09). Carved rows are ids like `002a`, `005b`, `015a`: the parent's number
+plus a letter. `next-register-id.sh --alpha` is for letter-led series (`S21`, `H3`), so
+`--alpha 005` returns `0051`. The rule says never pick an id by eye, and for the one shape carving
+produces, eye is the only allocator there is. Fundit's H3 picked `015a`/`015b` that way on
+2026-09-27. Fix: a `--suffix NNN` form that returns the next free letter across the register and
+every `INDEX*.md` archive.
+
+## 067 — traceability-walk-races-test-results
+
+From fundit F116 (2026-09-10). Three consecutive runs on identical input gave 141, 0 and 0 of 148
+covered while a Playwright suite was writing and deleting `test-results/`. The reference walk is a
+`find` over the tree, and a directory vanishing mid-walk ends it early, with the error swallowed.
+Related to 044 (zero vs broken are indistinguishable), but a separate cause: this walk should
+prune `test-results/` and other build output, and treat a walk error as unreadable, not as zero.
+
+## 068 — checkpoint-cadence-counts-checkpoints
+
+From fundit F211 (2026-09-24). `spec-register-orientation-hook.sh` counts every ticked row toward
+the every-5 checkpoint cadence, checkpoint rows (H1, H2) and carved rows (016a) included, and fired
+"checkpoint due" at 20 done when only four feature specs had been ticked since H2. The register's
+own precedent counts feature specs since the last checkpoint. Fix: count ticked rows that are not
+H rows and carry no `carved by`, since the last ticked H row.

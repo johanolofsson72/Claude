@@ -74,6 +74,10 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 062 — the-map-has-no-way-to-say-superseded — spec-only — a row a later spec replaced is none of the four states the gates know. agentcrm wrote `⊘ superseded`, then retired both rows because no gate reads it. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 063 — e2e-startup-has-no-declared-port — spec-only — `webServer` appears nowhere in the template, so each project invents its own startup: agentcrm holds the web port in four places and has no `webServer` key. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 064 — a-sabotage-arm-is-not-surgical — spec-only — `test-validate-scenario-traceability.sh` arm `l` breaks `case1-clean` too, so it proves nothing and the suite is 1-red on every run. Predates 2026-09-25. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 065 — nightly-cron-line-runs-blind — spec-only — the line install-nightly-maintenance.sh writes has cron's bare PATH (no dotnet/node/docker/timeout), and a line that fails to parse writes no log at all. From fundit F084/F086. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 066 — allocator-cannot-make-a-carved-suffix — spec-only — next-register-id.sh has no form for the NNNa ids carved rows use (002a, 015a); --alpha 005 returns 0051, so carved ids are still picked by eye. From fundit F095. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 067 — traceability-walk-races-test-results — spec-only — validate-scenario-traceability.sh gave 141, 0, 0 of 148 on identical input while Playwright rewrote test-results/. Sibling of 044. From fundit F116. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 068 — checkpoint-cadence-counts-checkpoints — spec-only — the orientation hook counts H rows and carved rows toward every-5, so it said "checkpoint due" after 4 feature specs. From fundit F211. Diagnosis: `specs/INDEX.pending.md`
 
 ## Register history (newest first)
 
