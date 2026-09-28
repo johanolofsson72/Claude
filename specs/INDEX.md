@@ -82,7 +82,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 070 — freshness-audits-npm-only — spec-only — project-freshness.sh runs `npm audit` and nothing else, so a Maven/Gradle backend's dependency CVEs are never checked. From ekofak H1. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 071 — testing-doc-prescribes-js-screenshot-api — spec-only — testing.md tells .NET projects to use Expect(Page).ToHaveScreenshotAsync, which exists only in Playwright's JS runner. From teach F007. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 072 — security-rule-says-secrets-in-env — spec-only — rules/security.md says production secrets go in environment variables; Swarm secret files are the safer shape (docker inspect shows env). From teach F061. Diagnosis: `specs/INDEX.pending.md`
-- [/] 073 — pipeline-refresh-2026-09 — spec-only — one sync engine for wizard/update/sync-template, spec-kit pinned, zsh + GNU fixes, supply-chain cooldowns, context diet, hook latency; then roll out to 15 projects. Folds 037, 022. User-requested 2026-09-28.
+- [x] 073 — pipeline-refresh-2026-09 — spec-only — one sync engine for wizard/update/sync-template, spec-kit pinned, zsh + GNU fixes, supply-chain cooldowns, context diet, hook latency; then roll out to 15 projects. Folds 037, 022. User-requested 2026-09-28.
 
 ## Register history (newest first)
 

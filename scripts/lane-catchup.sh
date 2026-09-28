@@ -154,6 +154,34 @@ else
   fi
 fi
 
+# ── 3b. What lives on this machine and not in any repo (spec 073).
+#
+# Two things a pull can never deliver, because neither is in the project: the global
+# /project-wizard and /project-update skills under ~/.claude/skills, and the spec-kit CLI.
+# Both drifted per machine before 073 — the global skills were copied by hand once, and
+# spec-kit was installed from whatever `main` was that day — so two lanes could run different
+# phases of one pipeline on one register without either knowing. Both checks are read-only.
+head_ "3b. Machine-level tools (global skills, spec-kit CLI)"
+TPL=$( [ -f scripts/template-autosync.sh ] && bash scripts/template-autosync.sh --template-dir 2>/dev/null )
+if [ -z "$TPL" ]; then
+  todo "no template clone found — clone it (git clone https://github.com/johanolofsson72/Claude.git ~/repos/Claude) or set CLAUDE_TEMPLATE_DIR"
+else
+  if [ -f "$TPL/scripts/install-global-skills.sh" ] && ! bash "$TPL/scripts/install-global-skills.sh" --check >/dev/null 2>&1; then
+    todo "global /project-wizard and /project-update skills are stale — run: git -C \"$TPL\" pull --ff-only && bash \"$TPL/scripts/install-global-skills.sh\""
+  else
+    say "  global skills match the template at $TPL"
+  fi
+fi
+if [ -f scripts/speckit-sync.sh ]; then
+  SK=$(bash scripts/speckit-sync.sh --check 2>&1); SKRC=$?
+  if [ "$SKRC" -eq 0 ]; then
+    say "  spec-kit CLI and .specify/ at the pin ($(tr -d '[:space:]' < scripts/speckit-version 2>/dev/null))"
+  else
+    printf '%s\n' "$SK" | grep -E 'out of date|FAIL' | sed 's/^/  /'
+    todo "spec-kit is not at the template's pin — run: bash scripts/speckit-sync.sh"
+  fi
+fi
+
 # ── 4. Recurring work: what this project owes, not what a timer says.
 #
 # This section used to install a crontab entry. That was the wrong answer and it is now the

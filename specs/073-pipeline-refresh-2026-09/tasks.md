@@ -10,4 +10,4 @@
 - [x] T8 (D) context diet (R8)
 - [x] T9 (E) supply-chain defaults, osv-scanner, tool docs, Playwright browsers, omitClaudeMd (R7, R10)
 - [x] T10 (F) all harnesses + Linux container + humanizer
-- [ ] T11 (G) rollout to 15 projects (R11)
+- [x] T11 (G) rollout to 15 projects (R11)
