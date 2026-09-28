@@ -447,9 +447,12 @@ if [ -d .claude/worktrees ]; then
       case "$WT_SZ" in (''|*[!0-9]*) WT_SZ=0 ;; esac
       WT_KB=$((WT_KB + WT_SZ))
 
-      # BSD form first (macOS), GNU second (Linux, Git Bash). If both fail the age is
-      # omitted from the finding rather than printed as garbage.
-      WT_MT=$(stat -f %m "$wt" 2>/dev/null || stat -c %Y "$wt" 2>/dev/null)
+      # GNU form first (Linux, Git Bash), BSD second (macOS). The order is load-bearing:
+      # on GNU, `stat -f` is --file-system and succeeds, printing a filesystem block to
+      # stdout, so a BSD-first chain never reaches its fallback there. `stat -c` is an
+      # unknown option to BSD stat and fails cleanly, which makes it the safe probe.
+      # If both fail the age is omitted from the finding rather than printed as garbage.
+      WT_MT=$(stat -c %Y "$wt" 2>/dev/null || stat -f %m "$wt" 2>/dev/null)
       case "$WT_MT" in (''|*[!0-9]*) WT_MT=0 ;; esac
       if [ "$WT_MT" -gt 0 ] && [ "$WT_NOW" -gt "$WT_MT" ]; then
         WT_AGE=$(( (WT_NOW - WT_MT) / 86400 ))

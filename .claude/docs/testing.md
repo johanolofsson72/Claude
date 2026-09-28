@@ -41,6 +41,18 @@ Unit + integration are **always required**, not optional extras on top of E2E. I
 - Use **Moq** or similar for mocking when needed.
 - Separate unit tests in a dedicated project: `<ProjectName>.Tests`.
 
+### xUnit v3 4.0 (2026-08-15, 4.0.1 on 2026-09-12) — breaking changes to know on upgrade
+
+- **Microsoft.Testing.Platform v1 is no longer supported**; MTP v2 is the default. A project still pinning MTP v1
+  packages has to move to v2 in the same change as the xUnit bump.
+- **Report switches renamed:** `-report-junit` → `-report-xunit-junit`, `-report-xunit` → `-report-xunit-xml`
+  (likewise ctrf/nunit), and default extensions changed (`.junit` → `.junit.xml`). Any script that globs report files
+  must be updated with the bump, or it silently finds nothing.
+- **Parallelization:** `DisableTestParallelization`, `MaxParallelThreads` and `ParallelAlgorithm` on
+  `[assembly: CollectionBehavior]` are obsolete — use `[assembly: Parallelization]`.
+- **Custom orderers:** ordering now has class and method levels, which likely breaks an existing `ITestCaseOrderer`.
+- **Mono is dropped.**
+
 ## UI tests (Playwright)
 
 - Use **Playwright** with **.NET** (Microsoft.Playwright) for UI and end-to-end tests.
@@ -50,9 +62,27 @@ Unit + integration are **always required**, not optional extras on top of E2E. I
 
 ## Install Playwright browsers
 
+Build the test project first — the script is generated into its output folder. Current: Microsoft.Playwright
+**1.63.0** (2026-09-21).
+
 ```bash
-pwsh bin/Debug/net*/playwright.ps1 install
+dotnet build
+# macOS / Windows (Git Bash or PowerShell): browsers only, no system packages needed
+pwsh bin/Debug/net*/playwright.ps1 install chromium
+# Linux: browsers as your user, then the system libraries once as root
+pwsh bin/Debug/net*/playwright.ps1 install chromium
+sudo pwsh bin/Debug/net*/playwright.ps1 install-deps chromium   # run this yourself — the template denies Bash(sudo *)
 ```
+
+- `install --with-deps` does both in one step, but on Linux it needs root and will try to escalate on its own, so
+  Claude cannot run it. The split above keeps the browser download unprivileged; the developer runs the one `sudo`
+  line by hand (or installs the packages it lists with dnf/pacman on non-Debian distros).
+- Debian 11 (since 1.62) and Ubuntu 20.04 (since 1.63) are no longer supported hosts.
+- `install --no-remove` (1.63) keeps browsers that other Playwright versions on the machine still use — useful when
+  two projects pin different Playwright versions.
+- Isolated retries (`retryStrategy`, 1.62) and test locks (`lock`, 1.63) are **@playwright/test (Node) runner**
+  features. Microsoft.Playwright tests run under xUnit, which has neither; in .NET, use an xUnit collection for tests
+  that share a resource.
 
 ## Running tests
 
@@ -242,7 +272,15 @@ await Expect(Page).ToHaveScreenshotAsync("dashboard-mobile.png");
 
 Line coverage proves a line *executed*; it says nothing about whether a test would *notice* if that line were wrong. Mutation testing injects deliberate bugs (flip `>` to `>=`, `&&` to `||`, delete a statement) and checks your tests kill them. The kill rate is the only metric that measures whether tests actually bite — Google, Meta, and AWS all converge on this over coverage %.
 
-- **.NET:** **Stryker.NET** — `dotnet tool install -g dotnet-stryker`.
+- **.NET:** **Stryker.NET** — `dotnet tool install -g dotnet-stryker`. Current: **5.0.0** (2026-09-11), which breaks
+  two things on upgrade:
+  - It **runs on the .NET 10 runtime**. A machine with only an older runtime cannot run the tool, whatever the
+    project under test targets.
+  - The **baseline disk provider now follows the output path**, so incremental runs (`--since`, `--with-baseline`)
+    look for their baseline somewhere new. The first 5.0 run after the upgrade is effectively a full run; do not read
+    its duration or its score change as a regression, and update any script that reads the baseline by path.
+  - New in 5.0: `perTest` / `perTestInIsolation` coverage analysis under the MTP runner, timeouts computed from
+    measured mutant runtimes, and `--diag` for when the mutated compilation fails.
 - **A score counts only once it has reproduced.** Run the gate **three times** and compare
   *per-mutant* verdicts, not percentages: two runs in one project both reported 90.91% while
   disagreeing on seven mutants. Equal totals hiding different kills is a coin toss with a

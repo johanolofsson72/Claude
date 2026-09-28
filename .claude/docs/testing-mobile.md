@@ -99,6 +99,8 @@ maestro test .maestro/login-destructive.yaml   # single flow
 
 If Maestro is not installed: `curl -fsSL https://get.maestro.mobile.dev | bash` (cross-platform; on Windows run under WSL or Git Bash).
 
+**npm 12 and native modules:** dependency install scripts are skipped until approved, so a native module can install cleanly and then fail at `expo prebuild` or in EAS Build. After adding a dependency, run `npm approve-scripts --allow-scripts-pending` and approve what needs it (`.claude/docs/supply-chain.md`).
+
 ### Flutter
 
 ```bash

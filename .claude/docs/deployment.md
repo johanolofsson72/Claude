@@ -48,6 +48,7 @@ GitHub Actions (workflow_dispatch with confirmation)
 - **Trigger**: `workflow_dispatch` with `confirm_deploy: "deploy"` as safety mechanism
 - **Runner**: `ubuntu-latest`
 - **Image tag**: `YYYY.MM.DD-HHMM` (datetime-based)
+- **Dependency gate** (first job): locked restore, NuGetAudit high/critical as errors, `npm ci`, actions pinned by SHA — see `.claude/docs/supply-chain.md`
 
 ### Actions budget policy (BLOCKING — see `.claude/rules/github-actions.md`)
 
@@ -203,10 +204,13 @@ mount | grep [projectname]   # confirm the mount options applied
 ## Deployment checklist
 
 1. All tests pass locally
-2. **Stress tests pass** — both API and frontend (see `.claude/docs/stress-testing.md`)
-3. Code is pushed to the correct branch
-4. Workflow triggered manually with `confirm_deploy: "deploy"`
-5. Verify that images were built and pushed to registry
-6. Check Docker Swarm services: `docker stack services [projectname]`
-7. Verify email notification (Mailjet)
-8. Test the application via its public URL
+2. **Dependency gate passes**: the build job restores with `dotnet restore --locked-mode` and has
+   NuGetAudit's `NU1903;NU1904` (high/critical) as errors; the frontend installs with `npm ci`; every
+   `uses:` in the workflow is pinned to a full commit SHA. See `.claude/docs/supply-chain.md`
+3. **Stress tests pass** — both API and frontend (see `.claude/docs/stress-testing.md`)
+4. Code is pushed to the correct branch
+5. Workflow triggered manually with `confirm_deploy: "deploy"`
+6. Verify that images were built and pushed to registry
+7. Check Docker Swarm services: `docker stack services [projectname]`
+8. Verify email notification (Mailjet)
+9. Test the application via its public URL

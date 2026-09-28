@@ -148,10 +148,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Pin every action to a full commit SHA in the real file (tag as a comment) — .claude/docs/supply-chain.md
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - run: npm ci
+      - run: npm ci    # npm 12: needs the allowScripts approvals committed in package.json, or native modules skip their scripts
       - run: npx tsc --noEmit && npm test    # gate: don't ship a broken build
       - uses: expo/expo-github-action@v9
         with: { eas-version: latest, token: ${{ secrets.EXPO_TOKEN }} }

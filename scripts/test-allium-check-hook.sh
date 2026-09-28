@@ -42,11 +42,11 @@ if command -v allium >/dev/null 2>&1; then
   out=$(run "$HOOK" "$CLEAN");  [ -z "$out" ] && ok "clean file passes silently" || bad "clean file: $out"
   out=$(run "$HOOK" "$WARN");   [ -z "$out" ] && ok "warnings-only file passes" || bad "warnings-only blocked: $out"
   out=$(run "$HOOK" "$PARSE");  blocks "$out" && ok "parse error blocks" || bad "parse error passed: $out"
-  printf '%s' "$out" | jq -r .reason | grep -q '^  3:' && ok "reason names line 3" || bad "reason lacks line: $out"
+  grep -q '^  3:' <<< "$(printf '%s' "$out" | jq -r .reason)" && ok "reason names line 3" || bad "reason lacks line: $out"
   out=$(run "$HOOK" "$SPACED"); blocks "$out" && ok "path with a space is validated" || bad "spaced path: $out"
   out=$(run "$HOOK" "$MANY")
   n=$(printf '%s' "$out" | jq -r .reason | grep -c '^  [0-9]')
-  { [ "$n" -eq 20 ] && printf '%s' "$out" | jq -r .reason | grep -q 'and [0-9]* more'; } \
+  { [ "$n" -eq 20 ] && grep -q 'and [0-9]* more' <<< "$(printf '%s' "$out" | jq -r .reason)"; } \
     && ok "reason capped at 20 lines + 'and N more'" || bad "cap: $n lines"
 
   # Sabotage: decide on the exit code instead of severity. Must block the warnings-only file.
@@ -75,16 +75,16 @@ out=$(run "$HOOK" "$CLEAN" ALLIUM_BIN="$FAKE/garbage"); blocks "$out" && ok "non
 out=$(run "$HOOK" "$CLEAN" ALLIUM_BIN="$FAKE/empty");   blocks "$out" && ok "empty output blocks"    || bad "empty: $out"
 out=$(run "$HOOK" "$CLEAN" ALLIUM_BIN="$FAKE/shape");   blocks "$out" && ok "wrong shape blocks"     || bad "shape: $out"
 out=$(run "$HOOK" "$CLEAN" ALLIUM_BIN="$FAKE/slow" ALLIUM_CHECK_TIMEOUT=1)
-{ blocks "$out" && printf '%s' "$out" | grep -q 'timed out'; } && ok "timeout blocks" || bad "timeout: $out"
+{ blocks "$out" && grep -q 'timed out' <<< "$out"; } && ok "timeout blocks" || bad "timeout: $out"
 
 out=$(run "$HOOK" "$CLEAN" ALLIUM_BIN="$FAKE/does-not-exist")
-{ ! blocks "$out" && printf '%s' "$out" | grep -q 'NOT being validated'; } \
+{ ! blocks "$out" && grep -q 'NOT being validated' <<< "$out"; } \
   && ok "missing CLI passes with a notice" || bad "missing CLI: $out"
 
 BADPY="$TMP/badpy"; mkdir -p "$BADPY"
 printf '#!/bin/sh\ncat >/dev/null\nexit 3\n' > "$BADPY/python3"; chmod +x "$BADPY/python3"
 out=$(run "$HOOK" "$CLEAN" PATH="$BADPY:$PATH" ALLIUM_BIN="$FAKE/empty")
-{ blocks "$out" && printf '%s' "$out" | grep -q 'reader exit 3'; } \
+{ blocks "$out" && grep -q 'reader exit 3' <<< "$out"; } \
   && ok "a crashing report reader blocks (never fails open)" || bad "reader crash: $out"
 
 echo "== ignored paths"

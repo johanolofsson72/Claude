@@ -24,14 +24,24 @@ set -u
 TEMPLATE_URL="https://github.com/johanolofsson72/Claude.git"
 
 TEMPLATE=""
-for CAND in "${CLAUDE_TEMPLATE_DIR:-}" "$HOME/repos/Claude" "$HOME/repos/claude" \
-            "$HOME/Projects/Claude" "$HOME/Code/Claude" "$HOME/code/Claude" \
-            "$HOME/src/Claude" "$HOME/dev/Claude"; do
-  [ -n "$CAND" ] || continue
-  if [ -f "$CAND/CLAUDE.md" ] && [ -f "$CAND/.claude/skills/sync-template/SKILL.md" ]; then
-    TEMPLATE="$CAND"; break
-  fi
+# The engine owns the list of places a clone may live (template-autosync.sh --template-dir).
+# Ask the project's copy first, then any clone we can already see; the literal list below is only
+# the bootstrap for a machine where neither exists yet, and it is the same list in the same order.
+for ENGINE in scripts/template-autosync.sh "${CLAUDE_TEMPLATE_DIR:-/nonexistent}/scripts/template-autosync.sh" \
+              "$HOME/repos/Claude/scripts/template-autosync.sh"; do
+  [ -f "$ENGINE" ] && TEMPLATE=$(bash "$ENGINE" --template-dir 2>/dev/null) && [ -n "$TEMPLATE" ] && break
+  TEMPLATE=""
 done
+if [ -z "$TEMPLATE" ]; then
+  for CAND in "${CLAUDE_TEMPLATE_DIR:-}" "$HOME/repos/Claude" "$HOME/repos/claude" \
+              "$HOME/Projects/Claude" "$HOME/projects/Claude" "$HOME/projects/claude" \
+              "$HOME/src/Claude" "$HOME/code/Claude" "$HOME/dev/Claude" "$HOME/git/Claude"; do
+    [ -n "$CAND" ] || continue
+    if [ -f "$CAND/scripts/sync-prompt.md" ] && [ -d "$CAND/.claude/rules" ]; then
+      TEMPLATE="$CAND"; break
+    fi
+  done
+fi
 
 # No clone anywhere: make one. /project-update must work on a fresh machine.
 if [ -z "$TEMPLATE" ]; then
@@ -88,26 +98,29 @@ After this point, **every reference to `/Users/jool/repos/Claude` in this docume
 
 ### Step 0: Version check (MANDATORY — saves tokens)
 
-Before reading anything, check if this project is already up to date.
+Before reading anything, check whether this project is already at the template's commit. Both sides
+are local: the clone Step -1 just refreshed, and the stamp the sync engine maintains
+(`.claude/.template-sync`, `sha=` line). Spec 073 retired the old check, which asked the GitHub API
+for `origin/main` and compared it to `.claude/.sync-version` — a file only this document and the
+wizard wrote, so on every project kept current by autosync it was stale and Step 0 reported "sync
+needed" on a current project, while the files came from a local clone that could be ahead of the
+API's answer anyway.
 
 ```bash
-TEMPLATE_SHA=$(curl -sL https://api.github.com/repos/johanolofsson72/Claude/commits/main | jq -r '.sha // empty')
-LAST_SHA=$(cat .claude/.sync-version 2>/dev/null)
+TEMPLATE_SHA=$(git -C "$TEMPLATE" rev-parse --short=12 HEAD 2>/dev/null)
+LAST_SHA=$(sed -n 's/^sha=//p' .claude/.template-sync 2>/dev/null | head -1 | cut -c1-12)
 
 if [ -z "$TEMPLATE_SHA" ]; then
-  echo "[WARN] Could not fetch template SHA — falling back to full sync"
+  echo "[WARN] The template at $TEMPLATE is not a git clone — full sync"
 elif [ "$TEMPLATE_SHA" = "$LAST_SHA" ]; then
   echo "[UP TO DATE] Already synced with template @ $TEMPLATE_SHA"
-  # Nothing changed since last sync — skip Steps 1-8, but STILL run Step 8c
-  # (freshness pass) AND Step 9 (CLAUDE.md slim check). Both are unconditional.
-  # (If the user says "force resync" or "full resync", ignore this and continue with a full sync.)
-elif [ -n "$LAST_SHA" ]; then
+elif [ -n "$LAST_SHA" ] && git -C "$TEMPLATE" cat-file -e "$LAST_SHA^{commit}" 2>/dev/null; then
   echo "[INCREMENTAL SYNC] $LAST_SHA → $TEMPLATE_SHA"
-  CHANGED=$(curl -sL "https://api.github.com/repos/johanolofsson72/Claude/compare/${LAST_SHA}...${TEMPLATE_SHA}" | jq -r '.files[]?.filename // empty')
+  CHANGED=$(git -C "$TEMPLATE" diff --name-only "$LAST_SHA" "$TEMPLATE_SHA")
   echo "Changed files since last sync:"
   echo "$CHANGED"
 else
-  echo "[FIRST SYNC] No .sync-version found — performing full sync"
+  echo "[FIRST SYNC] No usable stamp — performing full sync"
 fi
 ```
 
@@ -115,8 +128,32 @@ fi
 
 - **SHAs equal** → project is up to date. Report "already current", skip Steps 1-8, then **run Step 8c (freshness pass) and Step 9 (CLAUDE.md slim check)** — both always run. Do NOT read template files.
 - **LAST_SHA exists, SHAs differ** → **incremental mode**. Read ONLY files in `$CHANGED`, skip steps that involve files not in that list. Still run Step 7 (tech stack confirmation), Step 8 (verify), **Step 8c (freshness pass)**, and Step 9 (slim check) unconditionally.
-- **No LAST_SHA** → **full sync**. Read all template files per Step 1 below.
-- **Force override** → if the user prompt contains "force", "full resync", or "--force", ignore `.sync-version` and do a full sync regardless.
+- **No LAST_SHA** (or a stamp from a commit the clone does not have) → **full sync**.
+- **Force override** → if the user prompt contains "force", "full resync", or "--force", do a full sync regardless.
+
+### Step 0.5: Run the sync engine (MANDATORY — the mechanical half, identical everywhere)
+
+Every mechanical copy — CORE scripts, rules, docs, agents, the core hook wiring, the local-LLM and
+Graphify wiring, the spec-kit extension policy, the stack marker, the stamp — is done by **one**
+program, the same one that runs at every SessionStart. `/project-wizard`, `/project-update` and
+`sync-template` all used to re-implement parts of it in prose and bash, and they drifted: one copied
+0 scripts under zsh and printed `[OK]`, another carried a hook list one entry short. Run the engine;
+the steps after this one are the judgment half and the verification.
+
+```bash
+mkdir -p .claude    # a brand-new project: the engine skips a directory with no .claude/
+CLAUDE_TEMPLATE_DIR="$TEMPLATE" bash "$TEMPLATE/scripts/template-autosync.sh" --force --no-commit
+echo "engine exit: $?"
+```
+
+`--no-commit` leaves the result in the working tree for Step 10's report and the developer's review
+commit; autosync at SessionStart is the only caller that commits by itself. A non-zero exit is a
+failed sync — report it in Step 10, do not paper over it with the prose steps below. Then bring
+spec-kit to the template's pin (a no-op when it already is; `--init-new` only from `/project-wizard`):
+
+```bash
+bash scripts/speckit-sync.sh
+```
 
 **CRITICAL:** Only read files from the template that you actually need. In incremental mode, skipping 28 unchanged files saves ~80-90% of the tokens.
 
@@ -414,7 +451,11 @@ if [ -z "$CORE_SCRIPTS_LIST" ]; then
   exit 1
 fi
 COPIED=0; ABSENT=""
-for s in $CORE_SCRIPTS_LIST; do
+# Line-wise, never `for s in $CORE_SCRIPTS_LIST`: zsh does not word-split an unquoted parameter,
+# so that loop saw ONE name, copied nothing and printed "[OK] 0 ... mirrored" (row 037). A here-doc
+# read loop behaves the same in bash, zsh and sh, and keeps COPIED in this shell.
+while IFS= read -r s; do
+  [ -n "$s" ] || continue
   if [ -f "$TEMPLATE/scripts/$s" ]; then
     cp "$TEMPLATE/scripts/$s" "scripts/$s"
     # cp over an EXISTING file keeps the destination's mode, so a script that was
@@ -425,9 +466,15 @@ for s in $CORE_SCRIPTS_LIST; do
   else
     ABSENT="$ABSENT $s"
   fi
-done
+done <<CORE_LIST
+$CORE_SCRIPTS_LIST
+CORE_LIST
 [ -n "$ABSENT" ] && echo "[WARN] named in CORE_SCRIPTS but absent from the template clone:$ABSENT" >&2
-echo "[OK] $COPIED core enforcement script(s) mirrored from template"
+EXPECTED=$(printf '%s\n' "$CORE_SCRIPTS_LIST" | grep -c .)
+if [ "$COPIED" -eq 0 ] || [ $((COPIED + $(printf '%s' "$ABSENT" | wc -w))) -ne "$EXPECTED" ]; then
+  echo "[FAIL] mirrored $COPIED of $EXPECTED CORE scripts — the loop did not see the list" >&2; exit 1
+fi
+echo "[OK] $COPIED of $EXPECTED core enforcement script(s) mirrored from template"
 ```
 
 **Wire the CORE hooks deterministically** (pipeline / spec-register / execution / tech-stack — the family that prose-merge kept dropping):
@@ -446,13 +493,13 @@ This strips every template core hook from the project's `.claude/settings.json` 
 gap=0
 for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook \
          spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook \
-         continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+         continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook lane-orientation-hook; do
   test -f "scripts/$s.sh" || { echo "[MISSING] scripts/$s.sh never copied — re-run the core-script mirror above"; gap=1; }
 done
 # (b) every core hook script present on disk must be WIRED — no script present-but-unwired
 for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook \
          spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook \
-         continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+         continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook lane-orientation-hook; do
   test -f "scripts/$s.sh" && ! grep -q "$s.sh" .claude/settings.json && { echo "[GAP] $s present on disk but NOT wired"; gap=1; }
 done
 [ "$gap" -eq 0 ] && echo "core-hook check done — all enforcement scripts present AND wired"
@@ -775,29 +822,29 @@ The qa-test and playwright-skill require the Playwright MCP server. If the proje
 The TLA+ skill auto-installs TLC if missing, but verify it's available on the machine:
 
 ```bash
-# Check if TLC is already available
-if command -v tlc &>/dev/null; then
-  echo "[SKIPPED] TLC model checker — already installed ($(which tlc))"
-elif command -v brew &>/dev/null; then
-  echo "[INSTALLING] TLC model checker via Homebrew..."
-  brew install --quiet tlaplus && echo "[INSTALLED] TLC model checker (tlaplus)" \
-    || echo "[FAILED] brew install tlaplus — install manually"
+# One install path on every platform (spec 073). This used to try `brew install tlaplus` first,
+# and Homebrew has no such formula — every macOS run printed [FAILED] and never reached the JAR.
+# The JAR goes to ~/.local/lib, which is where /tla looks after `tlc` and $TLA2TOOLS_JAR, and a
+# user-owned path works without sudo (denied by the template) on macOS, Linux and Git Bash alike.
+JAR="${TLA2TOOLS_JAR:-$HOME/.local/lib/tla2tools.jar}"
+if command -v tlc >/dev/null 2>&1; then
+  echo "[SKIPPED] TLC model checker — already installed ($(command -v tlc))"
+elif [ -s "$JAR" ]; then
+  echo "[SKIPPED] TLC model checker — JAR present at $JAR"
 else
-  # No Homebrew (the normal case on Linux). Install the JAR into the user's own
-  # ~/.local/lib — /usr/local/lib is root-owned on Linux and the template denies
-  # Bash(sudo *), so writing there fails. Report the real curl exit code; a
-  # download that 404s or times out must NOT print [INSTALLED].
   echo "[INSTALLING] TLC model checker via JAR download..."
-  mkdir -p "$HOME/.local/lib"
-  if curl -fsSL -o "$HOME/.local/lib/tla2tools.jar" \
-       https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar; then
-    echo "[INSTALLED] TLC model checker (JAR at $HOME/.local/lib/tla2tools.jar)"
-    echo "            run with: java -cp $HOME/.local/lib/tla2tools.jar tlc2.TLC <spec>"
+  mkdir -p "$(dirname "$JAR")"
+  # Download to a temp name first: a half-written JAR must not look installed on the next run.
+  if curl -fsSL -o "$JAR.part" https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar \
+     && mv "$JAR.part" "$JAR"; then
+    echo "[INSTALLED] TLC model checker (JAR at $JAR)"
   else
+    rm -f "$JAR.part"
     echo "[FAILED] TLC JAR download failed — /tla falls back to reasoning-only verification."
     echo "         Distro packages: Debian/Ubuntu 'apt install tlaplus' · Fedora 'dnf install tlaplus' · Arch AUR 'tla-plus-toolbox'"
   fi
 fi
+command -v java >/dev/null 2>&1 || echo "[WARN] no java on PATH — TLC needs a JRE 11+ (brew install openjdk · apt install default-jre · dnf install java-latest-openjdk)"
 ```
 
 Without TLC, the /tla skill falls back to reasoning-based verification (LLM-only, no mathematical proof). With TLC, it runs actual model checking.
@@ -899,35 +946,22 @@ After syncing:
   ```
   If the project passed the 30-source-file eligibility threshold in Step 5d.2 and this prints `[FAIL/SKIP]`, the sync is incomplete — inspect which check failed (graphify CLI not on PATH → re-run bootstrap, missing graph.json → re-run `graphify update .`, missing script → re-run `sync-graphify-wiring.py`, missing settings.json entry → re-run `sync-graphify-wiring.py`) and rerun the relevant step. For sub-threshold projects (vanilla HTML demos), `[FAIL/SKIP]` is expected and not an error.
 
-### Step 8b: Record sync version (MANDATORY)
+### Step 8b: The sync stamp (MANDATORY — check, do not write)
 
-Write the template SHA fetched in Step 0 to `.claude/.sync-version`, ensure it's not gitignored, and stage it so the developer's next commit includes it. Without this, team members re-sync from scratch on every fresh clone.
+The record of which template commit this project is at is `.claude/.template-sync`, written by the
+engine in Step 0.5. Nothing else writes it. Until spec 073 this step wrote a second record,
+`.claude/.sync-version`, which autosync never updated — so on every project kept current by autosync
+it went stale, and Step 0 read the stale one. Retire it where it still exists:
 
 ```bash
-mkdir -p .claude
-echo "$TEMPLATE_SHA" > .claude/.sync-version
-echo "[VERSIONED] Recorded template SHA: $TEMPLATE_SHA"
-
-# Ensure .claude/.sync-version is NOT gitignored. Strip any matching patterns.
-if [ -f .gitignore ]; then
-  # Match exact paths and common accidental catches
-  for PATTERN in '.claude/.sync-version' '.sync-version' '.claude/\.sync-version'; do
-    if grep -qxF "$PATTERN" .gitignore 2>/dev/null; then
-      grep -vxF "$PATTERN" .gitignore > .gitignore.tmp && mv .gitignore.tmp .gitignore
-      echo "[UNIGNORED] Removed '$PATTERN' from .gitignore"
-    fi
-  done
-  # Warn if .claude/ itself is ignored — that's a bigger problem the developer must resolve
-  if git check-ignore -q .claude/.sync-version 2>/dev/null; then
-    echo "[WARN] .claude/.sync-version is still ignored (likely via '.claude/' rule). Add '!.claude/.sync-version' as a negation to .gitignore, OR commit the file with 'git add -f'."
-  fi
+grep -q '^sha=' .claude/.template-sync 2>/dev/null && echo "[OK] stamp: $(sed -n 's/^sha=//p' .claude/.template-sync)" \
+  || echo "[FAIL] .claude/.template-sync has no sha= line — Step 0.5 did not complete"
+if git ls-files --error-unmatch .claude/.sync-version >/dev/null 2>&1; then
+  git rm -q .claude/.sync-version && echo "[RETIRED] .claude/.sync-version (superseded by .claude/.template-sync)"
+else
+  rm -f .claude/.sync-version
 fi
-
-# Stage the sync-version file so the developer's review commit includes it
-git add -f .claude/.sync-version 2>/dev/null && echo "[STAGED] .claude/.sync-version ready to commit"
 ```
-
-**Why this matters:** `.sync-version` is per-project cache state. If it's gitignored or left unstaged, a teammate who clones the repo fresh has no record of the last sync SHA, and their next `/project-update` will do a full 100% sync instead of the incremental path. Committing it is the only way the cache survives across machines.
 
 ### Step 8b2: Arm the template auto-sync (MANDATORY)
 

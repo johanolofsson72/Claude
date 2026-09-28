@@ -87,6 +87,21 @@ _TEMPLATE_INLINE_MIGRATIONS: list[tuple[str, str, str]] = [
      '"additionalContext":"Context was compacted. Re-read any files you were working on before continuing."}}'),
 ]
 
+# Spec 073 (R9) — the same two inline hooks, made cheap to run. Each gained a precheck that exits
+# before any jq when the raw payload cannot match (the read-block runs on every Read/Edit/Write, the
+# E2E reminder on every Bash). What they say and when they fire is unchanged. Keyed on the template's
+# exact previous text, like the list above, so a project's own inline hooks are never touched; and
+# idempotent, because the new text does not contain the old.
+_TEMPLATE_INLINE_SPEEDUPS: list[tuple[str, str, str]] = [
+    ("PreToolUse",
+     "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi",
+     "INPUT=$(cat); if [ \"${#INPUT}\" -le 4096 ]; then case \"$INPUT\" in *.ssh/*|*.aws/*|*.azure/*|*.git-credentials*|*.docker/config.json*|*.config/gh/*|*.env*) ;; *) exit 0 ;; esac; fi; FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"),
+    ("PostToolUse",
+     "INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty' 2>/dev/null); EXIT=$(echo \"$INPUT\" | jq -r '.tool_response.interrupted // false' 2>/dev/null); if echo \"$CMD\" | grep -qiE '(Category=UI|playwright|npx playwright|pnpm.*playwright|yarn.*playwright|maestro|patrol|integration_test|flutter drive)'; then jq -n '{hookSpecificOutput: {hookEventName: \"PostToolUse\", additionalContext: \"UI / E2E TESTS COMPLETED — BLOCKING VALIDATION REQUIRED before declaring work done:\\n\\n(1) SPEC COMPLIANCE: Open the feature spec and its FUNCTIONAL COVERAGE section. Enumerate every implemented function. Confirm each has a passing test (browser / Maestro / Patrol / widget) AND that the assertion actually verifies the spec behavior (not just that the screen rendered). If ANY function lacks a real test, the task is NOT done — write the missing tests now.\\n\\n(2) DESIGN COMPLIANCE: Invoke the frontend-design skill via the Skill tool and verify the UI follows its recommendations (typography scale, spacing rhythm, color palette, component polish, accessibility, responsive / safe-area behavior, distinctive design — not generic AI aesthetic). If any violations exist, fix them before declaring done.\\n\\nDo NOT skip either step. Do NOT declare the task complete until both validations pass. Report findings explicitly: which functions were verified, which design checks passed/failed.\"}}'; fi",
+     "INPUT=$(cat); printf '%s' \"$INPUT\" | grep -qiE '(Category=UI|playwright|maestro|patrol|integration_test|flutter drive)' || exit 0; CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty' 2>/dev/null); EXIT=$(echo \"$INPUT\" | jq -r '.tool_response.interrupted // false' 2>/dev/null); if echo \"$CMD\" | grep -qiE '(Category=UI|playwright|npx playwright|pnpm.*playwright|yarn.*playwright|maestro|patrol|integration_test|flutter drive)'; then jq -n '{hookSpecificOutput: {hookEventName: \"PostToolUse\", additionalContext: \"UI / E2E TESTS COMPLETED — BLOCKING VALIDATION REQUIRED before declaring work done:\\n\\n(1) SPEC COMPLIANCE: Open the feature spec and its FUNCTIONAL COVERAGE section. Enumerate every implemented function. Confirm each has a passing test (browser / Maestro / Patrol / widget) AND that the assertion actually verifies the spec behavior (not just that the screen rendered). If ANY function lacks a real test, the task is NOT done — write the missing tests now.\\n\\n(2) DESIGN COMPLIANCE: Invoke the frontend-design skill via the Skill tool and verify the UI follows its recommendations (typography scale, spacing rhythm, color palette, component polish, accessibility, responsive / safe-area behavior, distinctive design — not generic AI aesthetic). If any violations exist, fix them before declaring done.\\n\\nDo NOT skip either step. Do NOT declare the task complete until both validations pass. Report findings explicitly: which functions were verified, which design checks passed/failed.\"}}'; fi"),
+]
+
+
 # PreCompact is special: its documented channel is plain stdout, not JSON.
 #
 # Matched by SHAPE, not by exact text. The first version of this compared the
@@ -109,6 +124,10 @@ def migrate_template_inline(cmd: str, event: str) -> tuple[str, list[str]]:
         if ev == event and old in cmd:
             cmd = cmd.replace(old, new)
             notes.append("systemMessage -> additionalContext")
+    for ev, old, new in _TEMPLATE_INLINE_SPEEDUPS:
+        if ev == event and cmd == old:
+            cmd = new
+            notes.append("spec 073 precheck added")
     return cmd, notes
 
 
