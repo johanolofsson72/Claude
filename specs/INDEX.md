@@ -79,6 +79,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 067 — traceability-walk-races-test-results — spec-only — validate-scenario-traceability.sh gave 141, 0, 0 of 148 on identical input while Playwright rewrote test-results/. Sibling of 044. From fundit F116. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 068 — checkpoint-cadence-counts-checkpoints — spec-only — the orientation hook counts H rows and carved rows toward every-5, so it said "checkpoint due" after 4 feature specs. From fundit F211. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 069 — tlc-cleanup-kills-the-run-it-guards — spec-only — tlc-cleanup.sh `pkill -f tla2tools|tlc2.TLC` from PreToolUse/Stop hooks kills the TLC run and its own hook shell (exit 144). Sibling of 056. From ekofak 005. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 070 — freshness-audits-npm-only — spec-only — project-freshness.sh runs `npm audit` and nothing else, so a Maven/Gradle backend's dependency CVEs are never checked. From ekofak H1. Diagnosis: `specs/INDEX.pending.md`
 
 ## Register history (newest first)
 
