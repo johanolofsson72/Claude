@@ -908,3 +908,24 @@ other manifests and run the ecosystem's own audit where one exists locally (`mvn
 org.owasp:dependency-check-maven:check` needs an NVD API key and is slow, so consider OSV-Scanner, which
 reads pom.xml / lockfiles offline-first), and print an explicit `[SKIP] <manifest> — no auditor` line for
 any ecosystem it cannot check, so an unchecked backend never reads as clean.
+
+## 071 — testing-doc-prescribes-js-screenshot-api
+
+From teach F007 (spec 003, confirmed at teach H1–H3). `.claude/docs/testing.md` prescribes
+`Expect(Page).ToHaveScreenshotAsync` for visual regression on .NET. That assertion belongs to
+Playwright's JS/TS test runner (`@playwright/test`); `Microsoft.Playwright` has no screenshot
+comparison at all. teach built its own `VisualBaseline` (in-browser canvas diff against a committed
+PNG) to satisfy the rule. Fix: say what .NET projects actually have — `Page.ScreenshotAsync` plus a
+pixel diff (a canvas diff in the page, or ImageSharp/Codeuctivity.ImageSharpCompare) with committed
+baselines — and keep the JS API only for Node projects.
+
+## 072 — security-rule-says-secrets-in-env
+
+From teach F061 (spec 014 deploy-hardening, 2026-09-28). `.claude/rules/security.md` ends with "Never
+store secrets in code — use appsettings.json (local) or environment variables (production)". teach
+spec 014 moved every production secret to Swarm secrets mounted as files (`/run/secrets`, 0400),
+because environment variables are readable through `docker service inspect` / `docker inspect` by
+anyone with Docker API access, and refused a secret-class key with a live value from any non-file
+source. The rule as written steers the next project into the weaker shape. Fix: production secrets
+come from an orchestrator secret store mounted as files (Swarm/Kubernetes secrets) or a vault;
+environment variables only where the platform offers nothing else, and never baked into an image.

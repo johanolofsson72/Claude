@@ -80,9 +80,12 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 068 — checkpoint-cadence-counts-checkpoints — spec-only — the orientation hook counts H rows and carved rows toward every-5, so it said "checkpoint due" after 4 feature specs. From fundit F211. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 069 — tlc-cleanup-kills-the-run-it-guards — spec-only — tlc-cleanup.sh `pkill -f tla2tools|tlc2.TLC` from PreToolUse/Stop hooks kills the TLC run and its own hook shell (exit 144). Sibling of 056. From ekofak 005. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 070 — freshness-audits-npm-only — spec-only — project-freshness.sh runs `npm audit` and nothing else, so a Maven/Gradle backend's dependency CVEs are never checked. From ekofak H1. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 071 — testing-doc-prescribes-js-screenshot-api — spec-only — testing.md tells .NET projects to use Expect(Page).ToHaveScreenshotAsync, which exists only in Playwright's JS runner. From teach F007. Diagnosis: `specs/INDEX.pending.md`
+- [ ] 072 — security-rule-says-secrets-in-env — spec-only — rules/security.md says production secrets go in environment variables; Swarm secret files are the safer shape (docker inspect shows env). From teach F061. Diagnosis: `specs/INDEX.pending.md`
 
 ## Register history (newest first)
 
+- 2026-09-28 — 071, 072 filed from teach H3 findings review (F007, F061).
 - 2026-09-25 — 054-064 filed from agentcrm's T0 pass (two findings reviews, 2026-09-19 and H5 2026-09-23); 055-057 fixed in the same pass, 064 found while running the suite.
 - 2026-09-25 — 053 filed from msroute F007; msroute F008 (autosync printf SIGPIPE) added as evidence to 024 (carve-budget §4).
 - 2026-09-18 — 052 filed from ighweld-2026's second findings review; the rest of its tooling findings were already rows 047, 049 and 050.
