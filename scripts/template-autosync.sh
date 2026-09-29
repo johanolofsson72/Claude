@@ -230,6 +230,7 @@ template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
 test-template-autosync-unlisted.sh
 validate-sync-sandbox-declarations.sh test-validate-sync-sandbox-declarations.sh
+drive-sync.sh test-drive-sync.sh
 test-sync-prompt-bootstrap.sh
 hook-notice.sh harness-state-gc.sh test-hook-channels.sh
 allium-check-hook.sh test-allium-check-hook.sh allium-census.sh test-allium-census.sh

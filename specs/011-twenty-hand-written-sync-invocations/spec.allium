@@ -1,0 +1,367 @@
+-- allium: 3
+--
+-- 011 — twenty hand-written sync invocations force a clever gate.
+--
+-- Landed from consultpilot H7bo (5078ed1), whose elicitation this is. Edited where the template
+-- differs: four query modes, not one; a third production driver (lane-catchup.sh), so the
+-- exclusion cap is 4 (developer, 2026-09-29); the contains-this-repository refusal, which
+-- consultpilot added after this file was written; no SCENARIOS.md, so no SC-ids.
+--
+-- H7bm made the interlock mandatory but OPT-IN PER CALL SITE. The two halves are spelled by hand
+-- at 19 places across 6 files (17 in consultpilot), under three wrapper names plus inline, with three sandbox variable
+-- names. With no single invocation form, the gate has to reverse-engineer the convention, and that
+-- is what makes it clever: handle derivation, two match arms, a two-line lookback, a `/` branch,
+-- and six exclusions of which four exist only to absorb its own false positives.
+--
+-- The entity that matters here is therefore not the RUN (H7bm's subject) but the CALL SITE: is
+-- there exactly one way to reach the sync, and can the gate answer without guessing.
+--
+-- The distinction this file turns on, and the one the previous design got wrong:
+--
+--   A PROPERTY is a fact about the artifact that the gate checks   (is this line a command?)
+--   A CONVENTION is a habit the gate infers from how people write  (do variables named like this
+--                                                                   usually hold the sync?)
+--
+-- Every exclusion the old gate carries is a convention that failed. Every exclusion this one keeps
+-- is a property nobody can write their way around.
+--
+-- The template keeps no scenario map; labels below are the spec's R-numbers.
+
+-- ---------------------------------------------------------------- external
+
+-- Output, not domain state: text on stderr and a process exit status.
+external entity Refusal {
+    reason: String
+    exit_code: Integer
+}
+
+external entity SyncProcess {
+    script_path: String
+    project_env: String
+    sandbox_env: String
+    argv: List<String>
+    exit_code: Integer
+}
+
+external entity Violation {
+    path: String
+    line_number: Integer
+}
+
+-- The shell a driver calls the helper from. External because it is the caller's process, not the
+-- helper's domain: the helper's obligation is to leave it exactly as it found it.
+external entity Caller {
+    project_env_set: Boolean
+    sandbox_env_set: Boolean
+    cwd: String
+}
+
+-- The gate's own source text. External because the claim is about the FILE — a new driver written
+-- correctly must cost it zero edits — and that is checked by diffing the artifact, not by running
+-- anything.
+external entity GateSource {
+    byte_length: Integer
+    matcher_line_count: Integer          -- measured, not bounded (~250 in the template)
+    edits_per_new_compliant_driver: Integer
+}
+
+-- The interlock H7bm built. Named so this spec can say it is NOT changed, rather than say nothing
+-- and let a reader assume either way.
+external entity SandboxInterlock {
+    refuses_outside_declaration: Boolean
+    refuses_root_declaration: Boolean
+}
+
+config {
+    sandbox_env_name: String = `CLAUDE_TEMPLATE_SYNC_SANDBOX`
+    project_env_name: String = `CLAUDE_PROJECT_DIR`
+
+    -- Distinct from every verdict template-autosync.sh itself returns (0 = yes/clean,
+    -- 1 = no/findings, 2 = cannot answer). A caller must never be able to read "the helper
+    -- refused your arguments" as "the sync answered no": that is a status shaped like success
+    -- for a run that never happened, which the constitution bans inward as well as outward.
+    helper_refusal_exit_code: Integer = 64
+
+    -- The cap, and the measured outcome under it. The cap is the forcing function: it makes a
+    -- fourth entry an argument rather than an edit.
+    max_exclusions: Integer = 4
+    measured_exclusions: Integer = 4
+}
+
+-- ---------------------------------------------------------------- values
+
+value ResolvedPath {
+    literal: String
+    physical: String
+    exists: Boolean
+    is_directory: Boolean
+
+    invariant PhysicalIsAbsolute { this.physical.starts_with(`/`) or not this.exists }
+}
+
+-- What the helper was handed. Every field is checked BEFORE anything starts, which is the whole
+-- reason the validation moved out of the gate and into the helper: the gate could only ask whether
+-- an assignment existed, never what it contained.
+value HelperArguments {
+    project: ResolvedPath
+    sandbox: ResolvedPath?              -- null only on the read-only entry point
+    script: ResolvedPath                -- DRIVE_SYNC_SCRIPT, required: no default (Q21)
+    cwd: ResolvedPath                   -- the directory the sync is started from; defaults to project
+    cwd_before: String                  -- the caller's own cwd, which must survive the call
+    timeout_seconds: Duration?
+    argv: List<String>
+    sandbox_contains_own_repo: Boolean  -- $HOME, /Users, the repo's parent: declared, binds nothing
+
+    project_usable: this.project.exists and this.project.is_directory
+    sandbox_usable: this.sandbox != null
+                    and this.sandbox.physical != ``
+                    and this.sandbox.physical != `/`
+                    and this.sandbox.exists
+                    and this.sandbox.is_directory
+                    and not this.sandbox_contains_own_repo
+    script_usable:  this.script.exists
+
+    -- The read-only entry point is the only place a sandbox may be absent, and it is not
+    -- a promise the caller makes — it is a fact about argv that the helper reads for itself. An
+    -- empty-string sentinel on the ordinary entry point would have been the smaller change and the
+    -- larger hole: a value any caller can pass on any call, including a writing one.
+    claims_cannot_write: this.argv.contains(`--is-core`)
+                         or this.argv.contains(`--list-core-scripts`)
+                         or this.argv.contains(`--list-core-rules`)
+                         or this.argv.contains(`--template-dir`)
+}
+
+-- ---------------------------------------------------------------- entities
+
+-- One place a script reaches the sync from. Before this spec there were 17 of these in 6 files
+-- and each spelled the contract itself; after it there is one shape.
+entity CallSite {
+    path: String
+    line_number: Integer
+
+    -- A PROPERTY of the text, not a convention about it: the token sits where a command word sits,
+    -- and is not inside an open string or heredoc. Both halves are decidable from the file alone.
+    in_command_position: Boolean
+    inside_open_quote: Boolean          -- : the class that cost four exclusions
+
+    names_sync_literally: Boolean       -- the literal `template-autosync.sh`
+    names_sync_by_handle: Boolean       -- a variable whose assigned VALUE ends in -autosync.sh (R9)
+    goes_through_helper: Boolean        -- the call is drive_sync / drive_sync_readonly
+    is_query_segment: Boolean           -- its command segment carries one of the four query modes
+
+    -- The rule, stated once. What the old gate inferred is gone: no context window, no `/` branch,
+    -- no two-half environment check. The handle derivation stays, anchored on values (R9):
+    -- dropping it would make `S=".../template-autosync.sh"; bash "$S"` invisible.
+    -- in_command_position covers all three shapes the lexer accepts: an interpreter just before
+    -- the target, only transparent words before it, or eval / `interpreter -c` anywhere before it.
+    is_invocation: (this.names_sync_literally or this.names_sync_by_handle)
+                   and this.in_command_position
+                   and not this.inside_open_quote
+                   and not this.is_query_segment
+    is_violation: this.is_invocation and not this.goes_through_helper
+}
+
+-- A file in scripts/ as the gate sees it.
+entity Script {
+    path: String
+    sites: Set<CallSite>
+    is_excluded: Boolean
+    exclusion_reason: String? when is_excluded = true
+
+    violations: this.sites where is_violation = true
+    is_driver: this.sites.any(is_invocation = true)
+}
+
+entity SandboxDeclarationGate {
+    scanned: Set<Script>
+    excluded: this.scanned where is_excluded = true
+    violations: this.scanned.flat_map(violations)
+    verdict: pass | fail | cannot_answer
+    starts_the_sync: Boolean
+
+    -- H7bo FR-09. Unchanged from H7bm and restated rather than inherited silently: a gate
+    -- proving the sync cannot escape its sandbox must not become the caller that does.
+    invariant GateIsOffline { this.starts_the_sync = false }
+
+    invariant FailsWhenItFoundSomething { this.violations.count > 0 implies this.verdict = fail }
+    invariant PassesOnlyWhenClean       { this.verdict = pass implies this.violations.count = 0 }
+
+    -- FR-07. The cap is on the artifact, not on a run, so it is an invariant of the gate itself.
+    invariant ExclusionsAreCapped { this.excluded.count <= max_exclusions }
+
+    -- An exclusion with no reason is a grandfather entry, which is how the next script gets
+    -- written the old way and passes anyway. Measured at H7bm: one of six carried a reason that
+    -- was never true, and nobody caught it until the row's own review.
+    invariant EveryExclusionIsArgued {
+        this.excluded.all(exclusion_reason != null and exclusion_reason != ``)
+    }
+}
+
+-- The one path from a self-test to the sync.
+entity HelperInvocation {
+    args: HelperArguments
+    entry: writing | read_only
+    phase: called | refused | running | finished
+
+    transitions phase {
+        called  -> refused              -- argument validation said no
+        called  -> running              -- validation passed; the sync starts
+        running -> finished
+        terminal: refused, finished
+    }
+
+    started_anything: this.phase in {running, finished}
+}
+
+-- ---------------------------------------------------------------- rules
+
+-- H7bo FR-02. Validation happens BEFORE the first process, not around it. The old
+-- design could only ask whether an assignment was present; presence was satisfied by
+-- `CLAUDE_TEMPLATE_SYNC_SANDBOX=/`, which declares the filesystem root and constrains nothing —
+-- the tool certifying the bypass. Here the same question is asked once, of a value.
+rule ValidateBeforeStarting {
+    when: call: HelperInvocation.phase transitions_to called
+    ensures:
+        if call.entry = writing and not (call.args.project_usable
+                                         and call.args.sandbox_usable
+                                         and call.args.script_usable):
+            call.phase = refused
+        if call.entry = read_only and not (call.args.project_usable
+                                           and call.args.script_usable
+                                           and call.args.claims_cannot_write):
+            call.phase = refused
+}
+
+-- The refusal must not be mistakable for a verdict. Without a distinct code, a broken
+-- fixture reads as a green suite: the assertion below never ran, and nothing said so.
+rule RefusalIsDistinguishable {
+    when: call: HelperInvocation.phase transitions_to refused
+    ensures:
+        call.started_anything = false
+        Refusal.created(reason: `named`, exit_code: helper_refusal_exit_code)
+}
+
+-- The distinctness itself, as a fact about the constant rather than about a run: 64 is not 0, 1 or
+-- 2, which are every verdict template-autosync.sh returns. Written here because a reader asking
+-- "can a refusal be mistaken for a verdict" needs the three forbidden values in front of them, and
+-- a config default alone does not say what it is avoiding.
+invariant RefusalCodeIsNotAVerdict {
+    helper_refusal_exit_code != 0
+    helper_refusal_exit_code != 1
+    helper_refusal_exit_code != 2
+}
+
+-- H7bo FR-01. The helper's positive obligation. Both halves are set from the two positional
+-- arguments — they cannot be omitted, because omitting one is an arity error rather than a
+-- forgotten habit. That is the whole difference from 17 hand-spelled prefixes.
+rule DriveSyncSetsBothHalves {
+    when: call: HelperInvocation.phase transitions_to running
+    requires: call.entry = writing
+    ensures:
+        SyncProcess.created(
+            script_path: call.args.script.physical,
+            project_env: call.args.project.physical,
+            sandbox_env: call.args.sandbox.physical,
+            argv: call.args.argv)
+}
+
+-- The read-only entry point runs with no sandbox, and may do so only because the mode it
+-- carries returns above the project-root resolution — it never resolves a root, so it cannot
+-- write, so there is nothing for a declaration to constrain. The exemption is a checked property.
+rule ReadOnlyEntryNeedsNoSandbox {
+    when: call: HelperInvocation.phase transitions_to running
+    requires: call.entry = read_only
+    ensures:
+        call.args.claims_cannot_write = true
+        SyncProcess.created(
+            script_path: call.args.script.physical,
+            project_env: call.args.project.physical,
+            sandbox_env: ``,
+            argv: call.args.argv)
+}
+
+-- H7bo FR-01. The helper runs in a subshell. A helper that leaked either half would poison the
+-- next assertion in the same file rather than fail — quieter than a crash, and the failure mode a
+-- centralized helper would otherwise introduce that 17 separate prefixes never had.
+rule CallerShellIsUnchanged {
+    when: call: HelperInvocation.phase transitions_to finished
+    ensures:
+        Caller.project_env_set = false
+        Caller.sandbox_env_set = false
+        Caller.cwd = call.args.cwd_before
+}
+
+-- H7bo FR-06. The gate's entire rule.
+rule OnlyTheHelperMayRunTheSync {
+    when: gate: SandboxDeclarationGate.verdict transitions_to fail
+    ensures:
+        for site in gate.scanned.flat_map(sites) where site.is_violation:
+            Violation.created(path: site.path, line_number: site.line_number)
+        if gate.violations.count > 0:
+            gate.verdict = fail
+}
+
+-- The false-positive class, closed as a property. Four of the old gate's six exclusions
+-- were files that QUOTE the sync command inside a message or help string; the detector required
+-- command-word position and skipped comments, and a quoted command satisfies both. Solving that
+-- with four more list entries is exactly what this row exists to undo.
+rule AQuotedCommandIsNotACommand {
+    when: site: CallSite.evaluated
+    requires: site.inside_open_quote = true
+    ensures: site.is_invocation = false
+}
+
+-- H7bo FR-08. The preservation obligation, stated as a rule so it is checkable rather than
+-- hoped for. This is a maintainability row rewriting a security interlock; the risk is not that it
+-- breaks loudly but that it gets simpler and quietly stops catching something.
+rule EveryOldCapabilitySurvives {
+    when: gate: SandboxDeclarationGate.verdict transitions_to pass
+    ensures:
+        gate.catches(`undeclared driver`)           
+        gate.catches(`exec form`)                   
+        gate.catches(`backtick form`)               
+        gate.rejects_as_driver(`prose`)             
+        SandboxInterlock.refuses_root_declaration = true      -- also refused in the helper, by value
+        SandboxInterlock.refuses_outside_declaration = true   -- untouched
+}
+
+-- FR-05. The constraint that shapes the design. template-autosync.sh is CORE; a CORE file sourcing
+-- a project-local script makes that script an [unlisted] dependency by the sync's own detector. So
+-- the helper serves the CALLERS and never the sync — which is also why the helper cannot be the
+-- place the interlock lives.
+invariant TheSyncDoesNotSourceTheHelper {
+    not Script(`scripts/template-autosync.sh`).sources(`drive_sync`)
+}
+
+-- H7bo FR-10. The property that makes the row worth doing: a new driver written correctly
+-- costs zero edits to the gate. Today every new invocation form is a regex amendment plus a
+-- harness arm, and each amendment risks the false-positive class that already cost four entries.
+invariant ANewDriverCostsTheGateNothing {
+    -- A driver whose every call site goes through the helper is already described by
+    -- OnlyTheHelperMayRunTheSync, so the gate needs no knowledge of it: a new compliant driver costs
+    -- ZERO edits to the gate's source (asserted by the harness, AC-05). consultpilot stated this as
+    -- `matcher_line_count <= 10`, which was a proxy and was wrong twice: its matcher grew 43 -> 60
+    -- lines, and this template's lexer is ~250, because a correct model of shell quoting costs more
+    -- than a heuristic. The size is a measurement, not the property (drift decided 2026-09-29).
+    GateSource.edits_per_new_compliant_driver = 0
+}
+
+-- ---------------------------------------------------------------- open questions and bounds
+
+-- BOUND, stated rather than implied. The helper validates that its script argument exists and is
+-- readable, and NOTHING about its content. Checking "is this really the sync" is impossible and
+-- would be theatre: the era and sabotaged copies in test-template-autosync-unlisted.sh exist
+-- precisely because they are not the current sync. The helper guarantees WHERE a run may write,
+-- not WHAT runs.
+
+-- BOUND, carried forward from H7bm and reduced rather than closed. A file that copies the sync to
+-- a name the gate does not recognise and runs the copy through a variable is still invisible to
+-- the gate. What changes is the size of the surface: the old gate needed the copy's NAME to end in
+-- `-autosync.sh` to see it at all, whereas here the copy is passed to the helper as an argument,
+-- so the ordinary way of doing it is visible. This is threat T2 in spec.md and it is the row's one
+-- deliberate remaining blind spot.
+
+-- Resolved 2026-09-29 (developer: dismiss): "Should the gate also require that a driver SOURCES the
+--   helper, as a positive check?" No. The harness census (AC-57) asserts it for the six drivers,
+--   and a positive rule over every file would fire on the production callers that legitimately do
+--   not source it, reintroducing exclusions.

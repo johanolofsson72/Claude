@@ -27,6 +27,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 SCRIPT="$PWD/scripts/template-autosync.sh"
 [ -f "$SCRIPT" ] || { echo "FAIL: template-autosync.sh not found"; exit 1; }
+. "$PWD/scripts/drive-sync.sh"                 # the only way to the sync (spec 011)
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -90,7 +91,11 @@ bump() { printf 'v2\n' >> "$1/.claude/rules/allium.md"; git -C "$1" add -A; git 
 # the whole point of AC-02 and AC-03.
 sync_from() {  # sync_from <cwd> <project> <template> [args...]
   _c="$1"; _p="$2"; _t="$3"; shift 3
-  ( cd "$_c" && CLAUDE_PROJECT_DIR="$_p" CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" CLAUDE_TEMPLATE_DIR="$_t" bash "$_p/scripts/template-autosync.sh" "$@" 2>&1 )
+  # DRIVE_SYNC_CWD is the one mechanism for "run it from somewhere else", which is exactly what
+  # AC-02 and AC-03 are about; DRIVE_SYNC_SCRIPT picks the fixture's OWN copy of the sync, not the
+  # repo's. Both are env, so the call shape stays the same as every other driver's. Spec 011.
+  CLAUDE_TEMPLATE_DIR="$_t" DRIVE_SYNC_CWD="$_c" DRIVE_SYNC_SCRIPT="$_p/scripts/template-autosync.sh" \
+    drive_sync "$_p" "$TMP" "$@" 2>&1
 }
 sync() { _p="$1"; _t="$2"; shift 2; sync_from "$_p" "$_p" "$_t" "$@"; }
 
@@ -199,8 +204,8 @@ for tool in shasum sha256sum; do
   printf '#!/bin/sh\necho x >> "%s"\nexec "%s" "$@"\n' "$COUNT" "$real" > "$SHIM/$tool"
   chmod +x "$SHIM/$tool"
 done
-( cd "$TMP" && PATH="$SHIM:$PATH" CLAUDE_PROJECT_DIR="$P" CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" CLAUDE_TEMPLATE_DIR="$T" \
-    bash "$P/scripts/template-autosync.sh" >/dev/null 2>&1 )
+( PATH="$SHIM:$PATH" CLAUDE_TEMPLATE_DIR="$T" DRIVE_SYNC_CWD="$TMP" \
+    DRIVE_SYNC_SCRIPT="$P/scripts/template-autosync.sh" drive_sync "$P" "$TMP" >/dev/null 2>&1 )
 N=$(grep -c . "$COUNT" 2>/dev/null || echo 0)
 same "exactly one hash process" "$N" "1"
 

@@ -24,6 +24,7 @@ set -u
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 HOOK="$SELF_DIR/core-owed-tick-guard-hook.sh"
 SYNC="$SELF_DIR/template-autosync.sh"
+. "$SELF_DIR/drive-sync.sh"                    # the only way to the sync (spec 011)
 BASHGUARD="$SELF_DIR/bash-write-guard-hook.sh"
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok    %s\n' "$*"; }
@@ -333,10 +334,11 @@ printf '\n[detector] --owed and --unlisted answer for machines\n'
 # .claude/ answers "[skip] no .claude/" — i.e. about the other repository. These modes write
 # nothing, so the failure was never a damaged repo; it was four assertions below quietly answering
 # about the wrong one, which is the direction nobody notices. Spec 010 (consultpilot H7bm).
-# $TO lets the bounded callers below reuse this instead of re-pasting the env prefix a third time;
-# `timeout` has to sit between the environment and `bash`, which is why it is a variable here.
+# drive_sync owns the naming, the declaration, the cwd and the timeout, so this wrapper is now just
+# "which project, which sandbox" — $TO carries SECONDS rather than a command prefix, because
+# `timeout` no longer has to be pasted between the environment and `bash`. Spec 011.
 run_sync() { _p="$1"; shift
-  ( cd "$_p" && CLAUDE_PROJECT_DIR="$_p" CLAUDE_TEMPLATE_SYNC_SANDBOX="$WORK" ${TO:-} bash "$SYNC" "$@" ); }
+  DRIVE_SYNC_SCRIPT="$SYNC" DRIVE_SYNC_TIMEOUT="${TO:-}" drive_sync "$_p" "$WORK" "$@"; }
 rc_of() { run_sync "$@" >/dev/null 2>&1; }
 
 rc_of "$CLEAN" --owed;     [ $? -eq 1 ] && ok "--owed exits 1 on a clean tree"     || bad "--owed did not exit 1 on a clean tree"
@@ -352,11 +354,13 @@ case "$OUT" in *"scenario-map-probe.sh"*"feature-pipeline.md"*)
   *) bad "  the finding does not carry its referrer"; info "$OUT" ;; esac
 
 # Neither query may touch the network: this runs in front of an Edit.
-if command -v timeout >/dev/null 2>&1; then
-  ( TO="timeout 5"; rc_of "$CLEAN" --unlisted ); RC=$?
+# The same test drive_sync makes: on a Mac with only coreutils' gtimeout the helper can still bound
+# the run, and a guard asking for `timeout` alone skipped both assertions without a word.
+if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; then
+  ( TO=5; rc_of "$CLEAN" --unlisted ); RC=$?
   [ "$RC" -ne 124 ] && ok "--unlisted answers well inside 5 s (no template resolution)" \
                     || bad "--unlisted timed out — it is resolving the template"
-  ( TO="timeout 5"; rc_of "$CLEAN" --owed ); RC=$?
+  ( TO=5; rc_of "$CLEAN" --owed ); RC=$?
   [ "$RC" -ne 124 ] && ok "--owed answers well inside 5 s (no template resolution)" \
                     || bad "--owed timed out — it is resolving the template"
 fi

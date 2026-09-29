@@ -25,7 +25,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 009 — held-rows-have-no-archive — spec-only — the archiver told you to write a pending entry by hand and nobody did, so rocky ran 47 over-budget open rows. `--write-pending` makes the advice executable; rocky 131→39 KB. Detalj: specs/INDEX.completed.md
 
 - [x] 010 — autosync-test-writes-to-the-repo-it-tests — full track [hardened] — consultpilot H7bm never landed. template-autosync.sh now refuses to write outside a declared CLAUDE_TEMPLATE_SYNC_SANDBOX; six drivers declare, a gate checks them.
-- [ ] 011 — twenty-hand-written-sync-invocations — full track — the sync path is invoked twenty different ways by hand across the scripts, which forces each gate to be cleverer than it should need to be. Found as consultpilot H7bo.
+- [x] 011 — twenty-hand-written-sync-invocations — full track [hardened] — 19 hand-spelled sync calls in 6 drivers now go through one helper, `drive_sync`; the gate is a shell lexer with one rule, 4 argued exclusions, 27/27 sabotage arms. From consultpilot H7bo.
 - [ ] 012 — core-file-comments-hold-real-scenario-ids — spec-only — a CORE file's comments cite real SC-ids as examples, so the traceability gate counts them as references and a deleted row looks covered. Found as consultpilot H7bp.
 - [ ] 014 — autosync-adds-gates-no-runner-registers — spec-only — a sync that ships new `test-*.sh` scripts leaves every project's `run-gates.sh` reporting DRIFT until someone adds them to GATES by hand. Found as consultpilot H7av.
 - [x] 015 — sigpipe-validator-scans-only-self-tests — spec-only — `--all` scans every script, `--strict` fails on them; the default population and its meta-test are unchanged. The gate was already RED here on 7 of its own self-tests, now fixed. Detalj: specs/INDEX.completed.md
@@ -39,7 +39,6 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [ ] 023 — secret-scan-misses-signing-material — full track [hardened] — two repos commit an ASP.NET Data Protection key and `project-freshness.sh` reports "no verified secrets" on both. trufflehog matches verifiable credentials; a signing key is none. Needs a file-shape arm.
 - [ ] 024 — sigpipe-backlog-in-production-scripts — spec-only — `validate-no-sigpipe-assertions.sh --all` reports 54 pipelines outside the self-tests. Mostly diagnostics where 141 costs nothing. One at a time: a bulk pass turned msroute's suite red (M2). Evidence: `specs/INDEX.pending.md`
 - [x] 025 — speckit-check-fired-on-the-template — spec-only — the pass told this config repo to install spec-kit once it grew a register; now gated on a language marker, the predicate every other guard uses. Third not-applicable case today.
-- [ ] 026 — port-drive-sync-and-its-gate-upstream — full track — consultpilot authored H7bo (a `drive_sync` helper + `validate-sync-sandbox-declarations.sh`) after the 2026-08-30 incident; neither exists here, so its gate is red downstream on 17 CORE call sites it cannot fix. Diagnos: `specs/INDEX.pending.md`
 - [ ] 027 — zero-attributions-reports-clean — spec-only — `carve_audit.py` prints "clean" and exits 0 when `len(parent)` is 0, so a register that never attributed a carve reads like a flat one. §4b says that count *is* the finding. Diagnos: `specs/INDEX.pending.md`
 - [x] 028 — traceability-roots-declaration — spec-only — the gate discovered top-level test dirs only, so a project with suites under `src/` was under-reported. Projects may now declare roots in `specs/traceability-roots`. Verbatim in `INDEX.completed.md`.
 - [ ] 029 — pretooluse-deny-is-inert-under-bypass-permissions — full track [hardened] — five guards deny correctly when asked and the identical live `Edit` passes; the PostToolUse shell detector still bites, so the teeth are on the path the rules do not name. Diagnos: `specs/INDEX.pending.md`
@@ -92,27 +91,8 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 
 ## Register history (newest first)
 
+- 2026-09-29 — 026 deleted: same scope as 011 (port drive_sync + its gate, convert the CORE drivers), which landed it. Developer decision at 011's interview.
 - 2026-09-29 — convergence stop answered: FREEZE until open rows < 40. 077 added at the developer's request so proposals carry evidence of need.
 - 2026-09-29 — 076 filed from consultpilot Q2 (H7ai): the 97 branch consultpilot carried was reverted by two syncs because it never lived upstream.
 - 2026-09-29 — 074, 075 added at the developer's request (not carves): measure maintenance, then place jobs local vs cloud after five specs.
 - 2026-09-28 — 073 added at the developer's request: pipeline refresh + rollout (consolidated; folds 037, 022).
-- 2026-09-28 — 071, 072 filed from teach H3 findings review (F007, F061).
-- 2026-09-25 — 054-064 filed from agentcrm's T0 pass (two findings reviews, 2026-09-19 and H5 2026-09-23); 055-057 fixed in the same pass, 064 found while running the suite.
-- 2026-09-25 — 053 filed from msroute F007; msroute F008 (autosync printf SIGPIPE) added as evidence to 024 (carve-budget §4).
-- 2026-09-18 — 052 filed from ighweld-2026's second findings review; the rest of its tooling findings were already rows 047, 049 and 050.
-- 2026-09-18 — 051 filed from emaljen's H3 findings review (F027, carve-budget §4).
-- 2026-09-16 — 047-050 filed from ighweld-2026's first findings review (carve-budget §4); F003/F059/F085 closed there instead, already fixed by 028.
-
-- 2026-09-12 — 046 carved: hook output channels are inverted — advisories shout at the developer, model context is silently dropped.
-- 2026-09-11 — 045 landed from rocky F041/F042/F044/F045: the unlisted predicate denied a tick no action could clear, and 043's CORE half is corrected on the row.
-- 2026-09-07 — 040-041 filed from the same T0 pass: the ignore set never reaches a project, and a rule ten files cite was never written.
-- 2026-09-07 — 037-039 filed from hetznerradar's T0: the three defects its bootstrap hit (carve-budget §4).
-- 2026-09-07 — 036 fixed in place from ighweld-2026 180: the tally alternation learns `✓ int`, longest-first.
-- 2026-09-05 — 032-035 filed from fundit's findings review (carve-budget §4: a harness defect belongs here, not on a product register)
-
-- 2026-09-04 — 028 ur ighweld 173: traceability-gaten läste bara toppnivå-testkataloger; projekt får nu deklarera sina roots.
-- 2026-09-04 — 027 ur agentcrm: `--carves` kallade ett register clean vars djup-3-kedja just spårats för hand. Regeln säger att noll attributioner *är* fyndet; skriptet exitar 0 och `project-maintenance.sh` ser grönt.
-
-- 2026-09-03 — 006 corrected on measurement: the bare skill name resolves to the plugin cache, so the rename half is refuted; what stands is that nothing checks the plugin is installed.
-- 2026-09-03 — 021 + 022 filed from an msroute `/project-update`; the two orphaned CORE-adjacent improvements landed here in the same pass.
-- 2026-09-03 — register created; harness defects move here off the product registers, per the carve budget.

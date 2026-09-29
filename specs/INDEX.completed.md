@@ -315,3 +315,7 @@ project's specs/FINDINGS.md, where the 5-spec review decides it. See specs/008-s
 ## 010 — autosync-test-writes-to-the-repo-it-tests
 
 - [x] 010 — autosync-test-writes-to-the-repo-it-tests — full track [hardened] — `test-template-autosync-*.sh` writes into the working repo instead of a fixture, so a failing run can leave the tree dirty. Found by @johan as consultpilot H7bm.
+
+## 011 — twenty-hand-written-sync-invocations
+
+- [x] 011 — twenty-hand-written-sync-invocations — full track [hardened] — 19 hand-spelled sync calls in 6 drivers now go through one helper, `drive_sync`; the gate is a shell lexer with one rule, 4 argued exclusions, 27/27 sabotage arms. From consultpilot H7bo.
