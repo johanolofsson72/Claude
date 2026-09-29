@@ -2,6 +2,18 @@
 
 Rows verbatim as they read at tick time. Never pipeline input.
 
+## 034 — freshness-reports-seven-bogus-lockfile-skips
+
+Ticked 2026-09-29 without new code. Commit 774a909 (2026-09-09), four days after the row was filed, had already landed the fix.
+
+- [x] 034 — freshness-reports-seven-bogus-lockfile-skips — spec-only — already fixed by 774a909: a workspaces member is reported as covered by its root's audit. fundit now shows 0 SKIPs over 15 members. Verbatim in `INDEX.completed.md`.
+
+**Verified 2026-09-29.** `scripts/project-freshness.sh:655-686` walks up from a lockfile-less manifest to the nearest `package.json` that declares `"workspaces"` and has a lockfile, and reports the member as `[OK] npm workspaces member — covered by the audit of <root>`. On fundit, `--deps --no-install` prints 15 such lines under `src/web` and zero `[SKIP] No lockfile`. `test-project-freshness.sh` passes 146/146. C10 pins the member case, and its sabotage arm keeps a real lockfile-less package reported as a SKIP.
+
+**Original row:**
+
+- [ ] 034 — freshness-reports-seven-bogus-lockfile-skips — spec-only — project-freshness.sh prints `[SKIP] No lockfile` per npm workspace package; in a workspace only the root has one and it covers them, so seven noise lines sit where a real skip would hide. Reported by fundit F003.
+
 ## 030 — unlisted-fires-forever-on-an-optional-callee
 
 Ticked 2026-09-29 without new code. Spec 045 (a4fe4ca, 2026-09-11) had already landed the fix, as F042.

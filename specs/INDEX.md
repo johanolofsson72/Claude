@@ -46,7 +46,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 031 — dotnet-test-prints-passed-over-an-aborted-run — spec-only — `Passed!` over an aborted run fooled 3 call sites; scripts/run-verdict.sh reads the abort line first. Diagnosis: `specs/INDEX.completed.md`
 - [x] 032 — spec-dir-absent-leaves-both-guards-inert — spec-only — found:false was never the hole (both guards deny it); 016a passed via a dropped pre-046 deny and .html/.css outside SOURCE_EXTS, now guarded. Long form: `specs/INDEX.completed.md`
 - [x] 033 — portability-check-fails-open-and-says-nothing — spec-only — section 6c now reports a missing portability script as [SETUP] and a run that could not run as a finding, never clean. Long form: `specs/INDEX.completed.md`
-- [ ] 034 — freshness-reports-seven-bogus-lockfile-skips — spec-only — project-freshness.sh prints `[SKIP] No lockfile` per npm workspace package; in a workspace only the root has one and it covers them, so seven noise lines sit where a real skip would hide. Reported by fundit F003.
+- [x] 034 — freshness-reports-seven-bogus-lockfile-skips — spec-only — already fixed by 774a909: a workspaces member is reported as covered by its root's audit. fundit now shows 0 SKIPs over 15 members. Verbatim in `INDEX.completed.md`.
 - [ ] 035 — a11y-suite-runs-at-one-viewport-only — spec-only — the shared a11y/visual template asserts at the default 1280px, so a horizontal-overflow defect shipped in fundit spec 001 and survived until spec 004 measured 375px by hand. A viewport dimension belongs in the shared suite, not per spec. Reported by fundit F024.
 - [x] 036 — index-tally-cannot-express-a-decorated-status — spec-only — the split index's tally regex knew `✓ *` but not `✓ int`, so a map documenting its own integration-layer status could not be indexed at all: every index it could be given claimed `✓` where the file held `✓ int`. Found by ighweld-2026 spec 180.
 - [x] 037 — sync-copies-nothing-under-zsh — spec-only — Step 5c iterates `for s in $CORE_SCRIPTS_LIST`; zsh does not word-split, so 105 names became one filename, 0 scripts were copied, and it reported `[OK] 0 core enforcement script(s) mirrored`. Diagnos: `specs/INDEX.pending.md`
@@ -91,8 +91,8 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 
 ## Register history (newest first)
 
+- 2026-09-29 — 034 ticked without new code: 774a909 (2026-09-09) had already fixed it. fundit's deps pass shows 0 bogus SKIPs.
 - 2026-09-29 — 030 ticked without new code: 045 had already landed the fix. --unlisted is clean on rocky and all 46 repos.
 - 2026-09-29 — 029 re-diagnosed: the permission mode was never the cause (live A/B); re-tracked spec-only [hardened]. F029 recorded.
 - 2026-09-29 — 020 held: Ollama is disabled machine-wide since 2026-09-06, so the hooks it re-measures are no-ops; resumes on a machine that runs a local model.
 - 2026-09-29 — 075 held: ledger spans 0 of 5 specs and has no Stryker/suite run anywhere; resumes when `maintenance_ledger.py report --all` clears 5.
-- 2026-09-29 — 026 deleted: same scope as 011 (port drive_sync + its gate, convert the CORE drivers), which landed it. Developer decision at 011's interview.
