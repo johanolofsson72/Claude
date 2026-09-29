@@ -820,6 +820,16 @@ $(printf '%s' "$CARVE_OUT" | sed -n 1,12p)
   Section 2 caps a spec at 2 carves; section 3 says there is no depth 3. Both were unmeasured until
   now, so these are pre-existing. Fold the excess into one consolidated row, or decide otherwise —
   but decide, rather than letting the tree keep growing."
+  elif [ "$CARVE_RC" -eq 3 ]; then
+    # No row names its parent, so the two limits were never measured -- which is not the same as
+    # respected (row 027: agentcrm read "clean" over a depth-3 chain).
+    add "[CARVE SHAPE] unmeasurable — no row in specs/INDEX.md says which spec carved it:
+$(printf '%s' "$CARVE_OUT" | sed -n 1,12p)
+  Budget (section 2) and depth (section 3) are unknown, not respected. Write 'carved by <id>' on the
+  rows a spec carved, starting with the newest."
+  elif [ "$CARVE_RC" -ne 0 ]; then
+    add "[CARVE SHAPE] scripts/register-convergence.sh --carves could not run (exit $CARVE_RC):
+$(printf '%s' "$CARVE_OUT" | sed -n 1,3p)"
   fi
 fi
 

@@ -32,7 +32,7 @@ A defect in `.claude/**`, `scripts/**`, a hook, guard or skill goes to the **tem
 
 ### 4b. All three limits are measured
 
-`bash scripts/register-convergence.sh --carves` measures carves per spec and depth. Depth is **derived from the attribution**, never trusted from a marker. `carved by <id>` is canonical; `found by`, `opened by`, `from` are accepted. A row citing a missing parent is **reported, never dropped**. `scripts/project-maintenance.sh` reports it as a finding, never fails a build on it.
+`bash scripts/register-convergence.sh --carves` measures carves per spec and depth. Depth is **derived from the attribution**, never trusted from a marker. `carved by <id>` is canonical; `found by`, `opened by`, `from` are accepted. A row citing a missing parent is **reported, never dropped**. No resolved attribution over 10+ ticked rows is **unmeasurable** (exit 3), never "clean". `scripts/project-maintenance.sh` reports it as a finding, never fails a build on it.
 
 ### 5. The register reports its own convergence
 

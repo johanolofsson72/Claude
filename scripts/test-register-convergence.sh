@@ -140,5 +140,33 @@ Freeze: someday
 
 $ROWS"
 
+# --carves (row 027): zero attributions is not "clean". The verdict and the exit code must say what
+# was measured, because project-maintenance.sh branches on the code and lane-catchup.sh on the words.
+cv() { # cv <label> <expected rc> <want substring> <reject substring> <register body>
+  d="$TMP/cv-$RANDOM"; mkdir -p "$d/specs" "$d/scripts"
+  cp "$SUT" "$SCRIPT_DIR/carve_audit.py" "$d/scripts/"
+  printf '%s\n' "$5" > "$d/specs/INDEX.md"
+  out=$(cd "$d" && bash scripts/register-convergence.sh --carves 2>&1); rc=$?
+  if [ "$rc" != "$2" ]; then echo "  FAIL  --carves $1 -> rc$rc (want $2)"; FAIL=$((FAIL+1)); return; fi
+  case "$out" in *"$3"*) ;; *) echo "  FAIL  --carves $1 lacks '$3'"; FAIL=$((FAIL+1)); return ;; esac
+  case "$out" in *"$4"*) echo "  FAIL  --carves $1 carries '$4'"; FAIL=$((FAIL+1)); return ;; esac
+  echo "  PASS  --carves $1 -> rc$rc"; PASS=$((PASS+1))
+}
+cvrows() { # cvrows <ticked> <open> -- unattributed rows 001.., ticked first
+  i=1; while [ "$i" -le "$(( $1 + $2 ))" ]; do
+    [ "$i" -le "$1" ] && m=x || m=' '
+    echo "- [$m] $(printf '%03d' $i) — s$i — spec-only — goal"; i=$((i+1)); done
+}
+cv "attributed, within limits" 0 "carve shape: clean — 1 attributed" "unmeasurable" "$(cvrows 12 0)
+- [ ] 013 — c — spec-only — goal — carved by 001"
+cv "over budget"               1 "[CARVE BUDGET]" "carve shape: clean" "$(cvrows 12 0)
+- [ ] 013 — a — carved by 001
+- [ ] 014 — b — carved by 001
+- [ ] 015 — c — carved by 001"
+cv "none attributed, 10+ ticked" 3 "carve shape: unmeasurable — 0 attributed row(s) of 12 (10 ticked)" "clean" "$(cvrows 10 2)"
+cv "none attributed, young"    0 "too young to measure" "clean" "$(cvrows 9 5)"
+cv "only unresolved, 10+ ticked" 3 "1 cite a row this register does not hold" "clean" "$(cvrows 10 0)
+- [ ] 011 — a — carved by 999"
+
 echo "register-convergence: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

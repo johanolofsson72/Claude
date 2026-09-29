@@ -19,6 +19,7 @@
 #
 # Usage:
 #   bash scripts/register-convergence.sh [--dir DIR] [--window N] [--json] [--quiet]
+#   bash scripts/register-convergence.sh --carves   # carve budget + depth from attributions (carve_audit.py)
 #   bash scripts/register-convergence.sh --freeze   # is the register frozen? (register_freeze.py, row 077)
 #
 #   --window N   trailing window in ticked rows (default 10; the rule's threshold
@@ -27,6 +28,7 @@
 #   --quiet      print only when the verdict is flat or diverging
 #
 # Exit: 0 converging · 1 flat · 2 diverging · 3 not enough history · 4 usage/no register
+# --carves exit: 0 clean or too young · 1 over budget/depth · 3 unmeasurable (no attributions) · 4 no register/engine
 # --freeze exit: 0 frozen+clean · 1 off · 2 unapproved rows · 3 can lift · 4 malformed/error · 5 cannot evaluate
 
 set -uo pipefail
@@ -52,7 +54,7 @@ while [ $# -gt 0 ]; do
     --carves) CARVES=1; shift ;;
     --freeze) FREEZE=1; shift ;;
     --quiet) QUIET=1; shift ;;
-    -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR>1 && !/^#/ {exit} NR>1' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "register-convergence.sh: unknown argument '$1'" >&2; exit 4 ;;
   esac
 done
