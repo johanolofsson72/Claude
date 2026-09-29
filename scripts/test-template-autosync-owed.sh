@@ -218,6 +218,36 @@ has "headline"  "$OUT" "[owed] this sync found CORE file(s) differing from the b
 has "contract"  "$OUT" "CORE is overwritten unconditionally — a change that lives only here does not"
 has "remedy"    "$OUT" "Land it in the template, push, then sync."
 
+echo "== AC-13: a locally edited doc or skill is [manual]'s, not owed (spec 021) =="
+# The boundary, pinned from both sides. Docs and skills are manifest-protected — kept, not
+# overwritten — so they are not owed; [manual] is where they are named. A change that widens
+# core_divergence to them turns the first two assertions red; one that drops them from [manual]
+# turns the last two red. The doc is a RULE_DOCS name because a project only receives docs on
+# that list, and a doc the project never received cannot diverge.
+DOC=".claude/docs/supply-chain.md"
+SKILL=".claude/skills/demo/SKILL.md"
+build ac13 project
+mkdir -p "$T/.claude/docs" "$T/.claude/skills/demo"
+printf 'supply chain v1\n' > "$T/$DOC"
+printf 'demo skill v1\n'   > "$T/$SKILL"
+git -C "$T" add -A; git -C "$T" commit -qm "ship a doc and a skill"
+sync "$P" "$T" --quiet >/dev/null 2>&1
+git -C "$P" add -A >/dev/null 2>&1; git -C "$P" commit -qm "received" >/dev/null 2>&1
+if [ -f "$P/$DOC" ] && [ -f "$P/$SKILL" ]; then ok "fixture: project received both"
+else bad "fixture: project received both (doc/skill not shipped — AC-13 would test nothing)"; fi
+printf 'project-specific notes\n' >> "$P/$DOC"
+printf 'project-specific notes\n' >> "$P/$SKILL"
+git -C "$P" add -A >/dev/null 2>&1; git -C "$P" commit -qm "local doc + skill work" >/dev/null 2>&1
+OUT=$(sync "$P" "$T" --owed); RC=$?
+same  "--owed answers 'none'"          "$RC" "1"
+hasnt "…and names neither path"        "$OUT" ".claude/"
+bump "$T"
+OUT=$(sync "$P" "$T")
+has   "[manual] block present"         "$OUT" "[manual]"
+has   "…names the doc"                 "$OUT" "         $DOC — merge with /project-update"
+has   "…names the skill"               "$OUT" "         $SKILL — merge with /project-update"
+hasnt "…and [owed] stays silent"       "$OUT" "[owed]"
+
 echo
 echo "passed: $PASS  failed: $FAIL"
 [ "$FAIL" -eq 0 ]

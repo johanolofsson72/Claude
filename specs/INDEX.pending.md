@@ -74,36 +74,6 @@ _2026-09-03: folded into row 007 — one script, three defects. Row as it stood:
 
 - [ ] 016 — traceability-gate-floor-and-letter-ids — spec-only — the out-of-range floor is the map's lowest id, useless on a map starting at SC-001 (11 ids misfiled), and the gate cannot see letter ids, so nine `SC-A11` audits trace to nothing. Found as msroute 007cp + 007cw.
 
-## 021
-
-- [ ] 021 — core-set-excludes-docs-and-skills — spec-only — found on msroute during `/project-update`, 2026-09-03.
-
-`core_divergence()` builds its candidate set from `CORE_SCRIPTS` (prefixed `scripts/`) and
-`CORE_RULES` (prefixed `.claude/rules/`). Nothing else is asked about. So a project-authored
-change to a template-owned file under `.claude/docs/` or `.claude/skills/` is not
-under-reported — it is absent from the question, the same structural shape the `[unlisted]`
-block already names for scripts the template has never shipped.
-
-Measured on msroute, which reported `--owed` empty and `--unlisted` empty while carrying two:
-
-- `.claude/docs/conventions.md` — an OOM-catch convention with `OomCatchConventionTests`
-  behind it (msroute 007bm).
-- `.claude/skills/allium/SKILL.md` — `exposes: a, b` comma lists are rejected by allium-cli,
-  measured 2026-09-02.
-
-Both hash-differ from `.claude/.template-sync`, so by the rule's own definition of owed they
-are owed. `core-owed-tick-guard-hook.sh` consults `--owed`, is told nothing, and allows the
-tick — which is precisely the 007bl failure the gate was built to stop, reached by a route
-018 did not close. 018 found the tick gate's TEST was broken (GNU `sed` on BSD); this is the
-detector's SCOPE, and the two are independent.
-
-Note before choosing a fix: these two directories are not overwritten unconditionally the way
-CORE is. The manifest-hash rule preserves a locally edited doc or skill rather than
-reverting it. So the loss here is not destroyed work, it is work that never propagates: it
-stays in the one project that wrote it and the other five never see it. That is a weaker
-failure than 007bl's and it argues for reporting rather than for widening CORE, which would
-change overwrite semantics for two whole directories as a side effect.
-
 ## 022
 
 - [ ] 022 — sync-version-marker-abandoned — spec-only — found on msroute during `/project-update`, 2026-09-03.

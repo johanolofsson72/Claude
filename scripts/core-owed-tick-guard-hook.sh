@@ -28,6 +28,12 @@
 #               anything — 007bl's nine new scripts were not under-reported, they were absent from
 #               the question.
 #
+# Deliberately NOT a family: docs and skills (spec 021). They are manifest-protected, so a local edit
+# is kept rather than overwritten, and the sync's [manual] block already names each one with its two
+# remedies. Measured 2026-09-29 across 45 projects: 4 such files, none purely owed upstream (a
+# project's own deployment notes, mostly). Gating the tick on them would be wrong at least 3 times
+# in 4, which is the precision 007au rejected. So "nothing owed" here means nothing CORE.
+#
 # Both answers come from template-autosync.sh, asked rather than copied. A second list of CORE names
 # here would drift from the first the moment either changed, and a stale list is authoritative-
 # looking silence over exactly the new file nobody has habits about yet.

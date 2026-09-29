@@ -1,0 +1,2 @@
+- 2026-09-29 — specify+interview(18 auto)+clarify: premise half-true; [manual] already reports docs/skills; gate rejected on fleet measurement 0/4 purely owed
+- 2026-09-29 — implemented: 2 headers + AC-13; mutants (widen --owed, drop [manual]) both killed; owed 41, unlisted 31, stranded 45, eol 36, tick-guard 36 green

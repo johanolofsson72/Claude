@@ -91,6 +91,13 @@
 #                     2 = cannot answer. Writes nothing, resolves no template and
 #                     makes no network call, so a PreToolUse hook can afford it
 #                     before every edit.
+#     --owed          print the CORE paths whose bytes differ from the manifest, one
+#                     per line. 0 = findings, 1 = none, 2 = cannot answer. CORE
+#                     only: a locally edited doc or skill is not owed — it is kept,
+#                     not overwritten — and is named by [manual] on a syncing run
+#                     instead. "Nothing owed" is not "nothing differs" (spec 021).
+#     --unlisted      print scripts a CORE file depends on that the list shipping
+#                     CORE does not name. Same exit codes as --owed.
 #
 # Environment:
 #   CLAUDE_PROJECT_DIR  the project to act on. Beats $PWD — a `cd` alone does NOT

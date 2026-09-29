@@ -375,3 +375,37 @@ Two halves, and they are separable:
 
 `spec-register-orientation-hook.sh` is CORE (`template-autosync.sh:173`), so the fix lands here.
 From agentcrm F201.
+
+## 021 — core-set-excludes-docs-and-skills
+
+- [x] 021 — core-set-excludes-docs-and-skills — spec-only — `--owed` is CORE-only on purpose: `[manual]` already names local doc/skill edits (4 in 45 projects, 0 purely owed). Both headers now say so; AC-13 pins the boundary.
+
+Row as opened: - [ ] 021 — core-set-excludes-docs-and-skills — spec-only — `core_divergence` walks only CORE_SCRIPTS+CORE_RULES, so project-authored work under `.claude/docs/` or `.claude/skills/` is absent from `--owed` and a tick passes. Third gap after 018. Diagnos: `specs/INDEX.pending.md`.
+
+Spec: `specs/021-core-set-excludes-docs-and-skills/`. Measured 2026-09-29: `[manual]` (007af, 2026-08-20) already reported both msroute files at every syncing run; the finder queried `--owed`/`--unlisted` only. Fleet: teach/radar/fundit `deployment.md`, msroute `workflows.md` — all project-specific, so gating the tick was rejected. The diagnosis carried in `INDEX.pending.md` until this tick:
+
+`core_divergence()` builds its candidate set from `CORE_SCRIPTS` (prefixed `scripts/`) and
+`CORE_RULES` (prefixed `.claude/rules/`). Nothing else is asked about. So a project-authored
+change to a template-owned file under `.claude/docs/` or `.claude/skills/` is not
+under-reported — it is absent from the question, the same structural shape the `[unlisted]`
+block already names for scripts the template has never shipped.
+
+Measured on msroute, which reported `--owed` empty and `--unlisted` empty while carrying two:
+
+- `.claude/docs/conventions.md` — an OOM-catch convention with `OomCatchConventionTests`
+  behind it (msroute 007bm).
+- `.claude/skills/allium/SKILL.md` — `exposes: a, b` comma lists are rejected by allium-cli,
+  measured 2026-09-02.
+
+Both hash-differ from `.claude/.template-sync`, so by the rule's own definition of owed they
+are owed. `core-owed-tick-guard-hook.sh` consults `--owed`, is told nothing, and allows the
+tick — which is precisely the 007bl failure the gate was built to stop, reached by a route
+018 did not close. 018 found the tick gate's TEST was broken (GNU `sed` on BSD); this is the
+detector's SCOPE, and the two are independent.
+
+Note before choosing a fix: these two directories are not overwritten unconditionally the way
+CORE is. The manifest-hash rule preserves a locally edited doc or skill rather than
+reverting it. So the loss here is not destroyed work, it is work that never propagates: it
+stays in the one project that wrote it and the other five never see it. That is a weaker
+failure than 007bl's and it argues for reporting rather than for widening CORE, which would
+change overwrite semantics for two whole directories as a side effect.
