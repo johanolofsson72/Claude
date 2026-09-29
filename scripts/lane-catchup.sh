@@ -245,7 +245,7 @@ if [ -f scripts/register-convergence.sh ]; then
   # register that already breaches them should know before it carves anything of its own.
   if [ -f scripts/carve_audit.py ]; then
     CARVE_RAW=$(bash scripts/register-convergence.sh --carves 2>&1)
-    printf '%s\n' "$CARVE_RAW" | grep -E '^\[CARVE|^carve shape' | sed 's/^/  /' | head -4
+    printf '%s\n' "$CARVE_RAW" | grep -E '^\[CARVE|^carve shape' | sed 's/^/  /' | sed -n 1,4p
   fi
 fi
 

@@ -26,12 +26,12 @@ FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$FILE" ] && exit 0
 
 # UI file extensions: React/Vue/Svelte, HTML, stylesheets, Razor/Blazor
-if ! echo "$FILE" | grep -qiE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml)$'; then
+if ! grep -qiE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml)$' <<< "$FILE"; then
   exit 0
 fi
 
 # Skip node_modules, build output, and vendored files
-if echo "$FILE" | grep -qE '(node_modules|/dist/|/build/|/\.next/|/wwwroot/.*\.min\.|/bin/|/obj/)'; then
+if grep -qE '(node_modules|/dist/|/build/|/\.next/|/wwwroot/.*\.min\.|/bin/|/obj/)' <<< "$FILE"; then
   exit 0
 fi
 

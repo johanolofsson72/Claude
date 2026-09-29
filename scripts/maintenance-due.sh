@@ -97,7 +97,7 @@ fi
 
 if [ "$MODE" = stamp ]; then
   [ -n "$STAMP_JOB" ] || { echo "maintenance-due.sh: --stamp needs a job name" >&2; exit 2; }
-  printf '%s\n' "$JOBS" | grep -q "^$STAMP_JOB|" || {
+  grep -q "^$STAMP_JOB|" <<< "$JOBS" || {
     echo "maintenance-due.sh: unknown job '$STAMP_JOB' — known: $(printf '%s\n' "$JOBS" | cut -d'|' -f1 | tr '\n' ' ')" >&2
     exit 2; }
   mkdir -p "$ROOT/.claude" || exit 2
@@ -127,7 +127,7 @@ for line in $JOBS; do
   # make the loudest banner in the project the one that means least.
   if [ "$job" = findings ]; then
     NF=0
-    [ -f "$ROOT/specs/FINDINGS.md" ] && NF=$(grep -cE '^- \[ \]' "$ROOT/specs/FINDINGS.md" 2>/dev/null | head -1)
+    [ -f "$ROOT/specs/FINDINGS.md" ] && NF=$(grep -cE '^- \[ \]' "$ROOT/specs/FINDINGS.md" 2>/dev/null)
     case "$NF" in ''|*[!0-9]*) NF=0 ;; esac
     [ "$NF" -eq 0 ] && continue
     label="$label — $NF open"

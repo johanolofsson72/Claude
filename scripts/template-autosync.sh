@@ -336,8 +336,8 @@ RULE_DOCS="supply-chain.md carve-budget-rationale.md continuous-execution-ration
 
 is_core() {
   case "$2" in
-    scripts) printf '%s\n' $CORE_SCRIPTS | grep -qx "$1" ;;
-    rules)   printf '%s\n' $CORE_RULES   | grep -qx "$1" ;;
+    scripts) grep -qx "$1" <<< "$(printf '%s\n' $CORE_SCRIPTS)" ;;
+    rules)   grep -qx "$1" <<< "$(printf '%s\n' $CORE_RULES)" ;;
     *) return 1 ;;
   esac
 }
@@ -1538,7 +1538,7 @@ report_speckit_pin() {
   [ -f "$PROJECT_ROOT/scripts/speckit-version" ] && [ -f "$PROJECT_ROOT/.specify/init-options.json" ] || return 0
   _pin=$(grep -v '^[[:space:]]*#' "$PROJECT_ROOT/scripts/speckit-version" | tr -d '[:space:]')
   _have=$(sed -n 's/.*"speckit_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-          "$PROJECT_ROOT/.specify/init-options.json" | head -1)
+          "$PROJECT_ROOT/.specify/init-options.json" | sed -n 1p)
   if [ -n "$_pin" ] && [ "${_have:-none}" != "${_pin#v}" ]; then
     tell "[speckit] project .specify/ is at ${_have:-unknown}, the template pins $_pin — run: bash scripts/speckit-sync.sh"
   fi
@@ -1988,7 +1988,7 @@ $SRCREL
     # predates the skill. Skills are add-if-missing yet manifest-protected on
     # update (they are not in the CORE set), so a customized skill is still safe.
     is_core "$BASE" "$CLASS" || [ "$CLASS" = "skills" ] \
-      || { [ "$CLASS" = "docs" ] && printf '%s\n' $RULE_DOCS | grep -qx "$BASE"; } || return 0
+      || { [ "$CLASS" = "docs" ] && grep -qx "$BASE" <<< "$(printf '%s\n' $RULE_DOCS)"; } || return 0
     [ "$MODE_CHECK" -eq 1 ] || { mkdir -p "$(dirname "$DEST")"; atomic_copy "$SRC" "$DEST"; }
     ADDED="$ADDED $REL"
   fi
@@ -2438,7 +2438,7 @@ fold_helper_writes() {
   # than an awk call, and only once there is something to sum, so the no-summary case never
   # reaches the sum at all.
   _counts=$(printf '%s\n' "$_out" \
-    | sed -n 's/^scripts: copied \([0-9][0-9]*\), deleted \([0-9][0-9]*\)$/\1 \2/p' | head -1)
+    | sed -n 's/^scripts: copied \([0-9][0-9]*\), deleted \([0-9][0-9]*\)$/\1 \2/p' | sed -n 1p)
   if [ -n "$_counts" ]; then
     _claimed=$(( ${_counts%% *} + ${_counts##* } ))
     if [ "$_claimed" -ne "$_n" ]; then
@@ -3238,7 +3238,7 @@ if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then
   N_HELD=$(printf '%s\n' "$HELD" | grep -c .)
   if [ "$N_HELD" -gt 0 ]; then
     tell "[held] $N_HELD path(s) were already staged and are not this sync's — left staged, untouched:"
-    printf '%s\n' "$HELD" | head -n "$NAME_LIMIT" | while IFS= read -r _h; do
+    awk -v n="$NAME_LIMIT" 'NR<=n' <<< "$HELD" | while IFS= read -r _h; do
       tell "       $_h"
     done
     # Counted from the rendered list and naming the cap, for the reason the [changed] block records:
@@ -3312,7 +3312,7 @@ if [ -n "$SYNC_COMMIT" ]; then
   # has just rewritten is dropped rather than carried forward as a failure nobody can
   # reproduce.
   PREV_COMMITS=""
-  [ -r "$VERIFY_MARKER" ] && PREV_COMMITS=$(sed -n 's/^commits=//p' "$VERIFY_MARKER" 2>/dev/null | head -1)
+  [ -r "$VERIFY_MARKER" ] && PREV_COMMITS=$(sed -n 's/^commits=//p' "$VERIFY_MARKER" 2>/dev/null | sed -n 1p)
   ALL_COMMITS="$SYNC_COMMIT"
   for _c in $PREV_COMMITS; do
     case " $ALL_COMMITS " in *" $_c "*) ;; *) ALL_COMMITS="$ALL_COMMITS $_c" ;; esac
@@ -3346,7 +3346,7 @@ if [ -n "$SYNC_COMMIT" ]; then
   VERIFY_CMD=""
   VERIFY_DECL="$PROJECT_ROOT/.claude/.template-sync-verify"
   [ -r "$VERIFY_DECL" ] && VERIFY_CMD=$(grep -v '^[[:space:]]*#' "$VERIFY_DECL" 2>/dev/null \
-    | grep -v '^[[:space:]]*$' | head -1)
+    | grep -v '^[[:space:]]*$' | sed -n 1p)
 
   tell "[verify] $SYNC_COMMIT is unverified — nothing has checked this project since."
   if [ -n "$VERIFY_CMD" ]; then
@@ -3376,7 +3376,7 @@ if [ -n "$SYNC_COMMIT" ]; then
     else
       VERIFY_CANDIDATES=""
       [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ] && VERIFY_CANDIDATES=$(bash \
-        "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" --candidates 2>/dev/null | head -5)
+        "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" --candidates 2>/dev/null | sed -n 1,5p)
       if [ -n "$VERIFY_CANDIDATES" ]; then
         tell "         no declaration, and more than one thing this could mean:"
         printf '%s\n' "$VERIFY_CANDIDATES" | while IFS= read -r _c; do
@@ -3455,7 +3455,7 @@ if [ "$NAME_LIMIT" -gt 0 ]; then
   MOVED_N=$(printf '%s\n' "$MOVED" | grep -c .)
   if [ "$MOVED_N" -gt 0 ]; then
     tell "[changed] files this sync wrote, enforcement first:"
-    printf '%s\n' "$MOVED" | head -n "$NAME_LIMIT" | while IFS= read -r _line; do
+    awk -v n="$NAME_LIMIT" 'NR<=n' <<< "$MOVED" | while IFS= read -r _line; do
       tell "          $_line"
     done
     # The remainder is counted from the RENDERED list, never from N_WROTE + N_ADDED:

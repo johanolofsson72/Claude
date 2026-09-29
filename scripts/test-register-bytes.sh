@@ -19,8 +19,8 @@ trap 'rm -rf "$T"' EXIT
 FAILED=0; PASSED=0
 ok()  { printf '  ok:   %s\n' "$1"; PASSED=$((PASSED + 1)); }
 bad() { printf '  FAIL: %s — %s\n' "$1" "$2"; FAILED=$((FAILED + 1)); }
-has()    { if printf '%s\n' "$3" | grep -Fqx -e "$2"; then ok "$1"; else bad "$1" "no line '$2' in: $(printf '%s' "$3" | tr '\n' '|')"; fi; }
-hasnt()  { if printf '%s\n' "$3" | grep -Fq -e "$2"; then bad "$1" "unexpected '$2'"; else ok "$1"; fi; }
+has()    { if grep -Fqx -e "$2" <<< "$3"; then ok "$1"; else bad "$1" "no line '$2' in: $(printf '%s' "$3" | tr '\n' '|')"; fi; }
+hasnt()  { if grep -Fq -e "$2" <<< "$3"; then bad "$1" "unexpected '$2'"; else ok "$1"; fi; }
 val()    { printf '%s\n' "$1" | sed -n "s/^$2=\([0-9]*\).*/\1/p"; }
 eq()     { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "expected $3, got $2"; fi; }
 
@@ -59,7 +59,7 @@ eq "a status row inside history counts as history" "$(val "$OUT" rows)" 0
 F="$T/hprose.md"; printf '## Register history\n\n- 2026-09-01 — one\n' > "$F"
 pad_to "$F" '| a | table | written | inside | history |' 4200
 OUT=$(bash "$RB" "$F")
-if printf '%s\n' "$OUT" | grep -q '^move=prose'; then ok "a table inside history is prose"; else bad "a table inside history is prose" "$OUT"; fi
+if grep -q '^move=prose' <<< "$OUT"; then ok "a table inside history is prose"; else bad "a table inside history is prose" "$OUT"; fi
 hasnt "a table inside history is not a history move" "move=history" "$OUT"
 sums_to_wc "hprose" "$F" "$OUT"
 
@@ -114,16 +114,16 @@ hasnt "a 300-byte row is not over (budget is inclusive)" "move=rows" "$OUT"
 F="$T/r-over.md"; printf -- '- [x] 001 — %0287d\n' 0 > "$F"  # 301
 OUT=$(bash "$RB" "$F")
 has  "a 301-byte row is over" "rows=$(wc -c < "$F" | tr -d ' ') share=100 over=1" "$OUT"
-if printf '%s\n' "$OUT" | grep -q '^move=rows scripts/archive-completed-rows.sh'; then ok "rows over budget name the row archiver"; else bad "rows over budget name the row archiver" "$OUT"; fi
+if grep -q '^move=rows scripts/archive-completed-rows.sh' <<< "$OUT"; then ok "rows over budget name the row archiver"; else bad "rows over budget name the row archiver" "$OUT"; fi
 
 # A continuation line counts toward its row's budget, as the archivers count it.
 F="$T/r-cont.md"; printf -- '- [ ] 001 — %0200d\n  %0100d\n' 0 0 > "$F"
 OUT=$(bash "$RB" "$F")
-if printf '%s\n' "$OUT" | grep -q '^move=rows'; then ok "a continuation line counts toward the row budget"; else bad "a continuation line counts toward the row budget" "$OUT"; fi
+if grep -q '^move=rows' <<< "$OUT"; then ok "a continuation line counts toward the row budget"; else bad "a continuation line counts toward the row budget" "$OUT"; fi
 
 F="$T/r-maxb.md"; printf -- '- [x] 001 — %0100d\n' 0 > "$F"
 OUT=$(bash "$RB" --max-bytes 50 "$F")
-if printf '%s\n' "$OUT" | grep -q '^move=rows .*50-byte budget'; then ok "--max-bytes moves the budget"; else bad "--max-bytes moves the budget" "$OUT"; fi
+if grep -q '^move=rows .*50-byte budget' <<< "$OUT"; then ok "--max-bytes moves the budget"; else bad "--max-bytes moves the budget" "$OUT"; fi
 
 # ---------------------------------------------------------------- move: history
 F="$T/h5.md"; printf '## Register history\n\n' > "$F"
@@ -132,11 +132,11 @@ OUT=$(bash "$RB" "$F")
 hasnt "5 history entries: no move (the cap is 5)" "move=history" "$OUT"
 printf -- '- 2026-09-06 — entry\n' >> "$F"
 OUT=$(bash "$RB" "$F")
-if printf '%s\n' "$OUT" | grep -q '^move=history scripts/archive-spec-history.sh --keep 5'; then ok "6 entries name the history archiver"; else bad "6 entries name the history archiver" "$OUT"; fi
+if grep -q '^move=history scripts/archive-spec-history.sh --keep 5' <<< "$OUT"; then ok "6 entries name the history archiver"; else bad "6 entries name the history archiver" "$OUT"; fi
 
 F="$T/hlong.md"; printf '## Register history\n\n- 2026-09-01 — %0300d\n' 0 > "$F"
 OUT=$(bash "$RB" "$F")
-if printf '%s\n' "$OUT" | grep -q '^move=history'; then ok "one over-budget entry names the history archiver"; else bad "one over-budget entry names the history archiver" "$OUT"; fi
+if grep -q '^move=history' <<< "$OUT"; then ok "one over-budget entry names the history archiver"; else bad "one over-budget entry names the history archiver" "$OUT"; fi
 
 # ---------------------------------------------------------------- move: prose
 F="$T/pr-under.md"; printf '# R\n' > "$F"; pad_to "$F" 'prose line for the threshold' 4000
@@ -144,7 +144,7 @@ OUT=$(bash "$RB" "$F")
 hasnt "prose at ~4 KB (<= 4096): no move" "move=prose" "$OUT"
 F="$T/pr-over.md"; printf '# R\n' > "$F"; pad_to "$F" 'prose line for the threshold' 4096
 OUT=$(bash "$RB" "$F")
-if printf '%s\n' "$OUT" | grep -q '^move=prose .*INDEX.notes.md'; then ok "prose over 4096 names the notes sibling"; else bad "prose over 4096 names the notes sibling" "$OUT"; fi
+if grep -q '^move=prose .*INDEX.notes.md' <<< "$OUT"; then ok "prose over 4096 names the notes sibling"; else bad "prose over 4096 names the notes sibling" "$OUT"; fi
 hasnt "prose alone never names the row archiver" "archive-completed-rows" "$OUT"
 
 # ---------------------------------------------------------------- the two live shapes

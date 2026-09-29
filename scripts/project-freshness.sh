@@ -834,10 +834,10 @@ LIST
       # dotnet exits 0 whether or not it found anything, so the verdict comes from the
       # text. An unrestored project (non-zero exit, or "No assets file") was not
       # scanned, and must not be counted as clean.
-      if [ "$DN_RC" -ne 0 ] || printf '%s\n' "$DN_OUT" | grep -qi 'no assets file'; then
+      if [ "$DN_RC" -ne 0 ] || grep -qi 'no assets file' <<< "$DN_OUT"; then
         echo "  [SKIP] could not list packages for $rel — run 'dotnet restore' first."
         DN_UNSCANNED=$((DN_UNSCANNED + 1))
-      elif printf '%s\n' "$DN_OUT" | grep -qi 'has the following vulnerable packages'; then
+      elif grep -qi 'has the following vulnerable packages' <<< "$DN_OUT"; then
         echo "  [FINDING] vulnerable NuGet packages in $rel (see above)."
         echo "  [NEXT] dotnet package update --vulnerable   (.NET 10 SDK) — review the diff, then build + test."
         FINDINGS=1; DN_VULN=1; DN_SUMMARY="$DN_SUMMARY $rel;"

@@ -73,7 +73,7 @@ if [ ! -f "$MARKER" ]; then
   exit 0
 fi
 
-field() { sed -n "s/^$1=//p" "$MARKER" 2>/dev/null | head -1; }
+field() { sed -n "s/^$1=//p" "$MARKER" 2>/dev/null | sed -n 1p; }
 COMMIT=$(field commit)
 COMMITS=$(field commits)
 TEMPLATE=$(field template)
@@ -81,7 +81,7 @@ SYNCED=$(field synced)
 PUSHED=$(field pushed)
 
 COMMAND=""
-[ -r "$DECL" ] && COMMAND=$(grep -v '^[[:space:]]*#' "$DECL" 2>/dev/null | grep -v '^[[:space:]]*$' | head -1)
+[ -r "$DECL" ] && COMMAND=$(grep -v '^[[:space:]]*#' "$DECL" 2>/dev/null | grep -v '^[[:space:]]*$' | sed -n 1p)
 
 # Spec 007ba. A declaration always wins and is never second-guessed — a human chose it, and
 # judging their choice is a different spec. Only when there is none do we derive.

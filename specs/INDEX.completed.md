@@ -413,3 +413,19 @@ change overwrite semantics for two whole directories as a side effect.
 ## 023 — secret-scan-misses-signing-material
 
 - [x] 023 — secret-scan-misses-signing-material — full track [hardened] — two repos commit an ASP.NET Data Protection key and `project-freshness.sh` reports "no verified secrets" on both. trufflehog matches verifiable credentials; a signing key is none. Needs a file-shape arm.
+
+## 024 — sigpipe-backlog-in-production-scripts
+
+- [x] 024 — sigpipe-backlog-in-production-scripts — spec-only — `validate-no-sigpipe-assertions.sh --all` reports 54 pipelines outside the self-tests. Mostly diagnostics where 141 costs nothing. One at a time: a bulk pass turned msroute's suite red (M2). Evidence: `specs/INDEX.pending.md`
+
+**Evidence from msroute F008, reported 2026-09-25** (verbatim):
+
+> F008 — harness — 2026-09-08 · from spec 010 — TemplateSyncDirectionTests.The_commit_named_is_the_one_holding_the_restored_content fails only under the full unit suite: template-autosync.sh:252 printf hits SIGPIPE and the SubprocessStderr guard expects silence. Passes in isolation. Same class as M2. Template-owned
+
+Line 252 is msroute's copy at the time. In the template as of 2026-09-25 the matching pipelines are
+`is_core()` at `scripts/template-autosync.sh:270-271` (`printf '%s\n' $CORE_SCRIPTS | grep -qx "$1"`):
+`grep -q` exits on the first match, the still-writing `printf` takes SIGPIPE, and bash prints a
+write error to stderr. `validate-no-sigpipe-assertions.sh --all` lists both lines as UNDECIDED.
+This one is not a harmless diagnostic: a consumer that asserts an empty stderr fails, and only under
+load, which is why it passes in isolation. A candidate for the first of the one-at-a-time fixes
+(e.g. `case " $CORE_SCRIPTS " in *" $1 "*)` with no pipe at all).

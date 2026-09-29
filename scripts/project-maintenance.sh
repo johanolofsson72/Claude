@@ -140,7 +140,7 @@ record_map_canary() { # record_map_canary PATH KB ROLE HINT
     add "[SETUP] scripts/finding.sh missing — the scenario-map canary for $1 could not be recorded in specs/FINDINGS.md. Run /project-update to restore it."
     return
   fi
-  if [ -f specs/FINDINGS.md ] && grep -E '^- \[ \] F[0-9]+ ' specs/FINDINGS.md | grep -Fq -e "$key"; then
+  if [ -f specs/FINDINGS.md ] && grep -Fq -e "$key" <<< "$(grep -E '^- \[ \] F[0-9]+ ' specs/FINDINGS.md)"; then
     return
   fi
   out=$(bash scripts/finding.sh --add "${key}is $2 KB ($3, canary 25 KB) — $4" --kind debt 2>&1); rc=$?
@@ -781,7 +781,7 @@ $(printf '%s' "$FAST_OUT" | sed -n '3,12p')
   elif [ "$FAST_RC" -eq 2 ]; then
     add "[GATE LEDGER] The fast census REFUSED — it could not read what it was asked to read, which
   is never a pass. A parser gone blind on a C# declaration form, or a ledger that moved.
-$(printf '%s' "$FAST_OUT" | head -8)
+$(printf '%s' "$FAST_OUT" | sed -n 1,8p)
   Re-run: python3 scripts/e2e-gate-census.py"
   fi
 fi
@@ -792,7 +792,7 @@ if [ -f "$CENSUS_SCRIPT" ]; then
   CENSUS_RC=$?
   if [ "$CENSUS_RC" -eq 0 ]; then
     :
-  elif [ "$CENSUS_RC" -eq 2 ] || printf '%s' "$CENSUS_OUT" | grep -qE ': error [A-Z]{2}[0-9]{4}|MSB[0-9]+|Build FAILED'; then
+  elif [ "$CENSUS_RC" -eq 2 ] || grep -qE ': error [A-Z]{2}[0-9]{4}|MSB[0-9]+|Build FAILED' <<< "$CENSUS_OUT"; then
     note "[note] census audit could not run — the E2E project did not build, so the four drift
   censuses were neither passed nor failed. Not counted as a finding (a build failure is not census
   drift), but recorded, because a maintenance pass that skipped its checks in silence is the false
@@ -800,7 +800,7 @@ if [ -f "$CENSUS_SCRIPT" ]; then
   else
     add "[CENSUS] A drift census is RED. These are the instruments that pin the browser suite's own
   discipline, and spec 544 exists because four of them sat red for nine days unseen.
-$(printf '%s' "$CENSUS_OUT" | grep -E '\S+\.cs:' | head -12)
+$(printf '%s' "$CENSUS_OUT" | grep -E '\S+\.cs:' | sed -n 1,12p)
   Fix at the SITE, never by raising a record until the red stops.
   Full output: bash scripts/e2e-wait-audit.sh"
   fi
@@ -816,7 +816,7 @@ if [ -f scripts/register-convergence.sh ] && [ -f scripts/carve_audit.py ] && [ 
   CARVE_OUT=$(bash scripts/register-convergence.sh --carves 2>&1); CARVE_RC=$?
   if [ "$CARVE_RC" -eq 1 ]; then
     add "[CARVE SHAPE] the carve budget or the depth limit is exceeded (.claude/rules/carve-budget.md):
-$(printf '%s' "$CARVE_OUT" | head -12)
+$(printf '%s' "$CARVE_OUT" | sed -n 1,12p)
   Section 2 caps a spec at 2 carves; section 3 says there is no depth 3. Both were unmeasured until
   now, so these are pre-existing. Fold the excess into one consolidated row, or decide otherwise —
   but decide, rather than letting the tree keep growing."
@@ -832,7 +832,7 @@ if [ -f scripts/validate-portability.sh ] && [ -f scripts/portability_audit.py ]
   PORT_OUT=$(measured portability bash scripts/validate-portability.sh --all 2>&1); PORT_RC=$?
   if [ "$PORT_RC" -eq 1 ]; then
     add "[PORTABILITY] construct(s) that run on one developer's platform and not the other's:
-$(printf '%s' "$PORT_OUT" | grep -E '^\s+scripts/' -A2 | head -12)
+$(printf '%s' "$PORT_OUT" | grep -E '^\s+scripts/' -A2 | sed -n 1,12p)
   Run: bash scripts/validate-portability.sh --all"
   fi
 fi

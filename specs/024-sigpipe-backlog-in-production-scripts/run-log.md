@@ -1,0 +1,5 @@
+- 2026-09-29 — specify+interview(20 auto)+clarify: backlog 66+9 (not 54); default gate red from 017; SIG_IGN parent makes diagnostics leak stderr (reproduced); is_core leak is load-only (0/40 idle)
+- 2026-09-29 — implemented: 75 lines (66 prod + 9 test-register-bytes) via explicit file:line edits; one perl pass left literal `\$` in 11 lines, caught in diff before any run
+- 2026-09-29 — verified: 10 untested hooks differential old-vs-new 180 runs 0 diffs (harness sabotage-proven); 42 expression checks 0 diffs; BSD head rejects -n 0, awk NR<=n does not
+- 2026-09-29 — arms 19/20/21 each proven red; ARM 19 exposed that --all skips assignment pipelines → F027 (~64 sites); F026 case-insensitive toplevel compare
+- 2026-09-29 — after-run: 35/35 touched self-tests green (baseline on HEAD worktree: no-sigpipe red as filed; drive-sync red there only, sandbox-location arms); default gate 0, --all --strict 0

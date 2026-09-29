@@ -444,7 +444,7 @@ FILES=$( find "$ROOT/scripts" \( -type f -o -type l \) -exec grep -l -e 'autosyn
              case "${_f##*/}" in
                (*.sh|*.bash) printf '%s\n' "$_f" ;;
                (*.*) ;;
-               (*) head -1 "$_f" 2>/dev/null | grep -qE '^#!.*[/ ](ba|z|k|da|a)?sh([[:space:]]|$)' && printf '%s\n' "$_f" ;;
+               (*) awk 'NR == 1 && /^#!.*[\/ ](ba|z|k|da|a)?sh([[:space:]]|$)/ { f = 1 } END { exit !f }' "$_f" 2>/dev/null && printf '%s\n' "$_f" ;;
              esac
            done )
 
