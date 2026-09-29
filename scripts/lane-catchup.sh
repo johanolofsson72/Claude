@@ -229,7 +229,15 @@ fi
 if [ -f scripts/register-convergence.sh ]; then
   CONV_RAW=$(bash scripts/register-convergence.sh 2>&1); RC=$?
   say "  $(printf '%s\n' "$CONV_RAW" | head -1)"
-  [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row"
+  # A register the developer already froze (row 077) is not asked the three-ways-out question again.
+  FRZ_RAW=$(bash scripts/register-convergence.sh --freeze 2>/dev/null); FRZ_RC=$?
+  case "$FRZ_RC" in
+    0|2|3) say "  $(printf '%s\n' "$FRZ_RAW" | head -1)"
+           [ "$FRZ_RC" = 2 ] && todo "rows added during the freeze without an approved proposal — surface them (approve or cut)" ;;
+    4) todo "freeze line malformed: $(printf '%s\n' "$FRZ_RAW" | head -1)"
+       [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row" ;;
+    *) [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row" ;;
+  esac
   # The two limits the ratio does not measure. Reported here because a lane arriving at a
   # register that already breaches them should know before it carves anything of its own.
   if [ -f scripts/carve_audit.py ]; then

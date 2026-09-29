@@ -12,7 +12,7 @@ The normal outcome of finding something is to write it down and keep going:
 bash scripts/finding.sh --add "<one line>" --spec 031 --kind gap
 ```
 
-It lands in `specs/FINDINGS.md` (git-tracked). Dispositions, in order: (1) **fix it inside the current spec** when that is smaller than recording it; (2) **record it as a finding** — the default; (3) **carve a row immediately** — the exception, only for work that blocks the next spec and cannot wait.
+It lands in `specs/FINDINGS.md` (git-tracked). A finding you think deserves a row is a **proposal** and has to show its need: `--propose-row --need "<who is hurt, where it was seen>"`. A proposal with no need is refused. Dispositions, in order: (1) **fix it inside the current spec** when that is smaller than recording it; (2) **record it as a finding** — the default; (3) **carve a row immediately** — the exception, only for work that blocks the next spec and cannot wait.
 
 ### 2. Findings are reviewed every 5 specs, and only the review grows the register
 
@@ -57,6 +57,8 @@ Three ways out, pick one:
 ```
 
 The developer decides; Claude does not silently keep carving.
+
+**Freeze** (option 1) is one header line in `specs/INDEX.md`: `Freeze: since <date> · last row <id> · lifts below <N> open`. `register-convergence.sh --freeze` reads it. The SessionStart banner then shows the freeze instead of asking again, and `project-maintenance.sh` flags any row above `last row` that has no `approved F<nnn>` tag naming an approved finding. H checkpoint rows are exempt. During a freeze the only way in is a proposal the developer approved at a spec stop (`finding.sh --review --proposals`, then `--approve N` or `--decline N "<why>"`). The review names the closest existing row and any cited file that no longer exists, so each decision rests on checked evidence. The developer lifts the freeze by deleting the line once `--freeze` says it can lift.
 
 ### 7. Deleting a row is allowed
 

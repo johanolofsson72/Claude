@@ -1,0 +1,7 @@
+- 2026-09-29 — spec + interview (18: 4 developer, 14 auto). Id 076 was taken by a concurrent session; renumbered to 077.
+- 2026-09-29 — adversarial scan: 9 findings (2 high: suffix ids bypass the freeze, crash reads as off). All fixed in place and pinned in test-finding C12/C13.
+- 2026-09-29 — code review: 14 findings (1 critical: editing the Freeze line moved the git baseline). All fixed; #14 corrected 074's RSS to the process tree (test L11 494 MB vs ~150 single).
+- 2026-09-29 — independent security review: nothing exploitable; 3 low, fixed.
+- 2026-09-29 — the first hook banner test was a false pass (the hook walks up from cwd and read the real repo). Fixed; the test now checks it read its own fixture.
+- 2026-09-29 — mutation gate: Stryker has no bash/python target here. Proxy: 7 sabotage arms, each caught (tag trust, '..', malformed, git baseline, tree RSS, fail count, decline arrow).
+- 2026-09-29 — suites: finding 73, convergence 17, ledger 29, maintenance 63, due 11, hook-channels 17, lane-orientation 13, core-parity 8, portability clean.

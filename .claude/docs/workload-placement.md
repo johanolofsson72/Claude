@@ -58,7 +58,7 @@ python3 scripts/maintenance_ledger.py report --all    # every sibling repo with 
 ```
 
 For each job and place it prints runs, median and max seconds, max RSS, failures, and whether the
-job fits the cloud VM (max RSS under 12 GB, keeping 4 GB for the OS and the agent). The header says
+job fits the cloud VM (max RSS under 12 GB, keeping 4 GB for the OS and the agent). Max RSS is the whole process tree, sampled once a second, so a testhost or Stryker workers count. Docker containers do not, which matters for suites that use Testcontainers. The header says
 "N of 5 ticked specs", and 075 starts at 5. An empty ledger prints "no runs recorded", because a
 job nobody has measured is not a cheap job.
 

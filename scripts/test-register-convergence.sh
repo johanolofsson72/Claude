@@ -88,5 +88,57 @@ if grep -qE '^\s*mapfile|readarray' "$SUT"; then  # portability-ok — this line
   echo "  FAIL  uses mapfile/readarray (bash 4+); macOS ships bash 3.2"; FAIL=$((FAIL+1))  # portability-ok
 else echo "  PASS  no bash-4-only builtins"; PASS=$((PASS+1)); fi
 
+# --freeze (row 077): the exit contract its three readers branch on. Deep cases live in test-finding.sh.
+fz() { # fz <label> <expected rc> <register body> [engine present: 1|0]
+  d="$TMP/fz-$RANDOM"; mkdir -p "$d/specs" "$d/scripts"; ( cd "$d" && git init -q . )
+  cp "$SUT" "$d/scripts/"; [ "${4:-1}" = 1 ] && cp "$SCRIPT_DIR/register_freeze.py" "$d/scripts/"
+  printf '%s\n' "$3" > "$d/specs/INDEX.md"
+  ( cd "$d" && bash scripts/register-convergence.sh --freeze >/dev/null 2>&1 ); rc=$?
+  if [ "$rc" = "$2" ]; then echo "  PASS  --freeze $1 -> rc$rc"; PASS=$((PASS+1))
+  else echo "  FAIL  --freeze $1 -> rc$rc (want $2)"; FAIL=$((FAIL+1)); fi
+}
+ROWS='- [ ] 001 — a — b
+- [ ] 002 — c — d'
+fz "no freeze line"        1 "$ROWS"
+fz "frozen, clean"         0 "Freeze: since 2026-09-29 · last row 002 · lifts below 1 open
+$ROWS"
+fz "unapproved row"        2 "Freeze: since 2026-09-29 · last row 001 · lifts below 1 open
+$ROWS"
+fz "below target"          3 "Freeze: since 2026-09-29 · last row 002 · lifts below 5 open
+$ROWS"
+fz "malformed line"        4 "Freeze: someday
+$ROWS"
+fz "engine missing"        5 "Freeze: since 2026-09-29 · last row 002 · lifts below 1 open
+$ROWS" 0
+
+# R2: the SessionStart banner. A freeze replaces the three-ways-out prompt; a malformed line does not.
+banner() { # banner <label> <want substring> <reject substring> <register body>
+  d="$TMP/bn-$RANDOM"; mkdir -p "$d/specs" "$d/scripts"; ( cd "$d" && git init -q . )
+  cp "$SUT" "$SCRIPT_DIR/register_freeze.py" "$d/scripts/"; chmod +x "$d/scripts/register-convergence.sh"
+  printf '%s\n' "$4" > "$d/specs/INDEX.md"
+  # The hook walks up from the WORKING DIRECTORY, not CLAUDE_PROJECT_DIR: run it from inside the
+  # fixture, or it reads whatever register encloses the caller (a false pass, measured 2026-09-29).
+  out=$(cd "$d" && printf '{"hook_event_name":"SessionStart","source":"startup"}' |
+        CLAUDE_PROJECT_DIR="$d" bash "$SCRIPT_DIR/spec-register-orientation-hook.sh" 2>/dev/null)
+  case "$out" in *"$d/specs/INDEX.md"*) ;; *) echo "  FAIL  banner $1 read a register other than its fixture"; FAIL=$((FAIL+1)); return ;; esac
+  case "$out" in *"$2"*) case "$out" in *"$3"*) echo "  FAIL  banner $1 carries '$3'"; FAIL=$((FAIL+1)) ;;
+                                      *) echo "  PASS  banner $1"; PASS=$((PASS+1)) ;; esac ;;
+    *) echo "  FAIL  banner $1 lacks '$2'"; FAIL=$((FAIL+1)) ;; esac
+}
+banner "frozen shows the freeze" "FREEZE (carve-budget.md" "three ways out" "# R
+
+Freeze: since 2026-09-29 · last row 002 · lifts below 1 open
+
+## Specs
+
+$ROWS"
+banner "malformed says fix it, not frozen" "fix the line" "FREEZE (carve-budget.md" "# R
+
+Freeze: someday
+
+## Specs
+
+$ROWS"
+
 echo "register-convergence: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

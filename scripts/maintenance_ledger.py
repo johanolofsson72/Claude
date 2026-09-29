@@ -22,12 +22,16 @@ pass red.
 
 Ledger: <repo>/.claude/state/maintenance-runs.tsv (machine-local, gitignored), one line per run:
   ts  place  job  seconds  rc  peak_rss_mb  cores  load1  done
+
+peak_rss_mb is the larger of (a) the process tree's summed RSS, sampled once a second with `ps`, and
+(b) the largest single reaped descendant (getrusage). Docker containers are not in the tree.
 """
 import datetime
 import os
 import statistics
 import subprocess
 import sys
+import threading
 import time
 
 try:
@@ -66,13 +70,45 @@ def ticked_specs(root):
         return 0
 
 
-def peak_rss_mb():
+def largest_child_mb():
+    """Peak of the single largest reaped descendant. A floor, not the footprint."""
     if resource is None:
-        return ""
+        return None
     kb_or_bytes = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
     # macOS reports bytes, Linux kilobytes.
-    mb = kb_or_bytes / (1024 * 1024) if sys.platform == "darwin" else kb_or_bytes / 1024
-    return str(int(round(mb)))
+    return kb_or_bytes / (1024 * 1024) if sys.platform == "darwin" else kb_or_bytes / 1024
+
+
+def tree_rss_kb(root_pid):
+    """Summed RSS (KB) of root_pid and every descendant, from one `ps` snapshot; None if ps fails.
+
+    WHY A TREE. `dotnet test` runs a testhost and build servers beside the runner, and Stryker runs
+    test workers in parallel. getrusage reports only the largest single process, so it under-reports
+    exactly the jobs whose memory decides whether they fit the 16 GB cloud VM. Containers started
+    through Docker are outside this tree and are NOT counted; the report says so."""
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    kids, rss = {}, {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) != 3 or not all(p.isdigit() for p in parts):
+            continue
+        pid, ppid, kb = (int(p) for p in parts)
+        kids.setdefault(ppid, []).append(pid)
+        rss[pid] = kb
+    if root_pid not in rss:
+        return None
+    total, stack, seen = 0, [root_pid], set()
+    while stack:
+        pid = stack.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        total += rss.get(pid, 0)
+        stack.extend(kids.get(pid, []))
+    return total
 
 
 def cmd_run(argv):
@@ -86,12 +122,32 @@ def cmd_run(argv):
     except (OSError, AttributeError):
         load1 = ""
     start = time.monotonic()
+    peak_kb = [0]
     try:
-        rc = subprocess.call(cmd)
+        child = subprocess.Popen(cmd)
     except OSError as e:
         print("maintenance_ledger.py: could not start %s: %s" % (cmd[0], e), file=sys.stderr)
-        rc = 127
-    append(root, job, time.monotonic() - start, rc, peak_rss_mb(), load1)
+        append(root, job, time.monotonic() - start, 127, "", load1)
+        return 127
+    done = threading.Event()
+
+    def sample():
+        while not done.wait(1.0):
+            kb = tree_rss_kb(child.pid)
+            if kb is not None and kb > peak_kb[0]:
+                peak_kb[0] = kb
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
+    try:
+        rc = child.wait()
+    except KeyboardInterrupt:
+        child.terminate()
+        rc = child.wait()
+    done.set()
+    sampler.join(timeout=5)
+    candidates = [m for m in (largest_child_mb(), peak_kb[0] / 1024 if peak_kb[0] else None) if m is not None]
+    rss = str(int(round(max(candidates)))) if candidates else ""
+    append(root, job, time.monotonic() - start, rc, rss, load1)
     return rc
 
 
@@ -154,6 +210,7 @@ def report_one(label, root, rows):
     ready = "ready for 075" if span >= SPECS_NEEDED else "keep measuring"
     print("   spans %d of %d ticked specs needed (%s), %d runs, %s .. %s"
           % (span, SPECS_NEEDED, ready, len(rows), rows[0]["ts"][:10], rows[-1]["ts"][:10]))
+    print("   (max RSS = whole process tree, sampled once a second; Docker containers are not counted)")
     groups = {}
     for r in rows:
         groups.setdefault((r["job"], r["place"]), []).append(r)

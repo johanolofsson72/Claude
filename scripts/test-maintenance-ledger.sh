@@ -107,6 +107,15 @@ OUT=$(cd "$R4" && python3 "$LEDGER_PY" report --all 2>&1)
 expect_contains "L10 --all includes the sibling repo" "== a" "$OUT"
 expect_contains "L10 --all includes this repo" "== agg" "$OUT"
 
+# L11: peak RSS is the process TREE, not the largest single process. Three children hold ~150 MB
+# each for 3 s; the sum must clear 350 MB while any one of them stays near 150.
+R5=$(mkrepo tree 0)
+( cd "$R5" && python3 "$LEDGER_PY" run tree -- sh -c '
+  for i in 1 2 3; do python3 -c "import time; b = bytearray(150*1024*1024); b[::4096] = b\"x\" * len(b[::4096]); time.sleep(3)" & done; wait' )
+TREE_MB=$(tail -1 "$R5/.claude/state/maintenance-runs.tsv" | cut -f6)
+if [ -n "$TREE_MB" ] && [ "$TREE_MB" -ge 350 ]; then ok "L11 tree RSS sums the children ($TREE_MB MB)"
+else bad "L11 tree RSS sums the children" ">= 350" "${TREE_MB:-empty}"; fi
+
 echo
 echo "maintenance_ledger: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

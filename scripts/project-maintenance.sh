@@ -286,6 +286,13 @@ if [ -f specs/INDEX.md ] && [ -x scripts/register-convergence.sh ]; then
     1) note "[note] $CONV_OUT" ;;
     3|4) : ;;  # too little history, or no register -- not a finding
   esac
+  # The freeze (row 077): a row added without an approved proposal is a finding; a freeze that can
+  # lift is a note; a freeze line nobody can parse is a finding, because it would otherwise read as off.
+  FRZ_OUT=$(bash scripts/register-convergence.sh --freeze 2>&1); FRZ_RC=$?
+  case "$FRZ_RC" in
+    2|4|5) add "[FREEZE] $FRZ_OUT" ;;
+    3) note "[note] $FRZ_OUT" ;;
+  esac
 fi
 
 # --------------------------------------------------- 3f. allium baseline census

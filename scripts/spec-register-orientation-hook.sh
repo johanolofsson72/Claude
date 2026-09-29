@@ -357,7 +357,26 @@ ${TAIL_LINES}"
     CONV_RAW=$(cd "$PROJECT_ROOT" && bash scripts/register-convergence.sh --quiet 2>/dev/null)
     CONV_RC=$?
     CONV_LINE=$(printf '%s\n' "$CONV_RAW" | head -1)
-    if [ "$CONV_RC" = "2" ] && [ -n "$CONV_LINE" ]; then
+    # A developer who already answered the stop with a freeze (row 077) should not be asked again
+    # every session. The freeze line replaces the three-ways-out banner and says what it permits.
+    FREEZE_LINE=$(cd "$PROJECT_ROOT" && bash scripts/register-convergence.sh --freeze 2>/dev/null)
+    FREEZE_RC=$?
+    FREEZE_LINE=$(printf '%s\n' "$FREEZE_LINE" | head -1)
+    # Only 0/2/3 are a freeze. 4 (malformed line) is surfaced on its own and does NOT silence the
+    # convergence stop; 5/127 (cannot evaluate: partial sync, no python3) fall through to it.
+    FREEZE_BAD=""
+    [ "$FREEZE_RC" = "4" ] && FREEZE_BAD="
+⚠ ${FREEZE_LINE} — fix the line; until then the freeze is not in force."
+    if [ "$FREEZE_RC" = "0" ] || [ "$FREEZE_RC" = "2" ] || [ "$FREEZE_RC" = "3" ]; then
+      CONVERGE_WARN="
+${CONV_LINE:+· ${CONV_LINE}
+}⚠ ${FREEZE_LINE}
+  FREEZE (carve-budget.md §6): no new rows. A finding goes to scripts/finding.sh --add; a row
+  someone needs is a proposal (--propose-row --need \"<evidence>\"), presented for approve/decline
+  at this spec's stop (finding.sh --review --proposals). An approved row carries \"approved F<nnn>\"."
+      [ "$FREEZE_RC" = "2" ] && CONVERGE_WARN="${CONVERGE_WARN}
+  Rows above were added without an approved proposal: surface them to the developer (approve or cut)."
+    elif [ "$CONV_RC" = "2" ] && [ -n "$CONV_LINE" ]; then
       CONVERGE_WARN="
 ⚠ ${CONV_LINE}
   Per .claude/rules/carve-budget.md this is a CONVERGENCE STOP. Work the current row,
@@ -370,7 +389,7 @@ ${TAIL_LINES}"
     fi
   fi
 
-  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${MAINT_DUE}"
+  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${MAINT_DUE}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
     MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
     notice_model SessionStart "$MSG"
@@ -379,7 +398,7 @@ ${TAIL_LINES}"
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   notice_model SessionStart "$MSG"
