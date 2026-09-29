@@ -245,7 +245,27 @@ $MAINT_DUE"
   [ -f "$SCEN_FILE" ] && { SCEN_BYTES=$(wc -c < "$SCEN_FILE" 2>/dev/null | tr -d ' ') || SCEN_BYTES=0; }
   IDX_BYTES=${IDX_BYTES:-0}; SCEN_BYTES=${SCEN_BYTES:-0}
   BLOATED=""
-  [ "$IDX_BYTES" -gt "$WARN_THRESH" ] && BLOATED="INDEX.md ($((IDX_BYTES/1024)) KB)"
+  # Row 017: the 300-byte row budget and this canary do not compose. msroute kept every row inside
+  # budget and still sat at 29 KB (ticked rows, nothing left to archive); agentcrm's 59 KB was
+  # prose inside ## Specs. Both were told to run the row archiver, which had nothing to do. So the
+  # register is measured by part, and the advice is whatever register-bytes.sh says moves the
+  # bytes. A register with no move is not "actionable": one info line, no attention mode.
+  # Helper missing or failing (a partial sync) -> IDX_MOVES stays empty and IDX_PARTS unset, and
+  # the old wording below is used. The canary must never go silent because a helper is absent.
+  IDX_PARTS=""; IDX_MOVES=""; SIZE_NOTE=""
+  if [ "$IDX_BYTES" -gt "$WARN_THRESH" ]; then
+    if IDX_RB=$(bash "${_ORIENT_SCRIPT_DIR}/register-bytes.sh" "$FOUND_REG" 2>/dev/null) && [ -n "$IDX_RB" ]; then
+      _rb() { printf '%s\n' "$IDX_RB" | sed -n "s/^$1=\([0-9]*\) share=\([0-9]*\).*/\\$2/p"; }
+      IDX_PARTS="rows $(( $(_rb rows 1) / 1024 )) KB ($(_rb rows 2)%), prose $(( $(_rb prose 1) / 1024 )) KB ($(_rb prose 2)%), history $(( $(_rb history 1) / 1024 )) KB ($(_rb history 2)%)"
+      IDX_MOVES=$(printf '%s\n' "$IDX_RB" | sed -n 's/^move=\([a-z]*\) \(.*\)/  · \1: \2/p')
+    fi
+    if [ -n "$IDX_PARTS" ] && [ -z "$IDX_MOVES" ]; then
+      SIZE_NOTE="
+· INDEX.md $((IDX_BYTES/1024)) KB (${IDX_PARTS}) — every part complies; nothing archives it further. Read it targeted."
+    else
+      BLOATED="INDEX.md ($((IDX_BYTES/1024)) KB)"
+    fi
+  fi
   if [ "$SCEN_BYTES" -gt "$WARN_THRESH" ]; then
     [ -n "$BLOATED" ] && BLOATED="$BLOATED, SCENARIOS.md ($((SCEN_BYTES/1024)) KB)" || BLOATED="SCENARIOS.md ($((SCEN_BYTES/1024)) KB)"
   fi
@@ -282,15 +302,26 @@ $MAINT_DUE"
   file) per 'Keep the map lean' in .claude/rules/scenarios.md.
   scripts/project-maintenance.sh records each one in specs/FINDINGS.md." ;;
     esac
+    # Row 017: when the register was measured, name its parts and only the moves that exist.
+    IDX_REMEDY=""
+    case "$BLOATED" in
+      *INDEX.md*)
+        if [ -n "$IDX_MOVES" ]; then
+          IDX_REMEDY="
+  INDEX.md is ${IDX_PARTS}. What shrinks it, largest part first:
+${IDX_MOVES}"
+        else
+          IDX_REMEDY="
+  INDEX.md: run scripts/archive-completed-rows.sh (archives completed rows to
+  *.completed.md, reports rows over the 300-byte budget) or
+  scripts/archive-spec-history.sh (moves old history to *.history.md)."
+        fi ;;
+    esac
     SIZE_WARN="
 ⚠ CONTEXT-COST CANARY — large per-spec files: ${BLOATED}.
-  These are read every spec. Trim before continuing: run
-  scripts/archive-completed-rows.sh (INDEX.md — archives completed rows to
-  *.completed.md and reports rows over the 300-byte budget; the ROWS are where
-  the bytes are, measured 91.4% in spec 007ce) or scripts/archive-spec-history.sh
-  (moves old history to *.history.md), and read these files TARGETED (only the
-  next row / the current feature's SC rows), never whole. See 'Keep the register
-  lean' / 'Keep the map lean' in .claude/rules/.${MAP_REMEDY}"
+  These are read every spec. Trim before continuing, and read these files
+  TARGETED (only the next row / the current feature's SC rows), never whole.
+  See 'Keep the register lean' / 'Keep the map lean' in .claude/rules/.${IDX_REMEDY}${MAP_REMEDY}"
   fi
 
   # Failure memory for a resumed spec: when a row is mid-flight ("- [/]"), show
@@ -401,14 +432,14 @@ ${CONV_LINE:+· ${CONV_LINE}
 
   ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${MAINT_DUE}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
-    MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
+    MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)${SIZE_NOTE}"
     notice_model SessionStart "$MSG"
     exit 0
   fi
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${SIZE_NOTE}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   notice_model SessionStart "$MSG"

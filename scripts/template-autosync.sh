@@ -237,7 +237,8 @@ allium-check-hook.sh test-allium-check-hook.sh allium-census.sh test-allium-cens
 speckit-sync.sh speckit-version test-speckit-sync.sh
 test-portability-audit.sh test-sync-prompt-zsh.sh
 skill-reachable.sh test-skill-reachable.sh
-core-gates.sh test-core-gates.sh"
+core-gates.sh test-core-gates.sh
+register-bytes.sh test-register-bytes.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the

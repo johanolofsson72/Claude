@@ -162,7 +162,20 @@ for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
     # bytes of a 121 KB map and the warning comes back unchanged (row 008).
     ROLE=""
     case "$f" in
-      */INDEX.md) HINT="scripts/archive-completed-rows.sh (rows), scripts/archive-spec-history.sh --keep 5 (history)" ;;
+      */INDEX.md)
+        HINT="scripts/archive-completed-rows.sh (rows), scripts/archive-spec-history.sh --keep 5 (history)"
+        # Row 017: measure the parts; the hint is the moves that exist. With none, the register
+        # complies with every budget and no script shrinks it, so a red verdict could never be
+        # cleared: it is a note. A failing or missing helper keeps the old hint and the finding.
+        if RB=$(bash scripts/register-bytes.sh "$f" 2>/dev/null) && [ -n "$RB" ]; then
+          RB_PARTS=$(printf '%s\n' "$RB" | sed -nE 's/^(rows|prose|history)=([0-9]*) share=([0-9]*).*/\1 \3%/p' | paste -sd, - | sed 's/,/, /g')
+          RB_MOVES=$(printf '%s\n' "$RB" | sed -n 's/^move=\([a-z]*\) \(.*\)/\1: \2/p' | paste -sd'|' - | sed 's/|/ · /g')
+          if [ -z "$RB_MOVES" ]; then
+            note "[note] context cost: $f is $((BYTES / 1024)) KB ($RB_PARTS) — every part complies; nothing archives it further. Read it targeted."
+            continue
+          fi
+          HINT="$RB_PARTS. $RB_MOVES"
+        fi ;;
       specs/scenarios/*)
         ROLE="feature file"
         HINT="split this feature into sub-feature files, or archive its history (scripts/archive-spec-history.sh --keep 5)" ;;

@@ -335,3 +335,43 @@ Spec: `specs/012-core-file-comments-hold-real-scenario-ids/`. The live instance 
 Row as opened: - [ ] 014 — autosync-adds-gates-no-runner-registers — spec-only — a sync that ships new `test-*.sh` scripts leaves every project's `run-gates.sh` reporting DRIFT until someone adds them to GATES by hand. Found as consultpilot H7av.
 
 Spec: `specs/014-autosync-adds-gates-no-runner-registers/`. H7be's median-0-days registration latency no longer held: 14 CORE gates sat unregistered in consultpilot on 2026-09-29. No new query mode (the cap of four is a developer decision). A default project runs no CORE gate at all (F023).
+
+## 017 — canary-and-row-budget-do-not-compose
+
+- [x] 017 — canary-and-row-budget-do-not-compose — spec-only — the canary assumed the bytes were rows. `register-bytes.sh` splits INDEX.md into rows/history/prose and names only moves that exist: agentcrm gets "move prose", compliant msroute one info line. Fold is F024.
+
+Row as opened: - [ ] 017 — canary-and-row-budget-do-not-compose — spec-only — every row can sit inside the 300-byte budget and the register still exceed the 25 KB canary: on msroute 90 archived-verbatim completed rows are 74% of the file. A compliant register with no next move. Found as msroute 007ck.
+
+Spec: `specs/017-canary-and-row-budget-do-not-compose/`. Measured 2026-09-29: msroute 29 897 B, done rows 75%, 0 over budget → compliant, info line only. agentcrm 60 484 B, prose 55% → prose move first. Prose written inside the history section counts as prose, because the history archiver refuses it. The diagnosis carried in `INDEX.pending.md` until this tick:
+
+**Second measurement, agentcrm, 2026-09-25.** The row was filed from msroute, where 90
+archived-verbatim completed rows were 74% of the file. agentcrm is the same defect with the bytes
+somewhere else entirely:
+
+| part of `specs/INDEX.md` | bytes | share |
+|---|---|---|
+| the 111 spec rows | 26 212 | 44.0% |
+| `## Register history` | 2 062 | 3.5% |
+| **everything else inside `## Specs`** | **31 358** | **52.6%** |
+| total | 59 632 | 2.4× the 25 KB canary |
+
+Mean row 236 bytes; **one** row over the 300-byte budget. Both archivers report clean. So the
+project is told every session that the file is too large, is pointed at
+`archive-completed-rows.sh`, and that script correctly has nothing to do.
+
+The "everything else" is prose written *inside* the Specs section: a two-lane explainer, dependency
+tables, a file-conflict table, rule commentary. It is useful and it is not rows, and no gate in the
+template has an opinion about it.
+
+Two halves, and they are separable:
+
+1. **The canary should measure where the bytes are** rather than assuming rows, and name the part
+   that is large. `spec-register-orientation-hook.sh` already reads the file; the arithmetic above is
+   four lines.
+2. **The advice should follow the measurement.** Prose belongs in a sibling the pipeline does not
+   read — `INDEX.history.md` and `INDEX.pending.md` are the precedent. Recommending the row archiver
+   to a register whose rows already comply is advice that cannot be taken, which is how a banner
+   becomes noise: agentcrm has carried this one, unactionable, every session since 2026-08-29.
+
+`spec-register-orientation-hook.sh` is CORE (`template-autosync.sh:173`), so the fix lands here.
+From agentcrm F201.
