@@ -166,3 +166,97 @@ core-parity 8, count-honesty 21, finding 13, maintenance-due 11 — all unchange
 ## 036 — index-tally-cannot-express-a-decorated-status
 
 - [x] 036 — index-tally-cannot-express-a-decorated-status — spec-only — the split index's tally regex knew `✓ *` but not `✓ int`, so a map documenting its own integration-layer status could not be indexed at all: every index it could be given claimed `✓` where the file held `✓ int`. Found by ighweld-2026 spec 180.
+
+## 006 — nothing-checks-the-design-gate-exists
+
+- [x] 006 — nothing-checks-the-design-gate-exists — spec-only — the bare name RESOLVES to the plugin cache, so the naming half is refuted. What stands: nothing verifies the plugin is installed, so a BLOCKING gate fails silent without it. Diagnosis below; spec `specs/006-nothing-checks-the-design-gate-exists/`.
+
+_Diagnosis, moved from INDEX.pending.md on tick:_
+
+- [ ] 006 — nothing-checks-the-design-gate-exists — spec-only — corrected on measurement 2026-09-03.
+
+_Row as it stood, and as it was wrong:_
+
+- [ ] 006 — frontend-design-is-a-plugin-not-a-skill — spec-only — four CORE files call `frontend-design` as BLOCKING by bare name; it ships in the plugin cache, not `.claude/skills/`. Without that plugin the gate cannot fire and says nothing. Found by @david as agentcrm S20.
+
+The row made two claims and only one survives.
+
+**Refuted — the bare name resolves.** Measured from film-i-vast-demo, 2026-09-03, by
+invoking `Skill(skill: "frontend-design")` and reading where it loaded from:
+
+    Base directory for this skill:
+    ~/.claude/plugins/cache/claude-plugins-official/frontend-design/0120fb83da5d/skills/frontend-design
+
+The harness resolves an unqualified skill name against installed plugins, so the
+nine files naming the bare form — `CLAUDE.md`'s BLOCKING line, `.claude/rules/frontend.md`,
+`.claude/rules/design-references.md`, `.claude/docs/workflows.md`, `project-wizard`,
+`scripts/ui-design-hook.sh`, `scripts/stop-validation-hook.sh`, `scripts/sync-prompt.md`
+and the `settings.json` PostToolUse hook — are all correct as written. Renaming them to
+`frontend-design:frontend-design` would be churn, and would break the day the skill moves
+back out of a plugin.
+
+The claim was never measured. It was inferred from the skill's absence in
+`.claude/skills/`, which is true and irrelevant: `.claude/skills/` is not the only
+namespace the Skill tool reads.
+
+**Stands — nothing verifies the plugin is present.** The failure the row was reaching for
+is real, one level in. Every caller above is prose telling a model to invoke a skill; none
+of them checks it can be invoked. On a machine where the plugin is not installed —
+a fresh clone, a second lane, a teammate who never ran `/project-wizard` Step 6 — the
+`Skill` call fails, and the BLOCKING design gate degrades to nothing. No hook fires, no
+gate reports, and the UI ships undesigned with a clean run log. That is the same shape as
+row 004 (three documents said nightly, nothing scheduled it) and row 018 (the gate was
+fine, its test never reached it).
+
+Fix is a presence check, not a rename: one predicate that answers "is the design gate
+reachable", called where the gate is already claimed to be enforced —
+`scripts/ui-design-hook.sh` (PreToolUse, where the model is being told to invoke it) and
+`scripts/project-maintenance.sh` (so a missing plugin is reported once a night rather than
+discovered by a UI spec). `project-wizard` Step 6 installs it; the check is what notices
+when Step 6 did not run or the cache was cleared.
+
+Scope note: the same argument applies to every external skill the ruleset calls BLOCKING
+by name. Enumerate them before writing the predicate — a check that covers only
+`frontend-design` is the same gap with a smaller radius.
+
+**The predicted machine exists, measured 2026-09-25** (agentcrm F281, then F296, confirmed again on
+its second lane during the T0 pass). `frontend-design` is absent from `.claude/skills/`, absent from
+`~/.claude/plugins/**`, and absent from the session's own skill list — `Skill` answers *Unknown
+skill*. On this machine `CLAUDE.md`'s BLOCKING line and the eight other callers name something that
+cannot be invoked, so the design gate has been silently inert for every UI spec this lane has run.
+agentcrm spec 058 substituted `design-system/MASTER.md` plus the existing `Invoices.tsx` /
+`Contracts.tsx` patterns and shipped, with nothing in the run log to say the gate never fired.
+
+Worth recording rather than re-arguing: the refuted half above ("the bare name resolves") was
+measured on a machine where the plugin happened to be installed, and read as a property of the
+harness. It is a property of **that machine**. Resolution is per-machine, which is precisely why a
+presence check is the only thing that can answer it — the standing half, now with the failing case
+in hand instead of hypothesised.
+
+## 022 — sync-version-marker-abandoned
+
+- [x] 022 — sync-version-marker-abandoned — spec-only — only `sync-prompt.md` and `project-wizard` write `.claude/.sync-version`; autosync maintains `.claude/.template-sync`. Step 0 reads the stale one and reports "sync needed" on a current project. Diagnos: `specs/INDEX.pending.md`.
+
+## 037 — sync-copies-nothing-under-zsh
+
+- [x] 037 — sync-copies-nothing-under-zsh — spec-only — Step 5c iterates `for s in $CORE_SCRIPTS_LIST`; zsh does not word-split, so 105 names became one filename, 0 scripts were copied, and it reported `[OK] 0 core enforcement script(s) mirrored`. Diagnos: `specs/INDEX.pending.md`
+
+## 046 — hooks-shout-at-the-developer-and-whisper-to-the-model
+
+- [x] 046 — hooks-shout-at-the-developer-and-whisper-to-the-model — full track — every advisory hook emits `systemMessage` ("Warning shown to user in UI" per the CLI's own reference), so reminders addressed to the model land as red warnings in the transcript; and 42 hooks — including all four wired UserPromptSubmit pipeline reminders — emit top-level `additionalContext`, which Claude Code silently ignores. Both channels are backwards.
+
+## 055 — findings-review-never-clears-its-due-state
+
+- [x] 055 — findings-review-never-clears-its-due-state — spec-only — `--stamp findings` existed and nothing ever called it, so the banner said "never run in this project" through four reviews that decided 33 findings. Deciding a finding now stamps it. From agentcrm F078.
+
+## 056 — the-pkill-rule-kills-the-shell-that-runs-it
+
+- [x] 056 — the-pkill-rule-kills-the-shell-that-runs-it — spec-only — `dotnet.md` mandated `pkill -f "<abs>/src/X"`, which matches the running shell's own command line: probe died with exit 144 and the build never ran. Bracketed literal, verified both ways. From agentcrm F101.
+
+## 057 — traceability-cannot-read-its-own-naming-convention
+
+- [x] 057 — traceability-cannot-read-its-own-naming-convention — spec-only — the extractor matched only `SC-NNN`, while `scenarios.md:113` prescribes `Checkout_SC014_...` and a C# method name cannot carry a hyphen. agentcrm coverage 1716 → 1767 of 1824. From agentcrm F331.
+
+## 073 — pipeline-refresh-2026-09
+
+- [x] 073 — pipeline-refresh-2026-09 — spec-only — one sync engine for wizard/update/sync-template, spec-kit pinned, zsh + GNU fixes, supply-chain cooldowns, context diet, hook latency; then roll out to 15 projects. Folds 037, 022. User-requested 2026-09-28.

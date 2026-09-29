@@ -369,6 +369,26 @@ except Exception: print("")' 2>/dev/null)
   fi
 fi
 
+# ------------------------------------------- 3h. BLOCKING skills the template does not ship
+# CLAUDE.md calls frontend-design and humanizer BLOCKING, and neither arrives with a sync: one is a
+# plugin, the other a git clone under ~/.claude/skills. Without them the gate is prose nobody can
+# follow, and nothing said so (spec 006). Unlike §3b this is about the MACHINE, so it runs in the
+# template too, whose own CLAUDE.md names both gates. Guarded on the checker existing, like 2c.
+if [ -f scripts/skill-reachable.sh ]; then
+  SR_OUT=$(bash scripts/skill-reachable.sh --required 2>&1)
+  SR_RC=$?
+  case "$SR_RC" in
+    0) ;;
+    1) while IFS= read -r line; do
+         case "$line" in missing:*) add "[SKILLS] BLOCKING skill not reachable on this machine — ${line#missing: }" ;; esac
+       done <<EOF
+$SR_OUT
+EOF
+       ;;
+    *) note "[SKILLS] could not tell whether the BLOCKING skills are installed (scripts/skill-reachable.sh exit $SR_RC): $(printf '%s' "$SR_OUT" | head -3 | tr '\n' ' ')" ;;
+  esac
+fi
+
 # ------------------------------------------------------------ 4. stale attempt state
 if [ -d .claude/state/attempts ]; then
   STALE=$(find .claude/state/attempts -type f -mtime +1 2>/dev/null | wc -l | tr -d ' ')

@@ -217,7 +217,8 @@ test-sync-prompt-bootstrap.sh
 hook-notice.sh harness-state-gc.sh test-hook-channels.sh
 allium-check-hook.sh test-allium-check-hook.sh allium-census.sh test-allium-census.sh
 speckit-sync.sh speckit-version test-speckit-sync.sh
-test-portability-audit.sh test-sync-prompt-zsh.sh"
+test-portability-audit.sh test-sync-prompt-zsh.sh
+skill-reachable.sh test-skill-reachable.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the
