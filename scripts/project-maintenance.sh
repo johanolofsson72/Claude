@@ -123,6 +123,33 @@ fi
 # would fire forever on a map that is behaving exactly as designed, and an un-actionable
 # warning is the thing this section exists to remove rather than reproduce. The glob simply
 # matches nothing on the 41 projects that never split, so their output is unchanged.
+#
+# Row 008: a scenario-map file over the canary is also RECORDED in the project's own
+# specs/FINDINGS.md, because a warning is not a record. Measured 2026-09-29, 17 map files across
+# 17 projects sat over 25 KB. The template row tracking them named 4, and the line printed here
+# scrolled away every time. Recording hands the decision to the 5-spec findings review, in the
+# project that owns the map. Only an OPEN finding for the same path suppresses a new one: a map
+# still oversize after a "live with it" decision is back in front of the next review, and that
+# review comes only every 5 specs.
+MAP_SPLIT=0
+for f in specs/scenarios/*.md; do [ -f "$f" ] && { MAP_SPLIT=1; break; }; done
+MAP_KEY_PREFIX="scenario-map canary: "
+record_map_canary() { # record_map_canary PATH KB ROLE HINT
+  local key="${MAP_KEY_PREFIX}$1 " out rc
+  if [ ! -f scripts/finding.sh ]; then
+    add "[SETUP] scripts/finding.sh missing — the scenario-map canary for $1 could not be recorded in specs/FINDINGS.md. Run /project-update to restore it."
+    return
+  fi
+  if [ -f specs/FINDINGS.md ] && grep -E '^- \[ \] F[0-9]+ ' specs/FINDINGS.md | grep -Fq -e "$key"; then
+    return
+  fi
+  out=$(bash scripts/finding.sh --add "${key}is $2 KB ($3, canary 25 KB) — $4" --kind debt 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    add "[CONTEXT-COST] the scenario-map canary for $1 could not be recorded (finding.sh exit $rc): $out"
+  else
+    note "[CONTEXT-COST] recorded in specs/FINDINGS.md: $(printf '%s' "$out" | head -1)"
+  fi
+}
 for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
   [ -f "$f" ] || continue
   BYTES=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
@@ -131,11 +158,25 @@ for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
     # Which script to name depends on where the bytes are. Spec 007ce measured
     # specs/INDEX.md at 91.4% spec rows against 4.8% history, so naming the history
     # archiver on the register sent people at 1,918 bytes while 36,521 sat untouched.
+    # A scenario map is the same trap one level down: the history archiver trims a few hundred
+    # bytes of a 121 KB map and the warning comes back unchanged (row 008).
+    ROLE=""
     case "$f" in
       */INDEX.md) HINT="scripts/archive-completed-rows.sh (rows), scripts/archive-spec-history.sh --keep 5 (history)" ;;
-      *)          HINT="scripts/archive-spec-history.sh --keep 5" ;;
+      specs/scenarios/*)
+        ROLE="feature file"
+        HINT="split this feature into sub-feature files, or archive its history (scripts/archive-spec-history.sh --keep 5)" ;;
+      *)
+        if [ "$MAP_SPLIT" -eq 1 ]; then
+          ROLE="split index"
+          HINT="the index keeps one row per feature — archive its Scenario history (scripts/archive-spec-history.sh --keep 5) and move any feature prose into its file"
+        else
+          ROLE="single-file map"
+          HINT="split it per .claude/rules/scenarios.md 'When to split'; prove the move with scripts/scenario-map-rows.sh + scripts/test-scenario-map-split.sh"
+        fi ;;
     esac
     add "[CONTEXT-COST] $f is $((BYTES / 1024)) KB — read on every spec. Trim: $HINT"
+    [ -n "$ROLE" ] && record_map_canary "$f" "$((BYTES / 1024))" "$ROLE" "$HINT"
   fi
 done
 

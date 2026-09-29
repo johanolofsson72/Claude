@@ -272,6 +272,16 @@ $MAINT_DUE"
     done
   fi
   if [ -n "$BLOATED" ]; then
+    # Row 008: the archivers below shrink INDEX.md and history sections, never an SC row. Sent at
+    # a 121 KB map they return a few hundred bytes and the same warning, which is how 17 maps sat
+    # over this line unheeded. A map gets its own remedy, and the maintenance pass records it.
+    MAP_REMEDY=""
+    case "$BLOATED" in
+      *SCENARIOS.md*|*scenarios/*) MAP_REMEDY="
+  Scenario map: the archivers do not shrink it — split the map (or the feature
+  file) per 'Keep the map lean' in .claude/rules/scenarios.md.
+  scripts/project-maintenance.sh records each one in specs/FINDINGS.md." ;;
+    esac
     SIZE_WARN="
 ⚠ CONTEXT-COST CANARY — large per-spec files: ${BLOATED}.
   These are read every spec. Trim before continuing: run
@@ -280,7 +290,7 @@ $MAINT_DUE"
   the bytes are, measured 91.4% in spec 007ce) or scripts/archive-spec-history.sh
   (moves old history to *.history.md), and read these files TARGETED (only the
   next row / the current feature's SC rows), never whole. See 'Keep the register
-  lean' / 'Keep the map lean' in .claude/rules/."
+  lean' / 'Keep the map lean' in .claude/rules/.${MAP_REMEDY}"
   fi
 
   # Failure memory for a resumed spec: when a row is mid-flight ("- [/]"), show

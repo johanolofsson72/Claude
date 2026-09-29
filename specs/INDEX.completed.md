@@ -268,3 +268,42 @@ in hand instead of hypothesised.
 ## 076 — malformed-id-deny-blames-a-healthy-register
 
 - [x] 076 — malformed-id-deny-blames-a-healthy-register — spec-only — both PreToolUse guards deny a malformed active id (`7-x`) with the "resolver missing / register unparsable" text. Own exit 97 + text naming token and grammar. Found as consultpilot H7ai / Q2.
+
+## 008 — scenarios-map-canary-unheeded
+
+- [x] 008 — scenarios-map-canary-unheeded — spec-only — the canary gave a map INDEX.md remedies and recorded nothing: 17 map files over 25 KB, 4 named here. project-maintenance now records each in the project's FINDINGS.md with a remedy for its role.
+
+Measured 2026-09-03 across all seven projects:
+
+    consultpilot   682 KB  single-file   27x the canary
+    agentcrm       252 KB  single-file   10x
+    rocky          242 KB  SPLIT          9x
+    film-i-vast    137 KB  single-file    5x
+    fundit          30 KB  single-file    1x
+    msroute          5 KB  SPLIT          under
+    ighweld        (no map)
+
+The row named only rocky and agentcrm until today, which is how film-i-vast's
+137 KB came back as a fresh finding from a /project-update run that was right to
+report it: nothing in that project's register pointed here, and this row did not
+name it either. A row that lists two of five instances is a row that lets the
+other three read as untracked.
+
+Note rocky is ALREADY split and still 242 KB, so splitting is not sufficient on
+its own — the index itself grows. msroute is the shape to copy: split, 5 KB.
+
+Per-project work with its own spec, not a sweep: moving a map must not reword,
+re-status or drop a row, and `scripts/scenario-map-rows.sh` +
+`scripts/test-scenario-map-split.sh` are the pair that proves it mechanically.
+
+Remeasured 2026-09-29, every project under ~/repos with a map, files over 25 KB:
+
+    puck 439 · noisycricket-joucbox 145 · iskvalp 121 · teach 99 · emaljen 71 ·
+    originalilluminati 70 · noisycricket-rmk 60 · rocky 54 (split index) · rundan 51 ·
+    processhub 43 · consultpilot 43 (one feature file) · noisycricket-fundit 42 · juradrop 39 ·
+    konsultradar 35 · noisycricket.se 33 · ighweld-2026 32 (one feature file) · lufia6 27
+
+agentcrm, fundit and film-i-vast-demo are now under. The row named four and missed thirteen.
+It was the second time a list kept here went stale, so the fix stopped keeping one. Spec 008 gives
+a map file the remedy for its role and has project-maintenance.sh record each file in the owning
+project's specs/FINDINGS.md, where the 5-spec review decides it. See specs/008-scenarios-map-canary-unheeded/.

@@ -153,6 +153,41 @@ EMPTY=$(make_empty_split_fixture)
 expect_warns "empty specs/scenarios/: silent" "$EMPTY" orientation ""
 expect_warns "empty specs/scenarios/: silent" "$EMPTY" maintenance ""
 
+# ============================================================ the remedy fits the file (row 008)
+echo "remedy — a map is not shrunk by the INDEX.md archivers"
+
+# orientation_says <root> <needle> — 0 when the SessionStart banner contains the needle.
+orientation_says() {
+    ( cd "$1" && bash "$SCRIPT_DIR/spec-register-orientation-hook.sh" </dev/null 2>&1 ) | grep -Fq -e "$2"
+}
+if orientation_says "$BIG" "the archivers do not shrink it"; then
+    ok "oversized map: the banner names the map remedy"
+else
+    bad "oversized map: the banner names the map remedy" "no 'the archivers do not shrink it' line"
+fi
+if orientation_says "$BIGIDX" "the archivers do not shrink it"; then
+    bad "oversized register only: no map remedy" "the map line appeared for INDEX.md alone"
+else
+    ok "oversized register only: no map remedy"
+fi
+
+# The fixtures are not git repos, so finding.sh must resolve to the fixture and never climb into
+# the template's own ledger. Hashed rather than trusted.
+TEMPLATE_LEDGER="$SCRIPT_DIR/../specs/FINDINGS.md"
+LEDGER_BEFORE=$(cat "$TEMPLATE_LEDGER" 2>/dev/null | cksum)
+cp "$SCRIPT_DIR/finding.sh" "$BIG/scripts/finding.sh" 2>/dev/null || { mkdir -p "$BIG/scripts"; cp "$SCRIPT_DIR/finding.sh" "$BIG/scripts/finding.sh"; }
+( cd "$BIG" && bash "$SCRIPT_DIR/project-maintenance.sh" >/dev/null 2>&1 )
+if grep -Fq "scenario-map canary: specs/SCENARIOS.md " "$BIG/specs/FINDINGS.md" 2>/dev/null; then
+    ok "oversized map: recorded in the fixture's own ledger"
+else
+    bad "oversized map: recorded in the fixture's own ledger" "no scenario-map canary line in $BIG/specs/FINDINGS.md"
+fi
+if [ "$(cat "$TEMPLATE_LEDGER" 2>/dev/null | cksum)" = "$LEDGER_BEFORE" ]; then
+    ok "the template's own specs/FINDINGS.md is untouched"
+else
+    bad "the template's own specs/FINDINGS.md is untouched" "it changed during the run"
+fi
+
 fixture_cleanup
 
 echo

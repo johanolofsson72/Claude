@@ -476,5 +476,62 @@ OUT=$( cd "$D" && bash "$MAINT" --full 2>&1 )
 expect_absent   "C30 no gate at all — mutation is not stamped" "mutation" "$(cat "$D/.stamped" 2>/dev/null)"
 expect_contains "C30 and the pass still ran, so the absence means something" "secrets" "$(cat "$D/.stamped" 2>/dev/null)"
 
+# ================================================ C31-C36 — the scenario-map canary is recorded (row 008)
+# The canary printed and scrolled away while 17 map files sat over 25 KB, and its only remedy named
+# the INDEX.md archivers, which never move an SC row. These arms pin the two halves of the fix: the
+# hint fits the file's role, and the file lands in the project's own findings ledger exactly once
+# while it is open.
+mkbig() { # mkbig FILE — a map file past the 25 KB canary
+  mkdir -p "$(dirname "$1")"
+  printf '# Scenario map\n' > "$1"
+  while [ "$(wc -c < "$1" | tr -d ' ')" -le 25600 ]; do
+    printf -- '| SC-001 | padding row, present only to exceed the canary threshold | ✓ |\n' >> "$1"
+  done
+}
+open_map_lines() { grep -E '^- \[ \] F[0-9]+ ' "$1/specs/FINDINGS.md" 2>/dev/null | grep -cF "scenario-map canary: $2 "; }
+
+# --- C31: single-file map over the canary — split hint, recorded once as debt ---------------------
+D=$(mkfix c31); cp "$DIR/finding.sh" "$D/scripts/"; mkbig "$D/specs/SCENARIOS.md"
+OUT=$(run "$D"); RC=$?
+expect_contains "C31 single-file map — the hint says split"        "split it per .claude/rules/scenarios.md" "$OUT"
+expect_absent   "C31 single-file map — not the INDEX archiver"     "archive-completed-rows" "$OUT"
+expect_contains "C31 the finding is recorded as debt"              "— debt —" "$(cat "$D/specs/FINDINGS.md" 2>/dev/null)"
+expect_rc       "C31 exactly one open finding for the path" 1 "$(open_map_lines "$D" specs/SCENARIOS.md)"
+expect_rc       "C31 an oversize map is still a red verdict" 1 "$RC"
+
+# --- C32: a second pass does not duplicate the open finding --------------------------------------
+OUT=$(run "$D")
+expect_rc       "C32 second pass — still one open finding" 1 "$(open_map_lines "$D" specs/SCENARIOS.md)"
+expect_absent   "C32 second pass — no 'recorded' note"      "recorded in specs/FINDINGS.md" "$OUT"
+
+# --- C33: split layout, one oversize feature file — named, with the feature-file hint -------------
+D=$(mkfix c33); cp "$DIR/finding.sh" "$D/scripts/"
+mkdir -p "$D/specs/scenarios"; printf '# Scenario map (index)\n' > "$D/specs/SCENARIOS.md"
+printf '# small\n' > "$D/specs/scenarios/001-small.md"; mkbig "$D/specs/scenarios/002-big.md"
+OUT=$(run "$D")
+expect_contains "C33 feature file — the hint says split the feature" "split this feature into sub-feature files" "$OUT"
+expect_rc       "C33 the feature file is recorded" 1 "$(open_map_lines "$D" specs/scenarios/002-big.md)"
+expect_rc       "C33 the small index is not" 0 "$(open_map_lines "$D" specs/SCENARIOS.md)"
+
+# --- C34: a map under the canary — nothing recorded, no ledger created -----------------------------
+D=$(mkfix c34); cp "$DIR/finding.sh" "$D/scripts/"; mkdir -p "$D/specs"; printf '# small map\n' > "$D/specs/SCENARIOS.md"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C34 small map — no CONTEXT-COST line" "[CONTEXT-COST]" "$OUT"
+if [ -f "$D/specs/FINDINGS.md" ]; then bad "C34 small map — no ledger created" "no specs/FINDINGS.md" "created"; else ok "C34 small map — no ledger created"; fi
+expect_rc       "C34 small map — clean exit" 0 "$RC"
+
+# --- C35: a DECIDED finding for the path does not suppress a new open one ---------------------------
+D=$(mkfix c35); cp "$DIR/finding.sh" "$D/scripts/"; mkbig "$D/specs/SCENARIOS.md"
+printf '# Findings\n\n## Open\n\n- [x] F001 — debt — 2026-09-01 — scenario-map canary: specs/SCENARIOS.md is 30 KB (single-file map, canary 25 KB) — split — decided: live with it\n' > "$D/specs/FINDINGS.md"
+OUT=$(run "$D")
+expect_rc       "C35 decided finding — a new open one is added" 1 "$(open_map_lines "$D" specs/SCENARIOS.md)"
+expect_contains "C35 the new one takes the next id" "- [ ] F002 " "$(cat "$D/specs/FINDINGS.md")"
+
+# --- C36: finding.sh missing — a SETUP finding, never a silent skip --------------------------------
+D=$(mkfix c36); mkbig "$D/specs/SCENARIOS.md"
+OUT=$(run "$D"); RC=$?
+expect_contains "C36 no finding.sh — SETUP finding names it" "[SETUP] scripts/finding.sh missing" "$OUT"
+expect_rc       "C36 no finding.sh — verdict is red" 1 "$RC"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

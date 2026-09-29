@@ -1,0 +1,2 @@
+- 2026-09-29 — spec, interview (18 auto), plan, tasks written; measured 17 oversize map files fleet-wide vs 4 named on the row
+- 2026-09-29 — implemented; test-project-maintenance 80/0, canary suite green; both fail against HEAD (9 and 2 cases); finding/layouts/reminder/pipeline-hooks/convergence suites green
