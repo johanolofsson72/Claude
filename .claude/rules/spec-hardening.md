@@ -29,7 +29,7 @@ These do not replace unit/integration/E2E/PBT/VRT/TLA+.
 After every 5th completed spec (5, 10, 15, …), before the next feature spec, work a checkpoint row: `- [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after spec 005`. It runs:
 
 1. **Full-system regression** — entire suite: unit + integration + E2E + visual-regression baselines.
-2. **Cross-cutting security sweep** — `security-scanner` over the whole surface + `scripts/project-freshness.sh` (trufflehog + `npm audit`).
+2. **Cross-cutting security sweep** — `security-scanner` over the whole surface + `scripts/project-freshness.sh` (trufflehog + key-shape scan + dependency audits).
 3. **Scenario-map reconciliation** — index + every `specs/scenarios/*.md` vs reality; drift starts a scenario interview (`.claude/rules/scenarios.md`).
 4. **Mutation spot-check** — Stryker on the 2–3 most-changed critical modules since the last checkpoint.
 

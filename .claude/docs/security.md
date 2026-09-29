@@ -27,5 +27,8 @@ Set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in your environment to automatically st
 Third-party packages are the largest attack surface a project has, and most of it arrives transitively.
 See `.claude/docs/supply-chain.md` for the defaults: npm 12's install-script approvals, release-age
 cooldowns, NuGet audit as a build error, lockfile-only installs, SHA-pinned actions, and osv-scanner.
-`bash scripts/project-freshness.sh` runs the scans locally (trufflehog, npm audit, osv-scanner,
-`dotnet list package --vulnerable`).
+`bash scripts/project-freshness.sh` runs the scans locally (trufflehog, a key-shape scan, npm audit,
+osv-scanner, `dotnet list package --vulnerable`). trufflehog reports only credentials a provider can
+verify. A Data Protection key ring, a `.pfx` or a private key matches no provider, so the key-shape
+pass looks for them by name and content across all of git history. Silence a harmless fixture with a
+`<path-glob>  # <reason>` line in `.secret-shapes-allow`, and the reason is required.

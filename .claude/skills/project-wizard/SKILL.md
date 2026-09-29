@@ -695,7 +695,7 @@ If tests cannot be run (missing infrastructure), clearly inform about this.
 [RUN COMMAND]                             # Run the application
 [E2E COMMAND]                             # Playwright E2E tests
 [SINGLE TEST COMMAND]                     # Single test
-bash scripts/project-freshness.sh         # Freshness pass: trufflehog secret scan + npm audit (report-first; --fix to remediate)
+bash scripts/project-freshness.sh         # Freshness pass: trufflehog + key-shape scan + dependency audits (report-first; --fix to remediate)
 ```
 
 Adapt these based on the chosen tech stack:

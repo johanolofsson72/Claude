@@ -77,7 +77,7 @@ mkrepo() {
   printf '%s' "$TMP/$1"
 }
 
-printf 'project-freshness self-test (deps walk + filters)\n'
+printf 'project-freshness self-test (deps walk + filters, key-shape scan)\n'
 
 # ---------------------------------------------- C1 — the dead agent worktree (H1 F-03 itself)
 #
@@ -314,6 +314,355 @@ P=$(mkrepo notdotnet)
 mkpkg "$P/package.json" app
 OUT=$(run "$P")
 expect_contains "a Node-only project says it is not .NET" ".NET:    no .NET project" "$OUT"
+
+# =============================================================================================
+# Key-shape scan (spec 023). trufflehog --only-verified cannot see a key that no provider will
+# answer for; this arm finds it by shape. Every fixture is built here at runtime: no key-shaped
+# bytes are committed to the template, so the template's own scan stays clean.
+#
+# SENTINEL is the "key bytes". It must never appear in any output (FR-06): a report gets pasted
+# into chats and PR comments, and must not become the leak. Every key-scan output is collected in
+# ALL_KEY_OUT and checked once at the end.
+# =============================================================================================
+TH_UNDER_TEST="$NO_BIN/trufflehog"
+ALL_KEY_OUT=""
+runk() {
+  ( cd "$1" && FRESHNESS_TRUFFLEHOG="$TH_UNDER_TEST" FRESHNESS_OSV_SCANNER="$OSV_UNDER_TEST" \
+      FRESHNESS_DOTNET="$DOTNET_UNDER_TEST" bash "$FRESH" ${2:---secrets} --no-install 2>&1; echo "EXIT=$?" )
+}
+keyscan() { OUT=$(runk "$@"); ALL_KEY_OUT="$ALL_KEY_OUT
+$OUT"; }
+commit_all() {
+  ( cd "$1" && git add -A && git -c user.name=t -c user.email=t@example.invalid \
+      -c commit.gpgsign=false commit -qm "${2:-fixture}" >/dev/null 2>&1 )
+}
+SENT='SENTINEL+KEY/BYT'   # 16 characters, and it exercises + and /
+LINE64="$SENT$SENT$SENT$SENT"
+BODY="$LINE64
+$LINE64
+$LINE64"
+M5='-----'
+# $1 type prefix ("RSA ", "", "ENCRYPTED ", "OPENSSH ") · $2 body
+pem() { printf '%sBEGIN %sPRIVATE KEY%s\n%s\n%sEND %sPRIVATE KEY%s\n' "$M5" "$1" "$M5" "$2" "$M5" "$1" "$M5"; }
+dpkey() {  # $1 = plain | encrypted
+  printf '<?xml version="1.0" encoding="utf-8"?>\n<key id="d51365dc-16f0-4e2a-918c-df1fef2bdb34" version="1">\n  <descriptor><descriptor>\n'
+  if [ "$1" = plain ]; then
+    printf '    <masterKey p4:requiresEncryption="true" xmlns:p4="http://schemas.asp.net/2015/03/dataProtection">\n      <value>%s</value>\n    </masterKey>\n' "$LINE64"
+  else
+    printf '    <masterKey><encryptedSecret decryptorType="X"><EncryptedData>%s</EncryptedData></encryptedSecret></masterKey>\n' "$LINE64"
+  fi
+  printf '  </descriptor></descriptor>\n</key>\n'
+}
+GUIDXML='key-d51365dc-16f0-4e2a-918c-df1fef2bdb34.xml'
+expect_exit() { if grep -q "^EXIT=$2\$" <<< "$3"; then ok "$1"; else bad "$1" "EXIT=$2" "$(grep '^EXIT=' <<< "$3")"; fi; }
+
+printf '\n  -- K1  a plaintext Data Protection key untracked at HEAD is still a FINDING (the filed case)\n'
+P=$(mkrepo k1); mkdir -p "$P/src/Web/keys"; dpkey plain > "$P/src/Web/keys/$GUIDXML"
+printf 'x\n' > "$P/README"; commit_all "$P" add-key
+( cd "$P" && git rm -q --cached "src/Web/keys/$GUIDXML" && printf 'src/Web/keys/\n' > .gitignore ); commit_all "$P" untrack
+keyscan "$P"
+expect_contains "the key ring is found in history" "[FINDING] src/Web/keys/$GUIDXML — ASP.NET Data Protection key (plaintext master key) — history only" "$OUT"
+expect_contains "…with the commit that added it" "added " "$OUT"
+expect_contains "…the remedy is rotation, not untracking" "Untracking does not un-leak a key" "$OUT"
+expect_contains "…and the DP-specific step" "delete the key ring" "$OUT"
+expect_contains "the SUMMARY has a Keys line" "Keys:    1 KEY FILE(S) FOUND" "$OUT"
+expect_exit     "a key FINDING exits 1" 1 "$OUT"
+expect_contains "trufflehog is missing in this run…" "Secrets: skipped (trufflehog unavailable)" "$OUT"
+expect_contains "…and the key scan ran anyway" "[2/5] key-shape scan" "$OUT"
+
+printf '\n  -- K2  an encrypted-at-rest key ring is a NOTE, not a finding\n'
+P=$(mkrepo k2); mkdir -p "$P/keys"; dpkey encrypted > "$P/keys/$GUIDXML"; commit_all "$P"
+keyscan "$P"
+expect_contains "encrypted ring is a NOTE at HEAD" "[NOTE] keys/$GUIDXML — ASP.NET Data Protection key (encrypted at rest) — at HEAD" "$OUT"
+expect_contains "…counted in the summary" "Keys:    clean, 1 note(s)" "$OUT"
+expect_exit     "…and does not fail the pass" 0 "$OUT"
+
+printf '\n  -- K3  PEM bodies pasted into config and code (JSON / C# escapes)\n'
+P=$(mkrepo k3); mkdir -p "$P/src"
+ESC=$(pem "RSA " "$BODY" | awk '{ printf "%s\\n", $0 }')
+printf '{ "Signing": { "Pem": "%s" } }\n' "$ESC" > "$P/src/appsettings.json"
+printf 'var k = "%s";\n' "$(pem "" "$BODY" | awk '{ printf "%s\\n", $0 }')" > "$P/src/Keys.cs"
+commit_all "$P"
+keyscan "$P"
+expect_contains "RSA key in JSON with \\n escapes" "[FINDING] src/appsettings.json — PEM private key (RSA) — at HEAD" "$OUT"
+expect_contains "PKCS#8 key in a C# string" "[FINDING] src/Keys.cs — PEM private key (PKCS#8) — at HEAD" "$OUT"
+expect_exit     "…exit 1" 1 "$OUT"
+
+printf '\n  -- K4  passphrase-encrypted PEM (PKCS#8 ENCRYPTED and RFC 1421 Proc-Type) is a NOTE\n'
+P=$(mkrepo k4)
+pem "ENCRYPTED " "$BODY" > "$P/a.pem"
+printf '%sBEGIN RSA PRIVATE KEY%s\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,0011\n\n%s\n%sEND RSA PRIVATE KEY%s\n' "$M5" "$M5" "$BODY" "$M5" "$M5" > "$P/b.key"
+commit_all "$P"
+keyscan "$P"
+expect_contains "PKCS#8 ENCRYPTED is a NOTE" "[NOTE] a.pem — PEM private key (passphrase-encrypted)" "$OUT"
+expect_contains "Proc-Type ENCRYPTED is a NOTE" "[NOTE] b.key — PEM private key (passphrase-encrypted)" "$OUT"
+expect_exit     "…exit 0" 0 "$OUT"
+
+printf '\n  -- K5  OpenSSH: cipher none is a FINDING, anything else a NOTE\n'
+P=$(mkrepo k5); mkdir -p "$P/deploy"
+OSSH_NONE="b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAM$SENT"
+OSSH_AES="b3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAA$SENT"
+pem "OPENSSH " "$OSSH_NONE
+$BODY" > "$P/deploy/id_ed25519"
+pem "OPENSSH " "$OSSH_AES
+$BODY" > "$P/deploy/id_rsa"
+commit_all "$P"
+keyscan "$P"
+expect_contains "unencrypted OpenSSH key" "[FINDING] deploy/id_ed25519 — OpenSSH private key (no passphrase)" "$OUT"
+expect_contains "encrypted OpenSSH key" "[NOTE] deploy/id_rsa — OpenSSH private key (passphrase-encrypted)" "$OUT"
+# The prefix constant is only as good as its agreement with ssh-keygen. Check it against the real
+# tool when there is one (macOS, Linux and Git for Windows all ship it); skip, loudly, when not.
+if command -v ssh-keygen >/dev/null 2>&1; then
+  P=$(mkrepo k5real)
+  ssh-keygen -q -t ed25519 -N '' -C t -f "$P/id_ed25519" >/dev/null 2>&1
+  ssh-keygen -q -t ed25519 -N 'pw' -C t -f "$P/other_ed25519" >/dev/null 2>&1
+  mv "$P/other_ed25519" "$P/id_ecdsa"; rm -f "$P"/*.pub; commit_all "$P"
+  OUT=$(runk "$P")   # real key bytes: kept out of ALL_KEY_OUT, checked for leakage right here
+  expect_contains "a real ssh-keygen key without passphrase is a FINDING" "[FINDING] id_ed25519 — OpenSSH private key (no passphrase)" "$OUT"
+  expect_contains "a real one with a passphrase is a NOTE" "[NOTE] id_ecdsa — OpenSSH private key (passphrase-encrypted)" "$OUT"
+  REALLINE=$(sed -n 2p "$P/id_ed25519")
+  expect_absent "…and not one line of the real key reaches the output" "$REALLINE" "$OUT"
+else
+  printf '  skip real ssh-keygen check (ssh-keygen not installed)\n'
+fi
+
+printf '\n  -- K6  PKCS#12 is a FINDING by name, any case, without reading it\n'
+P=$(mkrepo k6); mkdir -p "$P/Certificate"
+printf 'binary\000stuff' > "$P/Certificate/site.PFX"; printf 'x' > "$P/sign.p12"; commit_all "$P"
+keyscan "$P"
+expect_contains ".PFX (upper case)" "[FINDING] Certificate/site.PFX — PKCS#12 bundle" "$OUT"
+expect_contains ".p12" "[FINDING] sign.p12 — PKCS#12 bundle" "$OUT"
+
+printf '\n  -- K7  negatives: public cert, marker-only fixture, empty template, prose\n'
+P=$(mkrepo k7); mkdir -p "$P/Administration" "$P/tests" "$P/docs"
+printf '%sBEGIN CERTIFICATE%s\n%s\n%sEND CERTIFICATE%s\n' "$M5" "$M5" "$BODY" "$M5" "$M5" > "$P/Administration/cert.pem"
+printf '[InlineData("%sBEGIN RSA PRIVATE KEY%s", "private key block")]\nvar s = "a b c d e f g h i j k l m n o p q r s t u v w x y z a b c d e f g h i j k l m n o p q r s t u v w x y z a b c d e f g h i j k l m n o p";\n' "$M5" "$M5" > "$P/tests/ScannerTests.cs"
+printf '[InlineData("%sBEGIN RSA PRIVATE KEY%s and then a long run of ordinary words that are not base64 at all but go on and on for well over one hundred and twenty characters")]\n' "$M5" "$M5" > "$P/tests/Prose.cs"
+printf '{ "type": "service_account", "private_key_id": "", "private_key": "", "client_email": "" }\n' > "$P/Credentials.json"
+printf 'The ring holds <masterKey> and, when protected, <encryptedSecret>.\n' > "$P/docs/dp.md"
+commit_all "$P"
+keyscan "$P"
+expect_contains "nothing key-shaped: OK" "[OK] No key material in git history" "$OUT"
+expect_absent   "the public certificate is not flagged" "cert.pem" "$OUT"
+expect_absent   "the marker-only fixture is not flagged" "ScannerTests.cs" "$OUT"
+expect_absent   "marker + prose is not a key body" "Prose.cs" "$OUT"
+expect_absent   "prose naming the DP elements is not a key ring" "dp.md" "$OUT"
+expect_exit     "…exit 0" 0 "$OUT"
+
+printf '\n  -- K8  the 60-character body boundary (Ed25519 PKCS#8 is 64), counted in 40+ tokens\n'
+P=$(mkrepo k8)
+T60="${LINE64%????}"   # 60 base64 characters
+T59="${T60%?}"
+T39="${T60%?????????????????????}"
+pem "EC " "$T59" > "$P/under.pem"
+pem "EC " "$T60" > "$P/at.pem"
+pem "EC " "$T39 $T39 $T39" > "$P/short-tokens.pem"
+commit_all "$P"
+keyscan "$P"
+expect_absent   "59 body characters is not a key" "under.pem" "$OUT"
+expect_contains "60 is" "[FINDING] at.pem — PEM private key (EC)" "$OUT"
+expect_absent   "tokens under 40 characters never add up to a key" "short-tokens.pem" "$OUT"
+
+printf '\n  -- K9  one key at three paths, spaces included, is three lines\n'
+P=$(mkrepo k9); mkdir -p "$P/App/My Project/~BROMIUM" "$P/App/~BROMIUM"
+printf 'pfx' > "$P/App/Temp Key.pfx"; cp "$P/App/Temp Key.pfx" "$P/App/My Project/~BROMIUM/Temp Key.pfx"
+cp "$P/App/Temp Key.pfx" "$P/App/~BROMIUM/Temp Key.pfx"; commit_all "$P"
+keyscan "$P"
+expect_contains "path 1" "[FINDING] App/Temp Key.pfx" "$OUT"
+expect_contains "path 2 (spaces)" "[FINDING] App/My Project/~BROMIUM/Temp Key.pfx" "$OUT"
+expect_contains "path 3" "[FINDING] App/~BROMIUM/Temp Key.pfx" "$OUT"
+expect_contains "…counted as three" "Keys:    3 KEY FILE(S) FOUND" "$OUT"
+
+printf '\n  -- K10 a key changed many times is one line; worst verdict wins\n'
+P=$(mkrepo k10)
+pem "ENCRYPTED " "$BODY" > "$P/svc.key"; commit_all "$P" v1
+pem "" "$BODY" > "$P/svc.key"; commit_all "$P" v2
+pem "ENCRYPTED " "$BODY" > "$P/svc.key"; commit_all "$P" v3
+keyscan "$P"
+C=$(grep -c 'svc.key' <<< "$OUT" | tr -d ' ')
+if [ "$C" = 1 ]; then ok "one line for the path"; else bad "one line for the path" 1 "$C"; fi
+# The plaintext version is in history; HEAD holds the encrypted one. Location is per blob.
+expect_contains "…and it is the FINDING, located in history, not at HEAD" "[FINDING] svc.key — PEM private key (PKCS#8) — history only (the path is tracked; this content is not at HEAD; added " "$OUT"
+
+printf '\n  -- K11 untracked-not-ignored is a candidate; ignored is not\n'
+P=$(mkrepo k11); printf 'x\n' > "$P/README"; printf 'secrets/\n' > "$P/.gitignore"; commit_all "$P"
+mkdir -p "$P/secrets"; pem "RSA " "$BODY" > "$P/about-to-commit.pem"; pem "RSA " "$BODY" > "$P/secrets/ignored.pem"
+keyscan "$P"
+expect_contains "untracked key" "[FINDING] about-to-commit.pem — PEM private key (RSA) — untracked (not ignored)" "$OUT"
+expect_absent   "ignored key stays out" "ignored.pem" "$OUT"
+
+printf '\n  -- K12 .secret-shapes-allow: a reason allows, no reason is ignored and named\n'
+P=$(mkrepo k12); mkdir -p "$P/tests/fixtures"
+pem "RSA " "$BODY" > "$P/tests/fixtures/throwaway.pem"; pem "RSA " "$BODY" > "$P/real.pem"
+printf '# fixtures\n\ntests/fixtures/*.pem   # generated for the parser tests, never deployed\nreal.pem\n' > "$P/.secret-shapes-allow"
+commit_all "$P"
+keyscan "$P"
+expect_contains "allowed hit is printed with its reason" "[ALLOWED] tests/fixtures/throwaway.pem — PEM private key (RSA) — at HEAD — generated for the parser tests, never deployed" "$OUT"
+expect_contains "a line with no reason is named by number" "[WARN] .secret-shapes-allow:4 has no '# reason'" "$OUT"
+expect_contains "…and does not allow" "[FINDING] real.pem" "$OUT"
+expect_contains "the summary counts the allowed one" "Keys:    1 KEY FILE(S) FOUND — rotate now, 1 allowed" "$OUT"
+( cd "$P" && git rm -q real.pem ); commit_all "$P" drop
+( cd "$P" && printf 'tests/fixtures/*.pem  # fixtures\nreal.pem  # rotated 2026-09-29, purge pending\n' > .secret-shapes-allow ); commit_all "$P" allow
+keyscan "$P"
+expect_contains "a rotated history-only key can be allowed" "[ALLOWED] real.pem — PEM private key (RSA) — history only" "$OUT"
+expect_contains "…and the pass is clean with the allowances counted" "Keys:    clean, 2 allowed" "$OUT"
+expect_exit     "…exit 0" 0 "$OUT"
+
+printf '\n  -- K13 outside git: the working tree is scanned\n'
+P="$TMP/k13"; mkdir -p "$P/cfg" "$P/node_modules/x"
+pem "" "$BODY" > "$P/cfg/signing.txt"; pem "" "$BODY" > "$P/node_modules/x/k.pem"
+keyscan "$P"
+expect_contains "a key in a plain directory" "[FINDING] cfg/signing.txt — PEM private key (PKCS#8) — working tree" "$OUT"
+expect_absent   "node_modules is structural noise" "node_modules" "$OUT"
+
+printf '\n  -- K14 padding a key past 1 MiB does not hide it (no size gate; the classifier streams)\n'
+P=$(mkrepo k14)
+{ LC_ALL=C awk 'BEGIN { for (i = 0; i < 17000; i++) print "# padding padding padding padding padding padding padding padding" }'; pem "" "$BODY"; LC_ALL=C awk 'BEGIN { for (i = 0; i < 17000; i++) print "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }'; } > "$P/huge.key"
+commit_all "$P"
+keyscan "$P"
+expect_contains "a padded key is still a FINDING" "[FINDING] huge.key — PEM private key (PKCS#8)" "$OUT"
+
+printf '\n  -- K15 a binary key-named file is a NOTE\n'
+P=$(mkrepo k15); printf '\060\202\004\275\002\001\000\060\015' > "$P/der.key"; commit_all "$P"
+keyscan "$P"
+expect_contains "DER is named for a human" "[NOTE] der.key — binary key-named file, not PEM" "$OUT"
+
+printf '\n  -- K16 trufflehog wording and scope flags\n'
+P=$(mkrepo k16); printf 'x\n' > "$P/README"; commit_all "$P"
+TH_UNDER_TEST="$TMP/stubs/th/trufflehog"; mkstub "$TH_UNDER_TEST" "" 0
+keyscan "$P"
+expect_contains "a clean trufflehog says verified credentials, not secrets" "Secrets: no verified credentials" "$OUT"
+expect_contains "…and points at the key pass" "provider-checkable tokens only; key files: next pass" "$OUT"
+expect_contains "the stub was the binary that ran" "git file://" "$(cat "$TH_UNDER_TEST.calls" 2>/dev/null)"
+expect_contains "both clean: the RESULT names both" "no verified credentials, no committed key material" "$OUT"
+TH_UNDER_TEST="$NO_BIN/trufflehog"
+keyscan "$P" --deps
+expect_contains "--deps does not run the key scan" "Keys:    not run (--deps)" "$OUT"
+expect_absent   "…nor print its section" "[2/5] key-shape" "$OUT"
+
+printf '\n  -- K18 escapes and prefixes: +, \/, CRLF, commented-out body lines\n'
+P=$(mkrepo k18); mkdir -p "$P/cfg"
+J=$(pem "" "$BODY" | awk '{ printf "%s\\n", $0 }' | sed 's|+|\\u002B|g; s|/|\\/|g')
+printf '{ "Key": "%s" }\n' "$J" > "$P/cfg/dotnet.json"
+pem "RSA " "$BODY" | sed 's/$/\r/' > "$P/cfg/crlf.txt"
+pem "EC " "$BODY" | sed 's/^/# /' > "$P/cfg/commented.sh"
+commit_all "$P"
+keyscan "$P"
+expect_contains "System.Text.Json \\u002B and PHP \\/ are decoded" "[FINDING] cfg/dotnet.json — PEM private key (PKCS#8)" "$OUT"
+expect_contains "CRLF" "[FINDING] cfg/crlf.txt — PEM private key (RSA)" "$OUT"
+expect_contains "a body behind '# ' prefixes is still a body" "[FINDING] cfg/commented.sh — PEM private key (EC)" "$OUT"
+
+printf '\n  -- K19 base64-wrapped PEM (a Kubernetes Secret); a wrapped certificate is not a key\n'
+P=$(mkrepo k19); mkdir -p "$P/k8s"
+printf 'data:\n  tls.key: %s\n' "$(pem "" "$BODY" | base64 | tr -d '\n')" > "$P/k8s/secret.yaml"
+printf 'data:\n  ca.crt: %s\n' "$(printf '%sBEGIN CERTIFICATE%s\n%s\n%sEND CERTIFICATE%s\n' "$M5" "$M5" "$BODY" "$M5" "$M5" | base64 | tr -d '\n')" > "$P/k8s/ca.yaml"
+commit_all "$P"
+keyscan "$P"
+expect_contains "base64 of a private-key PEM" "[FINDING] k8s/secret.yaml — base64-encoded PEM private key" "$OUT"
+expect_absent   "base64 of a certificate" "ca.yaml" "$OUT"
+
+printf '\n  -- K20 PGP and PuTTY key formats\n'
+P=$(mkrepo k20)
+printf '%sBEGIN PGP PRIVATE KEY BLOCK%s\nVersion: x\n\n%s\n=abcd\n%sEND PGP PRIVATE KEY BLOCK%s\n' "$M5" "$M5" "$BODY" "$M5" "$M5" > "$P/signing.asc"
+printf 'PuTTY-User-Key-File-3: ssh-ed25519\nEncryption: none\nComment: x\nPublic-Lines: 2\n%s\nPrivate-Lines: 1\n%s\n' "$LINE64" "$LINE64" > "$P/deploy.ppk"
+printf 'PuTTY-User-Key-File-3: ssh-ed25519\nEncryption: aes256-cbc\nComment: x\nPublic-Lines: 2\n%s\nPrivate-Lines: 1\n%s\n' "$LINE64" "$LINE64" > "$P/locked.ppk"
+commit_all "$P"
+keyscan "$P"
+expect_contains "PGP secret key" "[FINDING] signing.asc — PGP private key block" "$OUT"
+expect_contains "PuTTY without passphrase" "[FINDING] deploy.ppk — PuTTY private key (no passphrase)" "$OUT"
+expect_contains "PuTTY with one" "[NOTE] locked.ppk — PuTTY private key (passphrase-encrypted)" "$OUT"
+
+printf '\n  -- K21 a header that merely says ENCRYPTED does not downgrade a plaintext key\n'
+P=$(mkrepo k21)
+printf '%sBEGIN RSA PRIVATE KEY%s\nComment: ENCRYPTED\n\n%s\n%sEND RSA PRIVATE KEY%s\n' "$M5" "$M5" "$BODY" "$M5" "$M5" > "$P/liar.pem"
+commit_all "$P"
+keyscan "$P"
+expect_contains "Comment: ENCRYPTED is not Proc-Type" "[FINDING] liar.pem — PEM private key (RSA)" "$OUT"
+
+printf '\n  -- K22 a key scrubbed from a tracked file is history, and so is a renamed key'"'"'s old name\n'
+P=$(mkrepo k22); mkdir -p "$P/src"
+printf '{ "Key": "%s" }\n' "$(pem "" "$BODY" | awk '{ printf "%s\\n", $0 }')" > "$P/src/appsettings.json"; commit_all "$P" paste
+printf '{ "Key": "" }\n' > "$P/src/appsettings.json"; commit_all "$P" scrub
+pem "" "$BODY" > "$P/secret.txt"; commit_all "$P" add
+( cd "$P" && git mv secret.txt notes.txt ); commit_all "$P" rename
+keyscan "$P"
+expect_contains "scrubbed paste: history, path still tracked" "[FINDING] src/appsettings.json — PEM private key (PKCS#8) — history only (the path is tracked; this content is not at HEAD; added " "$OUT"
+expect_contains "renamed key: found at its new name, at HEAD" "[FINDING] notes.txt — PEM private key (PKCS#8) — at HEAD" "$OUT"
+expect_contains "…and at its old one, as history" "[FINDING] secret.txt — PEM private key (PKCS#8) — history only (untracked at HEAD" "$OUT"
+
+printf '\n  -- K23 staged but not committed\n'
+P=$(mkrepo k23); printf 'x\n' > "$P/README"; commit_all "$P"
+pem "" "$BODY" > "$P/new.key"; ( cd "$P" && git add new.key )
+keyscan "$P"
+expect_contains "a staged key" "[FINDING] new.key — PEM private key (PKCS#8) — staged, not committed" "$OUT"
+
+printf '\n  -- K24 odd names: non-ASCII, tab, a leading dash, "=", a control character, a directory named .pfx\n'
+P=$(mkrepo k24); mkdir -p "$P/nyckelr"$'\303\245'"d" "$P/bundle.pfx"
+pem "" "$BODY" > "$P/nyckelr"$'\303\245'"d/"$'\303\266'"ppen.pem"
+pem "" "$BODY" > "$P/tab"$'\t'"name.pem"
+printf 'not a key\n' > "$P/bundle.pfx/readme.txt"
+commit_all "$P"
+pem "" "$BODY" > "$P/-q.pem"; pem "" "$BODY" > "$P/-x.txt"; pem "" "$BODY" > "$P/a=b.txt"; pem "" "$BODY" > "$P/esc"$'\033'"[2K.pem"
+keyscan "$P"
+expect_contains "non-ASCII tracked path, at HEAD" "[FINDING] nyckelr"$'\303\245'"d/"$'\303\266'"ppen.pem — PEM private key (PKCS#8) — at HEAD" "$OUT"
+expect_contains "a tab in a path does not shift the verdict (shown as ?)" "[FINDING] tab?name.pem — PEM private key (PKCS#8) — at HEAD" "$OUT"
+expect_contains "an untracked '-q.pem' is a file, not a grep option" "[FINDING] -q.pem" "$OUT"
+expect_contains "an untracked content-only '-x.txt' is a file, not a grep option" "[FINDING] -x.txt" "$OUT"
+expect_contains "an untracked 'a=b.txt' is a file, not an awk assignment" "[FINDING] a=b.txt" "$OUT"
+expect_contains "an escape sequence in a name prints as ?" "[FINDING] esc?[2K.pem" "$OUT"
+expect_absent   "…and never reaches the terminal raw" $'\033' "$OUT"
+expect_absent   "a directory named bundle.pfx is not a key" "bundle.pfx" "$OUT"
+
+printf '\n  -- K25 .gitattributes cannot switch the pickaxe off\n'
+P=$(mkrepo k25); mkdir -p "$P/cfg"
+printf '*.conf -diff\n' > "$P/.gitattributes"
+pem "RSA " "$BODY" > "$P/cfg/app.conf"; commit_all "$P" add
+printf 'scrubbed\n' > "$P/cfg/app.conf"; commit_all "$P" scrub
+keyscan "$P"
+expect_contains "a key in a -diff file's history" "[FINDING] cfg/app.conf — PEM private key (RSA) — history only" "$OUT"
+
+printf '\n  -- K26 not scanned is not clean: a broken ref, a shallow clone\n'
+P=$(mkrepo k26); printf 'x\n' > "$P/README"; commit_all "$P"
+printf '0123456789012345678901234567890123456789\n' > "$P/.git/refs/heads/broken"
+keyscan "$P"
+expect_contains "the scan says it is incomplete" "[WARN] key-shape scan incomplete" "$OUT"
+expect_contains "…the SUMMARY says so" "Keys:    INCOMPLETE" "$OUT"
+expect_contains "…and RESULT does not say clean" "RESULT: no findings, but NOT SCANNED: trufflehog key-shape" "$OUT"
+expect_absent   "…anywhere" "RESULT: clean" "$OUT"
+P2="$TMP/k26shallow"
+( cd "$TMP" && git clone -q --depth 1 "file://$(cd "$P" && git rev-parse --show-toplevel 2>/dev/null)" k26shallow >/dev/null 2>&1 ) \
+  || git clone -q --depth 1 "file://$P" "$P2" >/dev/null 2>&1
+rm -f "$P/.git/refs/heads/broken"
+if [ -d "$P2/.git" ]; then
+  keyscan "$P2"
+  expect_contains "a shallow clone is named, not called clean" "shallow clone" "$OUT"
+else
+  printf '  skip shallow clone check (clone failed)\n'
+fi
+
+printf '\n  -- K27 a large text certificate bundle is not a "binary" NOTE; empty allow reason is refused\n'
+P=$(mkrepo k27)
+LC_ALL=C awk -v m="$M5" 'BEGIN { for (c = 0; c < 400; c++) { print m "BEGIN CERTIFICATE" m; for (i = 0; i < 10; i++) print "MIIDdzCCAl+gAwIBAgIEAgAAuTANBgkqhkiG9w0BAQUFADBaMQswCQYDVQQGEwJJ"; print m "END CERTIFICATE" m } }' > "$P/cacert.pem"
+pem "" "$BODY" > "$P/k.pem"
+printf 'k.pem  #   \n' > "$P/.secret-shapes-allow"
+commit_all "$P"
+keyscan "$P"
+expect_absent   "a 250 KB text bundle is not called binary" "cacert.pem" "$OUT"
+expect_contains "'#' followed by only spaces is no reason" "[WARN] .secret-shapes-allow:1 has no '# reason'" "$OUT"
+expect_contains "…so the key is still a FINDING" "[FINDING] k.pem" "$OUT"
+
+if command -v openssl >/dev/null 2>&1 && openssl genpkey -algorithm ed25519 -out /dev/null >/dev/null 2>&1; then
+  printf '\n  -- K28 a real Ed25519 PKCS#8 key from openssl (64-character body)\n'
+  P=$(mkrepo k28)
+  openssl genpkey -algorithm ed25519 -out "$P/jwt-signing.pem" >/dev/null 2>&1; commit_all "$P"
+  OUT=$(runk "$P")
+  expect_contains "Ed25519 is found" "[FINDING] jwt-signing.pem — PEM private key (PKCS#8)" "$OUT"
+  expect_absent   "…and its body line never printed" "$(sed -n 2p "$P/jwt-signing.pem")" "$OUT"
+fi
+
+printf '\n  -- K17 FR-06: no byte of any fixture key reaches any output\n'
+expect_absent "the sentinel never appears" "$SENT" "$ALL_KEY_OUT"
+expect_absent "…nor a 64-character body line" "$LINE64" "$ALL_KEY_OUT"
 
 # ------------------------------------------------------------------------------- verdict
 printf '\n%s\n' "----------------------------------------------------------"
