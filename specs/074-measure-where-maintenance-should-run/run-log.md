@@ -1,0 +1,5 @@
+- 2026-09-29 — spec + interview (18, auto) written; convergence stop active (ratio 3.80) — 074/075 are developer-requested, not carves.
+- 2026-09-29 — implemented; test-maintenance-ledger 28/28 (sabotage on fail count caught), test-project-maintenance 63/63, test-maintenance-due 11/11.
+- 2026-09-29 — real --full on this Mac: 8 s pass at load 46; secrets 5.5 s / 211 MB. Template has no suite/Stryker, so placement data must come from products via `report --all`.
+- 2026-09-29 — fixed in place: bench-hooks.sh lacked +x (maintenance finding); similarity skip (rc 2) counted as failure → column renamed rc!=0.
+- 2026-09-29 — allium/tla skipped: spec-only track.

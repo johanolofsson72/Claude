@@ -89,9 +89,22 @@ NOTES=""
 note() { NOTES="${NOTES}$1
 "; }
 
+# Every job that costs real time goes through the ledger (row 074), so the local-vs-cloud placement
+# in row 075 is decided from measured duration and peak memory rather than a guess. The wrapper is
+# transparent: same output, same exit code. Without python3 the job still runs, unmeasured, and the
+# pass says so once -- an unmeasured run must not read like a cheap one.
+PASS_START=$(date +%s)
+LEDGER_OK=0
+command -v python3 >/dev/null 2>&1 && [ -f scripts/maintenance_ledger.py ] && LEDGER_OK=1
+[ "$LEDGER_OK" -eq 1 ] || note "[note] maintenance ledger: python3 or scripts/maintenance_ledger.py missing — this pass ran unmeasured."
+measured() { # measured JOB CMD [ARGS...]
+  local job=$1; shift
+  if [ "$LEDGER_OK" -eq 1 ]; then python3 scripts/maintenance_ledger.py run "$job" -- "$@"; else "$@"; fi
+}
+
 # ---------------------------------------------------------------- 1. secrets + CVEs
 if [ -f scripts/project-freshness.sh ]; then
-  FRESH_OUT=$(bash scripts/project-freshness.sh 2>&1)
+  FRESH_OUT=$(measured secrets bash scripts/project-freshness.sh 2>&1)
   FRESH_RC=$?
   if [ "$FRESH_RC" -ne 0 ]; then
     add "[SECRETS/DEPS] scripts/project-freshness.sh reported findings:
@@ -139,7 +152,7 @@ done
 # have is a typo or a row deleted out from under a test, and it is zero on a healthy repo, so the
 # signal stays quiet until something actually breaks.
 if [ -f scripts/validate-scenario-traceability.sh ] && [ -f specs/SCENARIOS.md ]; then
-  TRACE_OUT=$(bash scripts/validate-scenario-traceability.sh --quiet 2>&1)
+  TRACE_OUT=$(measured traceability bash scripts/validate-scenario-traceability.sh --quiet 2>&1)
   TRACE_RC=$?
   case "$TRACE_RC" in
     # 6 is a VERDICT, not a failure to run: it is exit 1 with the duplicate-id half
@@ -307,7 +320,7 @@ fi
 # not a finding -- a maintenance pass that fails because a service is off gets
 # switched off.
 if [ "$FULL" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-similarity.sh ]; then
-  SIM_OUT=$(bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
+  SIM_OUT=$(measured similarity bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
   case "$SIM_RC" in
     1) add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | head -20)" ;;
     2) note "[note] duplicate-row check skipped — no local embedding model reachable. It is the
@@ -604,7 +617,7 @@ if [ -n "$MUTATION_CMD" ]; then
     [ "$MUT_CFG_TOTAL" -lt 1 ] && MUT_CFG_TOTAL=1
     MUT_SCOPE="1 of $MUT_CFG_TOTAL config(s) — a bare \`$MUTATION_CMD\` reads only $MUT_CFG"
 
-    MUT_OUT=$(eval "$MUTATION_CMD" 2>&1)
+    MUT_OUT=$(measured mutation bash -c "$MUTATION_CMD" 2>&1)
     MUT_RC=$?
     SCORE=$(printf '%s' "$MUT_OUT" | grep -oE 'mutation score[^0-9]*[0-9]+(\.[0-9]+)?' | tail -1 | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1)
     INT_SCORE=${SCORE%%.*}
@@ -755,7 +768,7 @@ fi
 # A construct that works on one is a script the other never successfully runs -- and it fails
 # QUIETLY, because the usual symptom is an empty result, not an error.
 if [ -f scripts/validate-portability.sh ] && [ -f scripts/portability_audit.py ]; then
-  PORT_OUT=$(bash scripts/validate-portability.sh --all 2>&1); PORT_RC=$?
+  PORT_OUT=$(measured portability bash scripts/validate-portability.sh --all 2>&1); PORT_RC=$?
   if [ "$PORT_RC" -eq 1 ]; then
     add "[PORTABILITY] construct(s) that run on one developer's platform and not the other's:
 $(printf '%s' "$PORT_OUT" | grep -E '^\s+scripts/' -A2 | head -12)
@@ -805,7 +818,7 @@ if [ "$SUITE" -eq 1 ]; then
   if [ -z "$SUITE_CMD" ]; then
     note "[note] --suite: no .NET solution and no npm test script — nothing to run. Not a pass."
   else
-    SUITE_OUT=$(eval "$SUITE_CMD" 2>&1); SUITE_RC=$?
+    SUITE_OUT=$(measured suite bash -c "$SUITE_CMD" 2>&1); SUITE_RC=$?
     SUITE_TAIL=$(printf '%s' "$SUITE_OUT" | tail -12)
     if [ "$SUITE_RC" -eq 0 ]; then
       note "[note] suite green — \`$SUITE_CMD\`"
@@ -840,6 +853,7 @@ if [ -f scripts/maintenance-due.sh ]; then
 fi
 
 # ------------------------------------------------------------------------ verdict
+[ "$LEDGER_OK" -eq 1 ] && python3 scripts/maintenance_ledger.py record pass "$(( $(date +%s) - PASS_START ))" "$([ "$FINDINGS" -eq 0 ] && echo 0 || echo 1)" 2>/dev/null
 if [ "$FINDINGS" -eq 0 ]; then
   [ "$QUIET" -eq 1 ] && exit 0
   echo "project-maintenance: clean — no secrets, no CVEs, no register drift, no context bloat.$([ "$FULL" -eq 0 ] && [ -n "$MUTATION_CMD" ] && printf ' (mutation pass skipped — use --full)')"

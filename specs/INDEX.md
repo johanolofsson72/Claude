@@ -17,6 +17,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 005 — lane-merge-cost-is-in-the-lists — spec-only — two lanes append to four markdown files and git calls every append a conflict; `union` on the append-only lists, `validate-register-ids.sh` as the backstop.
 - [x] 006 — nothing-checks-the-design-gate-exists — spec-only — the bare name RESOLVES to the plugin cache, so the naming half is refuted. What stands: nothing verifies the plugin is installed, so a BLOCKING gate fails silent without it. Diagnosis + spec: `specs/INDEX.completed.md`.
 - [x] 007 — traceability-gate-is-three-defects-in-one-script — full track — the two SC- namespaces split by digit WIDTH, not magnitude (a floor is useless on a map starting at SC-001); duplicates get exit 6. msroute 13 dangling → 0. Detalj: specs/INDEX.completed.md
+- [x] 074 — measure-where-maintenance-should-run — spec-only — no maintenance run records its duration, peak memory or host, so local-vs-cloud placement would be a guess. Ledger per run + a placement report. Developer request 2026-09-29.
 - [ ] 008 — scenarios-map-canary-unheeded — spec-only — four maps still over the 25 KB canary: consultpilot 682 KB (27x), agentcrm 252, rocky 242 (already split), fundit 30. film-i-vast split 2026-09-03: 140→9 KB. Diagnos: `specs/INDEX.pending.md`
 - [x] 009 — held-rows-have-no-archive — spec-only — the archiver told you to write a pending entry by hand and nobody did, so rocky ran 47 over-budget open rows. `--write-pending` makes the advice executable; rocky 131→39 KB. Detalj: specs/INDEX.completed.md
 
@@ -26,6 +27,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 014 — autosync-adds-gates-no-runner-registers — spec-only — a sync that ships new `test-*.sh` scripts leaves every project's `run-gates.sh` reporting DRIFT until someone adds them to GATES by hand. Found as consultpilot H7av.
 - [x] 015 — sigpipe-validator-scans-only-self-tests — spec-only — `--all` scans every script, `--strict` fails on them; the default population and its meta-test are unchanged. The gate was already RED here on 7 of its own self-tests, now fixed. Detalj: specs/INDEX.completed.md
 - [ ] 017 — canary-and-row-budget-do-not-compose — spec-only — every row can sit inside the 300-byte budget and the register still exceed the 25 KB canary: on msroute 90 archived-verbatim completed rows are 74% of the file. A compliant register with no next move. Found as msroute 007ck.
+- [ ] 075 — place-heavy-jobs-local-or-cloud — light track — needs 074 + five ordinary specs ticked under its ledger. Per job (Stryker, suite, freshness, similarity, findings/carve review): local or Claude cloud, decided from the numbers. Developer request 2026-09-29.
 - [x] 018 — core-owed-tick-gate-goes-silent — full track — the gate was never broken: the TEST used GNU `sed -i` on a BSD sed, so the tick never happened and the detector correctly said nothing. Portable `inplace()` helper; 89/89. Detalj: specs/INDEX.completed.md
 - [x] 019 — are-we-writing-this-row-twice — full track — nothing measured the question that opened the review: are we rebuilding what we already have. Local embedding pass over every register; found ighweld-2026 119/138, one job planned twice. Detalj: specs/INDEX.completed.md
 - [ ] 020 — quality-gate-hooks-unwired-for-latency-we-no-longer-pay — full track — 15 local-LLM hooks (test-realism, test-assertion, test-gap, secret-scan…) are unwired because they cost in-session latency. The nightly pass makes that free. Re-measure them at 02:30.
@@ -86,6 +88,7 @@ Order of execution. Tick when done. Append new rows to the end.
 
 ## Register history (newest first)
 
+- 2026-09-29 — 074, 075 added at the developer's request (not carves): measure maintenance, then place jobs local vs cloud after five specs.
 - 2026-09-28 — 073 added at the developer's request: pipeline refresh + rollout (consolidated; folds 037, 022).
 - 2026-09-28 — 071, 072 filed from teach H3 findings review (F007, F061).
 - 2026-09-25 — 054-064 filed from agentcrm's T0 pass (two findings reviews, 2026-09-19 and H5 2026-09-23); 055-057 fixed in the same pass, 064 found while running the suite.

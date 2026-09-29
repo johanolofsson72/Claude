@@ -159,6 +159,7 @@ Read these files WHEN you need them — do not load everything upfront:
 - **Template auto-sync (SessionStart, keeps projects current without `/project-update`)** → `.claude/docs/template-autosync.md`
 - **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
 - **Stress testing (pre-deploy)** → `.claude/docs/stress-testing.md`
+- **Local machine vs Claude cloud (where heavy jobs run; measuring until row 075)** → `.claude/docs/workload-placement.md`
 - **Codebase knowledge graph (opt-in per project)** → `.claude/docs/graphify.md`
 
 ## File organization

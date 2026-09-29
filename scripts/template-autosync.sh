@@ -193,7 +193,7 @@ install-lane-merge-drivers.sh test-lane-merge-drivers.sh
 register-similarity.sh register_similarity.py test-register-similarity.sh
 lane-catchup.sh test-sync-prompt-core-parity.sh
 next-register-id.sh test-next-register-id.sh
-maintenance-due.sh test-maintenance-due.sh carve_audit.py
+maintenance-due.sh test-maintenance-due.sh carve_audit.py maintenance_ledger.py test-maintenance-ledger.sh
 validate-portability.sh portability_audit.py
 finding.sh test-finding.sh
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
