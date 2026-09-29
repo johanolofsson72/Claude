@@ -148,42 +148,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 042 — needs-clause-swallows-a-null-dependency
-
-`runnable()` in `scripts/lane_status.py:196` keeps a row only when every entry in its `needs`
-list is a ticked id:
-
-```python
-and all(d in ticked for d in r["needs"])
-```
-
-The parser puts whatever follows `needs` into that list. A register that writes "this row
-depends on nothing" in words — agentcrm uses the Swedish `needs inget`, an English register
-would write `needs nothing` or `needs none` — yields `needs: ['inget']`, and no row is ever
-ticked under that id. The row is therefore reported as blocked forever, by a dependency that
-says it has none.
-
-Measured on agentcrm 2026-09-08, immediately after S16 was ticked: nine rows were unticked,
-unowned and had every real dependency satisfied. The tool listed **three**. The six it hid
-were S17, 027, 028, 029 and — the reason this is worth a row rather than a note — **031 and
-032**, the two rows H3 carved from its own security sweep.
-
-The failure is silent in the direction that matters. It never invents work; it withholds it,
-and a short list of real rows looks exactly like a correct short list. The developer asked
-"are we blocked on outside answers?" and the tool's own output was the reason to think so.
-
-Not a display cap: `render()` slices `free[:8]`, so eight would have fitted.
-
-**The fix is not a word list.** Adding `inget|nothing|none` to a skip set fixes Swedish and
-English and breaks on the next register. The sound reading is that an entry in `needs` which
-matches no row id in the register is not a dependency — it is prose. Treat it as such, and
-report it once as unparseable rather than as blocking, so a genuine typo in a real id
-(`needs 04` for `needs 004`) still surfaces instead of silently becoming "no dependency".
-That distinction is the whole content of this row: an unresolvable reference and no reference
-must not render identically (`.claude/rules/mutation-timeouts.md`, trap 4).
-
-`validate-register-ids.sh` does not catch it — it validates row ids, not the ids rows cite.
-
 ## 047 — stryker-spans-fail-silently-and-score-well (from ighweld-2026, 2026-09-16)
 
 Three findings, one theme: Stryker.NET's per-file targeting fails in ways that read as success.
