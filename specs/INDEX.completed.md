@@ -713,3 +713,64 @@ files is the green-light-nobody-earned shape again.
 **Measured.** Read-only sweep over `~/repos` with the new helper: 45 synced projects, every one missing the block, and 39 of them tracking machine-local files today. Most common: `.claude/skills/ui-ux-pro-max/scripts/__pycache__` (~35, from an old sync commit) and `.specify/feature.json` (16). ticket tracks 114 files, which collapse to 5 paths.
 
 **Outcome.** `scripts/harness-gitignore.sh` (CORE) holds the one list, with a reason per path. `--apply` owns the lines between two marker lines in `.gitignore`: it appends the block once at the end and rewrites it in place afterwards, leaving bytes outside the markers untouched. It handles CRLF and refuses with exit 3 on broken markers. `template-autosync.sh` runs it after the copy loop (`--check` under `--check`/`--dry-run`/deferral) and records `.gitignore` so it is committed. At every exit it reports `[tracked]`: machine-local paths the index already holds, collapsed per directory, with the `git rm -r --cached` line to run. It never untracks. `test-runtime-markers-ignored.sh` D reads the helper instead of SKILL.md 3a. The template's `.gitignore` carries the block, with the same ignored set as before. `test-harness-gitignore.sh`: 87 arms, green under bash 3.2 and 5, and 12 of 12 hand mutations killed.
+
+
+## 041 — mutation-timeouts-rule-was-never-written
+
+Ticked 2026-09-29. Row as it read at tick time, plus the diagnosis and what was measured.
+
+- [x] 041 — mutation-timeouts-rule-was-never-written — spec-only — ten files cite `.claude/rules/mutation-timeouts.md` and its "trap 4" as an authority — two rules, six scripts. It exists in no project and never has. Carries the gremlins family. Diagnos: `specs/INDEX.pending.md`
+
+**Done.** `.claude/rules/mutation-timeouts.md` exists (CORE, path-scoped to mutation tooling) with five traps. Traps 1-3 and 5 are the gremlins/Stryker family (F003, F024/F071, F021/F063, F023). Trap 4, recovered from the ten citations, says an unmeasured state and a clean state must never render identically, and a detector is believed only after a known positive. `scripts/validate-rule-citations.sh` (CORE) reported exactly the ten dangling citations on HEAD and nothing else out of 534. Afterwards it resolves 536. Test: 31 arms, 9 of 10 hand mutants killed, the survivor equivalent. Pointers were added to `spec-hardening.md` and `testing.md`. The spec also fixed spec 040's pipe into `grep -q` at `template-autosync.sh:1548`, which `validate-no-sigpipe-assertions.sh --strict` had flagged.
+
+_Opened 2026-09-07 from hetznerradar's T0 (finding F004, plus the gremlins family F003/F021/F023/F024)._
+
+Ten files in this template cite `.claude/rules/mutation-timeouts.md` — and it does not exist. Not
+here, not in any project, and `git log` finds no commit that ever removed it. It was cited into
+existence and never written.
+
+The citations are not decorative. Six of them invoke a numbered clause, **"trap 4"**, as settled
+authority for a real and recurring argument — that *an unmeasured state and a clean state must not
+render identically*:
+
+| File | What it leans on trap 4 for |
+|---|---|
+| `.claude/rules/carve-budget.md:155` | an unparseable carve attribution must not read like no attribution |
+| `.claude/rules/lane-handoff.md:53` | a question with no `**Blocks:**` line is reported, not skipped |
+| `scripts/maintenance-due.sh:139` | "never run" must not render as "run and clean" |
+| `scripts/lane_status.py:54` | silence that looks like good news |
+| `scripts/bash_write_targets.py:45` | a conclusion drawn from a check that did not run |
+| `scripts/test-bash-write-guard.sh:674` | silence below means nothing |
+| `scripts/test-scenario-map-rows.sh:24` | a widened guard must be shown to still bite |
+
+That is a principle the codebase reasons *with*, load-bearing in two rules and five scripts, whose
+statement nobody can read. A reader who follows the pointer finds nothing and either invents what
+trap 4 says or ignores the citation; both are worse than the rule being absent and uncited.
+
+The second half of the row is the content the rule should hold, which hetznerradar has now measured
+four times over and which currently lives only in that project's `CLAUDE.md`:
+
+- **F003** — gremlins at its default `--timeout-coefficient` reported 127 mutants TIMED OUT and
+  printed **`Test efficacy: 100.00%`**. At `--timeout-coefficient=20` the same run is 89.09% with 18
+  survivors. This is trap 4 exactly: unknown rendered as killed, and the direction of the error is
+  toward a green light.
+- **F024** — worse, and the reason the coefficient alone is not the fix: because a timed-out mutant
+  counts as neither lived nor killed, **a run with MORE timeouts prints a HIGHER efficacy.**
+  Measured on one package, same code, two runs: `Lived 6 / Timed out 98 → 100.00%` and
+  `Lived 0 / Timed out 51 → 99.42%`. The headline number is not comparable across runs. Read the
+  LIVED list; never the percentage.
+- **F021** — the run that matters most is the one nobody will wait for: 11 hours at face value,
+  1m46s under `GOFLAGS=-short`, because one stress test is 234 of the package's 242 seconds and
+  gremlins cannot pass test flags through. The caveat travels with the number — under `-short` that
+  test does not run, so mutants only it would kill survive.
+- **F023** — gremlins reports a `case` arm in a tagless switch as NOT COVERED even when tests
+  demonstrably kill the mutant, because Go emits no coverage block for the case *expression*, only
+  its body. Proven twice. A reader who trusts it writes a test that already exists.
+
+All four are the same shape and it is the shape trap 4 names. Writing the rule closes F004 and gives
+F003/F021/F023/F024 the home they were consolidated toward, instead of one project's `CLAUDE.md`
+holding knowledge that every project with a mutation gate needs.
+
+Scope: write the rule, numbering the traps so the six existing citations resolve to what they meant.
+Recover the intended numbering from the citation sites rather than inventing it — each one says what
+it thought trap 4 was, and they agree.

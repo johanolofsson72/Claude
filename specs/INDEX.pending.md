@@ -148,60 +148,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 041 — mutation-timeouts-rule-was-never-written
-
-_Opened 2026-09-07 from hetznerradar's T0 (finding F004, plus the gremlins family F003/F021/F023/F024)._
-
-Ten files in this template cite `.claude/rules/mutation-timeouts.md` — and it does not exist. Not
-here, not in any project, and `git log` finds no commit that ever removed it. It was cited into
-existence and never written.
-
-The citations are not decorative. Six of them invoke a numbered clause, **"trap 4"**, as settled
-authority for a real and recurring argument — that *an unmeasured state and a clean state must not
-render identically*:
-
-| File | What it leans on trap 4 for |
-|---|---|
-| `.claude/rules/carve-budget.md:155` | an unparseable carve attribution must not read like no attribution |
-| `.claude/rules/lane-handoff.md:53` | a question with no `**Blocks:**` line is reported, not skipped |
-| `scripts/maintenance-due.sh:139` | "never run" must not render as "run and clean" |
-| `scripts/lane_status.py:54` | silence that looks like good news |
-| `scripts/bash_write_targets.py:45` | a conclusion drawn from a check that did not run |
-| `scripts/test-bash-write-guard.sh:674` | silence below means nothing |
-| `scripts/test-scenario-map-rows.sh:24` | a widened guard must be shown to still bite |
-
-That is a principle the codebase reasons *with*, load-bearing in two rules and five scripts, whose
-statement nobody can read. A reader who follows the pointer finds nothing and either invents what
-trap 4 says or ignores the citation; both are worse than the rule being absent and uncited.
-
-The second half of the row is the content the rule should hold, which hetznerradar has now measured
-four times over and which currently lives only in that project's `CLAUDE.md`:
-
-- **F003** — gremlins at its default `--timeout-coefficient` reported 127 mutants TIMED OUT and
-  printed **`Test efficacy: 100.00%`**. At `--timeout-coefficient=20` the same run is 89.09% with 18
-  survivors. This is trap 4 exactly: unknown rendered as killed, and the direction of the error is
-  toward a green light.
-- **F024** — worse, and the reason the coefficient alone is not the fix: because a timed-out mutant
-  counts as neither lived nor killed, **a run with MORE timeouts prints a HIGHER efficacy.**
-  Measured on one package, same code, two runs: `Lived 6 / Timed out 98 → 100.00%` and
-  `Lived 0 / Timed out 51 → 99.42%`. The headline number is not comparable across runs. Read the
-  LIVED list; never the percentage.
-- **F021** — the run that matters most is the one nobody will wait for: 11 hours at face value,
-  1m46s under `GOFLAGS=-short`, because one stress test is 234 of the package's 242 seconds and
-  gremlins cannot pass test flags through. The caveat travels with the number — under `-short` that
-  test does not run, so mutants only it would kill survive.
-- **F023** — gremlins reports a `case` arm in a tagless switch as NOT COVERED even when tests
-  demonstrably kill the mutant, because Go emits no coverage block for the case *expression*, only
-  its body. Proven twice. A reader who trusts it writes a test that already exists.
-
-All four are the same shape and it is the shape trap 4 names. Writing the rule closes F004 and gives
-F003/F021/F023/F024 the home they were consolidated toward, instead of one project's `CLAUDE.md`
-holding knowledge that every project with a mutation gate needs.
-
-Scope: write the rule, numbering the traps so the six existing citations resolve to what they meant.
-Recover the intended numbering from the citation sites rather than inventing it — each one says what
-it thought trap 4 was, and they agree.
-
 ## 042 — needs-clause-swallows-a-null-dependency
 
 `runnable()` in `scripts/lane_status.py:196` keeps a row only when every entry in its `needs`

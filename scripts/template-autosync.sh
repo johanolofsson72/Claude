@@ -250,7 +250,8 @@ test-portability-audit.sh test-sync-prompt-zsh.sh
 skill-reachable.sh test-skill-reachable.sh
 core-gates.sh test-core-gates.sh
 register-bytes.sh test-register-bytes.sh
-harness-gitignore.sh test-harness-gitignore.sh"
+harness-gitignore.sh test-harness-gitignore.sh
+validate-rule-citations.sh test-validate-rule-citations.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the
@@ -297,7 +298,7 @@ bench-hooks.sh install-global-skills.sh test-install-global-skills.sh test-on-li
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
 security.md project-workflow.md github-actions.md allium.md lane-handoff.md
-carve-budget.md"
+carve-budget.md mutation-timeouts.md"
 
 # Answered from the sets above and nothing else: no clone, no network, no stamp.
 # A caller in a project asks the template what CORE is; it does not keep a copy.
@@ -1544,7 +1545,7 @@ report_tracked() {
   tell "          on disk), then commit:"
   # The literal line only when it is short and every path is one word; otherwise the pipeline, which
   # hands git one path per line and needs no quoting.
-  if [ "$_n" -le 10 ] && ! printf '%s\n' "$_tr" | grep -q ' '; then
+  if [ "$_n" -le 10 ] && case "$_tr" in *' '*) false ;; *) true ;; esac; then
     tell "            git rm -r --cached -- $(printf '%s\n' "$_tr" | tr '\n' ' ' | sed 's/ $//')"
   else
     # --pathspec-from-file rather than xargs: one line per path, no quoting, no GNU-only flag.

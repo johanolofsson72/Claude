@@ -19,7 +19,7 @@ Not "done" until all four have run:
 
 1. **Threat-model pass (before implement).** `security-scanner` agent over the new surface + a STRIDE pass (Spoofing / Tampering / Repudiation / Information disclosure / Denial of service / Elevation of privilege) per new trust boundary, recorded in a `## Threat model` section of the spec. A threat with no mitigation is an open finding (`.claude/rules/validation-followup.md`).
 2. **Expanded destructive + stress suite.** Top of the input-domain band, not the middle (`.claude/docs/testing.md`), plus a stress/load pass per `.claude/docs/stress-testing.md` (concurrency, large payloads, rate-limit / resource exhaustion). The four observable states (success / specific visible error / empty / loading) must hold *under stress*.
-3. **Hard mutation-kill gate.** Stryker kill rate on the changed critical module(s) is a **blocking gate to tick the register** (`dotnet stryker` or stack equivalent). Below target = tests are theatre = not done.
+3. **Hard mutation-kill gate.** Stryker kill rate on the changed critical module(s) is a **blocking gate to tick the register** (`dotnet stryker` or stack equivalent). Below target = tests are theatre = not done. A timed-out mutant is not a kill: read the score per `.claude/rules/mutation-timeouts.md`.
 4. **Adversarial review.** `security-scanner` in "assume it's exploitable, prove me wrong" mode + a `dotnet-reviewer` / language reviewer pass on the new trust boundaries + the built-in **`/security-review`** as an independent second opinion. Every flag gets an explicit fix/defer/dismiss decision.
 
 These do not replace unit/integration/E2E/PBT/VRT/TLA+.

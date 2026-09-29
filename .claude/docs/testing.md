@@ -324,6 +324,9 @@ Line coverage proves a line *executed*; it says nothing about whether a test wou
   of one project's kills before the split.
 - **NEVER in CI per push** (see `github-actions.md` — it's minutes-expensive and was a budget incident). Run it **nightly or on-demand**, and incrementally (changed files) on a branch.
 - **"Nightly" needs a body, not just an intention.** Nothing schedules itself, and an unscheduled nightly gate runs never. `bash scripts/project-maintenance.sh --full` is the local pass that actually executes it (plus the secret/CVE scan and register drift checks), reporting only when it finds something. Attach it to a `/schedule` routine, `/loop 7d`, or crontab — never to a GitHub Action `schedule:` trigger.
+- **A timeout is not a kill.** Stryker scores `Killed + Timeout`, gremlins' efficacy can rise as
+  timeouts rise, and the percentage is not comparable run to run. Read the score by
+  `.claude/rules/mutation-timeouts.md` (five traps, with the measurements).
 - **Thresholds:** `break: 60, low: 60, high: 80`. Target **~80% kill on critical modules** (auth, money, state machines, parsers). Don't chase 100% — the last 20% buys fragile tests for vanishing return.
 - **Flaky tests poison the score, and they poison it upward.** Stryker counts a failing test as a
   kill, so a test failing for its own reasons credits whichever mutant happened to be live. The
