@@ -429,3 +429,7 @@ write error to stderr. `validate-no-sigpipe-assertions.sh --all` lists both line
 This one is not a harmless diagnostic: a consumer that asserts an empty stderr fails, and only under
 load, which is why it passes in isolation. A candidate for the first of the one-at-a-time fixes
 (e.g. `case " $CORE_SCRIPTS " in *" $1 "*)` with no pipe at all).
+
+## 027 — zero-attributions-reports-clean
+
+- [x] 027 — zero-attributions-reports-clean — spec-only — `carve_audit.py` prints "clean" and exits 0 when `len(parent)` is 0, so a register that never attributed a carve reads like a flat one. §4b says that count *is* the finding. Diagnos: `specs/INDEX.pending.md`
