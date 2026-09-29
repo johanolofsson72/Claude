@@ -3,52 +3,36 @@
 temp/
 .env
 appsettings.Development.json
+*.pyc
+
+# Playwright MCP scratch — screenshots and snapshots from a browser session,
+# written into whatever directory the tool ran from. A plugin's scratch, not the
+# harness's, so it stays out of the managed block below.
+.playwright-mcp/
+
+# Every path the harness itself writes machine-local is in the block below, and
+# the reason for each is in scripts/harness-gitignore.sh (spec 040). The sync
+# writes the same block into every project's .gitignore; this repository carries
+# it too, and test-harness-gitignore.sh fails when it goes stale.
+
+# >>> claude-code harness (managed by scripts/harness-gitignore.sh) >>>
+# Written by the template sync and replaced on every sync. Add your own ignores
+# outside these markers. Why each path is here: scripts/harness-gitignore.sh.
+.claude/state/
 .claude/validation/
+.claude/.maintenance-state
+.claude/.template-sync-check
+.claude/.bash-write-marker
+.claude/.bash-write-blocked
 .claude/.local-llm-*
 .claude/local-llm-*.log
 .claude/local-llm-*.log.errors
 .claude/graphify-*.log
 .claude/graphify-*.log.errors
-.claude/projects/
 .claude/settings.local.json
-CLAUDE.local.md
-
-# Template auto-sync rate-limit marker (machine-local; the manifest .claude/.template-sync IS tracked)
-.claude/.template-sync-check
-
-# Attempt counters for the repeat-failure guard (machine-local, TTL-pruned)
-.claude/state/
-
-# Maintenance due-state — when each recurring job last ran ON THIS MACHINE. Per-machine for
-# the same reason a crontab entry is: a suite run on the other developer's box says nothing
-# about whether it has run here, and a committed stamp would let one lane mark the other clean.
-.claude/.maintenance-state
-
-# Bash-write guard's two records. Both machine-local, both re-written during a normal
-# session, neither meaningful in another machine's history. They are two files on purpose
-# (bash-write-detect-hook.sh:29): the marker is a TIMESTAMP re-stamped on every Bash write,
-# so an escape hatch living in it would forget it had ever blocked.
-.claude/.bash-write-marker
-.claude/.bash-write-blocked
-
-# Python bytecode cache — the guards import scripts/spec_active.py (spec 007m),
-# so python3 writes a __pycache__ next to the hooks on every run.
-__pycache__/
-*.pyc
-
-# Agent worktrees. `isolation: worktree` agents check out under here, and git
-# records each one as a gitlink (mode 160000) if it is not ignored — which then
-# shows as permanently modified as that worktree's HEAD moves, so the tree is
-# never clean and the noise hides real changes. scripts/prune-agent-worktrees.sh
-# removes abandoned ones; this keeps them out of the index in the first place.
+.claude/projects/
 .claude/worktrees/
-
-# spec-kit's runtime marker, rewritten at every session start to name the active
-# spec. It is derived state, it differs per machine, and in a repo with no specs
-# it is written as `{}` — which is enough to report the working tree dirty and
-# stamp every downstream sync "…-dirty".
 .specify/feature.json
-
-# Playwright MCP scratch — screenshots and snapshots from a browser session,
-# written into whatever directory the tool ran from.
-.playwright-mcp/
+__pycache__/
+CLAUDE.local.md
+# <<< claude-code harness <<<

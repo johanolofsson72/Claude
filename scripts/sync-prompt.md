@@ -567,15 +567,7 @@ If a developer skips this, every local-llm-* hook detects the missing daemon in 
 | `LOCAL_LLM_TELEMETRY_DISABLE` | unset | Set to `1` to skip telemetry rows |
 | `LOCAL_LLM_DISABLE` | unset | Set to `1` to force-disable every offload hook |
 
-**Gitignore additions** (ensure all of these are present):
-
-```
-.claude/.local-llm-*
-.claude/local-llm-*.log
-.claude/local-llm-*.log.errors
-```
-
-The first pattern hides the draft artifacts that hooks write (`.local-llm-commit-draft.md`, `.local-llm-pr-context.md`, etc.). The second hides per-project telemetry logs. The third hides telemetry write-error logs.
+**Gitignore additions.** Do not add the local-LLM patterns by hand. They are in the managed harness block that `bash scripts/harness-gitignore.sh --apply .` writes (the draft artifacts under `.claude/.local-llm-*`, the telemetry logs and their write-error logs), together with every other path the harness writes machine-local. Autosync runs it on every sync; see section 3a of the sync-template skill.
 
 **Verification** (run in the project root after sync):
 

@@ -148,54 +148,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 040 — harness-writes-what-no-project-ignores
-
-_Opened 2026-09-07 from hetznerradar's T0 (finding F005). Template-owned per §4._
-
-`template-autosync.sh:2996` states the design decision plainly: **`.gitignore` is not in the synced
-set.** That is defensible on its own — a project's ignore file is its own, and overwriting it would
-trample build output, language conventions and local habits.
-
-What was never built is the other half. The harness *writes files it knows are machine-local*, and
-this template's own `.gitignore` names eight of them:
-
-```
-.claude/state/                   # attempt counters, TTL-pruned
-.claude/.maintenance-state       # when each recurring job last ran ON THIS MACHINE
-.claude/.template-sync-check     # autosync rate-limit marker
-.claude/.bash-write-marker       # re-stamped on every Bash write
-.claude/.bash-write-blocked
-.claude/settings.local.json      # the per-machine lane config the two-lane rule requires
-.claude/projects/
-__pycache__/                     # the guards import spec_active.py, so python3 writes one
-```
-
-Every one of those entries exists here because this repo hit the problem and fixed it **for itself**.
-The knowledge stayed. A project bootstrapped from the template starts with a `.gitignore` written for
-its language and learns none of it.
-
-Measured on hetznerradar 2026-09-07: **109 `.claude/state/attempts/` files committed**, one per hook
-invocation, and a `.bash-write-marker` deletion sitting in `git status` at session start — a
-timestamp file re-stamped every Bash write, in version control. Its `.gitignore` carries none of the
-eight. The two-lane cost is worse than the noise: `settings.local.json` is where `SPEC_OWNER` and
-`CLAUDE_TEMPLATE_AUTOSYNC` live, and a project that commits it has both lanes fighting over one
-machine's identity.
-
-The comment at 2996 is right that the file cannot be *replaced*. It does not follow that it cannot
-be *appended to*. Fix: the sync owns a delimited block — `# --- claude-code harness (managed) ---`
-… `# --- end ---` — that it inserts once and rewrites in place thereafter, leaving every line
-outside the markers untouched. That is the same shape `sync-core-hooks.py` already uses for
-`settings.json`: strip the managed set, reinstall the current one, leave the project's own alone.
-
-The list must come from one place. Deriving it from the paths the harness actually writes beats a
-second hand-maintained list — that is the drift `sync-prompt.md`'s own Step 5c comment records
-("a list that is merely INCOMPLETE looks exactly like a list that is finished").
-
-Second half, because the ignore alone does not help a project that already committed them: the pass
-should **report** tracked files matching the managed set, with the `git rm --cached` line to run.
-Ignoring a tracked file changes nothing, and a report that says "added 8 lines" over 109 still-tracked
-files is the green-light-nobody-earned shape again.
-
 ## 041 — mutation-timeouts-rule-was-never-written
 
 _Opened 2026-09-07 from hetznerradar's T0 (finding F004, plus the gremlins family F003/F021/F023/F024)._

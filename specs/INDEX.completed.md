@@ -656,3 +656,60 @@ against there is nothing to prove the write benign.
 **Measured.** A Write of the template's `scripts/tlc-cleanup.sh` into a fixture project with its own `template-autosync.sh` was denied on HEAD; it now passes with no output, and the same bytes plus one `#` are still denied. The comparison costs 63 ms on the largest CORE file (229 KB).
 
 **Outcome.** After `--is-core` says CORE, the guard computes the bytes the call would leave on disk (Write content, or Edit/MultiEdit applied to the current file with split/join) and allows silently when they equal `<template>/<rel>` in the local clone. No clone, no template file, no bytes in the payload, an Edit on a missing file, or any jq failure denies as before. The deny text says a byte-identical write would have passed. `test-core-machinery-guard.sh` SC-039-01..12: 6 red on HEAD, 36/36 after. F035: the Bash route (`cp` from the template) carries no bytes and is still denied.
+
+
+## 040 — harness-writes-what-no-project-ignores
+
+Ticked 2026-09-29. Row as it read at tick time, plus the diagnosis and what was measured.
+
+- [x] 040 — harness-writes-what-no-project-ignores — spec-only — `.gitignore` is deliberately outside the synced set, so each project must independently know the harness writes 8 machine-local paths. hetznerradar knew none: 109 `.claude/state/` files tracked. Diagnos: `specs/INDEX.pending.md`
+
+_Opened 2026-09-07 from hetznerradar's T0 (finding F005). Template-owned per §4._
+
+`template-autosync.sh:2996` states the design decision plainly: **`.gitignore` is not in the synced
+set.** That is defensible on its own — a project's ignore file is its own, and overwriting it would
+trample build output, language conventions and local habits.
+
+What was never built is the other half. The harness *writes files it knows are machine-local*, and
+this template's own `.gitignore` names eight of them:
+
+```
+.claude/state/                   # attempt counters, TTL-pruned
+.claude/.maintenance-state       # when each recurring job last ran ON THIS MACHINE
+.claude/.template-sync-check     # autosync rate-limit marker
+.claude/.bash-write-marker       # re-stamped on every Bash write
+.claude/.bash-write-blocked
+.claude/settings.local.json      # the per-machine lane config the two-lane rule requires
+.claude/projects/
+__pycache__/                     # the guards import spec_active.py, so python3 writes one
+```
+
+Every one of those entries exists here because this repo hit the problem and fixed it **for itself**.
+The knowledge stayed. A project bootstrapped from the template starts with a `.gitignore` written for
+its language and learns none of it.
+
+Measured on hetznerradar 2026-09-07: **109 `.claude/state/attempts/` files committed**, one per hook
+invocation, and a `.bash-write-marker` deletion sitting in `git status` at session start — a
+timestamp file re-stamped every Bash write, in version control. Its `.gitignore` carries none of the
+eight. The two-lane cost is worse than the noise: `settings.local.json` is where `SPEC_OWNER` and
+`CLAUDE_TEMPLATE_AUTOSYNC` live, and a project that commits it has both lanes fighting over one
+machine's identity.
+
+The comment at 2996 is right that the file cannot be *replaced*. It does not follow that it cannot
+be *appended to*. Fix: the sync owns a delimited block — `# --- claude-code harness (managed) ---`
+… `# --- end ---` — that it inserts once and rewrites in place thereafter, leaving every line
+outside the markers untouched. That is the same shape `sync-core-hooks.py` already uses for
+`settings.json`: strip the managed set, reinstall the current one, leave the project's own alone.
+
+The list must come from one place. Deriving it from the paths the harness actually writes beats a
+second hand-maintained list — that is the drift `sync-prompt.md`'s own Step 5c comment records
+("a list that is merely INCOMPLETE looks exactly like a list that is finished").
+
+Second half, because the ignore alone does not help a project that already committed them: the pass
+should **report** tracked files matching the managed set, with the `git rm --cached` line to run.
+Ignoring a tracked file changes nothing, and a report that says "added 8 lines" over 109 still-tracked
+files is the green-light-nobody-earned shape again.
+
+**Measured.** Read-only sweep over `~/repos` with the new helper: 45 synced projects, every one missing the block, and 39 of them tracking machine-local files today. Most common: `.claude/skills/ui-ux-pro-max/scripts/__pycache__` (~35, from an old sync commit) and `.specify/feature.json` (16). ticket tracks 114 files, which collapse to 5 paths.
+
+**Outcome.** `scripts/harness-gitignore.sh` (CORE) holds the one list, with a reason per path. `--apply` owns the lines between two marker lines in `.gitignore`: it appends the block once at the end and rewrites it in place afterwards, leaving bytes outside the markers untouched. It handles CRLF and refuses with exit 3 on broken markers. `template-autosync.sh` runs it after the copy loop (`--check` under `--check`/`--dry-run`/deferral) and records `.gitignore` so it is committed. At every exit it reports `[tracked]`: machine-local paths the index already holds, collapsed per directory, with the `git rm -r --cached` line to run. It never untracks. `test-runtime-markers-ignored.sh` D reads the helper instead of SKILL.md 3a. The template's `.gitignore` carries the block, with the same ignored set as before. `test-harness-gitignore.sh`: 87 arms, green under bash 3.2 and 5, and 12 of 12 hand mutations killed.

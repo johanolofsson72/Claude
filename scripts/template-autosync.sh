@@ -136,6 +136,9 @@ MODE_UNLISTED=0; UNLISTED=""; MODE_OWED=0
 # because `set -u` is on and the report block runs on --check and --dry-run too, which never reach
 # the gate at all.
 IGNORE_IN_PROGRESS=0; DEFERRED=0; IN_PROGRESS_OP=""
+# Spec 040. Set by the .gitignore block after the copy loop and read by report_tracked, which also
+# runs at the `[ok]` early exit that never reaches that block.
+GITIGNORE_NOTE=""
 ORIG_ARGS="$*"   # kept for the self-update re-exec below (flags contain no spaces)
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -246,7 +249,8 @@ speckit-sync.sh speckit-version test-speckit-sync.sh
 test-portability-audit.sh test-sync-prompt-zsh.sh
 skill-reachable.sh test-skill-reachable.sh
 core-gates.sh test-core-gates.sh
-register-bytes.sh test-register-bytes.sh"
+register-bytes.sh test-register-bytes.sh
+harness-gitignore.sh test-harness-gitignore.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the
@@ -1502,6 +1506,53 @@ report_stranded() {
   tell "           mentions them. \`git add -- <path>\` when your tree is in a state to take them."
 }
 
+# ------------------------------------------- machine-local files already tracked (spec 040)
+# The .gitignore block below stops the NEXT attempt counter from being committed. It does nothing
+# for the 109 hetznerradar had already committed: git ignores an ignore rule for a tracked file. A
+# sync that said "block added" over them would be reporting a success nothing earned.
+#
+# Reported, never fixed. `git rm --cached` changes what the next commit records, and doing that
+# unattended at a session start, possibly on the other developer's lane, is not the sync's call.
+#
+# At every exit that reports, the `[ok]` early exit included, because this is a standing condition
+# and `[ok]` is where most session starts land. Silent when nothing is tracked, for the reason
+# report_owed is: this text is forwarded verbatim into every session start.
+#
+# The template's copy of the helper when there is one, else the project's: on the `[ok]` path the
+# template may not have been resolved, and on a first sync the project has no copy yet.
+harness_gitignore_script() {
+  if [ -n "${TEMPLATE_DIR:-}" ] && [ -f "$TEMPLATE_DIR/scripts/harness-gitignore.sh" ]; then
+    printf '%s\n' "$TEMPLATE_DIR/scripts/harness-gitignore.sh"
+  elif [ -f "$PROJECT_ROOT/scripts/harness-gitignore.sh" ]; then
+    printf '%s\n' "$PROJECT_ROOT/scripts/harness-gitignore.sh"
+  fi
+}
+
+report_tracked() {
+  if [ -n "$GITIGNORE_NOTE" ]; then
+    tell "[gitignore] the harness block in .gitignore was not written: $GITIGNORE_NOTE"
+  fi
+  _hg=$(harness_gitignore_script)
+  [ -n "$_hg" ] || return 0
+  _tr=$(bash "$_hg" --tracked "$PROJECT_ROOT" 2>/dev/null)
+  [ -n "$_tr" ] || return 0
+  _n=$(printf '%s\n' "$_tr" | grep -c .)
+  tell "[tracked] $_n path(s) the harness writes machine-local are committed in this repository:"
+  printf '%s\n' "$_tr" | sed -n '1,10p' | while IFS= read -r _p; do tell "            $_p"; done
+  [ "$_n" -gt 10 ] && tell "            … and $((_n - 10)) more"
+  tell "          An ignore rule changes nothing for a tracked file. To stop tracking them (they stay"
+  tell "          on disk), then commit:"
+  # The literal line only when it is short and every path is one word; otherwise the pipeline, which
+  # hands git one path per line and needs no quoting.
+  if [ "$_n" -le 10 ] && ! printf '%s\n' "$_tr" | grep -q ' '; then
+    tell "            git rm -r --cached -- $(printf '%s\n' "$_tr" | tr '\n' ' ' | sed 's/ $//')"
+  else
+    # --pathspec-from-file rather than xargs: one line per path, no quoting, no GNU-only flag.
+    tell "            bash scripts/harness-gitignore.sh --tracked . | git rm -r --cached --pathspec-from-file=-"
+  fi
+  return 0
+}
+
 # --------------------------------------------------------------- --owed (spec 007ca)
 # The other half of what a project can owe the template, machine-readable: the CORE paths whose
 # bytes no longer match the manifest, one per line, and nothing else.
@@ -1549,7 +1600,7 @@ report_speckit_pin() {
 if ! resolve_local_template; then
   resolve_remote_template
   RC=$?
-  if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; report_speckit_pin; exit 0; fi
+  if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; report_speckit_pin; report_tracked; exit 0; fi
   if [ "$RC" -ne 0 ]; then
     # A sync that cannot reach the template does nothing and says so quietly; it runs
     # from a SessionStart hook and must never make offline look like breakage. An
@@ -1580,6 +1631,7 @@ if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
   # names the new template, so every run lands here and says `[ok]` over files the repository has
   # never seen. After [owed] because [owed] asks for a decision and this asks for a command.
   report_stranded "$(stranded_writes)"
+  report_tracked
   exit 0
 fi
 
@@ -2170,6 +2222,32 @@ if [ -f "$STAMP" ]; then
 "
   done
 fi
+# ------------------------------------------- the harness's .gitignore block (spec 040)
+# .gitignore is not in the synced set, and still is not: the project owns the file. What the sync
+# owns is the span between two marker lines inside it, which scripts/harness-gitignore.sh appends
+# once and rewrites in place afterwards, leaving every byte outside the markers alone. The list of
+# paths lives in that script and nowhere else.
+#
+# Here, after the copy loop and before the check block, so --dry-run lists .gitignore beside the
+# files it would write and --check / --dry-run / a deferred run write nothing (the helper's --check
+# answers without writing). The template's copy of the helper, because a first sync has not placed
+# the project's yet; a template too old to carry one is skipped, silently, like any other offline
+# shortfall.
+_hg="$TEMPLATE_DIR/scripts/harness-gitignore.sh"
+if [ -f "$_hg" ]; then
+  if [ "$MODE_CHECK" -eq 1 ]; then _hg_mode=--check; else _hg_mode=--apply; fi
+  HG_OUT=$(bash "$_hg" "$_hg_mode" "$PROJECT_ROOT" 2>&1)
+  if [ $? -eq 0 ]; then
+    case "$HG_OUT" in
+      added)   record_add .gitignore ;;
+      updated) record_write .gitignore ;;
+    esac
+  else
+    # Malformed markers (exit 3) or a failed write. The helper wrote nothing; report_tracked says so.
+    GITIGNORE_NOTE=$(printf '%s\n' "$HG_OUT" | sed -n 1p | sed 's/^harness-gitignore: //')
+  fi
+fi
+
 N_ORPHAN_NEW=$(echo "$ORPHAN_NEW" | tr ' ' '\n' | grep -c .)
 N_ORPHAN_STANDING=$(echo "$ORPHAN_STANDING" | tr ' ' '\n' | grep -c .)
 
@@ -2265,6 +2343,7 @@ if [ "$MODE_CHECK" -eq 1 ]; then
   # here), so a sync deferred mid-rebase in an already-stranded project reports both — which is the
   # right pair of sentences for that developer to read together.
   report_stranded "$(stranded_writes)"
+  report_tracked
   exit 0
 fi
 
@@ -3652,4 +3731,7 @@ fi
 # stranded the files is the run that says so — instead of the developer learning it never, or once,
 # from 007av's [stage] block scrolling past in a session they were not reading.
 report_stranded "$(stranded_writes)"
+# Spec 040. After [stranded], for the same reason [stranded] is after the commit: on a healthy sync
+# this re-reads the index the commit just wrote.
+report_tracked
 exit 0

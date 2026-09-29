@@ -266,30 +266,32 @@ If you find a project's `settings.json` has the OLD analyze hook (containing the
 
 If you find a project's `settings.json` has the OLD spec-completeness prompt hook (a `PostToolUse` entry with `type:"prompt"` whose prompt contains `INTERACTIVE UI` or `always approve and use systemMessage for the reminder`), this is the legacy LLM-judgment version that was incorrectly blocking edits — overwrite it with the deterministic command hook from the template. Mention the overwrite in the step-6 report so the user knows the spec-completeness check is now deterministic and no longer LLM-mediated.
 
-### 3a. .gitignore additions
+### 3a. .gitignore — the harness block
 
-Ensure the project's `.gitignore` covers these patterns. Add any that are missing:
+The harness writes files that are machine-local in every project: attempt counters, the maintenance
+due-state, the bash-write guard's markers, `settings.local.json`, and so on. The list lives in one place,
+`HARNESS_IGNORES` in `scripts/harness-gitignore.sh`, with a reason per path. Do not copy it into
+`.gitignore` by hand. Write it with the script:
 
-- `.claude/validation/` (Stop-hook timestamp)
-- `.claude/.local-llm-*` (draft artifact files written by hooks)
-- `.claude/local-llm-*.log` (per-project telemetry log)
-- `.claude/local-llm-*.log.errors` (telemetry write-error log)
-- `.claude/projects/` (per-user memory directory — never commit)
-- `.claude/settings.local.json` (per-machine settings)
-- `.claude/.template-sync-check` (auto-sync rate-limit marker — the manifest `.claude/.template-sync` IS tracked, this is not)
-- `.claude/state/` (repeat-failure guard's attempt counters, TTL-pruned)
-- `.claude/.bash-write-marker` (bash-write guard's timestamp, re-stamped on every Bash write)
-- `.claude/.bash-write-blocked` (bash-write guard's escape-hatch record — a second file on purpose, see `bash-write-detect-hook.sh:29`)
-- `.claude/.maintenance-state` (maintenance due-state — when each recurring job last ran ON THIS MACHINE; per-machine for the same reason a crontab entry is)
+```bash
+bash scripts/harness-gitignore.sh --apply .     # prints added / updated, or nothing when current
+bash scripts/harness-gitignore.sh --tracked .   # what the index already holds under those paths
+```
 
-This list is not advisory and it is not maintained by hand alone: `scripts/test-runtime-markers-ignored.sh`
-fails when a machine-local `.claude/` path the scripts write is missing from it, or from the project's
-`.gitignore`. A marker written by a hook **the template does not ship** does not belong in the list
-above — that test is CORE, so a project's line in it is eaten by the next sync, and a line here for a
-path only one project writes turns the gate red in every other project that carries it. Classify those
-in the project-owned `.claude/.runtime-markers` instead (`[machine-local]` / `[tracked-by-design]`
-sections, `path%reason` lines); the test reads it and section 3a is deliberately not asked to seed it. Four of the ten entries above were added by spec 007bq after two of them had been missing
-long enough for the marker to churn in five repositories — including the template's own.
+`--apply` owns the lines between `# >>> claude-code harness … >>>` and `# <<< claude-code harness <<<`
+and leaves everything else in `.gitignore` alone. Autosync runs it on every sync, so this step matters
+only for a project that has not synced since spec 040. It exits 3 without writing when the markers are
+broken (a start with no end, two blocks); fix them by hand.
+
+`--tracked` output is not fixed by the ignore. An ignore rule changes nothing for a file git already
+tracks. Report each path to the user with `git rm -r --cached -- <paths>`, and run it only when they say
+so: it changes what the next commit records.
+
+A marker written by a hook **the template does not ship** does not belong in `HARNESS_IGNORES`. That
+script is CORE, so a project's line in it is eaten by the next sync. Classify those in the project-owned
+`.claude/.runtime-markers` instead (`[machine-local]` / `[tracked-by-design]` sections, `path%reason`
+lines) and ignore them outside the managed block. `scripts/test-runtime-markers-ignored.sh` fails when a
+machine-local path the scripts write is missing from the managed list or from the project's `.gitignore`.
 
 ### 3b. Freshness pass (ALWAYS RUNS — regardless of sync mode)
 
