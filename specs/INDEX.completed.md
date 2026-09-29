@@ -260,3 +260,11 @@ in hand instead of hypothesised.
 ## 073 — pipeline-refresh-2026-09
 
 - [x] 073 — pipeline-refresh-2026-09 — spec-only — one sync engine for wizard/update/sync-template, spec-kit pinned, zsh + GNU fixes, supply-chain cooldowns, context diet, hook latency; then roll out to 15 projects. Folds 037, 022. User-requested 2026-09-28.
+
+## 074 — measure-where-maintenance-should-run
+
+- [x] 074 — measure-where-maintenance-should-run — spec-only — no maintenance run records its duration, peak memory or host, so local-vs-cloud placement would be a guess. Ledger per run + a placement report. Developer request 2026-09-29.
+
+## 076 — malformed-id-deny-blames-a-healthy-register
+
+- [x] 076 — malformed-id-deny-blames-a-healthy-register — spec-only — both PreToolUse guards deny a malformed active id (`7-x`) with the "resolver missing / register unparsable" text. Own exit 97 + text naming token and grammar. Found as consultpilot H7ai / Q2.
