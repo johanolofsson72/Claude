@@ -537,3 +537,17 @@ This is the **third** way this command misreports, and the most persuasive. `pro
 Scope: a shared run-verdict helper the CORE scripts call, plus the two existing call sites. Bite-proof it in both directions — a genuinely green run must stay green, and a captured aborted-run transcript must go red.
 
 **Outcome.** Three template call sites judged a run, and all three believed the rocky transcript: `repeat-failure-guard-hook.sh` reset a live failure counter on `Passed! *-`, `project-maintenance.sh --suite` stamped an exit-0 abort green, and `template-sync-verify.sh` discharged the obligation as verified. `scripts/run-verdict.sh` (CORE, sourced) now owns the abort pattern, and all three read it before any success signal. Red arms were proven on HEAD in `test-run-verdict.sh`, `test-pipeline-hooks.sh`, `test-project-maintenance.sh` C37–C39 and the new `test-template-sync-verify.sh`. rocky's own `e2e-wait-audit.sh` is F030.
+
+## 032 — spec-dir-absent-leaves-both-guards-inert
+
+Ticked 2026-09-29. Row as it read at tick time, plus what was measured.
+
+- [x] 032 — spec-dir-absent-leaves-both-guards-inert — spec-only — a row worked without a spec directory resolves to found:false in spec_active.py, so pipeline-state-guard and spec-interview-guard both pass everything; fundit's 016a shipped that way. Reported by fundit F001.
+
+_Opened 2026-09-05 from fundit finding F001 (spec 016a, a static holding page shipped with no spec directory)._
+
+**The row's mechanism is wrong.** `found: false` never let anything through. Both guards turn a missing directory into a deny: every phase missing, 0 of 15 answers. That holds at HEAD and in fundit's own copies at `d637ed2`, the version on disk when 016a was committed.
+
+**Two other holes let 016a through.** The one guarded file, `site/fetch-fonts.mjs`, met a deny with no `hookEventName`, which the CLI drops; 046 closed that on 2026-09-12. Everything else was `.html`, `.css`, config, a Dockerfile or `scripts/**`, and no guard ever asked about those. The product itself, `site/index.html`, sat outside `SOURCE_EXTS` while `.cshtml`, `.razor`, `.vue` and `.astro` were inside it.
+
+**Outcome.** `html|htm|css|scss|sass|less` joined `SOURCE_EXTS` in all three path guards. Config, Dockerfile and `scripts/**` stay exempt on purpose. `scripts/test-spec-dir-absent.sh` (CORE) pins the directory-less deny through `hook_verdict`, which no test did before. It also checks that the three lists are identical and that a spec with finished artifacts can still edit markup. 16 arms red on HEAD, 34/34 after. A SessionStart signal for a directory-less active row is F031, not built.
