@@ -327,3 +327,11 @@ project's specs/FINDINGS.md, where the 5-spec review decides it. See specs/008-s
 Row as opened: - [ ] 012 — core-file-comments-hold-real-scenario-ids — spec-only — a CORE file's comments cite real SC-ids as examples, so the traceability gate counts them as references and a deleted row looks covered. Found as consultpilot H7bp.
 
 Spec: `specs/012-core-file-comments-hold-real-scenario-ids/`. The live instance was consultpilot's validated sigpipe-sweep row. Only a `Covers:` line in `validate-no-sigpipe-assertions.sh` traced it (F021).
+
+## 014 — autosync-adds-gates-no-runner-registers
+
+- [x] 014 — autosync-adds-gates-no-runner-registers — spec-only — `scripts/core-gates.sh` is the CORE half of a gate registry: a new gate-shaped CORE script is a gate unasked, 6 argued non-gates (F004 closed). consultpilot had 14 unregistered; adoption is F022. From consultpilot H7av.
+
+Row as opened: - [ ] 014 — autosync-adds-gates-no-runner-registers — spec-only — a sync that ships new `test-*.sh` scripts leaves every project's `run-gates.sh` reporting DRIFT until someone adds them to GATES by hand. Found as consultpilot H7av.
+
+Spec: `specs/014-autosync-adds-gates-no-runner-registers/`. H7be's median-0-days registration latency no longer held: 14 CORE gates sat unregistered in consultpilot on 2026-09-29. No new query mode (the cap of four is a developer decision). A default project runs no CORE gate at all (F023).
