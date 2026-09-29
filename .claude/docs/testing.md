@@ -257,16 +257,48 @@ For logic with a wide input space, hand-picked example tests sample a few points
 Functional and destructive tests pass while the page still looks broken: AI reasons over code tokens, not rendered output, so it ships wrong spacing, dead design tokens, and collapsed responsive layouts that no `getByRole` assertion catches. Screenshot baselines close that gap and Playwright does it natively — no new infra, **local-only** (respects `github-actions.md` CI-minimalism).
 
 ```csharp
-// Baseline the key states of each screen (default, empty, error, loaded, dark mode, mobile width)
+// Baseline the key states of each screen (default, empty, error, loaded, dark mode).
+// The width comes from the shared suite (see Viewports below), not from this test.
 await Expect(Page).ToHaveScreenshotAsync("dashboard-default.png");
-await Page.SetViewportSizeAsync(375, 812);
-await Expect(Page).ToHaveScreenshotAsync("dashboard-mobile.png");
 ```
 
-- Capture the *states that matter* (empty / loading / error / loaded, plus dark mode and one mobile width), not every pixel of every page.
+- Capture the *states that matter* (empty / loading / error / loaded, plus dark mode), not every pixel of every page. The shared suite runs each of them at every viewport.
 - First run writes baselines (`--update-snapshots`); commit them. Later runs diff against them and fail on drift.
 - Update baselines **deliberately** when a design change is intended — a baseline update is a reviewable diff, never an automatic overwrite.
 - For component-level isolation (fewer false positives on churny output) a Storybook + Chromatic setup is the heavier alternative; default to Playwright screenshots first.
+
+### Viewports — a dimension of the shared suite, not a line in one spec
+
+A suite that runs at Playwright's default 1280px never sees phone width. fundit's HealthStrip overflowed horizontally at 375px from spec 001 until spec 004 set that width by hand in its own test (F024). A width set inside one test protects that test's screen and nothing else. It belongs in the shared configuration, so every a11y and visual test runs at every width without a spec asking.
+
+```ts
+// playwright.config.ts: one project per width, and every a11y/visual test runs in both
+projects: [
+  { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
+  { name: 'phone',   use: { ...devices['Desktop Chrome'], viewport: { width: 375,  height: 812 } } },
+],
+```
+
+```csharp
+// .NET (NUnit): the shared base fixture takes the width as a parameter, so each test runs once per
+// width. Derived fixtures pass (width, height) through their own primary constructor.
+[TestFixture(1280, 800)]
+[TestFixture(375, 812)]
+public abstract class ScreenTest(int width, int height) : PageTest
+{
+    public override BrowserNewContextOptions ContextOptions() =>
+        new() { ViewportSize = new() { Width = width, Height = height } };
+}
+```
+
+Every screen also asserts **no horizontal overflow** at every width. A screenshot diff catches overflow only after a baseline exists, and the first baseline records the overflow as correct:
+
+```ts
+const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+expect(overflow, 'page scrolls horizontally').toBeLessThanOrEqual(0);
+```
+
+`scripts/project-maintenance.sh` (section 6d) reports a `[VIEWPORT]` finding for each Playwright config with no width below 480px and no phone device. A .NET suite has no config file to read, so there any test file setting a narrow width is accepted. A product that never renders on a phone (a kiosk, a fixed wall display) states it with a `narrow-viewport: not-applicable` comment in the config, followed by the reason.
 
 ## Mutation testing (THE quality gate — replaces "count the tests" as proof of done)
 

@@ -859,6 +859,50 @@ $(printf '%s' "$PORT_OUT" | sed -n 1,3p)"
   fi
 fi
 
+# ------------------------------------------------------ 6d. narrow viewport in the shared suite
+#
+# fundit F024: the a11y/visual suite ran at Playwright's default 1280px, so a horizontal overflow at
+# 375px shipped in spec 001 and was found by hand in spec 004. A width set inside one test is the
+# per-spec pattern that let it through, so a TS suite is judged on its CONFIG, each config alone.
+# .NET has no config file to read; there any test file setting a narrow width counts (the weaker
+# check, and the finding says so). Narrow = below 480px or a phone device. Row 035.
+VP_W='(3[0-9]{2}|4[0-7][0-9])([^0-9]|$)'
+VP_OPTOUT='narrow-viewport:[[:space:]]*not-applicable'
+VP_CFG_RE='(^|/)playwright[^/]*\.config\.(ts|js|mjs|cjs)$'
+VP_FILES=$(git ls-files --cached --others --exclude-standard 2>/dev/null)
+VP_CONFIGS=$(printf '%s\n' "$VP_FILES" | grep -E "$VP_CFG_RE")
+VP_BAD=""
+if [ -n "$VP_CONFIGS" ]; then
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    grep -Eq "width:[[:space:]]*$VP_W|devices\[[[:space:]]*.(iPhone|Pixel|Galaxy)|$VP_OPTOUT" "$f" 2>/dev/null ||
+      VP_BAD="${VP_BAD}  $f
+"
+  done <<EOF
+$VP_CONFIGS
+EOF
+else
+  VP_CSPROJ=$(printf '%s\n' "$VP_FILES" | grep -E '\.csproj$' | while IFS= read -r f; do
+    [ -f "$f" ] && grep -q 'Microsoft\.Playwright' "$f" 2>/dev/null && printf '%s\n' "$f"; done)
+  # The hit list, not grep -q's status: under pipefail an early exit SIGPIPEs the loop upstream and
+  # the pipeline reads as "no match" on a large repo -- a false finding (spec 024's class).
+  VP_NET_HITS=""
+  [ -n "$VP_CSPROJ" ] && VP_NET_HITS=$(printf '%s\n' "$VP_FILES" | grep -iE '(test|e2e|playwright)[^/]*(/.*)?\.cs$' |
+      while IFS= read -r f; do [ -f "$f" ] && printf '%s\0' "$f"; done |
+      xargs -0 grep -El "((SetViewportSizeAsync|TestFixture|TestCase|InlineData|DataRow)\([[:space:]]*|Width[[:space:]]*=[[:space:]]*)$VP_W|$VP_OPTOUT" 2>/dev/null)
+  if [ -n "$VP_CSPROJ" ] && [ -z "$VP_NET_HITS" ]; then
+    VP_BAD="$(printf '%s\n' "$VP_CSPROJ" | sed 's/^/  /')
+  (.NET has no shared config to read: no test file sets a width below 480px)
+"
+  fi
+fi
+if [ -n "$VP_BAD" ]; then
+  add "[VIEWPORT] Playwright suite runs at desktop width only — a horizontal overflow at phone width ships unseen (fundit F024):
+${VP_BAD%
+}
+  Add a narrow project (375px) to the shared config per .claude/docs/testing.md (Viewports), or state why not with a 'narrow-viewport: not-applicable' comment."
+fi
+
 # ------------------------------------------------------------- 7. the test suite (--suite)
 #
 # THE PART THAT ACTUALLY COST THE DAYS. Sections 1-6 are hygiene: seconds to minutes. What made

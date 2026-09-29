@@ -2,6 +2,18 @@
 
 Rows verbatim as they read at tick time. Never pipeline input.
 
+## 035 — a11y-suite-runs-at-one-viewport-only
+
+Ticked 2026-09-29.
+
+- [x] 035 — a11y-suite-runs-at-one-viewport-only — spec-only — maintenance §6d reports a Playwright config with no narrow viewport as [VIEWPORT]; testing.md puts the width in the shared config. Verbatim in `INDEX.completed.md`.
+
+**Done.** `scripts/project-maintenance.sh` §6d judges each `playwright*.config.*` alone: no width below 480px, no phone device and no `narrow-viewport: not-applicable` comment make a `[VIEWPORT]` finding. A .NET-only suite falls back to test files. `testing.md` has a Viewports subsection (shared config project, NUnit fixture per width, overflow assertion). C46-C53 + C51b, 133/133. First pass flags fundit, agentcrm, ighweld-2026 and hireflow.
+
+**Original row:**
+
+- [ ] 035 — a11y-suite-runs-at-one-viewport-only — spec-only — the shared a11y/visual template asserts at the default 1280px, so a horizontal-overflow defect shipped in fundit spec 001 and survived until spec 004 measured 375px by hand. A viewport dimension belongs in the shared suite, not per spec. Reported by fundit F024.
+
 ## 034 — freshness-reports-seven-bogus-lockfile-skips
 
 Ticked 2026-09-29 without new code. Commit 774a909 (2026-09-09), four days after the row was filed, had already landed the fix.

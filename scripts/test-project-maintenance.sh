@@ -636,5 +636,83 @@ expect_contains "C45 hits — today's finding"                        "[PORTABIL
 expect_contains "C45 carries the hit"                               "scripts/x.sh:3" "$OUT"
 expect_rc       "C45 verdict is red" 1 "$RC"
 
+# ================================================ C46-C53 — the shared suite runs at a narrow viewport (row 035)
+#
+# fundit F024: every a11y/visual test ran at Playwright's default 1280px, so a horizontal overflow at
+# 375px shipped in spec 001 and was found by hand in spec 004. Section 6d reads the SHARED config,
+# because a narrow width set inside one test is exactly the per-spec pattern that let it through.
+vp_cfg() { # vp_cfg <dir> <file> <body>
+  printf '%s\n' "$3" > "$1/$2"
+}
+
+# --- C46: a narrow project in the config ----------------------------------------------------------
+D=$(mkfix c46); vp_cfg "$D" playwright.config.ts "export default { projects: [ { use: { viewport: { width: 1280, height: 800 } } }, { use: { viewport: { width: 375, height: 812 } } } ] }"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C46 narrow project — no VIEWPORT finding"          "[VIEWPORT]" "$OUT"
+expect_rc       "C46 narrow project — clean exit" 0 "$RC"
+
+# --- C47: a phone device descriptor counts as narrow ----------------------------------------------
+D=$(mkfix c47); vp_cfg "$D" playwright.config.ts "export default { projects: [ { use: { ...devices['Desktop Chrome'] } }, { use: { ...devices['iPhone 13'] } } ] }"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C47 phone device — no VIEWPORT finding"            "[VIEWPORT]" "$OUT"
+expect_rc       "C47 phone device — clean exit" 0 "$RC"
+
+# --- C48: desktop only — the agentcrm/fundit shape ------------------------------------------------
+D=$(mkfix c48); vp_cfg "$D" playwright.config.ts "export default { projects: [ { use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } } ] }"
+OUT=$(run "$D"); RC=$?
+expect_contains "C48 desktop only — a VIEWPORT finding"             "[VIEWPORT]" "$OUT"
+expect_contains "C48 names the config"                              "playwright.config.ts" "$OUT"
+expect_contains "C48 points at the doc"                             ".claude/docs/testing.md" "$OUT"
+expect_absent   "C48 never reads clean"                             "project-maintenance: clean" "$OUT"
+expect_rc       "C48 verdict is red" 1 "$RC"
+
+# --- C49: two configs, one narrow — only the other is named ---------------------------------------
+D=$(mkfix c49)
+vp_cfg "$D" playwright.config.ts "export default { projects: [ { use: { viewport: { width: 390, height: 844 } } } ] }"
+vp_cfg "$D" playwright.site.config.ts "export default { use: { viewport: { width: 1440, height: 900 } } }"
+OUT=$(run "$D"); RC=$?
+expect_contains "C49 the desktop-only config is named"              "playwright.site.config.ts" "$OUT"
+expect_absent   "C49 the narrow config is not named"                "playwright.config.ts" "$OUT"
+expect_rc       "C49 verdict is red" 1 "$RC"
+
+# --- C50: desktop only, and it says why --------------------------------------------------------------
+D=$(mkfix c50); vp_cfg "$D" playwright.config.ts "// narrow-viewport: not-applicable — kiosk app, fixed 1920 display
+export default { use: { viewport: { width: 1920, height: 1080 } } }"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C50 marker — no VIEWPORT finding"                  "[VIEWPORT]" "$OUT"
+expect_rc       "C50 marker — clean exit" 0 "$RC"
+
+# --- C51: .NET suite that sets a narrow viewport in a test -------------------------------------------
+D=$(mkfix c51); mkdir -p "$D/tests/App.E2E"
+printf '<Project><ItemGroup><PackageReference Include="Microsoft.Playwright" /></ItemGroup></Project>\n' > "$D/tests/App.E2E/App.E2E.csproj"
+printf 'await Page.SetViewportSizeAsync(375, 812);\n' > "$D/tests/App.E2E/LayoutTests.cs"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C51 .NET narrow test — no VIEWPORT finding"        "[VIEWPORT]" "$OUT"
+expect_rc       "C51 .NET narrow test — clean exit" 0 "$RC"
+
+# --- C51b: .NET suite parameterized per width on the shared fixture (the testing.md pattern) ---------
+D=$(mkfix c51b); mkdir -p "$D/tests/App.E2E"
+printf '<Project><ItemGroup><PackageReference Include="Microsoft.Playwright" /></ItemGroup></Project>\n' > "$D/tests/App.E2E/App.E2E.csproj"
+printf '[TestFixture(1280, 800)]\n[TestFixture(375, 812)]\npublic abstract class ScreenTest(int w, int h) : PageTest { }\n' > "$D/tests/App.E2E/ScreenTest.cs"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C51b .NET fixture per width — no VIEWPORT finding" "[VIEWPORT]" "$OUT"
+expect_rc       "C51b .NET fixture per width — clean exit" 0 "$RC"
+
+# --- C52: .NET suite with a narrow width only in production code -------------------------------------
+D=$(mkfix c52); mkdir -p "$D/tests/App.E2E" "$D/src/App"
+printf '<Project><ItemGroup><PackageReference Include="Microsoft.Playwright" /></ItemGroup></Project>\n' > "$D/tests/App.E2E/App.E2E.csproj"
+printf 'await Page.GotoAsync("/");\n' > "$D/tests/App.E2E/HomeTests.cs"
+printf 'var box = new Box { Width = 350 };\n' > "$D/src/App/Box.cs"
+OUT=$(run "$D"); RC=$?
+expect_contains "C52 .NET desktop only — a VIEWPORT finding"        "[VIEWPORT]" "$OUT"
+expect_contains "C52 names the Playwright project"                  "App.E2E.csproj" "$OUT"
+expect_rc       "C52 verdict is red" 1 "$RC"
+
+# --- C53: no Playwright at all -------------------------------------------------------------------------
+D=$(mkfix c53); mkdir -p "$D/src"; printf 'const w = { width: 1280 };\n' > "$D/src/app.ts"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C53 no Playwright — no VIEWPORT finding"           "[VIEWPORT]" "$OUT"
+expect_rc       "C53 no Playwright — clean exit" 0 "$RC"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
