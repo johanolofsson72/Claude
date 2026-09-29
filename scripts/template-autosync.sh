@@ -92,9 +92,25 @@
 #                     makes no network call, so a PreToolUse hook can afford it
 #                     before every edit.
 #
+# Environment:
+#   CLAUDE_PROJECT_DIR  the project to act on. Beats $PWD — a `cd` alone does NOT
+#                       choose the target, which is how a self-test came to sync
+#                       the real repository (spec 010, consultpilot H7bm).
+#   CLAUDE_TEMPLATE_SYNC_SANDBOX
+#                       optional. Declares the ONLY directory this run may write
+#                       inside. When set, the resolved project root is verified
+#                       against it before anything is written, staged, committed
+#                       or pushed, and a run that would land outside refuses with
+#                       exit 1 naming both paths. Unset (the production case) is
+#                       byte-for-byte the behaviour that existed before it.
+#
 # Exit codes: 0 = up to date / synced / not applicable, 1 = hard error.
 # Fails open by design: this runs from a SessionStart hook and must never
-# block a session from starting.
+# block a session from starting. ONE exception, and it is deliberate: the
+# sandbox interlock below fails CLOSED, because continuing when the script
+# cannot tell which repository it is about to rewrite is not a degraded sync —
+# it is the 2026-08-30 incident. The exception is bounded to runs that declared
+# a sandbox, so no production path gains a refusal.
 
 set -u
 
@@ -213,6 +229,7 @@ template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
 test-template-autosync-unlisted.sh
+validate-sync-sandbox-declarations.sh test-validate-sync-sandbox-declarations.sh
 test-sync-prompt-bootstrap.sh
 hook-notice.sh harness-state-gc.sh test-hook-channels.sh
 allium-check-hook.sh test-allium-check-hook.sh allium-census.sh test-allium-census.sh
@@ -680,6 +697,90 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   DIR=$(dirname "$DIR")
 done
 [ -n "$PROJECT_ROOT" ] || { say "[skip] not inside a git repository"; exit 0; }
+
+# ------------------------------------------------------- sandbox interlock (spec 010)
+# The loop above resolves WHERE this run is about to write. Nothing until now asked whether that
+# is where the caller meant.
+#
+# On 2026-08-30 consultpilot's test-template-autosync-stranded.sh drove this script against sandbox
+# templates it built under mktemp, selecting the target with `cd` alone. `cd` does not select the
+# target: the resolution above reads CLAUDE_PROJECT_DIR FIRST, and the Claude Code harness exports
+# it. Fired from the Stop hook, the gate synced the real repository against a three-file sandbox
+# template — 54 `chore(sync)` commits made and pushed to origin/main, and 505 lines deleted in the
+# working tree, including 61 of the 62 lines of .claude/rules/continuous-execution.md.
+#
+# So a caller that means to run in a sandbox may SAY so, and this refuses to write anywhere else.
+# The check is positive on purpose. Two absence checks were tried and refused by measurement:
+# "CLAUDE_PROJECT_DIR disagreeing with cwd's git root is an error" breaks
+# test-template-autosync-owed.sh, which sets them to different directories deliberately; and "a
+# template under a temp directory is suspicious" breaks every real sync, because resolve/clone
+# below puts the template in `mktemp -d` on every run.
+#
+# THIS ONE PATH FAILS CLOSED, in a file whose header promises to fail open. That promise exists so
+# a broken sync cannot stop a session from starting, and it is right for every other failure here.
+# It is wrong for this one: continuing when the script cannot tell which repository it is about to
+# rewrite is not a degraded sync, it is the incident. The exception is bounded to runs that
+# declared a sandbox — a production run declares nothing and reaches none of this.
+#
+# Inlined rather than shared, because this file is CORE: sourcing a project-local helper would make
+# that helper an [unlisted] dependency by this script's own detector.
+_phys() {  # physical path, or empty if it does not exist. Callers discriminate on empty OUTPUT,
+           # not on status. /var/folders vs /private/var/folders on macOS is the whole reason this
+           # is not a string comparison: mktemp -d hands out the first spelling and `pwd -P`
+           # reports the second, and a naive compare would refuse every legitimate sandbox run.
+  # CDPATH cleared and `--` given: with an ambient CDPATH a relative name would cd to the CDPATH
+  # match and print it, so the path checked would not be the path written (adversarial review, 010).
+  [ -d "$1" ] && ( CDPATH='' cd -P -- "$1" >/dev/null 2>&1 && pwd -P )
+}
+_within() {  # is $1 inside (or equal to) $2? Segments, not characters — otherwise /tmp/sandbox-evil
+             # reads as inside /tmp/sandbox, which is the silent direction to be wrong in.
+             # $2 is never "/" here: the caller refuses that before asking (see below).
+  case "$1/" in "$2/"*) return 0 ;; *) return 1 ;; esac
+}
+# SET BUT EMPTY is a refusal, not "undeclared". consultpilot's copy read it as undeclared, and the
+# adversarial review of 010 named the cost: a driver writing CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" whose
+# mktemp failed passes the gate (the assignment is there) and runs with no interlock at all. Nothing
+# in production sets the variable, so only a caller that meant to declare can reach this.
+if [ "${CLAUDE_TEMPLATE_SYNC_SANDBOX+set}" = set ]; then
+  if [ -z "$CLAUDE_TEMPLATE_SYNC_SANDBOX" ]; then
+    tell "[refused] CLAUDE_TEMPLATE_SYNC_SANDBOX is set but empty. Nothing was written."
+    tell "          An empty value usually means the variable it was built from is empty — a"
+    tell "          failed mktemp, say. Declare the sandbox directory, or unset the variable."
+    exit 1
+  fi
+  _sbx=$(_phys "$CLAUDE_TEMPLATE_SYNC_SANDBOX")
+  if [ -z "$_sbx" ]; then
+    tell "[refused] CLAUDE_TEMPLATE_SYNC_SANDBOX names no existing directory:"
+    tell "          declared: $CLAUDE_TEMPLATE_SYNC_SANDBOX"
+    tell "          A caller that cannot say where its sandbox is has already lost track of it."
+    exit 1
+  fi
+  # The filesystem root is not a sandbox. Every path is inside it, so declaring it would satisfy
+  # the check while permitting exactly what the check exists to prevent — the same shape as the
+  # empty declaration above, one level up. consultpilot's first implementation accepted it; the
+  # adversarial review caught it, and it is the one line that alone reopens the incident.
+  if [ "$_sbx" = "/" ]; then
+    tell "[refused] CLAUDE_TEMPLATE_SYNC_SANDBOX is the filesystem root."
+    tell "          Every path is inside /, so this declares nothing and protects nothing."
+    tell "          Name the directory the run may actually write in, or unset the variable."
+    exit 1
+  fi
+  _root=$(_phys "$PROJECT_ROOT")   # only needed once the declaration itself is known usable
+  if ! _within "$_root" "$_sbx"; then
+    tell "[refused] this run would write OUTSIDE the sandbox it declared. Nothing was written."
+    tell "          declared sandbox: $_sbx"
+    tell "          resolved project: $_root"
+    tell "          The project root comes from \${CLAUDE_PROJECT_DIR:-\$PWD} — a \`cd\` alone does"
+    tell "          not choose it. Pass CLAUDE_PROJECT_DIR explicitly (spec 010)."
+    exit 1
+  fi
+  # The root is inside the sandbox; now make sure git writes there too. Git exports GIT_DIR,
+  # GIT_WORK_TREE and GIT_INDEX_FILE to its hooks, and every one of them beats `git -C`: a declared
+  # run started from a pre-commit gate would stage and commit into the repository that fired the
+  # hook, with the root check satisfied. A declared run has no business inheriting them.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+fi
+
 [ -d "$PROJECT_ROOT/.claude" ] || { say "[skip] no .claude/ — not a Claude Code project"; exit 0; }
 
 STAMP="$PROJECT_ROOT/.claude/.template-sync"

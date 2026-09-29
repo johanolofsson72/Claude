@@ -1,0 +1,301 @@
+-- allium: 3
+--
+-- 010 — the autosync self-test writes to the repository it is testing.
+-- Landed from consultpilot H7bm (95ba64a), whose elicitation this is; edited only where the
+-- template differs (no SCENARIOS.md, no run-gates.sh, line numbers).
+--
+-- The defect is a target-resolution question, so the entity that matters is the RUN: which
+-- repository is this invocation about to write to, and did anybody say so out loud. The incident
+-- happened because nothing in the system ever asked that question — the run resolved a project
+-- root and started writing, and the only thing standing between a self-test and the developer's
+-- repository was a `cd` that the resolution ignores.
+--
+-- The template repo keeps no scenario map; consultpilot's SCENARIOS.md maps these rules there.
+
+-- Effects the rules emit. Declared external because they are output, not domain state: one is a
+-- block of text on stdout, the other is the assertion that an undeclared run still behaves as it
+-- did before this spec.
+external entity Refusal {
+    declared_path: String
+    resolved_path: String
+    exit_code: Integer
+}
+
+external entity Output {
+    run: SyncRun
+}
+
+external entity Violation {
+    path: String
+    line_number: Integer
+}
+
+config {
+    -- The declaration channel. Named once here so the gate, the tests and the script cannot
+    -- drift into three spellings of the same idea.
+    sandbox_env_name: String = `CLAUDE_TEMPLATE_SYNC_SANDBOX`
+    project_env_name: String = `CLAUDE_PROJECT_DIR`
+    refusal_exit_code: Integer = 1
+}
+
+-- A directory path as the guard must compare it: physically resolved, so that /var/folders and
+-- /private/var/folders on macOS are the same place, and segmented, so that /tmp/sandbox-evil is
+-- not inside /tmp/sandbox.
+value ResolvedPath {
+    literal: String              -- as the caller wrote it
+    physical: String             -- symlinks resolved; the only form ever compared
+    exists: Boolean
+    is_directory: Boolean
+
+    invariant PhysicalIsAbsolute { this.physical.starts_with(`/`) or not this.exists }
+}
+
+-- What the caller declared. Absent is the ordinary case: a real sync declares nothing.
+value SandboxDeclaration {
+    raw: String?                                 -- the environment variable as read
+    declared: Boolean                            -- raw != null (set at all, even empty)
+    root: ResolvedPath? when declared = true     -- null when raw is empty: refused by RefuseUnusableDeclaration
+
+    -- An empty string is NOT a declaration of "/" — a prefix of "" contains every path,
+    -- which would turn the interlock into decoration that reports success.
+    -- Spec 010 departs from consultpilot here: SET BUT EMPTY is a refusal, not "undeclared". A
+    -- driver whose mktemp failed would otherwise pass the gate and run with no interlock
+    -- (adversarial review, finding 1). Only an UNSET variable is the ordinary, undeclared run.
+    invariant EmptyIsARefusal { this.raw = `` implies this.declared = true and this.root = null }
+}
+
+entity SyncRun {
+    mode: is_core | inspect | check | dry_run | sync
+    project_root: ResolvedPath?                  -- null before resolution and outside a git repo
+    sandbox: SandboxDeclaration
+    template_dir: ResolvedPath?
+
+    phase: started | resolved | verified | refused | writing | committed | pushed | finished
+
+    transitions phase {
+        started   -> resolved                    -- project root found (or the run left early)
+        started   -> finished                    -- --is-core: returns above resolution entirely
+        resolved  -> verified                    -- the interlock said yes, or had nothing to say
+        resolved  -> refused                     -- the interlock said no
+        resolved  -> finished                    -- not a git repo / no .claude — pre-existing skip
+        verified  -> writing
+        verified  -> finished                    -- --check / --dry-run / nothing to do
+        writing   -> committed
+        writing   -> finished                    -- --no-commit
+        committed -> pushed
+        committed -> finished                    -- no upstream
+        pushed    -> finished
+        terminal: finished, refused
+    }
+
+    wrote_anything: phase in {writing, committed, pushed}
+    is_inside_sandbox: sandbox.declared and project_root != null
+                       and project_root.physical.is_within(sandbox.root.physical)
+}
+
+-- A script in scripts/ that starts template-autosync.sh. Ten do; six of them in a mode that
+-- resolves a project root, and those six are the ones the invariants below constrain.
+--
+-- `drives_sync` is deliberately NOT "mentions template-autosync.sh". Measured 2026-09-01, that
+-- reading is wrong in both directions: test-template-clone-refresh.sh sed-extracts one function
+-- and passes its target as an argument (never resolves a root, exempt), while
+-- test-core-owed-tick-guard.sh:327 selects by cd alone and was missed entirely by a census that
+-- looked for the variable name instead of the invocation.
+entity SelfTest {
+    path: String
+    invokes_sync: Boolean                        -- executes the script at all
+    only_is_core: Boolean                        -- every invocation is --is-core
+    names_target_project: Boolean                -- passes CLAUDE_PROJECT_DIR at every invocation
+    declares_sandbox: Boolean                    -- passes CLAUDE_TEMPLATE_SYNC_SANDBOX
+    first_offending_line: Integer?
+
+    -- --is-core returns at the `--is-core` branch, above the project-root resolution. A caller that
+    -- never resolves a root cannot escape a sandbox, so the exemption is a property, not a list.
+    drives_sync: invokes_sync and not only_is_core
+    is_compliant: names_target_project and declares_sandbox
+}
+
+entity SandboxComplianceGate {
+    scanned: Set<SelfTest>
+    violations: scanned where drives_sync = true and is_compliant = false
+    verdict: pass | fail
+    starts_the_sync: Boolean
+
+    invariant GateIsOffline { this.starts_the_sync = false }              -- FR-016
+    invariant FailsWhenItFoundSomething { this.violations.count > 0 implies this.verdict = fail }
+    invariant PassesOnlyWhenClean    { this.verdict = pass implies this.violations.count = 0 }
+}
+
+-- ---------------------------------------------------------------- rules
+
+-- FR-002. The one rule the whole spec exists for. It fires between resolution and the first
+-- write, which is the only place it can fire and still be a guard rather than a post-mortem.
+rule VerifySandboxBeforeAnyWrite {
+    when: run: SyncRun.phase transitions_to resolved
+    requires: run.project_root != null
+    ensures:
+        if run.sandbox.declared and run.is_inside_sandbox:
+            run.phase = verified
+        if run.sandbox.declared and not run.is_inside_sandbox:
+            run.phase = refused
+        if not run.sandbox.declared:
+            run.phase = verified
+}
+
+-- FR-003, FR-004. The refusal names BOTH paths, because the reader's question is never "did it
+-- refuse" but "which two places did it think it was standing in".
+rule RefuseOutsideSandbox {
+    when: run: SyncRun.phase transitions_to refused
+    ensures:
+        run.wrote_anything = false
+        Refusal.created(
+            declared_path: run.sandbox.root.physical,
+            resolved_path: run.project_root.physical,
+            exit_code: refusal_exit_code)
+}
+
+-- DRIFT CLOSED (found by /tla, 2026-09-01): the elicited spec had no rule for a sandbox declared
+-- as the filesystem root, and the first implementation therefore accepted it. Every path is inside
+-- "/", so the interlock reported a verified sandbox while permitting exactly what it exists to
+-- prevent. TLC reproduces it in four states: Declared, SbxIsRoot, not RootInside -> resolved ->
+-- verified -> writing. The rule is written here now so the .allium describes the machine that
+-- exists rather than the one that was imagined.
+rule RefuseRootDeclaration {
+    when: run: SyncRun.phase transitions_to resolved
+    requires: run.sandbox.declared and run.sandbox.root.physical = `/`
+    ensures: run.phase = refused
+}
+
+-- FR-007. A declaration naming nothing is a caller who is already confused. Refusing is the
+-- conservative reading; accepting it would mean the guard passes precisely when the caller has
+-- lost track of where the sandbox is.
+rule RefuseUnusableDeclaration {
+    when: run: SyncRun.phase transitions_to resolved
+    requires: run.sandbox.declared and (run.sandbox.root = null or not run.sandbox.root.exists or not run.sandbox.root.is_directory)
+    ensures: run.phase = refused
+}
+
+-- FR-006. The load-bearing non-event: an undeclared run is the run this project has today.
+rule UndeclaredRunIsUnchanged {
+    when: run: SyncRun.phase transitions_to verified
+    requires: run.sandbox.declared = false
+    ensures: Output.identical_to_baseline(run)
+}
+
+-- FR-009..FR-012. The two tests stop selecting their target by standing in it.
+rule SelfTestNamesItsTarget {
+    when: test: SelfTest.drives_sync becomes true
+    ensures:
+        test.names_target_project = true
+        test.declares_sandbox = true
+}
+
+-- FR-013..FR-015.
+rule ScanSelfTestsForAmbientTargets {
+    when: GateRun(gate)
+    ensures:
+        for test in gate.scanned where test.drives_sync and not test.is_compliant:
+            Violation.created(path: test.path, line_number: test.first_offending_line)
+        if gate.violations.count > 0:
+            gate.verdict = fail
+        if gate.violations.count = 0:
+            gate.verdict = pass
+}
+
+-- ---------------------------------------------------------------- invariants
+
+-- The spec in one line. Everything else is machinery for making this true.
+invariant NoWriteOutsideADeclaredSandbox {
+    for run in SyncRuns where sandbox.declared = true:
+        run.wrote_anything implies run.is_inside_sandbox
+}
+
+-- The root is not a sandbox. Stated separately rather than folded into is_within, because the two
+-- say different things: containment is a question about two paths, and this is a question about
+-- whether the declaration means anything at all. Folding it in is what hid it the first time —
+-- "/" was handled inside the path comparison as a formatting concern ("never build //") and no
+-- reader of that line was thinking about what it authorised.
+invariant TheRootIsNotASandbox {
+    for run in SyncRuns where sandbox.declared = true:
+        run.sandbox.root.physical != `/`
+}
+
+-- . The guard must run before the first write, not merely before the commit. The incident
+-- left 505 deletions in a tree it never committed — a check at commit time would have caught
+-- nothing that mattered.
+invariant RefusalPrecedesEveryWrite {
+    for run in SyncRuns where phase = refused:
+        run.wrote_anything = false
+}
+
+-- . The comparison is physical and segmented. Stated as an invariant rather than left to
+-- the implementation because BOTH failure directions ship silently: a string compare refuses
+-- every legitimate macOS sandbox (loud, found immediately) and a character-prefix compare accepts
+-- /tmp/sandbox-evil for /tmp/sandbox (silent, found never).
+invariant ComparisonIsPhysicalAndSegmented {
+    for run in SyncRuns where sandbox.declared = true and project_root != null:
+        run.is_inside_sandbox
+            = run.project_root.physical.segments.starts_with(run.sandbox.root.physical.segments)
+}
+
+-- FR-008. The interlock may not convert an existing quiet exit into a hard one. Outside a git
+-- repo the script already says `[skip] not inside a git repository` and returns 0; a guard that
+-- turned that into exit 1 would break the SessionStart hook for every non-project directory.
+invariant QuietSkipsStayQuiet {
+    for run in SyncRuns where project_root = null:
+        run.phase = finished and run.wrote_anything = false
+}
+
+-- The clarification that `--is-core` is exempt by construction, not by an exception list. It
+-- returns above the project-root resolution, so there is no place to put a check even if one
+-- were wanted — and it is called from a PreToolUse hook before every edit.
+invariant IsCoreNeverResolvesAProjectRoot {
+    for run in SyncRuns where mode = is_core:
+        run.project_root = null and run.wrote_anything = false
+}
+
+-- FR-013b. The exemption's justification, stated where it can be checked rather than trusted. If
+-- --is-core ever moves below the resolution, this is the invariant that stops being true and the
+-- four exempt callers stop being exempt.
+invariant IsCoreOnlyCallersAreExemptBecauseOfThat {
+    for test in SelfTests where only_is_core = true:
+        test.drives_sync = false
+}
+
+-- FR-016 again, from the gate's side rather than the entity's: a gate proving the sync cannot
+-- escape its sandbox must not become the seventh caller that does.
+invariant TheGateStartsNothing {
+    for gate in SandboxComplianceGates:
+        gate.starts_the_sync = false
+}
+
+-- FR-011 + the developer's Q17 answer: all six, no exception list.
+invariant EverySyncDriverIsCompliant {
+    for test in SelfTests where drives_sync = true:
+        test.is_compliant
+}
+
+-- ---------------------------------------------------------------- actors and surface
+
+actor SelfTestAuthor { identified_by: SelfTest }
+
+surface TemplateAutosyncCli {
+    facing caller: SelfTestAuthor
+    context run: SyncRun where sandbox.declared = caller.declares_sandbox
+    provides: VerifySandboxBeforeAnyWrite(run)
+    exposes: run.phase
+}
+
+-- ---------------------------------------------------------------- out of scope
+
+-- The run-gates timeout is out of scope (spec.md "Out of scope"): the escape damages the
+-- repository on every interrupted run, at any cap. The template has no run-gates.sh.
+--
+-- RESOLVED (consultpilot H7bm): an older copy of template-autosync.sh, copied into a sandbox by a
+-- self-test exercising historical eras (test-template-autosync-unlisted.sh), cannot honour a
+-- declaration it has never heard of. EverySyncDriverIsCompliant is therefore a constraint on the
+-- TEST, not on the script, and those eras run --unlisted only, which writes nothing.
+
+-- DEFERRED by the developer 2026-09-29, recorded as F017 in specs/FINDINGS.md: should the
+-- interlock also refuse when the resolved project root is the repository the running script itself
+-- lives in? It would catch the incident with no declaration, but forbids the template syncing itself.

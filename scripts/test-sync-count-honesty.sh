@@ -204,7 +204,7 @@ fixture_mode() {
   printf 'locally scribbled\n' > "$proj/.claude/rules/tests.md"   # dirty the working tree
 
   # -- run the real sync ----------------------------------------------------
-  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" \
+  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" CLAUDE_TEMPLATE_SYNC_SANDBOX="$root" \
          bash "$SYNC" 2>&1 ); rc=$?
   printf '\n[fixture] sync said:\n'
   printf '%s\n' "$out" | sed 's/^/        | /'
@@ -289,7 +289,7 @@ clean_case() {
   printf 'rule v1\n'         > "$proj/.claude/rules/tests.md"
   git -C "$proj" add -A; git -C "$proj" commit -qm base
 
-  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" bash "$SYNC" 2>&1 )
+  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" CLAUDE_TEMPLATE_SYNC_SANDBOX="$root" bash "$SYNC" 2>&1 )
   printf '\n[clean] every write recorded — the block must stay silent\n'
   if grep -qi 'recorded no change' <<< "$out"; then
     bad "a reconciliation block fired on a clean sync (this lands in every session start)"
@@ -329,7 +329,7 @@ nothing_case() {
   git -C "$proj" add -A; git -C "$proj" commit -qm base
 
   before=$(git -C "$proj" rev-list --count HEAD)
-  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" bash "$SYNC" --force 2>&1 )
+  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" CLAUDE_TEMPLATE_SYNC_SANDBOX="$root" bash "$SYNC" --force 2>&1 )
   after=$(git -C "$proj" rev-list --count HEAD)
 
   printf '\n[nothing] a sync with no recorded content\n'
@@ -377,7 +377,7 @@ stamp_advance_case() {
   git -C "$proj" add -A; git -C "$proj" commit -qm base
   printf 'scribbled\n' > "$proj/.claude/rules/tests.md"    # dirty: the sync will restore it
 
-  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" bash "$SYNC" 2>&1 )
+  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" CLAUDE_TEMPLATE_SYNC_SANDBOX="$root" bash "$SYNC" 2>&1 )
   printf '\n[stamp] files written, nothing recorded\n'
   printf '%s\n' "$out" | sed 's/^/        | /'
 
@@ -424,7 +424,7 @@ check_case() {
   printf '#!/bin/sh\n# v1\n' > "$proj/scripts/emit-pipeline-reminder.sh"
   git -C "$proj" add -A; git -C "$proj" commit -qm base
 
-  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" bash "$SYNC" --check 2>&1 )
+  out=$( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" CLAUDE_TEMPLATE_SYNC_SANDBOX="$root" bash "$SYNC" --check 2>&1 )
   printf '\n[check] --check reconciles nothing\n'
   grep -qi 'recorded no change' <<< "$out" \
     && bad "--check emitted a reconciliation block despite writing nothing" \
@@ -469,7 +469,7 @@ amended_case() {
   printf '#!/bin/sh\n# %s\n' "$FIX_MARKER" > "$proj/scripts/template-autosync.sh"
   git -C "$proj" add -A; git -C "$proj" commit -qm base
 
-  ( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" bash "$SYNC" >/dev/null 2>&1 )
+  ( cd "$proj" && CLAUDE_TEMPLATE_DIR="$tmpl" CLAUDE_PROJECT_DIR="$proj" CLAUDE_TEMPLATE_SYNC_SANDBOX="$root" bash "$SYNC" >/dev/null 2>&1 )
 
   printf '\n[amended] a subject the sync did not write is not a verdict about the sync\n'
   case "$(git -C "$proj" log -1 --format=%s)" in

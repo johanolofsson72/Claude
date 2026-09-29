@@ -70,8 +70,13 @@ build() {
 # 505 lines in the working tree including 61 of the 62 lines of continuous-execution.md.
 #
 # The cd stays, because the relative `scripts/template-autosync.sh` below needs it. The export is
-# what makes the sandbox the target rather than a hope about the environment.
-sync() { _p="$1"; _t="$2"; shift 2; ( cd "$_p" && CLAUDE_PROJECT_DIR="$_p" CLAUDE_TEMPLATE_DIR="$_t" bash scripts/template-autosync.sh "$@" 2>&1 ); }
+# what makes the sandbox the target rather than a hope about the environment. The sandbox
+# declaration is the second lock: the sync itself refuses to write outside $TMP, however its project
+# root came to be resolved (spec 010, landed from consultpilot H7bm).
+sync() { _p="$1"; _t="$2"; shift 2
+  ( cd "$_p" \
+      && CLAUDE_PROJECT_DIR="$_p" CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" CLAUDE_TEMPLATE_DIR="$_t" \
+         bash scripts/template-autosync.sh "$@" 2>&1 ); }
 
 echo "== AC-01: --no-commit strands, and every later run says so =="
 build ac01

@@ -307,3 +307,11 @@ agentcrm, fundit and film-i-vast-demo are now under. The row named four and miss
 It was the second time a list kept here went stale, so the fix stopped keeping one. Spec 008 gives
 a map file the remedy for its role and has project-maintenance.sh record each file in the owning
 project's specs/FINDINGS.md, where the 5-spec review decides it. See specs/008-scenarios-map-canary-unheeded/.
+
+## 077 — row-proposals-carry-their-need
+
+- [x] 077 — row-proposals-carry-their-need — spec-only [hardened] — the freeze chosen 2026-09-29 needs teeth: a freeze line the hooks read, and row proposals recorded with evidence of need, checked (duplicate, stale citation) and put to the developer to approve or decline. Developer request 2026-09-29.
+
+## 010 — autosync-test-writes-to-the-repo-it-tests
+
+- [x] 010 — autosync-test-writes-to-the-repo-it-tests — full track [hardened] — `test-template-autosync-*.sh` writes into the working repo instead of a fixture, so a failing run can leave the tree dirty. Found by @johan as consultpilot H7bm.

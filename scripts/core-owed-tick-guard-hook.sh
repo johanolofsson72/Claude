@@ -148,9 +148,15 @@ elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 15"; fi
 # 0 = findings on stdout · 1 = none · 2 = cannot answer. Anything that is not 0 is treated as "no
 # finding": 1 says so, and 2 (or a timeout, or a crash) has to be indistinguishable from it here —
 # see the fail-open note at the top.
-OWED=$(cd "$ROOT" && $TO bash "$SYNC" --owed 2>/dev/null)
+# CLAUDE_PROJECT_DIR is passed, not left to the `cd`. $ROOT was walked up from the file being
+# edited, which is the repository this guard must answer about — but template-autosync.sh resolves
+# ${CLAUDE_PROJECT_DIR:-$PWD}, so an ambient value beats the `cd` and the answer silently becomes
+# about the session's repository instead of the file's. They are usually the same and then this
+# changes nothing; when they differ, the old form asked the wrong repository whether work was owed.
+# Same shape template-autosync-hook.sh already uses. Spec 010 (consultpilot H7bm).
+OWED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --owed 2>/dev/null)
 [ $? -eq 0 ] || OWED=""
-UNLISTED=$(cd "$ROOT" && $TO bash "$SYNC" --unlisted 2>/dev/null)
+UNLISTED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --unlisted 2>/dev/null)
 [ $? -eq 0 ] || UNLISTED=""
 
 [ -n "$OWED" ] || [ -n "$UNLISTED" ] || exit 0

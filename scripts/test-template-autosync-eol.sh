@@ -104,7 +104,10 @@ build() {
   git -C "$P" add -A; git -C "$P" commit -qm "project init"
 }
 
-sync() { CLAUDE_TEMPLATE_DIR="$T" CLAUDE_PROJECT_DIR="$P" bash "$SCRIPT" "$@" 2>&1; }
+# The sandbox is DECLARED as well as named: template-autosync.sh refuses to write outside it,
+# whatever its project root resolved to. Spec 010 (consultpilot H7bm) — a sibling test that named neither drove the
+# real repository from the Stop hook and pushed 54 commits to origin/main.
+sync() { CLAUDE_TEMPLATE_DIR="$T" CLAUDE_PROJECT_DIR="$P" CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" bash "$SCRIPT" "$@" 2>&1; }
 
 # Just the [eol] block. The negative assertions below are about what the NOTE names, and a whole-run
 # capture also contains the `[changed] add ...` listing — which names every file the sync wrote,
@@ -217,7 +220,7 @@ echo
 echo "=== F. a failed materialisation falls back, it does not drop the file ==="
 build h
 # Sabotage: make mktemp -d land somewhere checkout-index cannot write into.
-OUT=$(CLAUDE_TEMPLATE_DIR="$T" CLAUDE_PROJECT_DIR="$P" TMPDIR=/nonexistent-eol-probe \
+OUT=$(CLAUDE_TEMPLATE_DIR="$T" CLAUDE_PROJECT_DIR="$P" CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" TMPDIR=/nonexistent-eol-probe \
       bash "$SCRIPT" --quiet 2>&1)
 if [ -f "$P/$DEMO" ]; then ok "AC-14a file still copied (from the worktree)"
 else bad "AC-14a file was DROPPED from the copy loop"; fi
@@ -235,7 +238,7 @@ HOOK="${EOL_TEST_HOOK:-$PWD/scripts/template-autosync-hook.sh}"
 if [ -f "$HOOK" ]; then
   build i
   sync --quiet >/dev/null 2>&1          # first run copies; second is the 0/0 steady state
-  OUT=$(CLAUDE_PROJECT_DIR="$P" CLAUDE_TEMPLATE_DIR="$T" CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1 \
+  OUT=$(CLAUDE_PROJECT_DIR="$P" CLAUDE_TEMPLATE_DIR="$T" CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1 \
         bash "$HOOK" 2>&1)
   has "AC-18a hook forwards the note at all"     "$OUT" "[eol]"
   has "AC-18b hook names the divergent path"     "$OUT" "$DEMO"

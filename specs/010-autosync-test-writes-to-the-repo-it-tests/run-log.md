@@ -1,0 +1,6 @@
+- 2026-09-29 — spec, interview (15 auto + 5 overflow, 4 carried from consultpilot H7bm), allium (ported), plan, tasks; repro against HEAD: declared sandbox ignored, 2 files written to the stand-in
+- 2026-09-29 — implemented; repro flips (2 files written → [refused], 0 written); six drivers 45/34/36/31/36/21 unchanged; ambient CLAUDE_PROJECT_DIR run against a throwaway clone left it IDENTICAL after fixing test-core-owed-tick-guard [parity] marker leak
+- 2026-09-29 — template has 3 more query modes than consultpilot (--list-core-*, --template-dir); exemption widened by property; lane-catchup.sh:146 was a 4th cd-only instance, fixed
+- 2026-09-29 — adversarial: /security-review clean; security-scanner 10 items → 3 fixed (empty decl, CDPATH, GIT_DIR; each sabotage-proven), 3 recorded F013-F015, rest dismissed/accepted; TLC 969 states 0 errors, / control violates
+- 2026-09-29 — /simplify: stale run-gates refs + headers fixed; altitude items recorded F016; harness 84/0
+- 2026-09-29 — Allium open question deferred by developer → F017

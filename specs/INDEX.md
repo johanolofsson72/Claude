@@ -24,7 +24,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 008 — scenarios-map-canary-unheeded — spec-only — the canary gave a map INDEX.md remedies and recorded nothing: 17 map files over 25 KB, 4 named here. project-maintenance now records each in the project's FINDINGS.md with a remedy for its role.
 - [x] 009 — held-rows-have-no-archive — spec-only — the archiver told you to write a pending entry by hand and nobody did, so rocky ran 47 over-budget open rows. `--write-pending` makes the advice executable; rocky 131→39 KB. Detalj: specs/INDEX.completed.md
 
-- [ ] 010 — autosync-test-writes-to-the-repo-it-tests — full track [hardened] — `test-template-autosync-*.sh` writes into the working repo instead of a fixture, so a failing run can leave the tree dirty. Found by @johan as consultpilot H7bm.
+- [x] 010 — autosync-test-writes-to-the-repo-it-tests — full track [hardened] — consultpilot H7bm never landed. template-autosync.sh now refuses to write outside a declared CLAUDE_TEMPLATE_SYNC_SANDBOX; six drivers declare, a gate checks them.
 - [ ] 011 — twenty-hand-written-sync-invocations — full track — the sync path is invoked twenty different ways by hand across the scripts, which forces each gate to be cleverer than it should need to be. Found as consultpilot H7bo.
 - [ ] 012 — core-file-comments-hold-real-scenario-ids — spec-only — a CORE file's comments cite real SC-ids as examples, so the traceability gate counts them as references and a deleted row looks covered. Found as consultpilot H7bp.
 - [ ] 014 — autosync-adds-gates-no-runner-registers — spec-only — a sync that ships new `test-*.sh` scripts leaves every project's `run-gates.sh` reporting DRIFT until someone adds them to GATES by hand. Found as consultpilot H7av.

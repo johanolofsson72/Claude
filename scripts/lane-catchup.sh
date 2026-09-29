@@ -143,7 +143,10 @@ else
   # skipped this entire check in silence on all six projects. The SessionStart
   # hook already learned this and tests `-x || -f`; this is the same lesson.
   if [ -f scripts/template-autosync.sh ]; then
-    OUT=$(timeout 240 bash scripts/template-autosync.sh --force --dry-run 2>&1)
+    # CLAUDE_PROJECT_DIR is passed, not left to the `cd "$ROOT"` above: template-autosync.sh resolves
+    # ${CLAUDE_PROJECT_DIR:-$PWD}, so an ambient value from another session would beat the cd and
+    # this preview would describe that repository instead of this one. Spec 010.
+    OUT=$(CLAUDE_PROJECT_DIR="$ROOT" timeout 240 bash scripts/template-autosync.sh --force --dry-run 2>&1)
     printf '%s\n' "$OUT" | grep -E '^\[check\] would' | sed 's/^/  /'
     SKIPS=$(printf '%s\n' "$OUT" | grep '^  SKIP' | sed 's/^  SKIP   //; s/ (differs.*//')
     if [ -n "$SKIPS" ]; then
