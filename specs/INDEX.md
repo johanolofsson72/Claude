@@ -85,9 +85,11 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 071 — testing-doc-prescribes-js-screenshot-api — spec-only — testing.md tells .NET projects to use Expect(Page).ToHaveScreenshotAsync, which exists only in Playwright's JS runner. From teach F007. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 072 — security-rule-says-secrets-in-env — spec-only — rules/security.md says production secrets go in environment variables; Swarm secret files are the safer shape (docker inspect shows env). From teach F061. Diagnosis: `specs/INDEX.pending.md`
 - [x] 073 — pipeline-refresh-2026-09 — spec-only — one sync engine for wizard/update/sync-template, spec-kit pinned, zsh + GNU fixes, supply-chain cooldowns, context diet, hook latency; then roll out to 15 projects. Folds 037, 022. User-requested 2026-09-28.
+- [/] 076 — malformed-id-deny-blames-a-healthy-register — spec-only — both PreToolUse guards deny a malformed active id (`7-x`) with the "resolver missing / register unparsable" text. Own exit 97 + text naming token and grammar. Found as consultpilot H7ai / Q2.
 
 ## Register history (newest first)
 
+- 2026-09-29 — 076 filed from consultpilot Q2 (H7ai): the 97 branch consultpilot carried was reverted by two syncs because it never lived upstream.
 - 2026-09-29 — 074, 075 added at the developer's request (not carves): measure maintenance, then place jobs local vs cloud after five specs.
 - 2026-09-28 — 073 added at the developer's request: pipeline refresh + rollout (consolidated; folds 037, 022).
 - 2026-09-28 — 071, 072 filed from teach H3 findings review (F007, F061).
