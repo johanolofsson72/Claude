@@ -23,6 +23,8 @@ set -u
 
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 HOOK="$SELF_DIR/core-owed-tick-guard-hook.sh"
+# Spec 029: read the verdict the way the CLI does — a deny without hookEventName is "dropped".
+. "$SELF_DIR/hook-verdict.sh"
 SYNC="$SELF_DIR/template-autosync.sh"
 . "$SELF_DIR/drive-sync.sh"                    # the only way to the sync (spec 011)
 BASHGUARD="$SELF_DIR/bash-write-guard-hook.sh"
@@ -103,7 +105,7 @@ run_hook() {          # $1 = file path, $2 = new_string ("" = none), rest = VAR=
   fi
 }
 
-decision() { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null; }
+decision() { hook_verdict "$1"; }
 reason()   { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null; }
 context()  { printf '%s' "$1" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null; }
 
@@ -319,7 +321,7 @@ if [ -f "$BASHGUARD" ]; then
 
   OUT=$(printf '{"tool_name":"Bash","tool_input":{"command":"sed -i %s s/x/y/ %s"}}' "''" "$CLEAN/specs/INDEX.md" \
           | CLAUDE_PROJECT_DIR="$CLEAN" bash "$BASHGUARD" 2>/dev/null)
-  [ "$(decision "$OUT")" != "deny" ] && ok "  ...and stays quiet through the shell on a clean tree" \
+  [ "$(decision "$OUT")" = "none" ] && ok "  ...and stays quiet through the shell on a clean tree" \
                                      || { bad "  the shell route denied on a clean tree"; info "$(reason "$OUT")"; }
 else
   info "bash-write-guard-hook.sh not present — shell-route parity not asserted"

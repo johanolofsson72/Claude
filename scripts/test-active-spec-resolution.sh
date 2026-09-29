@@ -116,6 +116,7 @@ import json,sys
 try:
     d = json.load(sys.stdin)
     h = d.get("hookSpecificOutput", {})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     reason = h.get("permissionDecisionReason", "").splitlines()
     print(h.get("permissionDecision", "?").upper() + " " + (reason[0] if reason else ""))
 except Exception:
@@ -440,6 +441,7 @@ full_reason() {
 import json,sys
 try:
     h = json.load(sys.stdin).get("hookSpecificOutput", {})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     print(h.get("permissionDecision", "?").upper() + " " + " ".join(h.get("permissionDecisionReason", "").split()))
 except Exception:
     print("ALLOW")' 2>/dev/null
@@ -581,6 +583,7 @@ nested_guard() {
 import json,sys
 try:
     d=json.load(sys.stdin); h=d.get("hookSpecificOutput",{})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     r=h.get("permissionDecisionReason","").splitlines()
     print(h.get("permissionDecision","?").upper()+" "+(r[0] if r else ""))
 except Exception: print("ALLOW")'

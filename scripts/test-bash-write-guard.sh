@@ -26,6 +26,7 @@
 set -u
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/hook-verdict.sh"   # spec 029: read verdicts the way the CLI does
 PRE="$SCRIPT_DIR/bash-write-guard-hook.sh"
 POST="$SCRIPT_DIR/bash-write-detect-hook.sh"
 for h in "$PRE" "$POST"; do
@@ -90,6 +91,7 @@ run_pre() {
 import json,sys
 try:
     h = json.load(sys.stdin).get("hookSpecificOutput", {})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     r = " ".join(h.get("permissionDecisionReason","").split())
     print(h.get("permissionDecision","?").upper() + " " + r)
 except Exception:
@@ -108,6 +110,7 @@ run_pre_override() {
 import json,sys
 try:
     h = json.load(sys.stdin).get("hookSpecificOutput", {})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     if not h.get("permissionDecision"):
         print("ALLOW"); raise SystemExit
     r = " ".join(h.get("permissionDecisionReason","").split())

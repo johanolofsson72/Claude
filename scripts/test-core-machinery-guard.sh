@@ -17,6 +17,8 @@ set -u
 
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 HOOK="$SELF_DIR/core-machinery-guard-hook.sh"
+# Spec 029: read the verdict the way the CLI does — a deny without hookEventName is "dropped".
+. "$SELF_DIR/hook-verdict.sh"
 SYNC="$SELF_DIR/template-autosync.sh"
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok    %s\n' "$*"; }
@@ -56,7 +58,7 @@ run_hook() {          # $1 = file path, rest = VAR=VAL environment overrides
 JSON
 }
 
-decision() { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null; }
+decision() { hook_verdict "$1"; }
 reason()   { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null; }
 
 PROJ=$(make_project proj)

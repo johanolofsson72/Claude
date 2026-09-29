@@ -433,3 +433,47 @@ load, which is why it passes in isolation. A candidate for the first of the one-
 ## 027 — zero-attributions-reports-clean
 
 - [x] 027 — zero-attributions-reports-clean — spec-only — `carve_audit.py` prints "clean" and exits 0 when `len(parent)` is 0, so a register that never attributed a carve reads like a flat one. §4b says that count *is* the finding. Diagnos: `specs/INDEX.pending.md`
+
+## 029 — pretooluse-deny-is-inert-under-bypass-permissions
+
+Ticked 2026-09-29. Row as it read at tick time, plus the diagnosis.
+
+- [x] 029 — pretooluse-deny-is-inert-under-bypass-permissions — spec-only [hardened] — not the permission mode: rocky probed pre-046 guards with no hookEventName. Guard tests now read a verdict the way the CLI does (hook_verdict); probe-live-deny.sh asks the CLI itself.
+
+**Measured on rocky, 2026-09-05, during checkpoint H13.** Two independent probes:
+
+1. A register tick made while `--unlisted` was non-empty. Fed its exact payload on stdin,
+   `core-owed-tick-guard-hook.sh` returns `permissionDecision: deny` with the full refusal text.
+   The identical live `Edit` went through. Four rows were ticked that way.
+2. A one-word edit to `scripts/spec_active.py`. Fed its payload, `core-machinery-guard-hook.sh`
+   returns `deny` ("not this project's file to edit"). The identical live `Edit` went through, and
+   was reverted immediately.
+
+The hooks are correct, wired to the right matcher (`Edit|Write|MultiEdit`), and answer correctly
+when asked. Their answer is not applied in the permission mode these sessions run in.
+
+**The asymmetry is the useful part.** `bash-write-detect-hook.sh` — the PostToolUse, filesystem-diff
+layer added at row H7b for shell-made writes — *does* fire, and blocked the same tick when it was
+made through the shell. So enforcement is not gone; it is gone on the **Edit path**, which is
+precisely the path four rule files and `CLAUDE.md` describe as the hard block ("hard-blocks source
+edits", "cannot be silently skipped", "there is no bypass for mobile"). The shell path, which H7b
+was written to close because writes there "met no gate", is now the only one with teeth.
+
+Five guards rest on the inert path: `spec-register-guard`, `pipeline-state-guard`,
+`spec-interview-guard`, `core-machinery-guard`, `core-owed-tick-guard`.
+
+Scope: decide whether the guarantee is repaired (a channel that holds regardless of permission
+mode) or the claim is corrected (the rules stop calling these deterministic and name the
+PostToolUse layer as the real backstop). The current state is the worst one, because four rule
+files promise a gate that is not there.
+
+**What it turned out to be (2026-09-29).** Not the permission mode. A live A/B under
+`bypassPermissions` (CLI 2.1.284): a deny without `hookEventName` let the Edit through, and the same
+deny with it blocked. rocky measured on 2026-09-05; spec 046 found and fixed the missing field on
+2026-09-12. The guarantee holds, and the rules that call these guards hard blocks are right.
+
+What was still wrong is how rocky's probe got fooled. Every guard test read `.permissionDecision`
+and ignored the discriminator, so guards stripped of the field passed the old tests 399/399. They
+now decode through `scripts/hook-verdict.sh` and miss 81. `test-hook-channels.sh` §11–§15 checks
+every emit site, pins how the tests read verdicts, and pins the probe's verdict logic against a fake
+CLI. `scripts/probe-live-deny.sh` runs the A/B against the installed CLI. Rerun it after an upgrade.

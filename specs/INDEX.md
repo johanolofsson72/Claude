@@ -41,7 +41,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 025 — speckit-check-fired-on-the-template — spec-only — the pass told this config repo to install spec-kit once it grew a register; now gated on a language marker, the predicate every other guard uses. Third not-applicable case today.
 - [x] 027 — zero-attributions-reports-clean — spec-only — `carve_audit.py` prints "clean" and exits 0 when `len(parent)` is 0, so a register that never attributed a carve reads like a flat one. §4b says that count *is* the finding. Diagnos: `specs/INDEX.pending.md`
 - [x] 028 — traceability-roots-declaration — spec-only — the gate discovered top-level test dirs only, so a project with suites under `src/` was under-reported. Projects may now declare roots in `specs/traceability-roots`. Verbatim in `INDEX.completed.md`.
-- [ ] 029 — pretooluse-deny-is-inert-under-bypass-permissions — full track [hardened] — five guards deny correctly when asked and the identical live `Edit` passes; the PostToolUse shell detector still bites, so the teeth are on the path the rules do not name. Diagnos: `specs/INDEX.pending.md`
+- [x] 029 — pretooluse-deny-is-inert-under-bypass-permissions — spec-only [hardened] — not the permission mode: rocky probed pre-046 guards with no hookEventName. Guard tests now read a verdict the way the CLI does (hook_verdict); probe-live-deny.sh asks the CLI itself.
 - [ ] 030 — unlisted-fires-forever-on-an-optional-callee — spec-only — a CORE file calling a project script behind `[ -f ]` is a use, not a dependency; three reported forever here, tick guard permanently red. Diagnos: `specs/INDEX.pending.md`
 - [ ] 031 — dotnet-test-prints-passed-over-an-aborted-run — spec-only — a crashed test host reported `Passed!` with 45% of the suite unrun; no wrapper reads the abort line. Diagnos: `specs/INDEX.pending.md`
 - [ ] 032 — spec-dir-absent-leaves-both-guards-inert — spec-only — a row worked without a spec directory resolves to found:false in spec_active.py, so pipeline-state-guard and spec-interview-guard both pass everything; fundit's 016a shipped that way. Reported by fundit F001.
@@ -91,8 +91,8 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 
 ## Register history (newest first)
 
+- 2026-09-29 — 029 re-diagnosed: the permission mode was never the cause (live A/B); re-tracked spec-only [hardened]. F029 recorded.
 - 2026-09-29 — 020 held: Ollama is disabled machine-wide since 2026-09-06, so the hooks it re-measures are no-ops; resumes on a machine that runs a local model.
 - 2026-09-29 — 075 held: ledger spans 0 of 5 specs and has no Stryker/suite run anywhere; resumes when `maintenance_ledger.py report --all` clears 5.
 - 2026-09-29 — 026 deleted: same scope as 011 (port drive_sync + its gate, convert the CORE drivers), which landed it. Developer decision at 011's interview.
 - 2026-09-29 — convergence stop answered: FREEZE until open rows < 40. 077 added at the developer's request so proposals carry evidence of need.
-- 2026-09-29 — 076 filed from consultpilot Q2 (H7ai): the 97 branch consultpilot carried was reverted by two syncs because it never lived upstream.

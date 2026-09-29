@@ -13,6 +13,8 @@ set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+# Spec 029: a deny counts only if the CLI would read it (hookEventName present).
+. "$ROOT/scripts/hook-verdict.sh"
 
 PASS=0
 FAIL=0
@@ -107,7 +109,7 @@ guard_test() {
     return
   fi
   if [ "$expect" = "deny" ]; then
-    if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
+    if [ "$(hook_verdict "$out")" = deny ]; then
       _record "$name" 0
     else
       _record "$name (expected deny, got: ${out:0:100})" 1
@@ -116,7 +118,7 @@ guard_test() {
   fi
   # deny:<phase> — verify the specific phase appears in Missing phases
   local phase="${expect#deny:}"
-  if printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecision == \"deny\" and (.hookSpecificOutput.permissionDecisionReason | contains(\"$phase\"))" >/dev/null 2>&1; then
+  if [ "$(hook_verdict "$out")" = deny ] && printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecisionReason | contains(\"$phase\")" >/dev/null 2>&1; then
     _record "$name" 0
   else
     _record "$name (expected deny mentioning '$phase', got: ${out:0:150})" 1
@@ -306,7 +308,7 @@ iv_test() {
   if [ "$expect" = "allow" ]; then
     if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:80})" 1; fi
   else
-    if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
+    if [ "$(hook_verdict "$out")" = deny ]; then
       _record "$name" 0
     else
       _record "$name (expected deny, got: ${out:0:80})" 1
@@ -343,7 +345,7 @@ _iv_scope() {
   if [ "$expect" = "allow" ]; then
     if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:80})" 1; fi
   else
-    if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then _record "$name" 0; else _record "$name (expected deny)" 1; fi
+    if [ "$(hook_verdict "$out")" = deny ]; then _record "$name" 0; else _record "$name (expected deny)" 1; fi
   fi
 }
 write_interview 0 0   # empty interview so a source edit WOULD deny — proves allowlist bypasses it

@@ -239,7 +239,7 @@ test-template-autosync-unlisted.sh
 validate-sync-sandbox-declarations.sh test-validate-sync-sandbox-declarations.sh
 drive-sync.sh test-drive-sync.sh
 test-sync-prompt-bootstrap.sh
-hook-notice.sh harness-state-gc.sh test-hook-channels.sh
+hook-notice.sh hook-verdict.sh harness-state-gc.sh test-hook-channels.sh probe-live-deny.sh
 allium-check-hook.sh test-allium-check-hook.sh allium-census.sh test-allium-census.sh
 speckit-sync.sh speckit-version test-speckit-sync.sh
 test-portability-audit.sh test-sync-prompt-zsh.sh
