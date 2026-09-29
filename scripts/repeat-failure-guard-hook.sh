@@ -63,6 +63,12 @@ set -u
 
 command -v jq >/dev/null 2>&1 || exit 0
 
+# Spec 031: the abort pattern lives in one place. A sibling of $0, like template-sync-verify.sh's
+# detector — the helper is CORE and ships with this hook. Missing, the abort check is skipped
+# rather than breaking a Bash call.
+RUN_VERDICT_LIB="$(dirname "$0")/run-verdict.sh"
+[ -f "$RUN_VERDICT_LIB" ] && . "$RUN_VERDICT_LIB"
+
 INPUT=$(cat 2>/dev/null || true)
 [ -z "$INPUT" ] && exit 0
 
@@ -155,6 +161,10 @@ if [ "$RESP_TYPE" = "object" ] && [ "$INTERRUPTED" != "true" ] && [ "$FIELDS" -g
   # "Build succeeded." / "0 Error(s)" from the build and "Failed: 3" from the
   # tests, and reading that as a success would rebuild this hook's own defect.
   if grep -qE 'Exit code: [1-9]' <<< "$TAIL"; then
+    VERDICT=failed
+  elif type run_aborted >/dev/null 2>&1 && run_aborted "$TAIL"; then
+    # Spec 031. A crashed test host prints `Passed!` for the part that ran, between two abort
+    # lines — rocky, 45% of the suite unrun. `Passed! *-` below would RESET a live counter.
     VERDICT=failed
   elif grep -qE '(Build FAILED|error [A-Z]+[0-9]+:|Failed! *-|Failed: *[1-9]|npm ERR!|Test Run Failed|FAILED \(failures|[0-9]+ (test|spec)s? failed|=+ [0-9]+ failed|[1-9][0-9]* failed|test result: FAILED|error TS[0-9]+|panic:|FAIL[[:space:]]|Compilation failed|BUILD FAILURE)' <<< "$TAIL"; then
     # `[1-9][0-9]* failed` and `test result: FAILED` were added with the positive

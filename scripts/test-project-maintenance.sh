@@ -533,5 +533,51 @@ OUT=$(run "$D"); RC=$?
 expect_contains "C36 no finding.sh — SETUP finding names it" "[SETUP] scripts/finding.sh missing" "$OUT"
 expect_rc       "C36 no finding.sh — verdict is red" 1 "$RC"
 
+# ================================================ C37-C39 — --suite reads the abort line (row 031)
+# rocky's crashed test host printed `Passed!` between two abort lines with 45% of the suite unrun.
+# --suite judged by `$?` alone, so an abort that exits 0 would be stamped green. A fake `dotnet`
+# on PATH replays the captured transcript at a chosen exit code; a stub maintenance-due.sh records
+# whether the suite was stamped.
+mksuite() { # mksuite NAME RC — fixture whose `dotnet test` prints $SUITE_TEXT and exits RC
+  local d; d=$(mkfix "$1")
+  printf '<Project Sdk="Microsoft.NET.Sdk" />\n' > "$d/app.csproj"
+  mkdir -p "$d/bin"
+  printf '%s\n' "$SUITE_TEXT" > "$d/bin/transcript.txt"
+  printf '#!/bin/bash\ncat "%s/bin/transcript.txt"\nexit %s\n' "$d" "$2" > "$d/bin/dotnet"
+  chmod +x "$d/bin/dotnet"
+  printf '#!/bin/bash\n[ "$1" = --stamp ] && echo "$2" >> "%s/stamped"\nexit 0\n' "$d" > "$d/scripts/maintenance-due.sh"
+  cp "$DIR/run-verdict.sh" "$d/scripts/" 2>/dev/null
+  printf '%s' "$d"
+}
+run_suite() { ( cd "$1" && chmod +x scripts/*.sh 2>/dev/null; PATH="$1/bin:$PATH" bash "$MAINT" --suite 2>&1 ); }
+stamped_suite() { grep -cx suite "$1/stamped" 2>/dev/null; }
+
+SUITE_TEXT='The active test run was aborted. Reason: Test host process crashed
+Passed!  - Failed: 0, Passed: 1673, Skipped: 7, Total: 1680
+Test Run Aborted.'
+
+# --- C37: the abort at exit 0 — the case $? alone would stamp green --------------------------------
+D=$(mksuite c37 0)
+OUT=$(run_suite "$D"); RC=$?
+expect_contains "C37 aborted run at exit 0 — a SUITE finding"   "[SUITE]" "$OUT"
+expect_contains "C37 the finding says the run aborted"          "the test run ABORTED" "$OUT"
+expect_absent   "C37 never reported green"                      "suite green" "$OUT"
+expect_rc       "C37 not stamped" 0 "$(stamped_suite "$D")"
+expect_rc       "C37 verdict is red" 1 "$RC"
+
+# --- C38: the same transcript at exit 1 (what rocky measured) — named as an abort, not a failure --
+D=$(mksuite c38 1)
+OUT=$(run_suite "$D")
+expect_contains "C38 aborted run at exit 1 — named as aborted"  "the test run ABORTED" "$OUT"
+expect_rc       "C38 not stamped" 0 "$(stamped_suite "$D")"
+
+# --- C39: a genuinely green run stays green and is stamped ----------------------------------------
+SUITE_TEXT='Passed!  - Failed:     0, Passed:    12, Skipped:     0, Total:    12'
+D=$(mksuite c39 0)
+OUT=$(run_suite "$D"); RC=$?
+expect_contains "C39 green run — suite green"                   "suite green" "$OUT"
+expect_rc       "C39 green run — stamped" 1 "$(stamped_suite "$D")"
+expect_rc       "C39 green run — clean exit" 0 "$RC"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

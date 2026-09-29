@@ -891,7 +891,22 @@ if [ "$SUITE" -eq 1 ]; then
   else
     SUITE_OUT=$(measured suite bash -c "$SUITE_CMD" 2>&1); SUITE_RC=$?
     SUITE_TAIL=$(printf '%s' "$SUITE_OUT" | tail -12)
-    if [ "$SUITE_RC" -eq 0 ]; then
+    # Spec 031: never `$?` alone. rocky's crashed test host printed `Passed!` for the 55% that ran,
+    # and an abort that exits 0 would be stamped green here. The helper is CORE; without it the
+    # verdict falls back to the exit code, and the pass says so.
+    if [ -f scripts/run-verdict.sh ]; then
+      . scripts/run-verdict.sh
+      SUITE_VERDICT=$(run_verdict "$SUITE_RC" "$SUITE_OUT")
+    else
+      SUITE_VERDICT=$([ "$SUITE_RC" -eq 0 ] && echo passed || echo failed)
+      note "[note] --suite: scripts/run-verdict.sh missing — judged by exit code alone, so an aborted run can read green."
+    fi
+    if [ "$SUITE_VERDICT" = aborted ]; then
+      # NOT stamped, whatever the exit code. The summary counts only the tests that ran.
+      add "[SUITE] \`$SUITE_CMD\` — the test run ABORTED (exit $SUITE_RC): the test host did not finish, so any
+  Passed!/Total line below counts only the tests that ran. Not stamped: the job stays due.
+$SUITE_TAIL"
+    elif [ "$SUITE_VERDICT" = passed ]; then
       note "[note] suite green — \`$SUITE_CMD\`"
       [ -f scripts/maintenance-due.sh ] && bash scripts/maintenance-due.sh --stamp suite 2>/dev/null
     else

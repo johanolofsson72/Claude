@@ -408,6 +408,15 @@ _rf "non-verification cmd never counted"    quiet "git status"  "$FAILOUT"
 printf '{"tool_input":{"command":"dotnet test"},"tool_response":{"stdout":"Passed!  - Failed: 0, Passed: 12"}}' \
   | CLAUDE_PROJECT_DIR="$RFT" bash scripts/repeat-failure-guard-hook.sh >/dev/null 2>&1
 _rf "success resets the counter"            quiet "dotnet test" "$FAILOUT"
+# Spec 031. rocky's crashed host printed `Passed!` between two abort lines with 45% of the suite
+# unrun. `Passed! *-` is a success signature, so the aborted run RESET a live counter. Two
+# failures, then the abort: it must fire as the third, not start the count over.
+ABORTOUT='The active test run was aborted. Reason: Test host process crashed
+Passed!  - Failed: 0, Passed: 1673, Skipped: 7, Total: 1680
+Test Run Aborted.'
+_rf "031 abort: 1st failure → quiet"        quiet "dotnet test --abort" "$FAILOUT"
+_rf "031 abort: 2nd failure → quiet"        quiet "dotnet test --abort" "$FAILOUT"
+_rf "031 aborted run over Passed! counts as the 3rd failure" fire "dotnet test --abort" "$ABORTOUT"
 # ── H6s: three states, not two ────────────────────────────────────────────
 #
 # The five assertions above can only see whether the hook PRINTED. Both defects

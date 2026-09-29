@@ -509,3 +509,31 @@ and ignored the discriminator, so guards stripped of the field passed the old te
 now decode through `scripts/hook-verdict.sh` and miss 81. `test-hook-channels.sh` §11–§15 checks
 every emit site, pins how the tests read verdicts, and pins the probe's verdict logic against a fake
 CLI. `scripts/probe-live-deny.sh` runs the A/B against the installed CLI. Rerun it after an upgrade.
+
+## 031 — dotnet-test-prints-passed-over-an-aborted-run
+
+Ticked 2026-09-29. Row as it read at tick time, plus the diagnosis.
+
+- [x] 031 — dotnet-test-prints-passed-over-an-aborted-run — spec-only — a crashed test host reported `Passed!` with 45% of the suite unrun; no wrapper reads the abort line. Diagnos: `specs/INDEX.pending.md`
+
+_Opened 2026-09-05 by rocky's 5-spec findings review (finding F006, from checkpoint H13). Template-owned per `.claude/rules/carve-budget.md` §4: this is a defect in how the harness READS a run, not in any product._
+
+Measured on rocky 2026-09-05. The integration host crashed and the output block read, in this order:
+
+```
+The active test run was aborted. Reason: Test host process crashed
+Passed!  - Failed: 0, Passed: 1673, Skipped: 7, Total: 1680
+Test Run Aborted.
+```
+
+Exit code was 1. The suite is **3050 tests** — proven by a completing `--blame` re-run (3040 passed, 3 failed, 7 skipped) — so **45% of it never ran and the summary word was `Passed!`**.
+
+**The reporting defect is independent of the crash.** The crash did not reproduce on a quieter machine and its cause is unidentified; that does not matter here. What matters is that a reader — human or script — is told in English that the run passed, over a run that covered barely half the suite.
+
+This is the **third** way this command misreports, and the most persuasive. `project_495` already records `dotnet test` exiting **0** on failures; F006 adds a run that aborts, reports a truthful-looking per-assembly summary for the part that did run, and labels it `Passed!`.
+
+**What any wrapper that judges a run must do:** treat `Test Run Aborted.` as fatal, and trust **neither** `$?` **nor** the summary word. `scripts/e2e-wait-audit.sh` already parses the summary line for this family of reason and is the natural place to start; **nothing currently reads the abort line**.
+
+Scope: a shared run-verdict helper the CORE scripts call, plus the two existing call sites. Bite-proof it in both directions — a genuinely green run must stay green, and a captured aborted-run transcript must go red.
+
+**Outcome.** Three template call sites judged a run, and all three believed the rocky transcript: `repeat-failure-guard-hook.sh` reset a live failure counter on `Passed! *-`, `project-maintenance.sh --suite` stamped an exit-0 abort green, and `template-sync-verify.sh` discharged the obligation as verified. `scripts/run-verdict.sh` (CORE, sourced) now owns the abort pattern, and all three read it before any success signal. Red arms were proven on HEAD in `test-run-verdict.sh`, `test-pipeline-hooks.sh`, `test-project-maintenance.sh` C37–C39 and the new `test-template-sync-verify.sh`. rocky's own `e2e-wait-audit.sh` is F030.
