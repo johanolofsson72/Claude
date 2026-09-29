@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-09-28 — 073 added at the developer's request: pipeline refresh + rollout (consolidated; folds 037, 022).
+
 - 2026-09-28 — 071, 072 filed from teach H3 findings review (F007, F061).
 - 2026-09-25 — 054-064 filed from agentcrm's T0 pass (two findings reviews, 2026-09-19 and H5 2026-09-23); 055-057 fixed in the same pass, 064 found while running the suite.
 - 2026-09-25 — 053 filed from msroute F007; msroute F008 (autosync printf SIGPIPE) added as evidence to 024 (carve-budget §4).

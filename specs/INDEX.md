@@ -30,7 +30,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 014 — autosync-adds-gates-no-runner-registers — spec-only — `scripts/core-gates.sh` is the CORE half of a gate registry: a new gate-shaped CORE script is a gate unasked, 6 argued non-gates (F004 closed). consultpilot had 14 unregistered; adoption is F022. From consultpilot H7av.
 - [x] 015 — sigpipe-validator-scans-only-self-tests — spec-only — `--all` scans every script, `--strict` fails on them; the default population and its meta-test are unchanged. The gate was already RED here on 7 of its own self-tests, now fixed. Detalj: specs/INDEX.completed.md
 - [x] 017 — canary-and-row-budget-do-not-compose — spec-only — the canary assumed the bytes were rows. `register-bytes.sh` splits INDEX.md into rows/history/prose and names only moves that exist: agentcrm gets "move prose", compliant msroute one info line. Fold is F024.
-- [ ] 075 — place-heavy-jobs-local-or-cloud — light track — needs 074 + five ordinary specs ticked under its ledger. Per job (Stryker, suite, freshness, similarity, findings/carve review): local or Claude cloud, decided from the numbers. Developer request 2026-09-29.
+- [!] 075 — place-heavy-jobs-local-or-cloud — light track — needs 074 + five ordinary specs ticked under its ledger. Per job (Stryker, suite, freshness, similarity, findings/carve review): local or Claude cloud, decided from the numbers. Developer request 2026-09-29.
 - [x] 018 — core-owed-tick-gate-goes-silent — full track — the gate was never broken: the TEST used GNU `sed -i` on a BSD sed, so the tick never happened and the detector correctly said nothing. Portable `inplace()` helper; 89/89. Detalj: specs/INDEX.completed.md
 - [x] 019 — are-we-writing-this-row-twice — full track — nothing measured the question that opened the review: are we rebuilding what we already have. Local embedding pass over every register; found ighweld-2026 119/138, one job planned twice. Detalj: specs/INDEX.completed.md
 - [ ] 020 — quality-gate-hooks-unwired-for-latency-we-no-longer-pay — full track — 15 local-LLM hooks (test-realism, test-assertion, test-gap, secret-scan…) are unwired because they cost in-session latency. The nightly pass makes that free. Re-measure them at 02:30.
@@ -91,8 +91,8 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 
 ## Register history (newest first)
 
+- 2026-09-29 — 075 held: ledger spans 0 of 5 specs and has no Stryker/suite run anywhere; resumes when `maintenance_ledger.py report --all` clears 5.
 - 2026-09-29 — 026 deleted: same scope as 011 (port drive_sync + its gate, convert the CORE drivers), which landed it. Developer decision at 011's interview.
 - 2026-09-29 — convergence stop answered: FREEZE until open rows < 40. 077 added at the developer's request so proposals carry evidence of need.
 - 2026-09-29 — 076 filed from consultpilot Q2 (H7ai): the 97 branch consultpilot carried was reverted by two syncs because it never lived upstream.
 - 2026-09-29 — 074, 075 added at the developer's request (not carves): measure maintenance, then place jobs local vs cloud after five specs.
-- 2026-09-28 — 073 added at the developer's request: pipeline refresh + rollout (consolidated; folds 037, 022).
