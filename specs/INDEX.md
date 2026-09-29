@@ -8,6 +8,8 @@ the fix.
 
 Order of execution. Tick when done. Append new rows to the end.
 
+Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only as approved proposals (`scripts/finding.sh --review`)
+
 ## Specs
 
 - [x] 001 — carve-budget — full track — the register has to converge: a finding is fixed in place, carved (max 2/spec, depth 2), or declined in writing. Detalj: specs/INDEX.completed.md
@@ -18,6 +20,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 006 — nothing-checks-the-design-gate-exists — spec-only — the bare name RESOLVES to the plugin cache, so the naming half is refuted. What stands: nothing verifies the plugin is installed, so a BLOCKING gate fails silent without it. Diagnosis + spec: `specs/INDEX.completed.md`.
 - [x] 007 — traceability-gate-is-three-defects-in-one-script — full track — the two SC- namespaces split by digit WIDTH, not magnitude (a floor is useless on a map starting at SC-001); duplicates get exit 6. msroute 13 dangling → 0. Detalj: specs/INDEX.completed.md
 - [x] 074 — measure-where-maintenance-should-run — spec-only — no maintenance run records its duration, peak memory or host, so local-vs-cloud placement would be a guess. Ledger per run + a placement report. Developer request 2026-09-29.
+- [/] 077 — row-proposals-carry-their-need — spec-only [hardened] — the freeze chosen 2026-09-29 needs teeth: a freeze line the hooks read, and row proposals recorded with evidence of need, checked (duplicate, stale citation) and put to the developer to approve or decline. Developer request 2026-09-29.
 - [ ] 008 — scenarios-map-canary-unheeded — spec-only — four maps still over the 25 KB canary: consultpilot 682 KB (27x), agentcrm 252, rocky 242 (already split), fundit 30. film-i-vast split 2026-09-03: 140→9 KB. Diagnos: `specs/INDEX.pending.md`
 - [x] 009 — held-rows-have-no-archive — spec-only — the archiver told you to write a pending entry by hand and nobody did, so rocky ran 47 over-budget open rows. `--write-pending` makes the advice executable; rocky 131→39 KB. Detalj: specs/INDEX.completed.md
 
@@ -89,6 +92,7 @@ Order of execution. Tick when done. Append new rows to the end.
 
 ## Register history (newest first)
 
+- 2026-09-29 — convergence stop answered: FREEZE until open rows < 40. 077 added at the developer's request so proposals carry evidence of need.
 - 2026-09-29 — 076 filed from consultpilot Q2 (H7ai): the 97 branch consultpilot carried was reverted by two syncs because it never lived upstream.
 - 2026-09-29 — 074, 075 added at the developer's request (not carves): measure maintenance, then place jobs local vs cloud after five specs.
 - 2026-09-28 — 073 added at the developer's request: pipeline refresh + rollout (consolidated; folds 037, 022).
