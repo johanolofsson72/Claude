@@ -319,3 +319,11 @@ project's specs/FINDINGS.md, where the 5-spec review decides it. See specs/008-s
 ## 011 — twenty-hand-written-sync-invocations
 
 - [x] 011 — twenty-hand-written-sync-invocations — full track [hardened] — 19 hand-spelled sync calls in 6 drivers now go through one helper, `drive_sync`; the gate is a shell lexer with one rule, 4 argued exclusions, 27/27 sabotage arms. From consultpilot H7bo.
+
+## 012 — core-file-comments-hold-real-scenario-ids
+
+- [x] 012 — core-file-comments-hold-real-scenario-ids — spec-only [hardened] — 9 CORE scripts cited real SC-ids in comments; any gate reading scripts/ counted them, so a deleted test left its row covered. Now SC-NNN shapes; case40 runs the gate over every CORE script. From consultpilot H7bp.
+
+Row as opened: - [ ] 012 — core-file-comments-hold-real-scenario-ids — spec-only — a CORE file's comments cite real SC-ids as examples, so the traceability gate counts them as references and a deleted row looks covered. Found as consultpilot H7bp.
+
+Spec: `specs/012-core-file-comments-hold-real-scenario-ids/`. The live instance was consultpilot's validated sigpipe-sweep row. Only a `Covers:` line in `validate-no-sigpipe-assertions.sh` traced it (F021).

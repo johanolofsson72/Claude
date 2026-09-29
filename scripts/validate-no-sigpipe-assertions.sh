@@ -69,8 +69,8 @@
 #           never both called "clean" · 1 at least one assertion carries the idiom · 2 nothing to scan,
 #           or a boundary the gate refuses to guess (a fault, not silence)
 #
-# Covers: SC-1728 SC-1731 SC-1732 SC-1733 SC-1734 SC-1735 SC-1746 SC-1747 SC-1748 SC-1749 SC-1750
-#         SC-1751 SC-1752
+# Scenario ids: named by scripts/test-no-sigpipe-assertions.sh, which is the proof. Not listed here: a
+# CORE file's comment is read as a reference by any gate whose roots include scripts/ (row 012).
 
 set -uo pipefail
 

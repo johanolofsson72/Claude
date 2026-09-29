@@ -1119,7 +1119,7 @@ resolve_local_template() {
       # One `git status --porcelain` for two consumers (spec 007bi): the -dirty- test and the
       # subtraction inside eol_divergent_paths. The `| head -1` it used to carry was an efficiency
       # that stopped being available the moment a second consumer needed the whole list — and the
-      # alternative, a second call, is the added cost SC-06 caps at one process.
+      # alternative, a second call, is the added cost spec 007bi's success criteria cap at one process.
       _st=$(git -C "$cand" status --porcelain 2>/dev/null)
       if [ -n "$_st" ]; then
         TEMPLATE_SHA="$TEMPLATE_SHA-dirty-$(date -u '+%Y%m%d%H%M%S')"

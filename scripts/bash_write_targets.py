@@ -80,7 +80,9 @@ the region (nothing here evaluates anything), and ``xargs`` / ``find -exec``, wh
 carry a COMMAND rather than a program — a different shape, with no fixture behind
 it. Both remain the post-layer's business.
 
-Covers: SC-1437 SC-1439 SC-913 SC-914 SC-915 SC-916 SC-917 SC-919
+Scenario ids: named by scripts/test-bash-write-guard.sh, which is the proof. Not listed
+here: a CORE file's text is read as a reference by any gate whose roots include scripts/
+(row 012).
 """
 
 from __future__ import annotations

@@ -172,7 +172,7 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   # fresh session. A hook cannot run /clear (it is a harness built-in), so we
   # print a loud reminder per .claude/rules/spec-hardening.md.
   #
-  # MATCHED ON THE TRACK FIELD, NOT THE ROW'S TEXT (SC-1444). This used to lower-case
+  # MATCHED ON THE TRACK FIELD, NOT THE ROW'S TEXT (test-pipeline-hooks.sh). This used to lower-case
   # the WHOLE row and glob it, so the word "checkpoint" anywhere — in a slug, in the
   # one-line goal — did two wrong things at once: it fired this banner on a row that is
   # not full-track, and it silenced the every-5 integration-checkpoint alarm below,

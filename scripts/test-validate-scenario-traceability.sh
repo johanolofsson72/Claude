@@ -47,11 +47,13 @@
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SCRIPT="$REPO_ROOT/scripts/validate-scenario-traceability.sh"
 RUN_SABOTAGE=1
+SKIP_CORE_CENSUS=0   # a FLAG, never an environment variable: an exported one would switch case40 off invisibly
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --script) SCRIPT="$2"; shift 2 ;;
     --no-sabotage) RUN_SABOTAGE=0; shift ;;
+    --skip-core-census) SKIP_CORE_CENSUS=1; shift ;;   # internal: sab_run only, see there
     -h|--help) grep -E '^#( |$)' "$0" | sed -E 's/^# ?//'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -678,6 +680,120 @@ else
   bad "case34-the-map-is-not-its-own-evidence" "expected the row uncovered and specs/ not a root, got $RC: $OUT"
 fi
 
+# case40 — NO CORE PRODUCTION SCRIPT NAMES A SCENARIO ID (row 012, found as consultpilot H7bp).
+#
+# The sync writes every CORE script into every project, unconditionally. A comment in one of them
+# naming an id is read as a REFERENCE by any gate whose roots include scripts/ — consultpilot's
+# accounting gate reads scripts/ by design, and a project may declare it. On the project the id came
+# from, that comment keeps a row covered after the test proving it is deleted: consultpilot's
+# validated "sweep over the self-tests" row was traced by nothing but a `Covers:` line in
+# validate-no-sigpipe-assertions.sh. On every other project the same id covers an unrelated row or
+# dangles where nobody can fix it.
+#
+# TEST files are not in the population: in a test, naming an id IS the proof (spec 012, R6).
+#
+# The check runs THIS GATE over copies of the scripts, rather than grepping with a copy of its
+# pattern: what counts as a reference is whatever the gate reads, so the two cannot drift apart.
+# The map holds one validated row. Clean means exactly: that row uncovered, nothing dangling,
+# nothing out-of-range. An id in a CORE comment shows up as one of the last two — or, if it happens
+# to be the row's own id, as the row going covered. All three directions are sabotaged below.
+AUTOSYNC="$REPO_ROOT/scripts/template-autosync.sh"
+
+core_prod_fixture() { # <project> [list-file] → copies CORE production scripts into <project>/core
+  mkdir -p "$1/core"
+  CORE_COPIED=0
+  CORE_COPY_FAILED=""
+  while IFS= read -r n; do
+    case "$n" in ''|test-*|test_*) continue ;; esac
+    # A name with no file is --unlisted's defect to report, not an id; skip it here.
+    [ -f "$REPO_ROOT/scripts/$n" ] || continue
+    # A failed copy is a file the census never read; count it as a failure, not as coverage.
+    cp "$REPO_ROOT/scripts/$n" "$1/core/$n" || { CORE_COPY_FAILED="$CORE_COPY_FAILED $n"; continue; }
+    CORE_COPIED=$((CORE_COPIED+1))
+  done < "$2"
+}
+
+core_id_census() { # <project> → 0 clean, 1 with CENSUS_WHY set
+  CENSUS_WHY=""
+  if [ -n "$CORE_COPY_FAILED" ]; then
+    CENSUS_WHY="could not copy, so could not read:$CORE_COPY_FAILED"
+    return 1
+  fi
+  if [ "$CORE_COPIED" -eq 0 ]; then
+    CENSUS_WHY="no CORE production script was found to read — an empty census is not a clean one"
+    return 1
+  fi
+  run_gate "$1" --roots core
+  found=$(grep -E "^  ${P}-[0-9]+[a-z]?\$" <<< "$OUT" || true)
+  grep -q 'coverage: 1 of 1' <<< "$OUT" && found="$found
+$(id 900)"
+  if [ -z "$(printf '%s' "$found" | tr -d '[:space:]')" ]; then
+    if [ "$RC" -eq 1 ] && grep -q 'coverage: 0 of 1' <<< "$OUT"; then return 0; fi
+    CENSUS_WHY="the gate did not give the expected reading (exit $RC): $OUT"
+    return 1
+  fi
+  while IFS= read -r ref; do
+    ref=$(printf '%s' "$ref" | tr -d ' ')
+    [ -n "$ref" ] || continue
+    bare=$(printf '%s' "$ref" | tr -d '-')
+    files=$(grep -rlE -- "$ref|${bare}_" "$1/core" 2>/dev/null | sed "s#^$1/core/#scripts/#" | tr '\n' ' ')
+    CENSUS_WHY="$CENSUS_WHY $ref in: ${files:-?};"
+  done <<< "$found"
+  return 1
+}
+
+# run_gate assigns the global `proj`, so the fixture lives in its own variable.
+c40=$(new_project)
+{ map_header; row 900 "$V"; } > "$c40/specs/SCENARIOS.md"
+if [ "$SKIP_CORE_CENSUS" -eq 1 ]; then
+  :  # inside a sabotage arm — see sab_run
+elif bash "$AUTOSYNC" --list-core-scripts > "$c40/core.list" 2>/dev/null; then
+  core_prod_fixture "$c40" "$c40/core.list"
+  if core_id_census "$c40"; then
+    ok "case40a-core-production-scripts-name-no-scenario-id ($CORE_COPIED files)"
+  else
+    bad "case40a-core-production-scripts-name-no-scenario-id" "$CENSUS_WHY"
+  fi
+
+  # Sabotage, three directions, each on its own copy of the fixture. The file planted into is the
+  # first one copied, and it must be NAMED — a census that only says "something" hands the hunt back.
+  PLANT=$(find "$c40/core" -type f | sort | head -1)
+  PLANT_REL="scripts/${PLANT##*/}"
+  for arm in b c e; do
+    sp=$(new_project)
+    cp "$c40/specs/SCENARIOS.md" "$sp/specs/"
+    core_prod_fixture "$sp" "$c40/core.list"
+    case "$arm" in
+      b) printf '# Covers: %s\n' "$(id 4242)" >> "$sp/core/${PLANT##*/}" ;;   # dangling
+      c) printf '# Covers: %s\n' "$(id 900)"  >> "$sp/core/${PLANT##*/}" ;;   # covers the row
+      e) printf '# see Checkout_%s%s_Twice\n' "$P" 4242 >> "$sp/core/${PLANT##*/}" ;;   # underscore form
+    esac
+    if core_id_census "$sp"; then
+      bad "case40$arm-a-planted-id-is-caught" "an id planted in $PLANT_REL left the census green"
+    elif grep -qF "$PLANT_REL" <<< "$CENSUS_WHY"; then
+      ok "case40$arm-a-planted-id-is-caught and named ($PLANT_REL)"
+    else
+      bad "case40$arm-a-planted-id-is-caught" "red, but did not name $PLANT_REL: $CENSUS_WHY"
+    fi
+    rm -rf "$sp"
+  done
+
+  # An empty CORE list must not read as clean.
+  sp=$(new_project)
+  cp "$c40/specs/SCENARIOS.md" "$sp/specs/"
+  : > "$sp/empty.list"
+  core_prod_fixture "$sp" "$sp/empty.list"
+  if core_id_census "$sp"; then
+    bad "case40d-an-empty-census-is-not-clean" "zero files read, reported clean"
+  else
+    ok "case40d-an-empty-census-is-not-clean"
+  fi
+  rm -rf "$sp"
+else
+  bad "case40a-core-production-scripts-name-no-scenario-id" "template-autosync.sh --list-core-scripts failed — could not list CORE"
+fi
+rm -rf "$c40"
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be
@@ -705,7 +821,10 @@ replace_region() { # <src> <dst> <marker> <replacement-text>
 }
 
 sab_run() { # <sabotaged-script> → SAB_OUT
-  SAB_OUT=$(bash "$0" --script "$1" --no-sabotage 2>&1)
+  # --skip-core-census: case40 reads CORE scripts, not the gate's marked regions, so no arm here
+  # can turn it red — and at ~5 s a run, repeating it in all 13 arms would put this harness past the
+  # timeout it already sits close to (consultpilot H7bq).
+  SAB_OUT=$(bash "$0" --script "$1" --no-sabotage --skip-core-census 2>&1)
   return 0
 }
 

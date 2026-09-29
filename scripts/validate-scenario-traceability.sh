@@ -23,8 +23,8 @@
 #              approximate: a reference cannot say which of the two it proves.
 #   out-of-range
 #              a reference to an SC-id BELOW the lowest id the map owns. Almost always the OTHER
-#              SC- namespace: spec-kit's spec template numbers a spec's Success Criteria SC-001,
-#              SC-002, ... with the same prefix scenario ids use, so a test citing its own spec's
+#              SC- namespace: spec-kit's spec template numbers a spec's Success Criteria SC-NNN
+#              upward from one, with the same prefix scenario ids use, so a test citing its own spec's
 #              criteria looks exactly like a test citing a scenario that does not exist. Measured
 #              on one project: 387 of 458 spec.md files number criteria that way, and 41 of the
 #              gate's 44 "dangling" ids were that and nothing else. Reported in its own bucket
@@ -33,7 +33,7 @@
 #
 #              THE SEPARATION IS ARITHMETIC, NOT DESIGN. It holds only while no spec numbers a
 #              criterion up into the map's range, and on that same project one already had
-#              (SC-1165, in a spec whose map block starts at SC-1170) — so that one stays
+#              (a four-digit criterion ten below the spec's own map block) — so that one stays
 #              dangling, correctly, and is the standing evidence that the two namespaces need
 #              separating at the source rather than told apart by a floor.
 #
@@ -160,7 +160,7 @@ done
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 # scenario-map-rows.sh emits TAB-separated fields, and the tab is load-bearing: a scenario cell
-# may contain a pipe (SC-436 quotes a formula-injection payload), so splitting on "|" pushes
+# may contain a pipe (one agentcrm row quotes a formula-injection payload), so splitting on "|" pushes
 # status into expected and the row stops counting as validated without anything erroring. Read
 # that script's OUTPUT block before changing this.
 TAB=$(printf '\t')
@@ -269,7 +269,7 @@ fi
 
 # ---------------------------------------------------------------------------------- classification
 # Defence 2 of 2. Shell `case` on the status cell, by CONTAINMENT rather than an enumerated list of
-# exact strings: `✓ *` is a validated row carrying a footnote (SC-155 today), not a third status, and
+# exact strings: `✓ *` is a validated row carrying a footnote (one consultpilot row), not a third status, and
 # an enumeration would need extending every time someone adds a marker — with silent exemption as the
 # cost of forgetting.
 #
@@ -468,19 +468,25 @@ for root in $ROOTS; do
   # Match ids of ANY length. The keep-filter below used to be [0-9]{3} — see there.
   #
   # \b ON THE LEFT, and it is not decoration. Without it the pattern matches INSIDE a longer
-  # identifier: a property reference "DESC-1" in a test reported a dangling SC-1 that no test ever
-  # wrote. That is the harmless direction. The other one is not — a fixture named "DESC-741" would
-  # have SILENTLY COVERED SC-741, and this gate exists to refuse exactly that kind of unbacked
-  # coverage claim. Validated against known positives and negatives before it was believed:
-  # SC-741, "SC-765" and "// SC-002." still match; DESC-1 and MISC-99 no longer do.
+  # identifier: a property reference "DESC-<n>" in a test reported a dangling SC-<n> that no test
+  # ever wrote. That is the harmless direction. The other one is not — a fixture named "DESC-<n>"
+  # would have SILENTLY COVERED row <n>, and this gate exists to refuse exactly that kind of unbacked
+  # coverage claim. Validated against known positives and negatives before it was believed: a bare
+  # id, a quoted id and "// <id>." still match; DESC-<n> and MISC-<n> no longer do.
+  #
+  # Ids in this file's comments are written as SHAPES (SC-NNN, SC-<n>), never as numbers. This file
+  # is CORE: the sync puts it in every project, and a number here is read as a reference by any gate
+  # whose roots include scripts/ — a comment covering a row whose test was deleted (row 012).
+  # test-validate-scenario-traceability.sh case40 runs this gate over every CORE production script.
   #
   # \b AND [a-z]? ON THE RIGHT, and that half was missing until a project found it. A map is free
-  # to insert a row between two allocated ids by suffixing a letter — SC-033b next to SC-033 — and
-  # the row extractor has always accepted that. This one did not, so it read "SC-033b" in a test as
-  # a reference to SC-033. Both directions are wrong at once, and they hide each other: SC-033b, a
-  # rehearsal gate named in six places across two files, reported as UNCOVERED, while SC-033 was
-  # reported covered on the evidence of a test that names a different scenario. The trailing \b is
-  # what stops "SC-033abc" being read as SC-033a; it matches nothing, which is the safe answer.
+  # to insert a row between two allocated ids by suffixing a letter — SC-NNNb next to SC-NNN — and
+  # the row extractor has always accepted that. This one did not, so it read "SC-NNNb" in a test as
+  # a reference to SC-NNN. Both directions are wrong at once, and they hide each other: the lettered
+  # row, a rehearsal gate named in six places across two files, reported as UNCOVERED, while its
+  # unlettered neighbour was reported covered on the evidence of a test that names a different
+  # scenario. The trailing \b is what stops "SC-NNNabc" being read as SC-NNNa; it matches nothing,
+  # which is the safe answer.
   # BUILD OUTPUT IS PRUNED, and not only because it is slow (21.2 s -> 1.3 s on one repo whose
   # tests/ tree is 4.5 GB of which almost all is bin/obj). It is pruned because counting it is
   # WRONG. Every one of the 25 ids that a full walk found there and a pruned walk did not was inside
@@ -496,7 +502,7 @@ for root in $ROOTS; do
   # create-agency.destructive.spec.ts carries a literal NUL inside its own hostile-input fixture
   # (`['a null byte', 'Agency\0name']`). Every scenario id cited only in that file was therefore
   # invisible to this gate, which reported them as claimed-but-uncovered — a gate wrong in the
-  # direction that looks like diligence, so nobody questions it. Found on row A1, when SC-878 was
+  # direction that looks like diligence, so nobody questions it. Found on row A1, when a row was
   # reported uncovered while the citation sat in plain sight on line 279 of that file.
   #
   # `-a` on its own is NOT the fix, and the first attempt at this proved it: with `-I` dropped and
@@ -509,16 +515,16 @@ for root in $ROOTS; do
   # or not it happens to contain a control byte.
   #
   # THE UNDERSCORE FORM IS A REFERENCE TOO, and leaving it out made this gate wrong about the very
-  # convention `.claude/rules/scenarios.md:113` prescribes: `Checkout_SC014_DoubleSubmit_...`. A C#
+  # convention `.claude/rules/scenarios.md` prescribes: `Checkout_SCNNN_DoubleSubmit_...`. A C#
   # or Java test method name CANNOT carry a hyphen, so a suite that embeds the id in the method name
-  # has no choice but to write `SC1700_ASecondReservationIsRefused...` — and this extractor read only
+  # has no choice but to write `SCNNNN_ASecondReservationIsRefused...` — and this extractor read only
   # the hyphenated form, so every such citation was invisible. Measured on agentcrm 2026-09-25, by
   # running the gate before and after: coverage 1716 → 1767 of 1824, so 51 of its 108 "uncovered"
   # rows — 47% of the gate's headline finding — were the gate failing to read its own house style.
   # Wrong in the direction that looks like diligence, which is why it stood for as long as it did.
   #
   # A hand-rolled census beforehand said 50, because it anchored on `\bSC[0-9]+_` and `_` IS a word
-  # character: the mid-name `Checkout_SC014_` shape has no word boundary to its left and was invisible
+  # character: the mid-name `Checkout_SCNNN_` shape has no word boundary to its left and was invisible
   # to the census exactly as it was to the gate. Prefer the before/after run to any count of your own.
   #
   # An earlier count of 59 came from a grep that did NOT prune build output; nine of those citations
@@ -530,10 +536,10 @@ for root in $ROOTS; do
   # directive) and every other SC-prefixed token would enter the reference set and silently cover a
   # row. With it, a match needs the id followed by the separator the naming convention itself uses.
   # The leading `[^A-Za-z0-9]` (or line start) does the job `\b` cannot: `_` IS a word character, so
-  # `\b` never fires between `Checkout_` and `SC014`, and both known shapes — `_SC014_` mid-name and
-  # `SC1700_` at the start of a method name — need it. Validated against known positives and
-  # negatives before it was believed: `SC1700_A...`, `Checkout_SC014_D...` and `SC-741` all match;
-  # `SC2086`, `DESC-741` and a bare `SC1700` do not.
+  # `\b` never fires between `Checkout_` and `SCNNN`, and both known shapes — `_SCNNN_` mid-name and
+  # `SCNNNN_` at the start of a method name — need it. Validated against known positives and
+  # negatives before it was believed: `SCNNNN_A...`, `Checkout_SCNNN_D...` and `SC-NNN` all match;
+  # `SC2086`, `DESC-NNN` and a bare `SCNNNN` do not.
   #
   # The `sed` normalises what grep returns — leading separator stripped, trailing `_` dropped, the
   # missing hyphen inserted — so everything downstream still sees exactly one id shape.
@@ -577,15 +583,15 @@ comm -13 "$TMP/allids"  "$TMP/refs.u" > "$TMP/dangling.all"
 MAP_MIN=$(sed "s/^${PREFIX}-//" "$TMP/allids" | sort -n | head -1)
 # The map's own DIGIT WIDTH, and it is the discriminator the floor could not be.
 #
-# A floor of "the map's lowest id" is useless on a map that starts at SC-001 — nothing can be
+# A floor of "the map's lowest id" is useless on a map whose first id is one — nothing can be
 # below 1 — and that is the ordinary case, not a corner: msroute, film-i-vast and consultpilot
-# all start there, and all three reported spec-kit Success Criteria (SC-01, SC-1, SC-02) as
+# all start there, and all three reported spec-kit Success Criteria (one- and two-digit SC- ids) as
 # dangling scenario ids. The two namespaces are not separated by magnitude; they are separated
 # by PADDING. This map's ids are zero-padded to a fixed width and spec-kit's criteria are not,
 # so a reference with FEWER digits than the map's narrowest id belongs to the other sequence.
 #
 # Derived from the map on every run, exactly like the floor, so there is no constant to go stale.
-# Both rules apply: width catches SC-01 against a 3-digit map, the floor still catches a genuinely
+# Both rules apply: width catches a two-digit criterion against a 3-digit map, the floor still catches a genuinely
 # low id on a map that starts high.
 MAP_WIDTH=$(sed "s/^${PREFIX}-//" "$TMP/allids" | sed 's/[^0-9].*$//' | awk '{ print length($0) }' | sort -n | head -1)
 if [ -n "$MAP_MIN" ]; then
