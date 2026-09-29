@@ -158,7 +158,8 @@ echo "remedy — a map is not shrunk by the INDEX.md archivers"
 
 # orientation_says <root> <needle> — 0 when the SessionStart banner contains the needle.
 orientation_says() {
-    ( cd "$1" && bash "$SCRIPT_DIR/spec-register-orientation-hook.sh" </dev/null 2>&1 ) | grep -Fq -e "$2"
+    _banner=$( cd "$1" && bash "$SCRIPT_DIR/spec-register-orientation-hook.sh" </dev/null 2>&1 )
+    grep -Fq -e "$2" <<< "$_banner"
 }
 if orientation_says "$BIG" "the archivers do not shrink it"; then
     ok "oversized map: the banner names the map remedy"

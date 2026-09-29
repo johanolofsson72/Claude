@@ -154,7 +154,8 @@ BLOCK=$(printf '%s\n' "$OUT" | awk '/cache warmup/{f=1} f&&/verdict/{print; exit
 case "$BLOCK" in *"verdict: evidenced"*) ok "an evidenced, unique proposal reads evidenced" ;; *) bad "evidenced" "verdict: evidenced" "$BLOCK" ;; esac
 case "$OUT" in *"possible duplicate of 009"*) ok "a proposal overlapping row 009 is flagged" ;; *) bad "duplicate flagged" "possible duplicate of 009" "$OUT" ;; esac
 case "$OUT" in *"cited but missing here: scripts/gone/missing.sh"*) ok "a missing cited path is named" ;; *) bad "missing path named" "scripts/gone/missing.sh" "$OUT" ;; esac
-printf '%s\n' "$OUT" | grep 'cited but missing here' | grep -q 'present.sh' \
+_miss=$(printf '%s\n' "$OUT" | grep 'cited but missing here')
+grep -q 'present.sh' <<< "$_miss" \
   && bad "a present path is not called missing" "absent" "$OUT" || ok "a present path is not called missing"
 case "$OUT" in *"refused (outside the repo)"*) ok "a '..' citation is refused, not resolved" ;; *) bad "'..' refused" "refused" "$OUT" ;; esac
 case "$OUT" in *"twenty-seven"*) bad "--proposals hides plain findings" "absent" "present" ;; *) ok "--proposals hides plain findings" ;; esac
