@@ -2,6 +2,38 @@
 
 Rows verbatim as they read at tick time. Never pipeline input.
 
+## 030 — unlisted-fires-forever-on-an-optional-callee
+
+Ticked 2026-09-29 without new code. Spec 045 (a4fe4ca, 2026-09-11) had already landed the fix, as F042.
+
+- [x] 030 — unlisted-fires-forever-on-an-optional-callee — spec-only — superseded by 045: CORE files declare optional project scripts (`# template-autosync: optional-project-script`). Verbatim in `INDEX.completed.md`.
+
+**Verified 2026-09-29.** `scripts/project-maintenance.sh:729-731` declares all three paths optional. `--unlisted` returns 1 (no findings) on rocky and on all 46 synced repos under ~/repos. `test-template-autosync-unlisted.sh` 31/31; AC-10/AC-11 pin the pair-scoped declaration.
+
+**Original diagnosis:**
+
+**Measured on rocky, 2026-09-05, during checkpoint H13.**
+`scripts/project-maintenance.sh` is CORE and calls three project scripts —
+`scripts/e2e-gate-census.py`, `scripts/e2e-wait-audit.sh`, `scripts/install-git-hooks.sh` — each
+behind a `[ -f ]` test. Its own comment says so in as many words: "if it has neither they are a
+silent no-op and cost one `test -f` each. They live here rather than in the project that uses them
+because this file is CORE: a caller added downstream is deleted by the next sync."
+
+So the caller is in CORE **on purpose**, and the callee is deliberately optional. `--unlisted` reads
+the call as a dependency and reports all three, permanently, which holds `core-owed-tick-guard`
+red on every tick this project will ever make. The block's own comment sets the standard it is
+failing: "A detector whose output is permanently non-empty is not a detector."
+
+**Corroborated, and distinguished.** `bc84617` fixed the same class in agentcrm, where
+`lane-handoff.md` merely *named* `scripts/merge-locale-json.py` in prose — there the fix is to
+delete the mention. Here the three are **called**, so deleting the reference deletes the feature.
+Nor is shipping them the answer: `e2e-gate-census.py` and `e2e-wait-audit.sh` parse rocky's own E2E
+ledger, and making them CORE would push them onto msroute, agentcrm, ighweld and the rest.
+
+Scope: teach the detector to tell a **use** from a **dependency** — a reference guarded by a
+presence test is the former. `install-git-hooks.sh` is separately worth considering for CORE on its
+own merits; the other two are not.
+
 ## 028 — traceability-roots-declaration
 
 Ticked 2026-09-04. Row as it read at tick time, plus the diagnosis.

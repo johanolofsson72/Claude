@@ -3,30 +3,6 @@
 The long form of rows not yet started. Never pipeline input.
 
 
-## 030 — unlisted-fires-forever-on-an-optional-callee
-
-**Measured on rocky, 2026-09-05, during checkpoint H13.**
-`scripts/project-maintenance.sh` is CORE and calls three project scripts —
-`scripts/e2e-gate-census.py`, `scripts/e2e-wait-audit.sh`, `scripts/install-git-hooks.sh` — each
-behind a `[ -f ]` test. Its own comment says so in as many words: "if it has neither they are a
-silent no-op and cost one `test -f` each. They live here rather than in the project that uses them
-because this file is CORE: a caller added downstream is deleted by the next sync."
-
-So the caller is in CORE **on purpose**, and the callee is deliberately optional. `--unlisted` reads
-the call as a dependency and reports all three, permanently, which holds `core-owed-tick-guard`
-red on every tick this project will ever make. The block's own comment sets the standard it is
-failing: "A detector whose output is permanently non-empty is not a detector."
-
-**Corroborated, and distinguished.** `bc84617` fixed the same class in agentcrm, where
-`lane-handoff.md` merely *named* `scripts/merge-locale-json.py` in prose — there the fix is to
-delete the mention. Here the three are **called**, so deleting the reference deletes the feature.
-Nor is shipping them the answer: `e2e-gate-census.py` and `e2e-wait-audit.sh` parse rocky's own E2E
-ledger, and making them CORE would push them onto msroute, agentcrm, ighweld and the rest.
-
-Scope: teach the detector to tell a **use** from a **dependency** — a reference guarded by a
-presence test is the former. `install-git-hooks.sh` is separately worth considering for CORE on its
-own merits; the other two are not.
-
 ## 007
 
 _2026-09-03: folded into row 007 — one script, three defects. Row as it stood:_

@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-09-29 — convergence stop answered: FREEZE until open rows < 40. 077 added at the developer's request so proposals carry evidence of need.
+
 - 2026-09-29 — 076 filed from consultpilot Q2 (H7ai): the 97 branch consultpilot carried was reverted by two syncs because it never lived upstream.
 
 - 2026-09-29 — 074, 075 added at the developer's request (not carves): measure maintenance, then place jobs local vs cloud after five specs.
