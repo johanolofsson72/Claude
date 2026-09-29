@@ -80,6 +80,10 @@ mkfix() {
   ( cd "$d" && git init -q . >/dev/null 2>&1 )
   printf '#!/bin/bash\nexit 0\n' > "$d/scripts/project-freshness.sh"
   printf '#!/bin/bash\nexit 0\n' > "$d/scripts/prune-agent-worktrees.sh"
+  # Section 6c now reports missing portability scripts as [SETUP] (row 033), so every fixture carries
+  # a passing pair; C40-C45 take them away or change their exit on purpose.
+  printf '#!/bin/bash\nexit 0\n' > "$d/scripts/validate-portability.sh"
+  : > "$d/scripts/portability_audit.py"
   printf '%s' "$d"
 }
 
@@ -578,6 +582,59 @@ OUT=$(run_suite "$D"); RC=$?
 expect_contains "C39 green run — suite green"                   "suite green" "$OUT"
 expect_rc       "C39 green run — stamped" 1 "$(stamped_suite "$D")"
 expect_rc       "C39 green run — clean exit" 0 "$RC"
+
+# ================================================ C40-C45 — the portability check says when it did not run (row 033)
+#
+# fundit F002: a sync landed section 6c without its two scripts, the [ -f ] guard had no else, and the
+# pass printed "clean". Every path that did not run the check must now be a finding. C44 and C45 keep
+# the arms honest: a section that always complained would pass C40-C43 just as well.
+port_stub() { # port_stub <dir> <exit> <output>
+  printf '#!/bin/bash\necho "%s"\nexit %s\n' "$3" "$2" > "$1/scripts/validate-portability.sh"
+}
+
+# --- C40: neither script — the fundit case ---------------------------------------------------------
+D=$(mkfix c40); rm -f "$D/scripts/validate-portability.sh" "$D/scripts/portability_audit.py"
+OUT=$(run "$D"); RC=$?
+expect_contains "C40 no portability scripts — a SETUP finding"      "[SETUP] portability check did not run" "$OUT"
+expect_contains "C40 names validate-portability.sh"                 "scripts/validate-portability.sh" "$OUT"
+expect_contains "C40 names portability_audit.py"                    "scripts/portability_audit.py" "$OUT"
+expect_absent   "C40 never reads clean"                             "project-maintenance: clean" "$OUT"
+expect_rc       "C40 verdict is red" 1 "$RC"
+
+# --- C41: only the wrapper — names the engine alone ------------------------------------------------
+D=$(mkfix c41); rm -f "$D/scripts/portability_audit.py"
+OUT=$(run "$D"); RC=$?
+expect_contains "C41 engine missing — named"                        "scripts/portability_audit.py missing" "$OUT"
+expect_absent   "C41 the wrapper that is there is not named"        "scripts/validate-portability.sh" "$OUT"
+expect_rc       "C41 verdict is red" 1 "$RC"
+
+# --- C42: only the engine — names the wrapper alone ------------------------------------------------
+D=$(mkfix c42); rm -f "$D/scripts/validate-portability.sh"
+OUT=$(run "$D"); RC=$?
+expect_contains "C42 wrapper missing — named"                       "scripts/validate-portability.sh missing" "$OUT"
+expect_absent   "C42 the engine that is there is not named"         "scripts/portability_audit.py" "$OUT"
+expect_rc       "C42 verdict is red" 1 "$RC"
+
+# --- C43: both there, the run could not run --------------------------------------------------------
+D=$(mkfix c43); port_stub "$D" 2 "validate-portability.sh: no scripts to scan"
+OUT=$(run "$D"); RC=$?
+expect_contains "C43 could not run — reported with its exit code"   "[PORTABILITY] scripts/validate-portability.sh could not run (exit 2)" "$OUT"
+expect_contains "C43 carries the run's own reason"                  "no scripts to scan" "$OUT"
+expect_rc       "C43 verdict is red" 1 "$RC"
+
+# --- C44: a clean run says nothing ------------------------------------------------------------------
+D=$(mkfix c44); port_stub "$D" 0 "portability: clean"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C44 clean run — no PORTABILITY line"               "[PORTABILITY]" "$OUT"
+expect_absent   "C44 clean run — no portability SETUP line"         "portability check did not run" "$OUT"
+expect_rc       "C44 clean run — clean exit" 0 "$RC"
+
+# --- C45: hits keep today's finding ----------------------------------------------------------------
+D=$(mkfix c45); port_stub "$D" 1 "  scripts/x.sh:3  some-construct"
+OUT=$(run "$D"); RC=$?
+expect_contains "C45 hits — today's finding"                        "[PORTABILITY] construct(s)" "$OUT"
+expect_contains "C45 carries the hit"                               "scripts/x.sh:3" "$OUT"
+expect_rc       "C45 verdict is red" 1 "$RC"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

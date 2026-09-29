@@ -838,12 +838,24 @@ fi
 # Two developers, two platforms, and cross-platform is a base requirement rather than a preference.
 # A construct that works on one is a script the other never successfully runs -- and it fails
 # QUIETLY, because the usual symptom is an empty result, not an error.
-if [ -f scripts/validate-portability.sh ] && [ -f scripts/portability_audit.py ]; then
+#
+# Both scripts are CORE, so a missing one is a sync defect and a [SETUP] finding. Until row 033 the
+# guard had no else: fundit synced this call site without the two scripts and read "clean" (F002).
+PORT_MISSING=""
+for f in scripts/validate-portability.sh scripts/portability_audit.py; do
+  [ -f "$f" ] || PORT_MISSING="${PORT_MISSING:+$PORT_MISSING, }$f"
+done
+if [ -n "$PORT_MISSING" ]; then
+  add "[SETUP] portability check did not run — $PORT_MISSING missing. Run /project-update to restore it."
+else
   PORT_OUT=$(measured portability bash scripts/validate-portability.sh --all 2>&1); PORT_RC=$?
   if [ "$PORT_RC" -eq 1 ]; then
     add "[PORTABILITY] construct(s) that run on one developer's platform and not the other's:
 $(printf '%s' "$PORT_OUT" | grep -E '^\s+scripts/' -A2 | sed -n 1,12p)
   Run: bash scripts/validate-portability.sh --all"
+  elif [ "$PORT_RC" -ne 0 ]; then
+    add "[PORTABILITY] scripts/validate-portability.sh could not run (exit $PORT_RC):
+$(printf '%s' "$PORT_OUT" | sed -n 1,3p)"
   fi
 fi
 

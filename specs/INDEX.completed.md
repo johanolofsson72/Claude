@@ -551,3 +551,15 @@ _Opened 2026-09-05 from fundit finding F001 (spec 016a, a static holding page sh
 **Two other holes let 016a through.** The one guarded file, `site/fetch-fonts.mjs`, met a deny with no `hookEventName`, which the CLI drops; 046 closed that on 2026-09-12. Everything else was `.html`, `.css`, config, a Dockerfile or `scripts/**`, and no guard ever asked about those. The product itself, `site/index.html`, sat outside `SOURCE_EXTS` while `.cshtml`, `.razor`, `.vue` and `.astro` were inside it.
 
 **Outcome.** `html|htm|css|scss|sass|less` joined `SOURCE_EXTS` in all three path guards. Config, Dockerfile and `scripts/**` stay exempt on purpose. `scripts/test-spec-dir-absent.sh` (CORE) pins the directory-less deny through `hook_verdict`, which no test did before. It also checks that the three lists are identical and that a spec with finished artifacts can still edit markup. 16 arms red on HEAD, 34/34 after. A SessionStart signal for a directory-less active row is F031, not built.
+
+## 033 — portability-check-fails-open-and-says-nothing
+
+Ticked 2026-09-29. Row as it read at tick time, plus what was measured.
+
+- [x] 033 — portability-check-fails-open-and-says-nothing — spec-only — project-maintenance.sh guards the portability audit behind `[ -f ]`, so a clone without scripts/portability_audit.py skips it silently. A check that fails open must say so. Reported by fundit F002.
+
+_Opened 2026-09-05 from fundit finding F002 (commit 57b6ea1 synced the call site without either portability script)._
+
+**Measured.** A fixture with no portability scripts read `project-maintenance: clean`, exit 0. Section 6c had three silent paths: both scripts missing, one missing (the guard wanted both, so the wrapper's own exit 2 never ran), and a run that exited anything other than 0 or 1.
+
+**Outcome.** A missing script is now a `[SETUP]` finding that names only the file that is missing, the same treatment section 1 gives `project-freshness.sh`. Any exit other than 0 or 1 is a `[PORTABILITY] ... could not run (exit N)` finding with the run's first lines. `test-project-maintenance.sh` C40–C45: C40–C43 red on HEAD, 110/110 after. The fixtures in `mkfix` and `test-skill-reachable.sh` now carry a passing pair. Sections 2c and 6b still skip without a word when their script is missing: F032, not fixed here.

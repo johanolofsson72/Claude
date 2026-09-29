@@ -124,7 +124,9 @@ fresh; PLUGIN_ENTRIES=""
 M="$TMP/maint$N"; mkdir -p "$M/scripts"
 ( cd "$M" && git init -q . )
 cp "$SR" "$M/scripts/"; printf '#!/bin/bash\nexit 0\n' > "$M/scripts/project-freshness.sh"
-chmod +x "$M/scripts/skill-reachable.sh" "$M/scripts/project-freshness.sh"
+# A passing portability pair too: without it section 6c reports [SETUP] (row 033) and M1a counts three.
+printf '#!/bin/bash\nexit 0\n' > "$M/scripts/validate-portability.sh"; : > "$M/scripts/portability_audit.py"
+chmod +x "$M/scripts/skill-reachable.sh" "$M/scripts/project-freshness.sh" "$M/scripts/validate-portability.sh"
 OUT=$(cd "$M" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_PROJECT_DIR="$M" bash "$MAINT" 2>&1)
 expect_rc "M1 missing skills make the pass report findings" 1 $?
 expect_contains "M1a ...exactly the two, so a note would not pass for a finding" "project-maintenance: 2 finding(s)" "$OUT"
