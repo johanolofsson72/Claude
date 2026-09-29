@@ -147,34 +147,58 @@ if [ "$DO_SECRETS" -eq 1 ]; then
   echo "── [1/5] trufflehog secret scan ──────────────────────────"
   ensure_trufflehog
   if command -v "$TRUFFLEHOG_BIN" >/dev/null 2>&1; then
-    # --only-verified: live-checked credentials only (kills the false-positive
-    #                  noise that makes a report nobody reads).
-    # --no-update:     do not phone home for a self-update on every run.
-    # --fail:          exit non-zero when results are found.
+    # --only-verified:        live-checked credentials only (kills the false-positive
+    #                         noise that makes a report nobody reads).
+    # --no-update:            do not phone home for a self-update on every run.
+    # --fail:                 exit 183 when results are found.
+    # --fail-on-scan-errors:  exit non-zero when the scan errors part-way; without it an
+    #                         error exits 0 and would read as clean.
+    # Only 183 is a finding. trufflehog exits 1 when it cannot scan at all (a repo with no
+    # commits: "failed to read index file"), and any code we do not recognise is the same
+    # third state: not clean, not a finding (spec 038).
+    TH_ERR=$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/freshness-th.$$")
     if [ -d .git ]; then
       # git history scan: naturally skips gitignored node_modules/build output.
-      if "$TRUFFLEHOG_BIN" git "file://$ROOT" --only-verified --no-update --fail; then
+      TH_WHERE="git history"
+      "$TRUFFLEHOG_BIN" git "file://$ROOT" --only-verified --no-update --fail --fail-on-scan-errors 2>"$TH_ERR"
+    else
+      TH_WHERE="working tree"
+      "$TRUFFLEHOG_BIN" filesystem "$ROOT" --only-verified --no-update --fail --fail-on-scan-errors 2>"$TH_ERR"
+    fi
+    TH_RC=$?
+    cat "$TH_ERR" >&2
+    case "$TH_RC" in
+      0)
         # Verified means provider-checkable: an API token a provider will answer for. A key
         # ring, a .pfx or a private key answers to no provider, so this line vouches for none
         # of them — the key-shape pass below does.
-        echo "[OK] No verified credentials in git history (provider-checkable tokens only; key files: next pass)."
+        echo "[OK] No verified credentials in $TH_WHERE (provider-checkable tokens only; key files: next pass)."
         SECRETS_STATUS="no verified credentials"
-      else
+        ;;
+      183)
         echo "[FINDING] trufflehog found verified secret(s) above. Rotate them NOW —"
         echo "          a committed credential is compromised the moment it is pushed."
         FINDINGS=1
         SECRETS_STATUS="VERIFIED SECRET(S) FOUND — rotate now"
-      fi
-    else
-      if "$TRUFFLEHOG_BIN" filesystem "$ROOT" --only-verified --no-update --fail; then
-        echo "[OK] No verified credentials in working tree (provider-checkable tokens only; key files: next pass)."
-        SECRETS_STATUS="no verified credentials"
-      else
-        echo "[FINDING] trufflehog found verified secret(s) above. Rotate them NOW."
-        FINDINGS=1
-        SECRETS_STATUS="VERIFIED SECRET(S) FOUND — rotate now"
-      fi
-    fi
+        ;;
+      *)
+        # trufflehog logs `<time>\terror\ttrufflehog\t<msg>\t{"error": "<why>"}`; the why is
+        # the reason. Anything else (an old version's "unknown flag") is shown as it came.
+        TH_REASON=$(grep -i 'error' "$TH_ERR" | head -1)
+        [ -n "$TH_REASON" ] || TH_REASON=$(grep -v '^[[:space:]]*$' "$TH_ERR" | tail -1)
+        TH_WHY=$(printf '%s' "$TH_REASON" | sed -n 's/.*"errors*": *\[*"\([^"]*\)".*/\1/p')
+        [ -n "$TH_WHY" ] && TH_REASON=$TH_WHY
+        TH_REASON=$(printf '%s' "$TH_REASON" | tr -d '\r' | cut -c1-200)
+        echo "[WARN] trufflehog could not scan (exit $TH_RC) — $TH_WHERE was NOT scanned. This is not a finding and not clean."
+        [ -n "$TH_REASON" ] && echo "       trufflehog said: $TH_REASON"
+        if [ "$TH_WHERE" = "git history" ] && ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
+          echo "       This repo has no commits yet, so there is no history to scan. Re-run after the first commit."
+        fi
+        SECRETS_STATUS="scan failed (exit $TH_RC)${TH_REASON:+ — $TH_REASON}"
+        NOT_SCANNED="$NOT_SCANNED trufflehog"
+        ;;
+    esac
+    rm -f "$TH_ERR"
   else
     SECRETS_STATUS="skipped (trufflehog unavailable)"
     NOT_SCANNED="$NOT_SCANNED trufflehog"

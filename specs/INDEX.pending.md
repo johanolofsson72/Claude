@@ -148,33 +148,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 038 — freshness-calls-a-scan-error-a-verified-secret
-
-_Opened 2026-09-07 from hetznerradar's bootstrap (T0). Template-owned per §4._
-
-`scripts/project-freshness.sh` runs `trufflehog … --fail` inside a bare `if`, so **every** non-zero
-exit becomes the same conclusion:
-
-```
-[FINDING] trufflehog found verified secret(s) above. Rotate them NOW —
-```
-
-`--fail` promises a distinct exit code for *results found*. It says nothing about the codes
-trufflehog uses for *unable to scan*, and the `if` cannot tell them apart. Observed on
-hetznerradar before its first commit: trufflehog exited non-zero with `failed to read index file:
-.git/index: no such file` — a repo with no history, nothing scanned — and the script reported a
-verified secret. Confirmed false by re-running after the first commit: `verified_secrets: 0`.
-
-This is `CLAUDE.md`'s Principle IX in the harness itself: an error and a finding are two states, and
-collapsing them costs in both directions. A false breach burns a rotation that was never needed; the
-same conflation would let a genuine scan failure ride out as "we looked, it's clean" if the codes
-ever landed the other way round.
-
-Fix: capture the exit code, branch on it. Findings → `[FINDING]`. A documented error code, or any
-code the script does not recognise → a **third** status (`SECRETS_STATUS="scan failed — …"`) that is
-neither clean nor a finding, carries trufflehog's own stderr, and does not set `FINDINGS=1`. Both
-call sites (`trufflehog git` and `trufflehog filesystem`) have the defect.
-
 ## 039 — core-guard-blocks-its-own-first-install
 
 _Opened 2026-09-07 from hetznerradar's bootstrap (T0). Template-owned per §4._

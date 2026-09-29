@@ -587,3 +587,38 @@ _Opened 2026-09-05 from fundit finding F002 (commit 57b6ea1 synced the call site
 **Measured.** A fixture with no portability scripts read `project-maintenance: clean`, exit 0. Section 6c had three silent paths: both scripts missing, one missing (the guard wanted both, so the wrapper's own exit 2 never ran), and a run that exited anything other than 0 or 1.
 
 **Outcome.** A missing script is now a `[SETUP]` finding that names only the file that is missing, the same treatment section 1 gives `project-freshness.sh`. Any exit other than 0 or 1 is a `[PORTABILITY] ... could not run (exit N)` finding with the run's first lines. `test-project-maintenance.sh` C40–C45: C40–C43 red on HEAD, 110/110 after. The fixtures in `mkfix` and `test-skill-reachable.sh` now carry a passing pair. Sections 2c and 6b still skip without a word when their script is missing: F032, not fixed here.
+
+## 038 — freshness-calls-a-scan-error-a-verified-secret
+
+Ticked 2026-09-29. Row as it read at tick time, plus the diagnosis and what was measured.
+
+- [x] 038 — freshness-calls-a-scan-error-a-verified-secret — spec-only — trufflehog exits non-zero on error as well as on findings, and the `if` reads both as `[FINDING] verified secret(s) — rotate NOW`. A repo with no commits reported a breach. Diagnos: `specs/INDEX.pending.md`
+
+_Opened 2026-09-07 from hetznerradar's bootstrap (T0). Template-owned per §4._
+
+`scripts/project-freshness.sh` runs `trufflehog … --fail` inside a bare `if`, so **every** non-zero
+exit becomes the same conclusion:
+
+```
+[FINDING] trufflehog found verified secret(s) above. Rotate them NOW —
+```
+
+`--fail` promises a distinct exit code for *results found*. It says nothing about the codes
+trufflehog uses for *unable to scan*, and the `if` cannot tell them apart. Observed on
+hetznerradar before its first commit: trufflehog exited non-zero with `failed to read index file:
+.git/index: no such file` — a repo with no history, nothing scanned — and the script reported a
+verified secret. Confirmed false by re-running after the first commit: `verified_secrets: 0`.
+
+This is `CLAUDE.md`'s Principle IX in the harness itself: an error and a finding are two states, and
+collapsing them costs in both directions. A false breach burns a rotation that was never needed; the
+same conflation would let a genuine scan failure ride out as "we looked, it's clean" if the codes
+ever landed the other way round.
+
+Fix: capture the exit code, branch on it. Findings → `[FINDING]`. A documented error code, or any
+code the script does not recognise → a **third** status (`SECRETS_STATUS="scan failed — …"`) that is
+neither clean nor a finding, carries trufflehog's own stderr, and does not set `FINDINGS=1`. Both
+call sites (`trufflehog git` and `trufflehog filesystem`) have the defect.
+
+**Measured.** trufflehog 3.95.5: `--fail` exits 183 on results; a repo with no commits exits 1 (`failed to read index file`). Without `--fail-on-scan-errors`, an error mid-scan exits 0.
+
+**Outcome.** Both call sites now pass `--fail-on-scan-errors` and branch on the exit code: 0 clean, 183 `[FINDING]`, anything else `[WARN] trufflehog could not scan (exit N)` with trufflehog's own error message, `Secrets: scan failed`, and `NOT SCANNED: trufflehog` in RESULT. No finding, no rotate. A repo with no commits gets a hint. `test-project-freshness.sh` K29 (12 arms red on HEAD, 167/167 after) includes a real-trufflehog run on an empty repo. F033: the maintenance pass still reads NOT SCANNED as clean. F034: the PuTTY fixture in the self-test trips the template's own key scan (pre-existing).

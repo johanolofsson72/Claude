@@ -62,12 +62,12 @@ expect_pkg_count() {
 
 # $1 name · $2 substring that must appear · $3 output
 expect_contains() {
-  if grep -Fq "$2" <<< "$3"; then ok "$1"; else bad "$1" "output contains '$2'" "not found"; fi
+  if grep -Fq -- "$2" <<< "$3"; then ok "$1"; else bad "$1" "output contains '$2'" "not found"; fi
 }
 
 # $1 name · $2 substring that must NOT appear · $3 output
 expect_absent() {
-  if grep -Fq "$2" <<< "$3"; then bad "$1" "output does NOT contain '$2'" "found"; else ok "$1"; fi
+  if grep -Fq -- "$2" <<< "$3"; then bad "$1" "output does NOT contain '$2'" "found"; else ok "$1"; fi
 }
 
 mkpkg() { mkdir -p "$(dirname "$1")"; printf '{ "name": "%s", "version": "1.0.0" }\n' "$2" > "$1"; }
@@ -659,6 +659,54 @@ if command -v openssl >/dev/null 2>&1 && openssl genpkey -algorithm ed25519 -out
   expect_contains "Ed25519 is found" "[FINDING] jwt-signing.pem — PEM private key (PKCS#8)" "$OUT"
   expect_absent   "…and its body line never printed" "$(sed -n 2p "$P/jwt-signing.pem")" "$OUT"
 fi
+
+# Spec 038. `--fail` exits 183 on results and trufflehog exits 1 when it cannot scan (a repo with
+# no commits). Only 183 is a finding; any other non-zero exit is "could not scan", never clean.
+# $1 path · $2 exit code · $3 line on stderr
+mkthstub() {
+  mkdir -p "$(dirname "$1")"
+  printf '#!/bin/sh\necho "$0 $*" >> "%s.calls"\nprintf "%%s\\n" "%s" >&2\nexit %s\n' "$1" "$3" "$2" > "$1"
+  chmod +x "$1"
+}
+printf '\n  -- K29 a trufflehog error is not a verified secret (spec 038)\n'
+P=$(mkrepo k29); printf 'x\n' > "$P/README"; commit_all "$P"
+NG="$TMP/k29-nogit"; mkdir -p "$NG"; printf 'x\n' > "$NG/README"
+TH_UNDER_TEST="$TMP/stubs/th29/ok/trufflehog"; mkthstub "$TH_UNDER_TEST" 0 "finished scanning"
+keyscan "$P"
+expect_contains "SC-038-01 exit 0 is clean" "Secrets: no verified credentials" "$OUT"
+expect_absent   "…and no finding" "[FINDING] trufflehog" "$OUT"
+expect_contains "SC-038-06 the git call passes --fail-on-scan-errors" "--fail-on-scan-errors" "$(cat "$TH_UNDER_TEST.calls" 2>/dev/null)"
+TH_UNDER_TEST="$TMP/stubs/th29/hit/trufflehog"; mkthstub "$TH_UNDER_TEST" 183 "verified_secrets: 1"
+keyscan "$P"
+expect_contains "SC-038-02 exit 183 is a finding" "[FINDING] trufflehog found verified secret(s)" "$OUT"
+expect_contains "…in the SUMMARY" "Secrets: VERIFIED SECRET(S) FOUND" "$OUT"
+expect_contains "…and exits 1" "EXIT=1" "$OUT"
+TH_UNDER_TEST="$TMP/stubs/th29/err/trufflehog"; mkthstub "$TH_UNDER_TEST" 1 "error running scan: failed to read index file"
+keyscan "$P"
+expect_contains "SC-038-03 exit 1 could not scan" "[WARN] trufflehog could not scan (exit 1)" "$OUT"
+expect_contains "…quotes trufflehog's reason" "failed to read index file" "$OUT"
+expect_contains "…SUMMARY says scan failed" "Secrets: scan failed (exit 1)" "$OUT"
+expect_contains "…RESULT says not scanned" "RESULT: no findings, but NOT SCANNED: trufflehog" "$OUT"
+expect_absent   "…never a finding" "[FINDING] trufflehog" "$OUT"
+expect_absent   "…never rotate" "otate" "$OUT"
+expect_contains "…and exits 0" "EXIT=0" "$OUT"
+keyscan "$NG"
+expect_contains "SC-038-04 filesystem exit 1 could not scan" "[WARN] trufflehog could not scan (exit 1)" "$OUT"
+expect_absent   "…never a finding" "[FINDING] trufflehog" "$OUT"
+expect_contains "…the filesystem call ran" "filesystem" "$(cat "$TH_UNDER_TEST.calls" 2>/dev/null)"
+TH_UNDER_TEST="$TMP/stubs/th29/hitfs/trufflehog"; mkthstub "$TH_UNDER_TEST" 183 "verified_secrets: 1"
+keyscan "$NG"
+expect_contains "SC-038-05 filesystem exit 183 is a finding" "[FINDING] trufflehog found verified secret(s)" "$OUT"
+expect_contains "SC-038-06 the filesystem call passes --fail-on-scan-errors" "--fail-on-scan-errors" "$(cat "$TH_UNDER_TEST.calls" 2>/dev/null)"
+if command -v trufflehog >/dev/null 2>&1; then
+  P=$(mkrepo k29empty)
+  TH_UNDER_TEST=$(command -v trufflehog)
+  keyscan "$P"
+  expect_contains "SC-038-07 real trufflehog, no commits: could not scan" "[WARN] trufflehog could not scan" "$OUT"
+  expect_contains "…with the no-commits hint" "no commits yet" "$OUT"
+  expect_absent   "…and no breach" "[FINDING] trufflehog" "$OUT"
+fi
+TH_UNDER_TEST="$NO_BIN/trufflehog"
 
 printf '\n  -- K17 FR-06: no byte of any fixture key reaches any output\n'
 expect_absent "the sentinel never appears" "$SENT" "$ALL_KEY_OUT"
