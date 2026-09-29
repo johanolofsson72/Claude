@@ -622,3 +622,37 @@ call sites (`trufflehog git` and `trufflehog filesystem`) have the defect.
 **Measured.** trufflehog 3.95.5: `--fail` exits 183 on results; a repo with no commits exits 1 (`failed to read index file`). Without `--fail-on-scan-errors`, an error mid-scan exits 0.
 
 **Outcome.** Both call sites now pass `--fail-on-scan-errors` and branch on the exit code: 0 clean, 183 `[FINDING]`, anything else `[WARN] trufflehog could not scan (exit N)` with trufflehog's own error message, `Secrets: scan failed`, and `NOT SCANNED: trufflehog` in RESULT. No finding, no rotate. A repo with no commits gets a hint. `test-project-freshness.sh` K29 (12 arms red on HEAD, 167/167 after) includes a real-trufflehog run on an empty repo. F033: the maintenance pass still reads NOT SCANNED as clean. F034: the PuTTY fixture in the self-test trips the template's own key scan (pre-existing).
+
+
+## 039 — core-guard-blocks-its-own-first-install
+
+Ticked 2026-09-29. Row as it read at tick time, plus the diagnosis and what was measured.
+
+- [x] 039 — core-guard-blocks-its-own-first-install — spec-only — the guard denies on the path alone, so the sync that places a CORE script for the first time is refused by the guard that exists to protect it. Byte-identical copy, override burned. Diagnos: `specs/INDEX.pending.md`
+
+_Opened 2026-09-07 from hetznerradar's bootstrap (T0). Template-owned per §4._
+
+`scripts/core-machinery-guard-hook.sh` decides on the **path**: a write to a CORE file is denied
+unless the override is set. During a first `/project-update` on a fresh project, every CORE script
+is being placed for the first time — and the guard refused `scripts/tlc-cleanup.sh` on exactly that
+basis. All seven tech-stack hook scripts in that pass were byte-identical to the template's copies.
+
+The guard's purpose is to stop a project **diverging** from the template. A write whose bytes equal
+the template's copy diverges from nothing; it is the sync doing its job. Denying it means a
+first-time install cannot complete without `ALLOW_CORE_MACHINERY_EDIT=1`, and an override reached
+for as routine bootstrap ceremony is an override that stops meaning anything — which is the real
+cost here, since that variable is also the escape hatch for the deliberate local repair the guard's
+own deny message describes.
+
+Fix: before denying, compare the content being written against `$TEMPLATE/scripts/<name>`. Byte-
+identical → allow, silently. Different, or the template copy unreadable → deny as today. That keeps
+the guard's teeth on every write that actually changes a CORE file while making the install path
+pass on its own merits rather than on a burned override.
+
+Bound worth stating: the comparison needs the template clone resolvable. When it is not, the guard
+must deny (fail closed) — it protects a file the template owns, and with no template to compare
+against there is nothing to prove the write benign.
+
+**Measured.** A Write of the template's `scripts/tlc-cleanup.sh` into a fixture project with its own `template-autosync.sh` was denied on HEAD; it now passes with no output, and the same bytes plus one `#` are still denied. The comparison costs 63 ms on the largest CORE file (229 KB).
+
+**Outcome.** After `--is-core` says CORE, the guard computes the bytes the call would leave on disk (Write content, or Edit/MultiEdit applied to the current file with split/join) and allows silently when they equal `<template>/<rel>` in the local clone. No clone, no template file, no bytes in the payload, an Edit on a missing file, or any jq failure denies as before. The deny text says a byte-identical write would have passed. `test-core-machinery-guard.sh` SC-039-01..12: 6 red on HEAD, 36/36 after. F035: the Bash route (`cp` from the template) carries no bytes and is still denied.

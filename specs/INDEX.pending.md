@@ -148,31 +148,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 039 — core-guard-blocks-its-own-first-install
-
-_Opened 2026-09-07 from hetznerradar's bootstrap (T0). Template-owned per §4._
-
-`scripts/core-machinery-guard-hook.sh` decides on the **path**: a write to a CORE file is denied
-unless the override is set. During a first `/project-update` on a fresh project, every CORE script
-is being placed for the first time — and the guard refused `scripts/tlc-cleanup.sh` on exactly that
-basis. All seven tech-stack hook scripts in that pass were byte-identical to the template's copies.
-
-The guard's purpose is to stop a project **diverging** from the template. A write whose bytes equal
-the template's copy diverges from nothing; it is the sync doing its job. Denying it means a
-first-time install cannot complete without `ALLOW_CORE_MACHINERY_EDIT=1`, and an override reached
-for as routine bootstrap ceremony is an override that stops meaning anything — which is the real
-cost here, since that variable is also the escape hatch for the deliberate local repair the guard's
-own deny message describes.
-
-Fix: before denying, compare the content being written against `$TEMPLATE/scripts/<name>`. Byte-
-identical → allow, silently. Different, or the template copy unreadable → deny as today. That keeps
-the guard's teeth on every write that actually changes a CORE file while making the install path
-pass on its own merits rather than on a burned override.
-
-Bound worth stating: the comparison needs the template clone resolvable. When it is not, the guard
-must deny (fail closed) — it protects a file the template owns, and with no template to compare
-against there is nothing to prove the write benign.
-
 ## 040 — harness-writes-what-no-project-ignores
 
 _Opened 2026-09-07 from hetznerradar's T0 (finding F005). Template-owned per §4._
