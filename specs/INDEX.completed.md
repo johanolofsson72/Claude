@@ -409,3 +409,7 @@ reverting it. So the loss here is not destroyed work, it is work that never prop
 stays in the one project that wrote it and the other five never see it. That is a weaker
 failure than 007bl's and it argues for reporting rather than for widening CORE, which would
 change overwrite semantics for two whole directories as a side effect.
+
+## 023 — secret-scan-misses-signing-material
+
+- [x] 023 — secret-scan-misses-signing-material — full track [hardened] — two repos commit an ASP.NET Data Protection key and `project-freshness.sh` reports "no verified secrets" on both. trufflehog matches verifiable credentials; a signing key is none. Needs a file-shape arm.
