@@ -100,7 +100,9 @@ deploy:
 - `LIVE4_SSH_KEY` — SSH key for deployment to the manager node
 - `MAILJET_APIKEY` / `MAILJET_SECRET` — Email notifications on deploy
 
-**Production environment (in appsettings.Production.json):**
+**Runtime secrets (Swarm secrets, mounted as files):** created from 1Password with `op read … | docker secret create <name> -`, mounted under `/run/secrets`, read by `AddKeyPerFile`. Never in the service `environment:` (`docker service inspect` prints it) and never in `appsettings.Production.json`. Full pattern: `.claude/docs/security.md` § Secrets.
+
+**Production environment (non-secret config, in appsettings.Production.json):**
 
 - `ASPNETCORE_ENVIRONMENT=Production`
 - `ConnectionStrings` point to `/data/` — bound from `/mnt/nfs/<project>/db/` (the NFS share exported from `live4-mgr-01`). The managed disk on the manager provides durability across spot eviction; the NFS export makes the same file reachable from any spot worker. See `.claude/rules/sqlite.md` for the mandatory pragmas and the single-writer constraints that make NFS+SQLite safe.

@@ -159,14 +159,3 @@ add up. The reader is told a fraction of the map was lost and given no way to fi
 Same class as the row's own subject — a catastrophic-sounding report with a trivial cause and no
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
-
-## 072 — security-rule-says-secrets-in-env
-
-From teach F061 (spec 014 deploy-hardening, 2026-09-28). `.claude/rules/security.md` ends with "Never
-store secrets in code — use appsettings.json (local) or environment variables (production)". teach
-spec 014 moved every production secret to Swarm secrets mounted as files (`/run/secrets`, 0400),
-because environment variables are readable through `docker service inspect` / `docker inspect` by
-anyone with Docker API access, and refused a secret-class key with a live value from any non-file
-source. The rule as written steers the next project into the weaker shape. Fix: production secrets
-come from an orchestrator secret store mounted as files (Swarm/Kubernetes secrets) or a vault;
-environment variables only where the platform offers nothing else, and never baked into an image.

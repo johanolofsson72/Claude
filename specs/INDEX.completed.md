@@ -1267,3 +1267,17 @@ PNG) to satisfy the rule. Fix: say what .NET projects actually have — `Page.Sc
 pixel diff (a canvas diff in the page, or ImageSharp/Codeuctivity.ImageSharpCompare) with committed
 baselines — and keep the JS API only for Node projects.
 Fixed 2026-09-30: the Node block is TS `toHaveScreenshot`; the .NET block is `ScreenshotAsync` + Codeuctivity.SkiaSharpCompare, per-OS baselines in the source tree, missing baseline fails, `VRT_UPDATE=1` writes. Verified by running the snippet. Guard: `scripts/test-doc-dotnet-playwright-apis.sh` (template-only).
+
+## 072 — security-rule-says-secrets-in-env-and-1password
+
+- [x] 072 — security-rule-says-secrets-in-env-and-1password — spec-only — rules/security.md says production secrets go in environment variables; Swarm secret files are the safer shape (docker inspect shows env). From teach F061. Diagnosis: `specs/INDEX.pending.md`
+
+From teach F061 (spec 014 deploy-hardening, 2026-09-28). `.claude/rules/security.md` ends with "Never
+store secrets in code — use appsettings.json (local) or environment variables (production)". teach
+spec 014 moved every production secret to Swarm secrets mounted as files (`/run/secrets`, 0400),
+because environment variables are readable through `docker service inspect` / `docker inspect` by
+anyone with Docker API access, and refused a secret-class key with a live value from any non-file
+source. The rule as written steers the next project into the weaker shape. Fix: production secrets
+come from an orchestrator secret store mounted as files (Swarm/Kubernetes secrets) or a vault;
+environment variables only where the platform offers nothing else, and never baked into an image.
+Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value (`op run --env-file=.env.op` locally). Production pipes `op read … | docker secret create <name> -` and mounts it under `/run/secrets`, and the app reads it with `AddKeyPerFile`. Env vars are a fallback only, never `ENV`/`ARG`. Rule, deploy-checklist, deployment.md and wizard Q39 agree and point there. Guard: `scripts/test-doc-secrets-guidance.sh` (template-only).
