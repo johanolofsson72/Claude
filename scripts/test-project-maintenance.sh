@@ -1044,5 +1044,114 @@ OUT=$(run_full "$D")
 expect_contains "C87 no mutation runner — said"                  "no mutation runner" "$OUT"
 expect_contains "C87 names the project-owned runner"             "scripts/run-mutation-gate.sh" "$OUT"
 
+# ============================================================== row 052: ratchets + the build target
+# Half 1: every scripts/check-*.sh runs in every pass (ighweld F062 — thirteen ratchets, none invoked).
+# Half 2: a bare `dotnet test` / `dotnet stryker` at a root beside a second solution builds whichever
+# one sits there; ighweld's dead root .sln turned a 7478/0 green project red on 2026-09-18.
+mkratchet() { # mkratchet DIR NAME BODY — a ratchet script with the given body
+  printf '#!/bin/bash\n%s\n' "$3" > "$1/scripts/$2"
+}
+
+# --- C88: a failing ratchet is a finding with its name, exit code and output (AC1) ------------------
+D=$(mkfix c88); mkratchet "$D" check-silent-catches.sh 'echo "3 silent catch(es) over the floor of 0"; exit 1'
+OUT=$(run "$D"); RC=$?
+expect_contains "C88 failing ratchet — a RATCHET finding"        "[RATCHET] scripts/check-silent-catches.sh failed (exit 1)" "$OUT"
+expect_contains "C88 its output is quoted"                       "3 silent catch(es) over the floor of 0" "$OUT"
+expect_rc       "C88 verdict is red" 1 "$RC"
+
+# --- C89: a passing ratchet says nothing (AC2) -------------------------------------------------------
+D=$(mkfix c89); mkratchet "$D" check-css-classes.sh 'echo "all classes defined"; exit 0'
+OUT=$(run "$D"); RC=$?
+expect_absent   "C89 green ratchet — no finding"                 "[RATCHET]" "$OUT"
+expect_absent   "C89 green ratchet — its output is not echoed"   "all classes defined" "$OUT"
+expect_rc       "C89 verdict is green" 0 "$RC"
+
+# --- C90: it runs from the root, with no arguments and stdin closed --------------------------------
+D=$(mkfix c90); mkratchet "$D" check-where.sh 'pwd > .ratchet-pwd; echo "$#" > .ratchet-argc; if read -r _; then exit 3; fi; exit 0'
+OUT=$(run "$D"); RC=$?
+expect_rc       "C90 ran from the repo root" 0 "$( [ "$(cat "$D/.ratchet-pwd" 2>/dev/null)" = "$(cd "$D" && pwd -P)" ] || [ "$(cat "$D/.ratchet-pwd" 2>/dev/null)" = "$(cd "$D" && pwd)" ]; echo $?)"
+expect_rc       "C90 no arguments" 0 "$(cat "$D/.ratchet-argc" 2>/dev/null)"
+expect_rc       "C90 stdin closed — green" 0 "$RC"
+
+# --- C91: a hanging ratchet is bounded and said to have timed out (AC3) -----------------------------
+D=$(mkfix c91); mkratchet "$D" check-hangs.sh 'sleep 6; exit 0'
+T0=$(date +%s); OUT=$(run "$D" MAINTENANCE_RATCHET_TIMEOUT=1); RC=$?; T1=$(date +%s)
+expect_contains "C91 hanging ratchet — timed out"                "[RATCHET] scripts/check-hangs.sh timed out after 1s" "$OUT"
+expect_rc       "C91 the pass did not wait for it" 0 "$( [ $((T1 - T0)) -lt 5 ]; echo $?)"
+expect_rc       "C91 verdict is red" 1 "$RC"
+
+# --- C92: a reasoned skip marker keeps it from running and says why (AC4) ---------------------------
+D=$(mkfix c92); mkratchet "$D" check-env.sh '# maintenance: skip needs the production .env
+echo ran > .ratchet-ran; exit 1'
+OUT=$(run "$D"); RC=$?
+expect_absent   "C92 skipped — no finding"                       "[RATCHET]" "$OUT"
+expect_rc       "C92 skipped — never executed" 1 "$( [ -f "$D/.ratchet-ran" ]; echo $?)"
+expect_contains "C92 the note names the ratchet and the reason"  "scripts/check-env.sh — needs the production .env" "$OUT"
+expect_rc       "C92 verdict is green" 0 "$RC"
+
+# --- C93: a skip marker with no reason is ignored, and the note says so (AC5) -----------------------
+D=$(mkfix c93); mkratchet "$D" check-lazy.sh '# maintenance: skip
+echo "lazy ratchet ran"; exit 1'
+OUT=$(run "$D"); RC=$?
+expect_contains "C93 reasonless skip — it ran and failed"        "[RATCHET] scripts/check-lazy.sh failed (exit 1)" "$OUT"
+expect_contains "C93 the note says the marker was ignored"       "scripts/check-lazy.sh: skip marker has no reason — ignored" "$OUT"
+
+# --- C94: no ratchets, no ratchet output (AC6) — and a non-.sh check file is not one -----------------
+D=$(mkfix c94); printf '12\n' > "$D/scripts/check-e2e-typecheck.floor"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C94 no ratchets — nothing said"                 "ratchet" "$OUT"
+expect_rc       "C94 verdict is green" 0 "$RC"
+
+# The ighweld shape: a dead solution at the root and the real one two levels down. Every dotnet
+# invocation is recorded, so "never invoked" is measured rather than inferred from the output.
+two_solutions() { # two_solutions DIR
+  printf 'Microsoft Visual Studio Solution File\n' > "$1/IGHWeld.Web.sln"
+  mkdir -p "$1/src/welding"; printf 'Microsoft Visual Studio Solution File\n' > "$1/src/welding/Welding.sln"
+  printf '#!/bin/bash\necho "$*" >> "%s/dotnet-ran"\ncat "%s/bin/transcript.txt" 2>/dev/null\nexit 0\n' "$1" "$1" > "$1/bin/dotnet"
+  chmod +x "$1/bin/dotnet"
+}
+SUITE_TEXT='Passed!  - Failed:     0, Passed:    12, Skipped:     0, Total:    12'
+
+# --- C95: two solutions, nothing declared, --suite — refused, named, nothing run (AC7) --------------
+D=$(mksuite c95 0); two_solutions "$D"
+OUT=$(run_suite "$D"); RC=$?
+expect_contains "C95 ambiguous build target — a SUITE finding"   "[SUITE] NOT RUN — 2 .NET solutions and nothing declared" "$OUT"
+expect_contains "C95 names the root solution"                    "IGHWeld.Web.sln" "$OUT"
+expect_contains "C95 names the nested solution"                  "src/welding/Welding.sln" "$OUT"
+expect_contains "C95 names the declaration"                      ".claude/.suite-command" "$OUT"
+expect_rc       "C95 dotnet never invoked" 1 "$( [ -f "$D/dotnet-ran" ]; echo $?)"
+expect_rc       "C95 not stamped" 0 "$(stamped_suite "$D")"
+expect_rc       "C95 verdict is red" 1 "$RC"
+
+# --- C96: the same shape with a declaration runs the declaration and stamps (AC8) -------------------
+D=$(mksuite c96 0); two_solutions "$D"
+printf 'dotnet test src/welding/Welding.sln\n' > "$D/.claude/.suite-command"
+OUT=$(run_suite "$D")
+expect_contains "C96 declared — suite green"                     "suite green — \`dotnet test src/welding/Welding.sln\`" "$OUT"
+expect_rc       "C96 stamped" 1 "$(stamped_suite "$D")"
+
+# --- C97: two solutions, --full, no runner — the bare stryker is refused (AC9) ----------------------
+D=$(mkfix_mut c97 80); two_solutions "$D"
+printf '#!/bin/bash\n[ "$1" = --stamp ] && echo "$2" >> "%s/stamped"\nexit 0\n' "$D" > "$D/scripts/maintenance-due.sh"
+OUT=$(run_full "$D"); RC=$?
+expect_contains "C97 ambiguous build target — a MUTATION finding" "[MUTATION] NOT RUN — 2 .NET solutions and no project-owned runner" "$OUT"
+expect_contains "C97 names both solutions"                       "src/welding/Welding.sln" "$OUT"
+expect_contains "C97 names the runner to declare"                "scripts/run-mutation-gate.sh" "$OUT"
+expect_rc       "C97 dotnet never invoked" 1 "$( [ -f "$D/dotnet-ran" ]; echo $?)"
+expect_rc       "C97 mutation not stamped" 0 "$(grep -cx mutation "$D/stamped" 2>/dev/null)"
+expect_rc       "C97 verdict is red" 1 "$RC"
+
+# --- C98: no timeout binary — the ratchet still runs, and the pass says it ran unbounded --------------
+# Only measurable where /usr/bin:/bin carries no timeout (macOS without coreutils on that PATH); on
+# Linux coreutils puts it there, and the arm is reported as not exercised rather than passed.
+if ! PATH=/usr/bin:/bin command -v timeout >/dev/null 2>&1 && ! PATH=/usr/bin:/bin command -v gtimeout >/dev/null 2>&1; then
+  D=$(mkfix c98); mkratchet "$D" check-plain.sh 'echo ran > .ratchet-ran; exit 0'
+  OUT=$(run "$D" PATH=/usr/bin:/bin); RC=$?
+  expect_rc       "C98 no timeout binary — the ratchet still ran" 0 "$( [ -f "$D/.ratchet-ran" ]; echo $?)"
+  expect_contains "C98 the pass says it ran unbounded"            "ratchets ran unbounded" "$OUT"
+else
+  printf '  --   C98 not exercised: this host has timeout in /usr/bin:/bin\n'
+fi
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

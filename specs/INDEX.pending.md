@@ -146,25 +146,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 052 — maintenance-runs-what-it-finds
-
-From ighweld-2026's findings batch review, 2026-09-18.
-
-**Half 1, the ratchets (ighweld F062).** Nothing invokes any `scripts/check-*.sh` ratchet: not
-`check-e2e-guards.sh`, `check-silent-catches.sh` or `check-css-classes.sh`. `project-maintenance.sh`
-runs none of them. A ratchet that only runs when someone remembers it will eventually stop running.
-One `check-all.sh`, wired into the maintenance pass, covers every ratchet a project adds.
-
-**Half 2, the build target.** `--suite` runs `dotnet test` and `--full` runs `dotnet stryker` from the
-repo root. ighweld-2026 had a leftover `IGHWeld.Web.sln` at the root that pointed at deleted Blazor
-projects. On 2026-09-18 both steps failed with MSB3202 "project file not found", and the pass
-reported `[SUITE] failed` and `[MUTATION] failed to complete`. The real solution
-(`src/welding/Welding.sln`) was 7478/0 green in the same session. Stryker also has no whole-project
-config there, only `stryker-config.NNN.json` files, one per spec. Proposed fix: let the project
-declare its solution and test project (as `specs/traceability-roots` does for test roots) and fail
-loudly when no declaration exists and more than one candidate is present, rather than taking
-whatever the root holds.
-
 ## 053 — stryker-tmp-outlives-its-run (from msroute, 2026-09-25)
 
 Reported by msroute F007, 2026-09-25 (verbatim):

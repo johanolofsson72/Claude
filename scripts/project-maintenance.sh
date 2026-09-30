@@ -21,7 +21,13 @@
 #   bash scripts/project-maintenance.sh --suite    # also run the whole test suite, stamp it on green
 #
 # The suite command is the first non-comment line of .claude/.suite-command when the project
-# declares one; otherwise a root `npm test` script, otherwise `dotnet test` (row 051).
+# declares one; otherwise a root `npm test` script, otherwise `dotnet test` (row 051). A detected
+# `dotnet test` or bare `dotnet stryker` beside more than one .NET solution is refused, not run
+# against whichever sits at the root (row 052).
+#
+# Every pass also runs each scripts/check-*.sh ratchet from the root (row 052); a non-zero exit is a
+# finding. A ratchet opts out with `# maintenance: skip <reason>` in its first 30 lines.
+# MAINTENANCE_RATCHET_TIMEOUT=N  seconds per ratchet (default 300; needs timeout or gtimeout).
 #
 # MAINTENANCE_WORKTREE_GRACE_HOURS=N  how long an agent worktree may sit untouched
 #   before it is reported as abandoned (default 24). Agent worktrees are not locked,
@@ -104,6 +110,18 @@ command -v python3 >/dev/null 2>&1 && [ -f scripts/maintenance_ledger.py ] && LE
 measured() { # measured JOB CMD [ARGS...]
   local job=$1; shift
   if [ "$LEDGER_OK" -eq 1 ]; then python3 scripts/maintenance_ledger.py run "$job" -- "$@"; else "$@"; fi
+}
+
+# Every .NET solution a bare `dotnet test` / `dotnet stryker` could be meant for (row 052). Two or
+# more with nothing declared means the root one gets built blind: ighweld-2026's root IGHWeld.Web.sln
+# pointed at deleted projects, and both steps failed MSB3202 on 2026-09-18 while the real
+# src/welding/Welding.sln was 7478/0 green. Same depth as the detection that picks `dotnet`.
+dotnet_solutions() {
+  find . -maxdepth 3 \( -name node_modules -o -name .git \) -prune -o \
+    -type f \( -name '*.sln' -o -name '*.slnx' \) -print 2>/dev/null | sed 's|^\./||' | sort
+}
+solution_list() { # solution_list "<newline list>" — indented, for a finding
+  printf '%s\n' "$1" | sed 's/^/    /'
 }
 
 # ---------------------------------------------------------------- 1. secrets + CVEs
@@ -765,7 +783,15 @@ fi
 MUT_MEASURED=0
 
 if [ -n "$MUTATION_CMD" ]; then
-  if [ "$FULL" -eq 1 ] && [ -n "$MUT_LIVE" ]; then
+  MUT_SLNS=""
+  [ "$MUTATION_CMD" = "dotnet stryker" ] && MUT_SLNS=$(dotnet_solutions)
+  if [ "$FULL" -eq 1 ] && [ "$(printf '%s' "$MUT_SLNS" | grep -c .)" -gt 1 ]; then
+    # Row 052. Not stamped: nothing was measured, and the job stays due until the project says which.
+    add "[MUTATION] NOT RUN — $(printf '%s\n' "$MUT_SLNS" | grep -c .) .NET solutions and no project-owned runner, so a bare \`dotnet stryker\` would
+  mutate whichever one sits at the root, blind:
+$(solution_list "$MUT_SLNS")
+  Declare the run as scripts/run-mutation-gate.sh (project-owned; it must print \`mutation score N%\`)."
+  elif [ "$FULL" -eq 1 ] && [ -n "$MUT_LIVE" ]; then
     add "[MUTATION] NOT RUN — Stryker must run alone, and this project already has one running:
 $(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2, $3 }')
   A build beside Stryker overwrites the mutated assembly and the run scores about 0% with no warning
@@ -1043,6 +1069,55 @@ ${VP_BAD%
   Add a narrow project (375px) to the shared config per .claude/docs/testing.md (Viewports), or state why not with a 'narrow-viewport: not-applicable' comment."
 fi
 
+# ------------------------------------------------------ 6e. the project's own ratchets
+# Row 052 (ighweld F062): projects write scripts/check-*.sh ratchets and nothing runs them. ighweld
+# had thirteen and none was invoked by anything; a ratchet that runs when somebody remembers stops
+# running. So every pass runs every one it finds: from the root, no arguments, stdin closed, exit 0
+# passes. Green says nothing. A ratchet that cannot run here opts out with
+# `# maintenance: skip <reason>` in its first 30 lines; the reason is required and printed, so a
+# skip is never silent. Output goes to a file, not a pipe: a timed-out ratchet's orphaned children
+# would hold a pipe open and the pass would wait for them anyway.
+RATCHET_LIMIT=${MAINTENANCE_RATCHET_TIMEOUT:-300}
+case "$RATCHET_LIMIT" in (''|*[!0-9]*) RATCHET_LIMIT=300 ;; esac
+RATCHET_TIMEOUT=""
+command -v timeout >/dev/null 2>&1 && RATCHET_TIMEOUT=timeout
+[ -z "$RATCHET_TIMEOUT" ] && command -v gtimeout >/dev/null 2>&1 && RATCHET_TIMEOUT=gtimeout
+RATCHET_SKIPS=""
+RATCHET_UNBOUNDED=0
+for ratchet in scripts/check-*.sh; do
+  [ -f "$ratchet" ] || continue
+  skip_line=$(head -30 "$ratchet" | grep -m1 -E '^#[[:space:]]*maintenance:[[:space:]]*skip([[:space:]]|$)')
+  if [ -n "$skip_line" ]; then
+    reason=$(printf '%s' "$skip_line" | sed -E 's/^#[[:space:]]*maintenance:[[:space:]]*skip[[:space:]]*//; s/^(—|–|-)[[:space:]]*//; s/[[:space:]]+$//')
+    if [ -n "$reason" ]; then
+      RATCHET_SKIPS="${RATCHET_SKIPS}  $ratchet — $reason
+"
+      continue
+    fi
+    note "[note] $ratchet: skip marker has no reason — ignored, so it ran. Write \`# maintenance: skip <why>\`."
+  fi
+  ratchet_out=$(mktemp "${TMPDIR:-/tmp}/ratchet.XXXXXX")
+  if [ -n "$RATCHET_TIMEOUT" ]; then
+    "$RATCHET_TIMEOUT" "$RATCHET_LIMIT" bash "$ratchet" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
+  else
+    RATCHET_UNBOUNDED=1
+    bash "$ratchet" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
+  fi
+  if [ -n "$RATCHET_TIMEOUT" ] && [ "$ratchet_rc" -eq 124 ]; then
+    add "[RATCHET] $ratchet timed out after ${RATCHET_LIMIT}s — it did not finish, so it neither passed nor failed.
+  Raise MAINTENANCE_RATCHET_TIMEOUT, or mark it \`# maintenance: skip <why>\` if it cannot run here.
+$(tail -8 "$ratchet_out" | sed 's/^/  /')"
+  elif [ "$ratchet_rc" -ne 0 ]; then
+    add "[RATCHET] $ratchet failed (exit $ratchet_rc):
+$(tail -12 "$ratchet_out" | sed 's/^/  /')"
+  fi
+  rm -f "$ratchet_out"
+done
+[ -n "$RATCHET_SKIPS" ] && note "[note] ratchets skipped by their own marker:
+${RATCHET_SKIPS%
+}"
+[ "$RATCHET_UNBOUNDED" -eq 1 ] && note "[note] ratchets ran unbounded — neither timeout nor gtimeout is installed, so a hung one hangs this pass."
+
 # ------------------------------------------------------------- 7. the test suite (--suite)
 #
 # THE PART THAT ACTUALLY COST THE DAYS. Sections 1-6 are hygiene: seconds to minutes. What made
@@ -1104,8 +1179,17 @@ if [ "$SUITE" -eq 1 ]; then
     SUITE_PARTIAL=${SUITE_PARTIAL% }
   fi
   [ -n "$SUITE_CMD" ] && [ -z "$SUITE_FROM" ] && SUITE_FROM="detected, not declared"
+  SUITE_SLNS=""
+  [ "$SUITE_CMD" = "dotnet test" ] && [ "$SUITE_FROM" = "detected, not declared" ] && SUITE_SLNS=$(dotnet_solutions)
 
-  if [ -z "$SUITE_CMD" ]; then
+  if [ "$(printf '%s' "$SUITE_SLNS" | grep -c .)" -gt 1 ]; then
+    # Row 052: a detected `dotnet test` beside a second solution builds the root one blind. Not run,
+    # not stamped — a red suite over a stale solution reads exactly like a real regression.
+    add "[SUITE] NOT RUN — $(printf '%s\n' "$SUITE_SLNS" | grep -c .) .NET solutions and nothing declared, so \`dotnet test\` at the root would build
+  whichever one sits there, blind:
+$(solution_list "$SUITE_SLNS")
+  Put the command that runs the whole suite on one line in $SUITE_DECL. Not stamped: the job stays due."
+  elif [ -z "$SUITE_CMD" ]; then
     # Nothing detected is not the end: say where the project declares it. A .template-sync-verify
     # command is quoted as a candidate and NEVER run here. That file often declares a unit slice on
     # purpose (its own help recommends one), and stamping a slice as the whole suite is the iskvalp
