@@ -160,18 +160,6 @@ Same class as the row's own subject — a catastrophic-sounding report with a tr
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
 
-## 070 — freshness-audits-npm-only
-
-From ekofak checkpoint H1 (2026-09-28). `scripts/project-freshness.sh` has two checks, trufflehog and
-`npm audit`, and discovers only `package.json` manifests. ekofak's backend is Java 21 / Spring Boot 3 on
-Maven (`backend/pom.xml`: Spring, PDFBox, Flyway, jqwik), and its H1 security sweep reported
-"Deps: advisories — frontend/" as if that were the whole dependency surface; the backend was never looked at.
-The same holds for any Gradle, NuGet, Cargo, Go or pip project the template runs in. Fix: discover the
-other manifests and run the ecosystem's own audit where one exists locally (`mvn
-org.owasp:dependency-check-maven:check` needs an NVD API key and is slow, so consider OSV-Scanner, which
-reads pom.xml / lockfiles offline-first), and print an explicit `[SKIP] <manifest> — no auditor` line for
-any ecosystem it cannot check, so an unchecked backend never reads as clean.
-
 ## 071 — testing-doc-prescribes-js-screenshot-api
 
 From teach F007 (spec 003, confirmed at teach H1–H3). `.claude/docs/testing.md` prescribes

@@ -177,7 +177,7 @@ OUT=$(run "$P")
 expect_pkg_count "nothing is audited" 0 "$OUT"
 expect_contains  "the summary says none were auditable" "no auditable package.json" "$OUT"
 expect_absent    "…and does not claim this is not a Node project" "not a Node project" "$OUT"
-expect_absent    "…and does not report deps as clean" "Deps:    clean" "$OUT"
+expect_absent    "…and does not report deps as clean" "npm:     clean" "$OUT"
 
 # ------------------------------------------------------------- C8 — a manifest at the repo root
 printf '\n  -- C8  a manifest at the root labels as ./\n'
@@ -239,7 +239,7 @@ P=$(mkrepo noosv)
 mkpkg "$P/package.json" app
 OUT=$(run "$P"); RC=$?
 expect_contains "the skip line names what went unscanned" \
-  "[skip] osv-scanner not installed — NuGet/pub lockfiles unscanned; install:" "$OUT"
+  "[skip] osv-scanner not installed — NuGet/pub/Maven/Gradle/Cargo/Go/pip lockfiles unscanned; install:" "$OUT"
 expect_contains "the summary does not call it clean" "OSV:     SKIPPED" "$OUT"
 if [ "$RC" -eq 0 ]; then ok "…and it fails open (exit 0)"; else bad "…and it fails open (exit 0)" "0" "$RC"; fi
 
@@ -315,6 +315,108 @@ mkpkg "$P/package.json" app
 OUT=$(run "$P")
 expect_contains "a Node-only project says it is not .NET" ".NET:    no .NET project" "$OUT"
 
+# ------------------------------- C15–C20 — dependency coverage: no manifest is silently unchecked
+# Spec 070 (ekofak H1): a Maven backend was never audited and the report read as complete. The
+# coverage pass lists every non-npm, non-.NET manifest as covered by osv-scanner or as a named
+# [SKIP] … no auditor, and an unchecked one keeps RESULT from saying clean.
+printf '\n  -- C15 a Maven backend without osv-scanner is named, counted and NOT SCANNED\n'
+P=$(mkrepo maven)
+mkdir -p "$P/backend" "$P/backend/target/classes/META-INF/maven"
+printf '<project/>\n' > "$P/backend/pom.xml"
+printf '<project/>\n' > "$P/backend/target/classes/META-INF/maven/pom.xml"
+OSV_UNDER_TEST="$NO_BIN/osv-scanner"
+OUT=$(run "$P"); RC=$?
+expect_contains "SC-070-01 the backend manifest is a named skip" \
+  "[SKIP] backend/pom.xml — no auditor: osv-scanner not installed" "$OUT"
+expect_contains "…the summary counts it" "Other:   1 of 1 UNCHECKED — backend/pom.xml" "$OUT"
+expect_contains "…RESULT says not scanned" "NOT SCANNED: deps(backend/pom.xml)" "$OUT"
+expect_absent   "…never clean" "RESULT: clean" "$OUT"
+expect_absent   "SC-070-06 Maven's target/ copy is not listed" "target/classes" "$OUT"
+if [ "$RC" -eq 0 ]; then ok "…and unchecked is not a finding (exit 0)"; else bad "…and unchecked is not a finding (exit 0)" "0" "$RC"; fi
+expect_contains "SC-070-07 the osv skip line names the JVM ecosystems" "Maven/Gradle" "$OUT"
+
+printf '\n  -- C16 osv-scanner with a verdict covers pom.xml itself\n'
+OSV_UNDER_TEST="$TMP/stubs/c16/osv-scanner"; mkstub "$OSV_UNDER_TEST" "No issues found" 0
+OUT=$(run "$P")
+expect_contains "SC-070-02 pom.xml is covered" "[OK] backend/pom.xml — osv-scanner (backend/pom.xml)" "$OUT"
+expect_contains "…the summary says all covered" "Other:   all 1 covered by osv-scanner" "$OUT"
+expect_contains "…and RESULT is clean" "RESULT: clean" "$OUT"
+mkpkg "$P/package.json" app
+: > "$P/build.gradle"
+OSV_UNDER_TEST="$TMP/stubs/c16b/osv-scanner"; mkstub "$OSV_UNDER_TEST" "GHSA-xxxx" 1
+OUT=$(run "$P")
+expect_contains "…findings elsewhere do not hide the unchecked manifest" \
+  "Also NOT SCANNED: deps(./build.gradle)" "$OUT"
+OSV_UNDER_TEST="$TMP/stubs/c16/osv-scanner"
+
+printf '\n  -- C17 build.gradle needs a lockfile osv-scanner reads\n'
+P=$(mkrepo gradle)
+mkdir -p "$P/app"; : > "$P/app/build.gradle.kts"; : > "$P/settings.gradle.kts"
+OUT=$(run "$P")
+expect_contains "SC-070-03 a lockless Gradle build is unchecked even with osv present" \
+  "[SKIP] app/build.gradle.kts — no auditor: no lockfile osv-scanner reads" "$OUT"
+expect_contains "…with the lock command" "--write-locks" "$OUT"
+expect_contains "…and RESULT says not scanned" "NOT SCANNED" "$OUT"
+mkdir -p "$P/gradle"; : > "$P/gradle/verification-metadata.xml"
+OUT=$(run "$P")
+expect_contains "…the root verification metadata covers it" \
+  "[OK] app/build.gradle.kts — osv-scanner (gradle/verification-metadata.xml)" "$OUT"
+
+printf '\n  -- C18 a workspace member is covered by the root lockfile\n'
+P=$(mkrepo cargo)
+mkdir -p "$P/crates/core"; : > "$P/Cargo.toml"; : > "$P/crates/core/Cargo.toml"; : > "$P/Cargo.lock"
+OUT=$(run "$P")
+expect_contains "SC-070-04 the member finds the ancestor lock" \
+  "[OK] crates/core/Cargo.toml — osv-scanner (Cargo.lock)" "$OUT"
+expect_contains "…the root is labelled ./" "[OK] ./Cargo.toml — osv-scanner (Cargo.lock)" "$OUT"
+expect_contains "…both counted" "Other:   all 2 covered by osv-scanner" "$OUT"
+
+printf '\n  -- C19 osv-scanner without a verdict covers nothing\n'
+P=$(mkrepo osverr)
+: > "$P/go.mod"; mkdir -p "$P/ignored"; : > "$P/ignored/requirements.txt"; printf 'ignored/\n' > "$P/.gitignore"
+OSV_UNDER_TEST="$TMP/stubs/c19/osv-scanner"; mkstub "$OSV_UNDER_TEST" "boom" 127
+OUT=$(run "$P")
+expect_contains "SC-070-05 an errored scanner vouches for nothing" \
+  "[SKIP] ./go.mod — no auditor: osv-scanner gave no verdict (exit 127)" "$OUT"
+expect_absent   "…a gitignored manifest is not listed" "ignored/requirements.txt" "$OUT"
+
+printf '\n  -- C20 no such manifests: one quiet line, nothing unscanned\n'
+P=$(mkrepo nomanifests)
+mkpkg "$P/package.json" app
+OSV_UNDER_TEST="$NO_BIN/osv-scanner"
+OUT=$(run "$P")
+expect_contains "SC-070-07 none found" "Other:   none found" "$OUT"
+expect_absent   "…and no deps() not-scanned entry" "deps(" "$OUT"
+expect_contains "SC-070-08 the npm verdict is labelled npm" "npm:     " "$OUT"
+expect_absent   "…not Deps" "Deps:    " "$OUT"
+expect_contains "…and the headers count six passes" "[6/6] dependency coverage" "$OUT"
+
+printf '\n  -- C21 sabotage: the tests bite\n'
+SAB="$TMP/sabotage"; mkdir -p "$SAB"
+# Arm 1: osv present counts as covered, lockfile or not.
+awk '/# sabotage:lockfile-rule:start/{print; print "    lock=\"$m\""; skip=1; next} /# sabotage:lockfile-rule:end/{skip=0} !skip' \
+  "$FRESH" > "$SAB/arm1.sh"
+# Arm 2: an unchecked manifest no longer joins NOT_SCANNED.
+awk '/# sabotage:not-scanned-join:start/{print; skip=1; next} /# sabotage:not-scanned-join:end/{skip=0} !skip' \
+  "$FRESH" > "$SAB/arm2.sh"
+sabrun() { ( cd "$2" && FRESHNESS_OSV_SCANNER="$OSV_UNDER_TEST" FRESHNESS_DOTNET="$DOTNET_UNDER_TEST" \
+    bash "$1" --deps --no-install 2>&1 ); }
+if cmp -s "$FRESH" "$SAB/arm1.sh" || cmp -s "$FRESH" "$SAB/arm2.sh"; then
+  bad "sabotage markers exist" "both arms change the script" "a marker is missing"
+else
+  P=$(mkrepo sab1); : > "$P/build.gradle"
+  OSV_UNDER_TEST="$TMP/stubs/c21/osv-scanner"; mkstub "$OSV_UNDER_TEST" "No issues found" 0
+  if sabrun "$SAB/arm1.sh" "$P" | grep -Fq "[SKIP] ./build.gradle — no auditor: no lockfile"; then
+    bad "arm 1 (lockfile rule dropped) turns C17 red" "the SKIP line disappears" "still there"
+  else ok "arm 1 (lockfile rule dropped) turns C17 red"; fi
+  P=$(mkrepo sab2); : > "$P/pom.xml"
+  OSV_UNDER_TEST="$NO_BIN/osv-scanner"
+  if sabrun "$SAB/arm2.sh" "$P" | grep -Fq "NOT SCANNED: deps(./pom.xml)"; then
+    bad "arm 2 (NOT_SCANNED join dropped) turns C15 red" "RESULT loses NOT SCANNED" "still there"
+  else ok "arm 2 (NOT_SCANNED join dropped) turns C15 red"; fi
+fi
+OSV_UNDER_TEST="$NO_BIN/osv-scanner"
+
 # =============================================================================================
 # Key-shape scan (spec 023). trufflehog --only-verified cannot see a key that no provider will
 # answer for; this arm finds it by shape. Every fixture is built here at runtime: no key-shaped
@@ -368,7 +470,7 @@ expect_contains "…and the DP-specific step" "delete the key ring" "$OUT"
 expect_contains "the SUMMARY has a Keys line" "Keys:    1 KEY FILE(S) FOUND" "$OUT"
 expect_exit     "a key FINDING exits 1" 1 "$OUT"
 expect_contains "trufflehog is missing in this run…" "Secrets: skipped (trufflehog unavailable)" "$OUT"
-expect_contains "…and the key scan ran anyway" "[2/5] key-shape scan" "$OUT"
+expect_contains "…and the key scan ran anyway" "[2/6] key-shape scan" "$OUT"
 
 printf '\n  -- K2  an encrypted-at-rest key ring is a NOTE, not a finding\n'
 P=$(mkrepo k2); mkdir -p "$P/keys"; dpkey encrypted > "$P/keys/$GUIDXML"; commit_all "$P"
@@ -538,7 +640,7 @@ expect_contains "both clean: the RESULT names both" "no verified credentials, no
 TH_UNDER_TEST="$NO_BIN/trufflehog"
 keyscan "$P" --deps
 expect_contains "--deps does not run the key scan" "Keys:    not run (--deps)" "$OUT"
-expect_absent   "…nor print its section" "[2/5] key-shape" "$OUT"
+expect_absent   "…nor print its section" "[2/6] key-shape" "$OUT"
 
 printf '\n  -- K18 escapes and prefixes: +, \/, CRLF, commented-out body lines\n'
 P=$(mkrepo k18); mkdir -p "$P/cfg"

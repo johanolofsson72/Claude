@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # project-freshness.sh — local "keep the project fresh" maintenance pass.
 #
-# Independent checks, all LOCAL (never a GitHub Action — see
+# Six independent checks, all LOCAL (never a GitHub Action — see
 # .claude/rules/github-actions.md, the trufflehog/secret-scan-on-schedule ban):
 #
 #   1. trufflehog — verified secret scan of the repo (git history if this is a
@@ -29,6 +29,10 @@
 #   5. dotnet list package --vulnerable --include-transitive — when the project
 #      has a .sln/.slnx/.csproj and dotnet is on PATH. NuGetAudit already warns
 #      at restore; this is the explicit report, per solution.
+#   6. dependency coverage — every Maven/Gradle/Cargo/Go/Python/Ruby/PHP/Elixir/Dart
+#      manifest the project owns, one line each: [OK] when osv-scanner gave a verdict
+#      and reads a file for it (the manifest or its lockfile), else [SKIP] … no auditor:
+#      <why>. An unchecked manifest is NOT SCANNED in the RESULT, never clean (spec 070).
 #
 # REPORT-FIRST by default: it tells you what is wrong and prints the exact
 # remediation commands, but it does NOT mutate the tree. `npm audit fix --force`
@@ -48,7 +52,7 @@
 #   bash scripts/project-freshness.sh             # report only (default), auto-installs trufflehog if missing
 #   bash scripts/project-freshness.sh --fix       # also run `npm audit fix --force` + verify
 #   bash scripts/project-freshness.sh --secrets   # only the secret passes (trufflehog + key-shape scan)
-#   bash scripts/project-freshness.sh --deps      # only the dependency passes (npm audit, osv-scanner, dotnet)
+#   bash scripts/project-freshness.sh --deps      # only the dependency passes (npm audit, osv-scanner, dotnet, coverage)
 #   bash scripts/project-freshness.sh --no-install # never self-install trufflehog; skip + hint if absent
 #
 # Test seams: FRESHNESS_TRUFFLEHOG, FRESHNESS_OSV_SCANNER and FRESHNESS_DOTNET name the
@@ -133,6 +137,10 @@ DEPS_STATUS="not run (--secrets)"
 OSV_STATUS="not run (--secrets)"
 DOTNET_STATUS="not run (--secrets)"
 KEYS_STATUS="not run (--deps)"
+OTHER_STATUS="not run (--secrets)"
+# Did osv-scanner give a verdict (exit 0/1)? Pass 6 counts a manifest as covered only then.
+OSV_VERDICT="no"
+OSV_WHY="osv-scanner not run"
 NOT_SCANNED=""   # secret passes that did not run to completion; the RESULT line must not call them clean
 OSV_BIN="${FRESHNESS_OSV_SCANNER:-osv-scanner}"
 DOTNET_BIN="${FRESHNESS_DOTNET:-dotnet}"
@@ -144,7 +152,7 @@ echo "=========================================================="
 # ---- 1. trufflehog: verified secret scan ------------------------------------
 if [ "$DO_SECRETS" -eq 1 ]; then
   echo
-  echo "── [1/5] trufflehog secret scan ──────────────────────────"
+  echo "── [1/6] trufflehog secret scan ──────────────────────────"
   ensure_trufflehog
   if command -v "$TRUFFLEHOG_BIN" >/dev/null 2>&1; then
     # --only-verified:        live-checked credentials only (kills the false-positive
@@ -618,14 +626,14 @@ key_shape_scan() {
 
 if [ "$DO_SECRETS" -eq 1 ]; then
   echo
-  echo "── [2/5] key-shape scan (signing material) ───────────────"
+  echo "── [2/6] key-shape scan (signing material) ───────────────"
   key_shape_scan
 fi
 
 # ---- 3. npm audit: dependency vulnerability report --------------------------
 if [ "$DO_DEPS" -eq 1 ]; then
   echo
-  echo "── [3/5] npm audit (dependency CVEs) ─────────────────────"
+  echo "── [3/6] npm audit (dependency CVEs) ─────────────────────"
   # Scan every package.json that is not vendored/build output.
   PKG_FOUND=0
   DEPS_VULN=0; DEPS_CLEAN=0; DEPS_SKIPPED=0; DEPS_IGNORED=0; DEPS_SUMMARY=""
@@ -784,16 +792,16 @@ fi
 # ---- 4. osv-scanner: every lockfile npm audit cannot read ------------------
 if [ "$DO_DEPS" -eq 1 ]; then
   echo
-  echo "── [4/5] osv-scanner (NuGet / pub / npm lockfiles) ───────"
+  echo "── [4/6] osv-scanner (NuGet / pub / npm lockfiles) ───────"
   if command -v "$OSV_BIN" >/dev/null 2>&1; then
     # `scan source -r` walks the tree and honours .gitignore, so the dead worktrees
     # and Stryker sandboxes the npm walk declines are declined here too.
     "$OSV_BIN" scan source -r "$ROOT"; OSV_RC=$?
     case "$OSV_RC" in
       0)   echo "[OK] osv-scanner: no known vulnerabilities in any lockfile."
-           OSV_STATUS="clean" ;;
+           OSV_VERDICT="yes"; OSV_STATUS="clean" ;;
       1)   echo "[FINDING] osv-scanner reported vulnerabilities (table above)."
-           FINDINGS=1
+           FINDINGS=1; OSV_VERDICT="yes"
            OSV_STATUS="vulnerabilities found — see table above" ;;
       128) # Documented as "no packages found": nothing to scan is not a clean scan.
            echo "[SKIP] osv-scanner found no lockfiles to scan."
@@ -803,6 +811,7 @@ if [ "$DO_DEPS" -eq 1 ]; then
            echo "[WARN] osv-scanner exited $OSV_RC (an error, not a finding) — nothing was verified."
            OSV_STATUS="ERROR (exit $OSV_RC) — lockfiles unscanned" ;;
     esac
+    [ "$OSV_VERDICT" = "yes" ] || OSV_WHY="osv-scanner gave no verdict (exit $OSV_RC)"
   else
     case "$(uname -s 2>/dev/null)" in
       Darwin) OSV_HINT="brew install osv-scanner" ;;
@@ -812,15 +821,16 @@ if [ "$DO_DEPS" -eq 1 ]; then
     esac
     # Fail open, but loud: optional tooling must not block the pass, and "not scanned"
     # must never read like "no findings". The SUMMARY repeats it for the same reason.
-    echo "[skip] osv-scanner not installed — NuGet/pub lockfiles unscanned; install: $OSV_HINT"
-    OSV_STATUS="SKIPPED — osv-scanner not installed (NuGet/pub lockfiles unscanned)"
+    echo "[skip] osv-scanner not installed — NuGet/pub/Maven/Gradle/Cargo/Go/pip lockfiles unscanned; install: $OSV_HINT"
+    OSV_STATUS="SKIPPED — osv-scanner not installed (lockfiles unscanned; per-manifest list in pass 6)"
+    OSV_WHY="osv-scanner not installed (install: $OSV_HINT)"
   fi
 fi
 
 # ---- 5. dotnet list package --vulnerable ------------------------------------
 if [ "$DO_DEPS" -eq 1 ]; then
   echo
-  echo "── [5/5] dotnet vulnerable packages (incl. transitive) ───"
+  echo "── [5/6] dotnet vulnerable packages (incl. transitive) ───"
   # Target solutions first: one `dotnet list` over a solution covers all its projects,
   # and listing each .csproj as well would report every package twice. Loose project
   # files become targets only when there is no solution at all. Same path exclusions
@@ -884,14 +894,98 @@ LIST
   fi
 fi
 
+# ---- 6. dependency coverage: no manifest is silently unchecked --------------
+# Passes 3 and 5 print a line per package.json / .NET target. Every other ecosystem is
+# left to osv-scanner, which reports one exit code for the whole tree and cannot say which
+# manifests it read. ekofak's Maven backend was never audited and the report read as
+# complete (spec 070). This pass lists each such manifest and says whether anything
+# checked it. Covered means osv-scanner gave a verdict AND reads a file for it: the
+# manifest itself, or its lockfile in the manifest's directory or an ancestor up to $ROOT
+# (Cargo / uv / Gradle workspaces keep one lock at the root). The file names follow
+# osv-scanner's documented supported-files list.
+if [ "$DO_DEPS" -eq 1 ]; then
+  echo
+  echo "── [6/6] dependency coverage (non-npm, non-.NET manifests) ─"
+  # First file in $2… found in $1 or an ancestor up to $ROOT, relative to $ROOT; empty if none.
+  lock_for() {
+    lf_dir=$1; shift
+    while :; do
+      for lf_name in "$@"; do
+        [ -f "$lf_dir/$lf_name" ] && { lf_path="$lf_dir/$lf_name"; printf '%s' "${lf_path#"$ROOT"/}"; return 0; }
+      done
+      [ "$lf_dir" = "$ROOT" ] && return 1
+      case "$lf_dir" in "$ROOT"/*) lf_dir=$(dirname "$lf_dir") ;; *) return 1 ;; esac
+    done
+  }
+  COV_TOTAL=0; COV_OK=0; COV_UNCHECKED=""
+  while IFS= read -r m; do
+    [ -n "$m" ] || continue
+    if [ "$IS_GIT_REPO" -eq 1 ] && git check-ignore -q "$m" 2>/dev/null; then continue; fi
+    mdir=$(dirname "$m")
+    rel="${m#"$ROOT"/}"
+    [ "$mdir" = "$ROOT" ] && rel="./$rel"
+    COV_TOTAL=$((COV_TOTAL + 1))
+    lock=""
+    # sabotage:lockfile-rule:start
+    case "$(basename "$m")" in
+      pom.xml|go.mod|requirements.txt)
+        lock="${m#"$ROOT"/}"; lock_hint="" ;;
+      build.gradle|build.gradle.kts)
+        lock=$(lock_for "$mdir" gradle.lockfile gradle/verification-metadata.xml)
+        lock_hint="enable dependency locking, then ./gradlew dependencies --write-locks" ;;
+      Cargo.toml)   lock=$(lock_for "$mdir" Cargo.lock);    lock_hint="cargo generate-lockfile" ;;
+      pyproject.toml)
+        lock=$(lock_for "$mdir" poetry.lock uv.lock pdm.lock pylock.toml)
+        lock_hint="poetry lock | uv lock | pdm lock" ;;
+      Pipfile)      lock=$(lock_for "$mdir" Pipfile.lock);  lock_hint="pipenv lock" ;;
+      Gemfile)      lock=$(lock_for "$mdir" Gemfile.lock gems.locked); lock_hint="bundle lock" ;;
+      composer.json) lock=$(lock_for "$mdir" composer.lock); lock_hint="composer update --lock" ;;
+      mix.exs)      lock=$(lock_for "$mdir" mix.lock);      lock_hint="mix deps.get" ;;
+      pubspec.yaml) lock=$(lock_for "$mdir" pubspec.lock);  lock_hint="dart pub get" ;;
+    esac
+    # sabotage:lockfile-rule:end
+    if [ "$OSV_VERDICT" != "yes" ]; then
+      echo "  [SKIP] $rel — no auditor: $OSV_WHY"
+    elif [ -z "$lock" ]; then
+      echo "  [SKIP] $rel — no auditor: no lockfile osv-scanner reads (run: $lock_hint)"
+    else
+      echo "  [OK] $rel — osv-scanner ($lock)"
+      COV_OK=$((COV_OK + 1))
+      continue
+    fi
+    COV_UNCHECKED="$COV_UNCHECKED${COV_UNCHECKED:+; }$rel"
+  done <<LIST
+$(find "$ROOT" \( -name pom.xml -o -name build.gradle -o -name build.gradle.kts -o -name Cargo.toml \
+      -o -name go.mod -o -name pyproject.toml -o -name requirements.txt -o -name Pipfile \
+      -o -name Gemfile -o -name composer.json -o -name mix.exs -o -name pubspec.yaml \) \
+    -not -path '*/node_modules/*' -not -path '*/bin/*' -not -path '*/obj/*' \
+    -not -path '*/.claude/worktrees/*' -not -path '*/target/*' -not -path '*/build/*' \
+    -not -path '*/.gradle/*' -not -path '*/vendor/*' -not -path '*/.venv/*' -not -path '*/venv/*' \
+    -not -path '*/_build/*' -not -path '*/deps/*' -not -path '*/.dart_tool/*' -not -path '*/.git/*' \
+    2>/dev/null | sort)
+LIST
+  if [ "$COV_TOTAL" -eq 0 ]; then
+    echo "  [OK] no Maven/Gradle/Cargo/Go/Python/Ruby/PHP/Elixir/Dart manifests found."
+    OTHER_STATUS="none found"
+  elif [ -z "$COV_UNCHECKED" ]; then
+    OTHER_STATUS="all $COV_TOTAL covered by osv-scanner"
+  else
+    OTHER_STATUS="$((COV_TOTAL - COV_OK)) of $COV_TOTAL UNCHECKED — $COV_UNCHECKED"
+    # sabotage:not-scanned-join:start
+    NOT_SCANNED="$NOT_SCANNED deps($COV_UNCHECKED)"
+    # sabotage:not-scanned-join:end
+  fi
+fi
+
 # ---- summary ----------------------------------------------------------------
 echo
 echo "=========================================================="
 echo " SUMMARY  Secrets: $SECRETS_STATUS"
 echo "          Keys:    $KEYS_STATUS"
-echo "          Deps:    $DEPS_STATUS"
+echo "          npm:     $DEPS_STATUS"
 echo "          OSV:     $OSV_STATUS"
 echo "          .NET:    $DOTNET_STATUS"
+echo "          Other:   $OTHER_STATUS"
 if [ "$FINDINGS" -eq 0 ] && [ -n "$NOT_SCANNED" ]; then
   echo " RESULT: no findings, but NOT SCANNED:$NOT_SCANNED — see above. That is not clean."
   exit 0
@@ -900,6 +994,7 @@ elif [ "$FINDINGS" -eq 0 ]; then
   exit 0
 else
   echo " RESULT: findings above need attention. Nothing was committed."
+  [ -n "$NOT_SCANNED" ] && echo "         Also NOT SCANNED:$NOT_SCANNED — findings there are unknown, not absent."
   echo "         Secrets / keys → rotate. npm → review then 'npm audit fix [--force]'."
   echo "         NuGet → 'dotnet package update --vulnerable'. OSV → upgrade per its table."
   exit 1

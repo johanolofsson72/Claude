@@ -1239,3 +1239,18 @@ the TLC PID the skill starts (a pidfile) and kill only that, or use the brackete
 056 adopted (`pkill -f "[t]la2tools"`) and drop the PreToolUse trigger, which runs before TLC exists.
 Second sighting: hireflow spec 017 (2026-09-30) — SubagentStop/Stop and the PostToolUse Bash hook killed 4 TLC runs of a `/tla` subagent mid-run (exits 137/143/144) whenever any other agent stopped; the same renamed-jar workaround was needed.
 Fixed 2026-09-30: the cleanup matches only `java` processes (argv[0]) and by default kills only runs older than the 320 s bound; `--all` for manual use. The hook is PostToolUse(Bash), not PreToolUse; the wiring is unchanged.
+
+## 070 — freshness-audits-npm-only
+
+- [x] 070 — freshness-audits-npm-only — spec-only — project-freshness.sh runs `npm audit` and nothing else, so a Maven/Gradle backend's dependency CVEs are never checked. From ekofak H1. Diagnosis: `specs/INDEX.pending.md`
+
+From ekofak checkpoint H1 (2026-09-28). `scripts/project-freshness.sh` has two checks, trufflehog and
+`npm audit`, and discovers only `package.json` manifests. ekofak's backend is Java 21 / Spring Boot 3 on
+Maven (`backend/pom.xml`: Spring, PDFBox, Flyway, jqwik), and its H1 security sweep reported
+"Deps: advisories — frontend/" as if that were the whole dependency surface; the backend was never looked at.
+The same holds for any Gradle, NuGet, Cargo, Go or pip project the template runs in. Fix: discover the
+other manifests and run the ecosystem's own audit where one exists locally (`mvn
+org.owasp:dependency-check-maven:check` needs an NVD API key and is slow, so consider OSV-Scanner, which
+reads pom.xml / lockfiles offline-first), and print an explicit `[SKIP] <manifest> — no auditor` line for
+any ecosystem it cannot check, so an unchecked backend never reads as clean.
+Fixed 2026-09-30: the template already had osv-scanner and dotnet passes (ekofak's copy predated them). Added pass 6, dependency coverage: every Maven/Gradle/Cargo/Go/Python/Ruby/PHP/Elixir/Dart manifest is `[OK] … osv-scanner (<file>)` or `[SKIP] … no auditor: <why>`, and an unchecked one is NOT SCANNED in RESULT. `Deps:` renamed `npm:`.
