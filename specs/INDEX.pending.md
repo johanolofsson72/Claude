@@ -160,17 +160,6 @@ Same class as the row's own subject — a catastrophic-sounding report with a tr
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
 
-## 065 — nightly-cron-line-runs-blind
-
-From fundit F084 and F086 (2026-09-08/09). The crontab line `install-nightly-maintenance.sh`
-writes runs under cron's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), where none of dotnet, node, npm,
-npx, docker or timeout exist; fundit's mutation pass failed every night from 2026-09-04 with
-`dotnet: command not found`. Separately, a line whose command fails to parse writes nothing, since
-the redirect is part of the unparsed command, so "never fired", "failed to parse" and "ran and wrote
-nothing" look identical. It took four probes to separate them. Fix: write an explicit PATH captured
-at install time, and wrap the command so the redirect survives a parse failure. The script is
-opt-in now (`github-actions.md`), which lowers the priority, not the defect.
-
 ## 066 — allocator-cannot-make-a-carved-suffix
 
 From fundit F095 (2026-09-09). Carved rows are ids like `002a`, `005b`, `015a`: the parent's number

@@ -1172,3 +1172,19 @@ Related product-side row: msroute `007cm — stryker-tmp-untracked-and-trips-the
 half was closed 2026-09-03 by syncing 16 CORE scripts. Each new consumer of the tree has had to learn
 the exclusion separately; a fifth will too. Fix at the source: sweep stale `.stryker-tmp` when a
 mutation run starts, or point Stryker's `tempDirName` outside the working tree.
+
+## 065 — nightly-cron-line-runs-blind
+
+From fundit F084 and F086 (2026-09-08/09). The crontab line `install-nightly-maintenance.sh`
+writes runs under cron's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), where none of dotnet, node, npm,
+npx, docker or timeout exist; fundit's mutation pass failed every night from 2026-09-04 with
+`dotnet: command not found`. Separately, a line whose command fails to parse writes nothing, since
+the redirect is part of the unparsed command, so "never fired", "failed to parse" and "ran and wrote
+nothing" look identical. It took four probes to separate them. Fix: write an explicit PATH captured
+at install time, and wrap the command so the redirect survives a parse failure. The script is
+opt-in now (`github-actions.md`), which lowers the priority, not the defect.
+
+Fixed 2026-09-30: the PATH is captured to `~/.claude/nightly/<project>.path` (inline it broke BSD cron's
+999-character command limit), the line opens its log first with start/end lines, paths are quoted,
+`%`/newline and over-long lines are refused, `sh -n` runs before crontab is touched, `--list` flags
+stale lines. `scripts/test-install-nightly-maintenance.sh`.

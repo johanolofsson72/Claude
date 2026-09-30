@@ -798,7 +798,7 @@ $(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2
   (ighweld F069). Not stamped: the job stays due. Re-run --full once it has finished."
   elif [ "$FULL" -eq 1 ] && [ "$HAVE_STRYKER_GUARD" -eq 1 ] &&
        MUT_SWEEP=$(python3 scripts/stryker_guard.py sweep . 2>/dev/null) &&
-       printf '%s\n' "$MUT_SWEEP" | grep -q '^backup'; then
+       grep -q '^backup' <<< "$MUT_SWEEP"; then
     # Row 053. The sweep below removes abandoned StrykerJS sandboxes before the run, but an in-place
     # backup can be the only copy of the original sources; a new run would back up the mutated ones.
     add "[MUTATION] NOT RUN — an interrupted in-place Stryker run left a backup in the tree:
