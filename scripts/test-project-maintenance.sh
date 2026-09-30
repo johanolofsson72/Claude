@@ -294,16 +294,29 @@ mkfix_mut() { # mkfix_mut <name> <break or "none">
 # env through to project-maintenance.sh and NOT to the tool it invokes two layers down. An earlier draft
 # of these cases did it the other way and every case printed the same output — four green assertions
 # about one execution.
+#
+# Row 043: a scored run also writes a JSON report, because section 5 now reads the per-module scores out
+# of the reports THIS run wrote and treats a run with none as unmeasured per module. By default the stub
+# writes one clean report (a single file at 100%), so the arms above keep the verdict they were written
+# for. A fixture steers it with two files: `.noreport` writes nothing, and `.fixture-reports/*.json` are
+# copied in at run time, one Stryker output folder each, so their mtime is the run's and not the setup's.
 mk_dotnet() { # mk_dotnet <dir> <score or "none"> <exit code>
   if [ "$2" = "none" ]; then
     printf '%s\n' '#!/bin/bash' 'echo "MSBUILD : error MSB1003: no project file"' "exit $3" > "$1/bin/dotnet"
   else
-    printf '%s\n' '#!/bin/bash' 'echo "Stryker.NET"' "echo \"The final mutation score is $2 %\"" "exit $3" > "$1/bin/dotnet"
+    printf '%s\n' '#!/bin/bash' 'echo "Stryker.NET"' \
+      'if [ ! -f .noreport ]; then' \
+      '  if [ -d .fixture-reports ]; then n=0; for f in .fixture-reports/*.json; do n=$((n+1)); mkdir -p "StrykerOutput/run$n/reports"; cp "$f" "StrykerOutput/run$n/reports/mutation-report.json"; done' \
+      '  else mkdir -p StrykerOutput/run0/reports; printf "%s" '"'"'{"files":{"src/Clean.cs":{"mutants":[{"mutatorName":"m","replacement":"r","location":{"start":{"line":1,"column":1},"end":{"line":1,"column":2}},"status":"Killed"}]}}}'"'"' > StrykerOutput/run0/reports/mutation-report.json; fi' \
+      'fi' \
+      "echo \"The final mutation score is $2 %\"" "exit $3" > "$1/bin/dotnet"
   fi
   chmod +x "$1/bin/dotnet"
 }
 
-run_full() { ( cd "$1" && PATH="$1/bin:$PATH" bash "$MAINT" --full 2>&1 ); }
+# chmod as run() does: without it every fixture carries a [SCRIPT MODE] finding, and an arm that reads
+# the exit code would be red for that reason instead of the one it names (row 043's C54/C56).
+run_full() { ( cd "$1" && chmod +x scripts/*.sh 2>/dev/null; PATH="$1/bin:$PATH" bash "$MAINT" --full 2>&1 ); }
 
 # --- C14: a score that PASSES the config's own break is not a finding --------------------------------
 # The defect this replaces: the comparison was a hardcoded 80 while the config said 79, so a run at 79.5
@@ -713,6 +726,103 @@ D=$(mkfix c53); mkdir -p "$D/src"; printf 'const w = { width: 1280 };\n' > "$D/s
 OUT=$(run "$D"); RC=$?
 expect_absent   "C53 no Playwright — no VIEWPORT finding"           "[VIEWPORT]" "$OUT"
 expect_rc       "C53 no Playwright — clean exit" 0 "$RC"
+
+# ================================================ C54-C61 — the gate reads modules, not a headline (row 043)
+# fundit spec 006: the headline read 88.21% and PASS while PushEndpointPolicy, the SSRF decision, killed
+# 65.79%. `.claude/rules/spec-hardening.md` gates on the changed critical MODULE, and section 5 read one
+# number. These arms hand the stub Stryker a report and read the sentence that comes back.
+mkreport() { # mkreport <out.json> <file=Status,Status,...>... — one mutant per status, at line 1, 2, ...
+  local out=$1; shift
+  mkdir -p "$(dirname "$out")"
+  {
+    printf '{"schemaVersion":"1","files":{'
+    local sep="" spec file statuses i st
+    for spec in "$@"; do
+      file=${spec%%=*}; statuses=${spec#*=}
+      printf '%s"%s":{"language":"cs","source":"","mutants":[' "$sep" "$file"; sep=","
+      i=0
+      for st in $(printf '%s' "$statuses" | tr ',' ' '); do
+        i=$((i + 1))
+        [ "$i" -gt 1 ] && printf ','
+        printf '{"id":"%s","mutatorName":"m","replacement":"r","location":{"start":{"line":%s,"column":1},"end":{"line":%s,"column":9}},"status":"%s"}' "$i" "$i" "$i" "$st"
+      done
+      printf ']}'
+    done
+    printf '}}'
+  } > "$out"
+}
+rep() { # rep <status> <count> — "S,S,S"
+  local i out=""; for i in $(seq 1 "$2"); do out="${out:+$out,}$1"; done; printf '%s' "$out"
+}
+
+# --- C54: the fundit shape — headline passes, one module under break ----------------------------------
+D=$(mkfix_mut c54 79); mk_dotnet "$D" 88.21 0
+mkreport "$D/.fixture-reports/a.json" \
+  "src/PushEndpointPolicy.cs=$(rep Killed 25),$(rep Survived 13)" "src/Other.cs=$(rep Killed 10)"
+OUT=$(run_full "$D"); RC=$?
+expect_contains "C54 a module under break is a finding"           "[MUTATION]" "$OUT"
+expect_contains "C54 it names the module"                         "src/PushEndpointPolicy.cs" "$OUT"
+expect_contains "C54 with its score and counts"                   "65.79%  src/PushEndpointPolicy.cs (25/38)" "$OUT"
+expect_absent   "C54 a module over break is not listed"           "src/Other.cs" "$OUT"
+expect_rc       "C54 verdict is red" 1 "$RC"
+
+# --- C55: every module over break — no finding ---------------------------------------------------------
+D=$(mkfix_mut c55 79); mk_dotnet "$D" 90.00 0
+mkreport "$D/.fixture-reports/a.json" "src/A.cs=$(rep Killed 9),Survived" "src/B.cs=Killed,Timeout"
+OUT=$(run_full "$D")
+expect_absent   "C55 every module over break — no MUTATION finding" "[MUTATION]" "$OUT"
+
+# --- C56: a scored run that wrote no report — the module gate is unmeasured ---------------------------
+D=$(mkfix_mut c56 79); mk_dotnet "$D" 90.00 0; touch "$D/.noreport"
+OUT=$(run_full "$D"); RC=$?
+expect_contains "C56 no report — said, not passed"                "no JSON report" "$OUT"
+expect_contains "C56 and it names the fix"                        '"json"' "$OUT"
+expect_contains "C56 and the replace-not-add trap"                "replaces" "$OUT"
+expect_rc       "C56 verdict is red" 1 "$RC"
+
+# --- C57: a stale report from an earlier run is not this run's evidence --------------------------------
+D=$(mkfix_mut c57 79); mk_dotnet "$D" 90.00 0; touch "$D/.noreport"
+mkreport "$D/StrykerOutput/old/reports/mutation-report.json" "src/Stale.cs=Survived,Survived"
+touch -t 202001010000 "$D/StrykerOutput/old/reports/mutation-report.json"
+OUT=$(run_full "$D")
+expect_contains "C57 stale report ignored — still no report"      "no JSON report" "$OUT"
+expect_absent   "C57 and the stale module is not read"            "src/Stale.cs" "$OUT"
+
+# --- C58: two passes, each kills the other's survivors — the suite kills all of them -------------------
+D=$(mkfix_mut c58 79); mk_dotnet "$D" 90.00 0
+mkreport "$D/.fixture-reports/a.json" "src/Split.cs=Killed,Killed,Survived,Survived"
+mkreport "$D/.fixture-reports/b.json" "src/Split.cs=NoCoverage,Survived,Killed,Timeout"
+OUT=$(run_full "$D")
+expect_absent   "C58 merged per mutant — no module under break"   "[MUTATION]" "$OUT"
+
+# --- C59: headline fails too — the list rides in the one GATE FAILED finding ---------------------------
+D=$(mkfix_mut c59 79); mk_dotnet "$D" 70.00 1
+mkreport "$D/.fixture-reports/a.json" "src/Weak.cs=Killed,Survived"
+OUT=$(run_full "$D")
+expect_contains "C59 gate failure still reported as such"         "GATE FAILED" "$OUT"
+expect_contains "C59 with the module inside it"                   "src/Weak.cs" "$OUT"
+expect_rc       "C59 one gate failure is one finding" 1 "$(printf '%s\n' "$OUT" | grep -c '^\[MUTATION\]')"
+
+# --- C60: a file with no valid mutant is not a module under break --------------------------------------
+D=$(mkfix_mut c60 79); mk_dotnet "$D" 90.00 0
+mkreport "$D/.fixture-reports/a.json" "src/Broken.cs=CompileError,Ignored" "src/Fine.cs=Killed"
+OUT=$(run_full "$D")
+expect_absent   "C60 no valid mutants — not listed"               "src/Broken.cs" "$OUT"
+expect_absent   "C60 and no finding"                              "[MUTATION]" "$OUT"
+
+# --- C61: an unreadable report is named, and the readable one is still read ----------------------------
+D=$(mkfix_mut c61 79); mk_dotnet "$D" 90.00 0
+mkdir -p "$D/.fixture-reports"; printf 'not json' > "$D/.fixture-reports/a.json"
+mkreport "$D/.fixture-reports/b.json" "src/Weak.cs=Killed,Survived"
+OUT=$(run_full "$D")
+expect_contains "C61 the bad report is named unreadable"          "unreadable" "$OUT"
+expect_contains "C61 the good report still reports its module"    "src/Weak.cs" "$OUT"
+
+# --- C62: a module exactly at the limit passes, as the headline does at its limit ---------------------
+D=$(mkfix_mut c62 80); mk_dotnet "$D" 90.00 0
+mkreport "$D/.fixture-reports/a.json" "src/Edge.cs=$(rep Killed 4),Survived"
+OUT=$(run_full "$D")
+expect_absent   "C62 80.00 against 80 — not under the limit"      "src/Edge.cs" "$OUT"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

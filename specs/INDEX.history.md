@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-09-29 — 020 held: Ollama is disabled machine-wide since 2026-09-06, so the hooks it re-measures are no-ops; resumes on a machine that runs a local model.
+
 - 2026-09-29 — 075 held: ledger spans 0 of 5 specs and has no Stryker/suite run anywhere; resumes when `maintenance_ledger.py report --all` clears 5.
 
 - 2026-09-29 — 026 deleted: same scope as 011 (port drive_sync + its gate, convert the CORE drivers), which landed it. Developer decision at 011's interview.

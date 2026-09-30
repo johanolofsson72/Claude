@@ -2,6 +2,14 @@
 
 Rows verbatim as they read at tick time. Never pipeline input.
 
+## 043 — mutation-gate-reports-a-headline-only
+
+Ticked 2026-09-30.
+
+- [x] 043 — mutation-gate-reports-a-headline-only — spec-only — `run-mutation-gate.sh` passes `--reporter progress`, and a CLI reporter REPLACES the config's list, so no json report is written and per-module scores cannot be read. `spec-hardening.md` gates on the changed critical MODULE. Found in fundit 006: headline 88.21% PASS while PushEndpointPolicy (SSRF decision) killed 65.79%. Fix: add `--reporter json` + print every module under the break. (CORE half settled by 045: project-local by design — do NOT land it here.)
+
+**Done.** `scripts/project-maintenance.sh` §5 reads every `mutation-report.json` / `mutation.json` newer than a marker touched before the run, merges them per mutant (detected in any report = detected), and lists each file with valid mutants under the limit, lowest first. A passing headline over such a module is a finding; a failing one carries the list. A scored run with no report says the module gate is unmeasured and names `"json"` in `reporters`. The row's runner premise was stale on measurement: neither fundit nor rocky passes a CLI reporter and every config lists json. C54-C62, 133 -> 154; 8/8 hand mutants killed.
+
 ## 035 — a11y-suite-runs-at-one-viewport-only
 
 Ticked 2026-09-29.

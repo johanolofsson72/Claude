@@ -609,6 +609,13 @@ if [ -x scripts/run-mutation-gate.sh ]; then
   # never written down, and the runner own smoke test could not see that because it only read the
   # script own output. This comment is that contract, and the unclassifiable branch below quotes
   # it so the next reader does not have to find their way here.
+  #
+  # The contract has a second half since row 043: the run must leave Stryker's JSON report
+  # (`mutation-report.json`, or StrykerJS `mutation.json`) somewhere under the project root. The
+  # headline is one number and `.claude/rules/spec-hardening.md` gates on the changed MODULE; the
+  # per-module scores exist only in that report. Keep `"json"` in the config's `reporters`, and never
+  # pass a CLI `--reporter` without also passing `--reporter json`: a CLI reporter REPLACES the
+  # config's list, it does not add to it.
   MUTATION_CMD="bash scripts/run-mutation-gate.sh"
 elif [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
   MUTATION_CMD="dotnet stryker"
@@ -658,6 +665,52 @@ if isinstance(b, (int, float)):
 PY
 }
 
+# THE HEADLINE IS NOT THE GATE (row 043). fundit spec 006 read 88.21% and PASS while PushEndpointPolicy,
+# the SSRF decision, killed 65.79%. The rule gates on the changed critical module, and a module's score is
+# only in the JSON report, so this reads every report THIS run wrote (newer than a marker touched just
+# before it; yesterday's report is not today's evidence) and lists each file under the limit.
+#
+# Reports from one run are merged PER MUTANT, not per file: fundit runs a unit pass and a property pass,
+# rocky one pass per module, and a mutant any pass killed is a mutant the suite kills. Best-of-files would
+# call a file clean when two passes each killed a different half of it, and worst-of would fail a file
+# the suite covers. The per-file score is Stryker's own, (Killed + Timeout) / valid, and says so.
+#
+# Output: "none" when no report was written by the run, "unreadable <path>" per report that is not JSON,
+# and one "<score>%\t<file>\t<detected>/<valid>" line per file under the limit, lowest first.
+mutation_modules_under() { # mutation_modules_under <marker> <limit>
+  command -v python3 >/dev/null 2>&1 || { echo "nopython"; return 0; }
+  find . -type d \( -name node_modules -o -name .git -o -name bin -o -name obj \) -prune -o \
+    -type f \( -name mutation-report.json -o -name mutation.json \) -newer "$1" -print 2>/dev/null |
+    LIMIT="$2" python3 -c '
+import json, os, sys
+paths = [p for p in sys.stdin.read().splitlines() if p]
+if not paths:
+    print("none"); raise SystemExit
+DETECTED, VALID = {"Killed", "Timeout"}, {"Killed", "Timeout", "Survived", "NoCoverage"}
+seen = {}  # (file, mutant key) -> detected by any report
+for p in sorted(paths):
+    try:
+        files = json.load(open(p)).get("files") or {}
+    except Exception:
+        print("unreadable " + p); continue
+    for f, body in files.items():
+        name = os.path.relpath(f) if os.path.isabs(f) else f
+        for m in body.get("mutants") or []:
+            if m.get("status") not in VALID:
+                continue
+            loc = m.get("location") or {}
+            key = (name, m.get("mutatorName"), m.get("replacement"), json.dumps(loc, sort_keys=True))
+            seen[key] = seen.get(key, False) or m.get("status") in DETECTED
+per = {}
+for (name, *_), det in seen.items():
+    d, v = per.get(name, (0, 0)); per[name] = (d + det, v + 1)
+limit = float(os.environ["LIMIT"])
+rows = sorted((100.0 * d / v, name, d, v) for name, (d, v) in per.items() if v and 100.0 * d / v < limit)
+for score, name, d, v in rows:
+    print("%.2f%%\t%s\t%d/%d" % (score, name, d, v))
+'
+}
+
 # Did this invocation actually MEASURE the gate? Not "did it try" — the due-state stamp below is a
 # claim that the obligation was discharged, and a crash or an unreadable run discharges nothing.
 # Set only on the two branches where a score came back (gate passed, or gate failed on the number —
@@ -678,6 +731,7 @@ if [ -n "$MUTATION_CMD" ]; then
     [ "$MUT_CFG_TOTAL" -lt 1 ] && MUT_CFG_TOTAL=1
     MUT_SCOPE="1 of $MUT_CFG_TOTAL config(s) — a bare \`$MUTATION_CMD\` reads only $MUT_CFG"
 
+    MUT_MARKER=$(mktemp "${TMPDIR:-/tmp}/mutation-marker.XXXXXX")
     MUT_OUT=$(measured mutation bash -c "$MUTATION_CMD" 2>&1)
     MUT_RC=$?
     SCORE=$(printf '%s' "$MUT_OUT" | grep -oE 'mutation score[^0-9]*[0-9]+(\.[0-9]+)?' | tail -1 | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1)
@@ -690,6 +744,28 @@ if [ -n "$MUTATION_CMD" ]; then
       MUT_LIMIT=80;           MUT_LIMIT_SRC="the ~80% default target (this config states no break)"
     fi
 
+    # The per-module half, read only when a score came back: a crashed run's reports are not a gate.
+    MUT_MODULES=""
+    if [ -n "$SCORE" ]; then
+      MUT_MOD_OUT=$(mutation_modules_under "$MUT_MARKER" "$MUT_LIMIT")
+      MUT_MOD_UNDER=$(printf '%s\n' "$MUT_MOD_OUT" | grep -E '^[0-9]' | awk -F'\t' '{ printf "    %s  %s (%s)\n", $1, $2, $3 }')
+      MUT_MOD_BAD=$(printf '%s\n' "$MUT_MOD_OUT" | sed -n 's/^unreadable /    unreadable report: /p')
+      case "$MUT_MOD_OUT" in
+        none)
+          MUT_MODULES="  Per module: UNMEASURED — this run wrote no JSON report, so only the headline was read and
+  .claude/rules/spec-hardening.md gates on the changed module. List \"json\" in the config's \"reporters\";
+  a CLI --reporter replaces that list rather than adding to it." ;;
+        nopython)
+          MUT_MODULES="  Per module: UNMEASURED — python3 is missing, so the JSON report could not be read." ;;
+        *)
+          [ -n "$MUT_MOD_UNDER" ] && MUT_MODULES="  Modules under $MUT_LIMIT% (Stryker's score per file, detected/valid, merged across this run's reports):
+$MUT_MOD_UNDER"
+          [ -n "$MUT_MOD_BAD" ] && MUT_MODULES="${MUT_MODULES:+$MUT_MODULES
+}$MUT_MOD_BAD" ;;
+      esac
+    fi
+    rm -f "$MUT_MARKER"
+
     if [ "$MUT_RC" -ne 0 ] && [ -n "$SCORE" ]; then
       # A number came back, so the tool ran. Non-zero here is the gate doing its job.
       MUT_MEASURED=1
@@ -697,7 +773,8 @@ if [ -n "$MUTATION_CMD" ]; then
   This is the gate failing, not the tool crashing: Stryker exits non-zero when the score is under break.
   Scope: $MUT_SCOPE.
   NOTE: ${SCORE}% is Stryker's score, (Killed + Timeout) / valid. A Timeout is not a kill, so the strict
-  score is this or lower — never higher (.claude/docs/testing.md)."
+  score is this or lower — never higher (.claude/docs/testing.md).${MUT_MODULES:+
+$MUT_MODULES}"
     elif [ "$MUT_RC" -ne 0 ]; then
       add "[MUTATION] \`$MUTATION_CMD\` failed to complete — no score was produced:
 $(printf '%s' "$MUT_OUT" | tail -15)"
@@ -706,7 +783,13 @@ $(printf '%s' "$MUT_OUT" | tail -15)"
       if [ "${INT_SCORE:-0}" -lt "$MUT_LIMIT" ]; then
         add "[MUTATION] Stryker's own score ${SCORE}% is below $MUT_LIMIT_SRC ($MUT_LIMIT).
   Scope: $MUT_SCOPE.
-  NOTE: ${SCORE}% counts a Timeout as a kill; the strict score (Killed / valid) is this or lower."
+  NOTE: ${SCORE}% counts a Timeout as a kill; the strict score (Killed / valid) is this or lower.${MUT_MODULES:+
+$MUT_MODULES}"
+      elif [ -n "$MUT_MODULES" ]; then
+        # The fundit 006 shape: the headline passes and says nothing about the module under it.
+        add "[MUTATION] The headline ${SCORE}% passes $MUT_LIMIT_SRC ($MUT_LIMIT), but the module gate does not.
+  Scope: $MUT_SCOPE.
+$MUT_MODULES"
       fi
     else
       # Exit 0 and no parseable score is not a pass -- it is a run this section cannot classify, and
