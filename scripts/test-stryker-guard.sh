@@ -77,7 +77,7 @@ expect() { # expect <name> <deny|none> <output> [substring the reason must carry
     return
   fi
   if [ -n "${4:-}" ]; then
-    if printf '%s' "$3" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -Fq -e "$4"; then ok "$1"
+    if grep -Fq -e "$4" <<< "$(printf '%s' "$3" | jq -r '.hookSpecificOutput.permissionDecisionReason')"; then ok "$1"
     else bad "$1 — reason lacks '$4'"; fi
   else ok "$1"; fi
 }

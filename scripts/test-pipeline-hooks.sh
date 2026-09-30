@@ -778,8 +778,7 @@ _id_rc() { python3 "$RLN/bin/spec_active.py" --root "$RLN" --id "$1" >/dev/null 
 [ "$(_id_rc 004)" = 0 ] && [ "$(_id_rc 007)" = 4 ] && [ "$(_id_rc '7-x')" = 2 ] \
   && _record "spec_active.py --id: 0 found · 4 no dir · 2 malformed" 0 \
   || _record "spec_active.py --id: 0 found · 4 no dir · 2 malformed ($(_id_rc 004)/$(_id_rc 007)/$(_id_rc '7-x'))" 1
-python3 "$RLN/bin/spec_active.py" --root "$RLN" --id 004 2>/dev/null \
-  | grep -q '"status": "!"' \
+grep -q '"status": "!"' <<< "$(python3 "$RLN/bin/spec_active.py" --root "$RLN" --id 004 2>/dev/null)" \
   && _record "spec_active.py --id reports the row's marker" 0 \
   || _record "spec_active.py --id reports the row's marker" 1
 

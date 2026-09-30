@@ -116,11 +116,12 @@ run_sid() { # run_sid <sid> <file> [env...] — a fixed session, so once-per-ses
 }
 
 out=$(run "$HOOK" "$CLEAN" ALLIUM_BIN="$FAKE/old")
-{ ! blocks "$out" && note "$out" | grep -q '3\.2\.3' && note "$out" | grep -q 'older than 3.3.0'; } \
+n=$(note "$out")
+{ ! blocks "$out" && grep -q '3\.2\.3' <<< "$n" && grep -q 'older than 3.3.0' <<< "$n"; } \
   && ok "3.2.3: one model note naming the version and the floor" || bad "old note: $out"
-note "$out" | grep -q 'see:' && ok "the note names the -- see: spelling" || bad "note lacks the spelling: $out"
+grep -q 'see:' <<< "$n" && ok "the note names the -- see: spelling" || bad "note lacks the spelling: $out"
 out=$(run "$HOOK" "$CLEAN" ALLIUM_BIN="$FAKE/ancient")
-note "$out" | grep -q '2\.9\.9' && ok "2.9.9: noted (major below)" || bad "ancient: $out"
+grep -q '2\.9\.9' <<< "$(note "$out")" && ok "2.9.9: noted (major below)" || bad "ancient: $out"
 
 out1=$(run_sid fixed-050 "$CLEAN" ALLIUM_BIN="$FAKE/old"); out2=$(run_sid fixed-050 "$CLEAN" ALLIUM_BIN="$FAKE/old")
 { [ -n "$out1" ] && [ -z "$out2" ]; } && ok "the note fires once per session" || bad "once: [$out1] then [$out2]"
