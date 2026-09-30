@@ -1079,3 +1079,23 @@ scenario map's permanent handles and spec-kit's per-spec Success Criteria — **
 deliberately, because a magnitude floor is useless on a map that starts at SC-001. Four-digit map ids
 walk straight into that discriminator. Decide the two together or the traceability gate starts
 mis-bucketing.
+
+## 049 — a-held-row-cannot-be-written-to
+
+Ticked 2026-09-30.
+
+- [x] 049 — a-held-row-cannot-be-written-to — spec-only — `spec-run-log-hook.sh` resolves through `spec_active.py`, which skips `- [!]` rows, so holding a row stops you logging why you held it. Diagnosis: `specs/INDEX.pending.md`
+
+**Done.** `--spec` takes a register id as well as a directory (`--spec 049`, `--spec H1`). The lookup goes through the new `spec_active.py --id`, which shares `resolve()`'s `<id>-*` glob and ignores the row's status, so held and ticked rows are writable. An existing directory still wins, and a value with a slash stays a path. The implicit path still picks the row to work. When it cannot record, stderr names `--spec <id>` and lists the held rows. `spec-register.md` says this in one sentence. `test-pipeline-hooks.sh` has 15 new arms, 10 of them red on HEAD. Two sabotage runs (slash guard removed, status filter added) each turned arms red.
+
+`spec_active.py` resolves the active spec and skips `- [!]` held rows — correct, and
+`.claude/rules/spec-register.md` says so explicitly: a held row must never be offered as the active
+row, or a banner quietly overrules the decision to hold it.
+
+`scripts/spec-run-log-hook.sh` resolves through that same function. So the moment a row is held, the
+run log for it can no longer be appended to (F139, F195).
+
+Holding a row is precisely the moment the note matters — somebody stopped for a reason the register
+cannot express as a dependency, and the next session needs to know what it was. The two needs are not
+in conflict; they are two different questions asked of one resolver. "Which row should I work?" must
+skip held rows. "Which row is this note about?" must not.

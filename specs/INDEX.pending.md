@@ -146,20 +146,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 049 — a-held-row-cannot-be-written-to (from ighweld-2026, 2026-09-16)
-
-`spec_active.py` resolves the active spec and skips `- [!]` held rows — correct, and
-`.claude/rules/spec-register.md` says so explicitly: a held row must never be offered as the active
-row, or a banner quietly overrules the decision to hold it.
-
-`scripts/spec-run-log-hook.sh` resolves through that same function. So the moment a row is held, the
-run log for it can no longer be appended to (F139, F195).
-
-Holding a row is precisely the moment the note matters — somebody stopped for a reason the register
-cannot express as a dependency, and the next session needs to know what it was. The two needs are not
-in conflict; they are two different questions asked of one resolver. "Which row should I work?" must
-skip held rows. "Which row is this note about?" must not.
-
 ## 050 — allium-cli-warns-on-every-spec-it-has (from ighweld-2026, 2026-09-16)
 
 `allium check` emits "deferred specification should include a location hint" for every `deferred` in

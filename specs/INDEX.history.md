@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-09-30 — 043 ticked: the live defect was the CORE reader, not the runner; a passing headline over a weak module is now a finding.
+
 - 2026-09-30 — H1 ticked: 57/57 after two fixes; 078 added from approved proposal F050 (autosync kills 2/12 mutants).
 
 - 2026-09-29 — 034 ticked without new code: 774a909 (2026-09-09) had already fixed it. fundit's deps pass shows 0 bogus SKIPs.

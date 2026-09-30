@@ -66,7 +66,7 @@ Status markers:
 bash scripts/spec-run-log-hook.sh --note "mutation gate FAILED — 41% on AuthService, tests are theatre"
 ```
 
-One line per entry. Not pipeline input; SessionStart shows the last 5 lines while the row is `- [/]`.
+One line per entry. Not pipeline input; SessionStart shows the last 5 lines while the row is `- [/]`. Without `--spec` the note goes to the row you would work next, which skips held and ticked rows. When you hold or tick a row, name it: `--spec 049` works at any status.
 
 ## The status summary (the one stop per spec)
 
