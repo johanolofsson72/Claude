@@ -106,6 +106,16 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/stryker-guard-hook.sh\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {

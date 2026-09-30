@@ -236,6 +236,7 @@ validate-scenario-traceability.sh test-validate-scenario-traceability.sh
 scenario-probe-ids.sh test-scenario-probe-ids.sh
 validate-fixture-map-ids.sh test-fixture-map-ids.sh
 project-maintenance.sh project-freshness.sh test-project-freshness.sh test-project-maintenance.sh
+stryker_guard.py stryker-guard-hook.sh test-stryker-guard.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
 template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh

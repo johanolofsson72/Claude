@@ -3,6 +3,9 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-09-29 — 034 ticked without new code: 774a909 (2026-09-09) had already fixed it. fundit's deps pass shows 0 bogus SKIPs.
+- 2026-09-29 — 030 ticked without new code: 045 had already landed the fix. --unlisted is clean on rocky and all 46 repos.
+
 - 2026-09-29 — 029 re-diagnosed: the permission mode was never the cause (live A/B); re-tracked spec-only [hardened]. F029 recorded.
 
 - 2026-09-29 — 020 held: Ollama is disabled machine-wide since 2026-09-06, so the hooks it re-measures are no-ops; resumes on a machine that runs a local model.

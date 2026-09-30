@@ -358,6 +358,21 @@ Line coverage proves a line *executed*; it says nothing about whether a test wou
   of one project's kills before the split.
 - **NEVER in CI per push** (see `github-actions.md` — it's minutes-expensive and was a budget incident). Run it **nightly or on-demand**, and incrementally (changed files) on a branch.
 - **"Nightly" needs a body, not just an intention.** Nothing schedules itself, and an unscheduled nightly gate runs never. `bash scripts/project-maintenance.sh --full` is the local pass that actually executes it (plus the secret/CVE scan and register drift checks), reporting only when it finds something. Attach it to a `/schedule` routine, `/loop 7d`, or crontab — never to a GitHub Action `schedule:` trigger.
+- **Stryker does not tell you when it measured nothing.** Three ways, all measured on one project
+  (row 047):
+  - A span is `{start..end}` with two dots. `'**/X.cs{845-1080}'` is not an error. The braces become
+    part of the glob, the glob matches no file, and the run still prints a score.
+  - A span counts **characters**, not lines. The docs say "the indices of the first character and
+    the last character" under a heading that says "lines". A span also did not shrink the run, so
+    mutate the whole file and read that file's score from the JSON report.
+  - **Stryker runs alone.** A `dotnet build` or `dotnet test` in the same project overwrites the
+    mutated assembly, and the run scores about 0% with no warning.
+
+  `project-maintenance.sh` checks every committed config's `mutate` patterns on each pass and will
+  not start `--full` beside a live build. `scripts/stryker-guard-hook.sh` refuses both shapes when
+  Claude issues the command. The overrides are `STRYKER_SPANS_ARE_CHARACTERS=1` and
+  `STRYKER_GUARD=off`. On Windows Git Bash `ps` cannot see `dotnet.exe`, so there the run-alone
+  rule is yours to keep.
 - **A timeout is not a kill.** Stryker scores `Killed + Timeout`, gremlins' efficacy can rise as
   timeouts rise, and the percentage is not comparable run to run. Read the score by
   `.claude/rules/mutation-timeouts.md` (five traps, with the measurements).

@@ -20,7 +20,9 @@
 
 hook_verdict() {
   local out="$1"
-  [ -z "${out//[[:space:]]/}" ] && { echo none; return 0; }
+  # A glob, not ${out//[[:space:]]/}: bash 3.2's pattern substitution never finished on a 40 KB
+  # deny reason (row 047, found by a mutant that let an over-long pattern through).
+  case "$out" in *[![:space:]]*) ;; *) echo none; return 0 ;; esac
   local v
   v=$(printf '%s' "$out" | jq -r '
     if (type != "object") then "invalid"

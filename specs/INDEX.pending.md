@@ -146,27 +146,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 047 — stryker-spans-fail-silently-and-score-well (from ighweld-2026, 2026-09-16)
-
-Three findings, one theme: Stryker.NET's per-file targeting fails in ways that read as success.
-
-- **F184 — an invalid line span matches nothing and scores well.** `'**/X.cs{845-1080}'` uses a hyphen
-  where Stryker wants `..`. It is not an error; the glob simply matches no file, so the run mutates
-  nothing in that file and reports a clean result. A gate that measures nothing and passes is worse
-  than no gate.
-- **F197 — spans are CHARACTER offsets, not line numbers.** `SyncService.cs{98..120}` selects
-  characters 98–120 of the file. ighweld spec 161's first run was scoped to a couple of dozen
-  characters and nobody could tell from the output.
-- **F185 — spans are unusable as a per-spec gate anyway.** With `'**/WpqrService.cs{840..1140}'` the
-  file still generates its whole mutant set; the span does not reduce the run.
-- **F069 — a concurrent `dotnet build` or `dotnet test` silently destroys the measurement.** The
-  sibling build overwrites the mutated assembly, and the run scores ~0% with no warning. ighweld
-  carries this as a project memory (`stryker_runs_alone`) because it cost a full run. It belongs in
-  the mutation docs and, better, in a guard.
-
-Distinct from 043 (which is about the reporter list) and 041 (the timeouts rule). The common fix
-shape: refuse a mutate glob that matches no file, and say so.
-
 ## 048 — sc-id-space-is-three-digits-and-full (from ighweld-2026, 2026-09-16)
 
 `.claude/rules/scenarios.md` specifies `SC-NNN`, "three digits, padded". ighweld-2026 has used 961 of

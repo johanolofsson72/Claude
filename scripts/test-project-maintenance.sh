@@ -282,6 +282,11 @@ mkfix_mut() { # mkfix_mut <name> <break or "none">
   d=$(mkfix "$1")
   mkdir -p "$d/bin" "$d/proj"
   printf '<Project Sdk="Microsoft.NET.Sdk"></Project>\n' > "$d/proj/App.csproj"
+  # Row 047: section 5 checks the config's mutate patterns on every pass, so the fixture carries the
+  # helper that does it and one .cs file for `**/*.cs` to match. Without them every arm here would
+  # carry a pattern finding for a reason its name does not state.
+  printf 'class App {}\n' > "$d/proj/App.cs"
+  cp "$DIR/stryker_guard.py" "$d/scripts/stryker_guard.py"
   if [ "$2" = "none" ]; then
     printf '%s\n' '{ "stryker-config": { "project": "App.csproj", "mutate": ["**/*.cs"] } }' > "$d/stryker-config.json"
   else
@@ -823,6 +828,130 @@ D=$(mkfix_mut c62 80); mk_dotnet "$D" 90.00 0
 mkreport "$D/.fixture-reports/a.json" "src/Edge.cs=$(rep Killed 4),Survived"
 OUT=$(run_full "$D")
 expect_absent   "C62 80.00 against 80 — not under the limit"      "src/Edge.cs" "$OUT"
+
+# ================================================ C63-C71 — patterns that select nothing, and Stryker beside a build (row 047)
+# ighweld-2026: `'**/X.cs{845-1080}'` matched no file and scored (F184); `{98..120}` is characters, not
+# lines (F197); a span did not shrink the run (F185); a sibling `dotnet test` zeroed a run (F069). The
+# pattern arms run WITHOUT --full: the check is static and belongs on every pass.
+mkfix_pat() { # mkfix_pat <name> <mutate JSON array>
+  d=$(mkfix_mut "$1" 79)
+  mkdir -p "$d/src/Services"; printf 'class W {}\n' > "$d/src/Services/WpqrService.cs"
+  printf '{ "stryker-config": { "project": "App.csproj", "mutate": %s, "thresholds": { "break": 79 } } }\n' "$2" > "$d/stryker-config.json"
+  printf '%s' "$d"
+}
+
+# --- C63: the F184 hyphen — matches nothing, said so ----------------------------------------------------
+D=$(mkfix_pat c63 '["**/WpqrService.cs{845-1080}"]')
+OUT=$(run "$D"); RC=$?
+expect_contains "C63 a hyphen span is a finding"                  "[MUTATION]" "$OUT"
+expect_contains "C63 it names config and pattern"                 "stryker-config.json: '**/WpqrService.cs{845-1080}'" "$OUT"
+expect_contains "C63 and says what the span should be"            "two dots" "$OUT"
+expect_rc       "C63 verdict is red" 1 "$RC"
+
+# --- C64: a glob that matches no .cs file -------------------------------------------------------------
+D=$(mkfix_pat c64 '["**/Services/Nope.cs"]')
+OUT=$(run "$D")
+expect_contains "C64 a glob matching nothing is a finding"        "'**/Services/Nope.cs' matches no .cs file" "$OUT"
+
+# --- C65: a well-formed span — characters, not lines, and not smaller -----------------------------------
+D=$(mkfix_pat c65 '["**/WpqrService.cs{840..1140}"]')
+OUT=$(run "$D")
+expect_contains "C65 a valid span is a finding"                   "CHARACTER offsets" "$OUT"
+expect_contains "C65 that names F185"                             "F185" "$OUT"
+
+# --- C66: what is fine stays silent: a wildcard, a path suffix, an exclude that excludes nothing ----------
+D=$(mkfix_pat c66 '["**/*.cs", "Services/WpqrService.cs", "src/Services/W*.cs", "!**/*.Generated.cs"]')
+OUT=$(run "$D"); RC=$?
+expect_absent   "C66 good patterns — no MUTATION finding"         "[MUTATION]" "$OUT"
+expect_rc       "C66 good patterns — clean exit" 0 "$RC"
+
+# --- C67: the runner's literal -m is read; a runtime-assembled one is not guessed at ---------------------
+D=$(mkfix_pat c67 '["**/*.cs"]')
+printf '%s\n' '#!/bin/bash' 'P="**/*.cs"' 'dotnet stryker -m "$P"' "dotnet stryker -m '**/WpqrService.cs{1-2}' --break-at 79" > "$D/scripts/run-mutation-gate.sh"
+OUT=$(run "$D")
+expect_contains "C67 runner literal is checked, with its line"    "scripts/run-mutation-gate.sh:4" "$OUT"
+expect_absent   "C67 a \$ pattern is skipped, not guessed"        "run-mutation-gate.sh:3" "$OUT"
+
+# --- C68: the helper missing is UNCHECKED, never clean --------------------------------------------------
+D=$(mkfix_pat c68 '["**/WpqrService.cs{845-1080}"]'); rm -f "$D/scripts/stryker_guard.py"
+OUT=$(run "$D"); RC=$?
+expect_contains "C68 missing helper — said unchecked"             "UNCHECKED" "$OUT"
+expect_rc       "C68 verdict is red" 1 "$RC"
+
+# --- C69: a config that is not JSON is named -----------------------------------------------------------
+D=$(mkfix_pat c69 '["**/*.cs"]'); printf '{ "stryker-config": { "mutate": [ oops\n' > "$D/stryker-config.json"
+OUT=$(run "$D")
+expect_contains "C69 unreadable config named"                     "stryker-config.json is not JSON" "$OUT"
+
+# --- C70: --full with a dotnet test live in the project does not start Stryker ---------------------------
+# A real process, found the way the helper finds it: by its arguments and its working directory. The stub
+# loops until TERM so it is killed by PID, never by a pattern (the 056 trap).
+mklive() { # mklive <dir> — a script named dotnet; echo the PID of `dotnet test` running in <dir>
+  mkdir -p "$1/live"
+  printf '%s\n' '#!/bin/bash' "trap 'exit 0' TERM" 'while :; do sleep 0.2; done' > "$1/live/dotnet"
+  chmod +x "$1/live/dotnet"
+  ( cd "$1" && exec "$1/live/dotnet" test ) >/dev/null 2>&1 &
+  printf '%s' "$!"
+}
+D=$(mkfix_mut c70 79); mk_dotnet "$D" 90.00 0
+LIVE=$(mklive "$D"); sleep 0.5
+OUT=$(run_full "$D"); RC=$?
+kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
+expect_contains "C70 live build — Stryker NOT RUN"                "NOT RUN" "$OUT"
+expect_contains "C70 it names the process"                        "pid $LIVE (build)" "$OUT"
+expect_contains "C70 and why"                                     "F069" "$OUT"
+if [ -d "$D/StrykerOutput" ]; then bad "C70 the stub Stryker never started" "no StrykerOutput" "StrykerOutput exists"; else ok "C70 the stub Stryker never started"; fi
+expect_rc       "C70 verdict is red" 1 "$RC"
+
+# --- C71: the same build outside the project does not stop it ------------------------------------------
+D=$(mkfix_mut c71 79); mk_dotnet "$D" 90.00 0
+O=$(mkfix c71other); LIVE=$(mklive "$O"); sleep 0.5
+OUT=$(run_full "$D")
+kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
+expect_absent   "C71 a build in another project is not this run's" "NOT RUN" "$OUT"
+expect_absent   "C71 and the run is clean"                        "[MUTATION]" "$OUT"
+
+# --- C72: a runner with a literal -m and a config with no mutate key is still checked --------------------
+D=$(mkfix_mut c72 79); printf '{ "stryker-config": { "project": "App.csproj" } }\n' > "$D/stryker-config.json"
+printf '%s\n' '#!/bin/bash' "dotnet stryker -m '**/App.cs{1-2}'" > "$D/scripts/run-mutation-gate.sh"
+OUT=$(run "$D")
+expect_contains "C72 runner-only pattern is checked"              "scripts/run-mutation-gate.sh:2" "$OUT"
+
+# --- C73-C76: the adversarial review's false findings and silent skips (row 047) ---------------------------
+# C73: the .NET config reader takes a BOM, comments and trailing commas; "not JSON" there was a lie.
+D=$(mkfix_pat c73 '[]')
+printf '\357\273\277{ // written by Visual Studio\n "stryker-config": { "mutate": ["**/WpqrService.cs{845-1080}",], },\n}\n' > "$D/stryker-config.json"
+OUT=$(run "$D")
+expect_absent   "C73 a BOM-and-comments config is not called unreadable" "is not JSON" "$OUT"
+expect_contains "C73 and its pattern is checked"                  "two dots" "$OUT"
+# C74: .NET binds configuration keys case-insensitively.
+D=$(mkfix_pat c74 '[]'); printf '{ "Stryker-Config": { "Mutate": ["**/Nope.cs"] } }\n' > "$D/stryker-config.json"
+OUT=$(run "$D")
+expect_contains "C74 a Mutate key in another case is checked"     "'**/Nope.cs' matches no .cs file" "$OUT"
+# C75: only a Stryker line's -m is a pattern; a runtime one is said as a note, not passed silently.
+D=$(mkfix_pat c75 '["**/*.cs"]')
+printf '%s\n' '#!/bin/bash' 'dotnet stryker -m "$SCOPE"' 'grep -m 1 "mutation score" out.log' 'python3 -m json.tool r.json' > "$D/scripts/run-mutation-gate.sh"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C75 grep -m / python3 -m are not patterns"       "[MUTATION]" "$OUT"
+expect_contains "C75 the runtime pattern is said, as a note"      "runtime-assembled" "$OUT"
+expect_rc       "C75 a note is not a finding" 0 "$RC"
+# C76: one pattern the checker cannot parse does not blind it to the rest.
+D=$(mkfix_pat c76 '["src/[z-a].cs", "**/Nope.cs"]')
+OUT=$(run "$D")
+expect_contains "C76 the unparseable pattern is named"            "could not be parsed" "$OUT"
+expect_contains "C76 and the next pattern is still checked"       "'**/Nope.cs' matches no .cs file" "$OUT"
+
+# --- C77: a runner that puts -m on a continuation line is still read (/simplify, row 047) -----------------
+# The first draft pre-filtered the runner in bash, one line at a time, and never asked the helper.
+D=$(mkfix_mut c77 79); printf '{ "stryker-config": { "project": "App.csproj" } }\n' > "$D/stryker-config.json"
+printf '%s\n' '#!/bin/bash' 'dotnet stryker \' "  -m '**/App.cs{1-2}'" > "$D/scripts/run-mutation-gate.sh"
+OUT=$(run "$D")
+expect_contains "C77 a continued -m line is checked"             "scripts/run-mutation-gate.sh:2" "$OUT"
+
+# --- C78: --full without the helper says the run-alone check was not made -------------------------------
+D=$(mkfix_mut c78 79); mk_dotnet "$D" 90.00 0; rm -f "$D/scripts/stryker_guard.py"
+OUT=$(run_full "$D")
+expect_contains "C78 no helper — run-alone check said UNCHECKED"  "run-alone check UNCHECKED" "$OUT"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

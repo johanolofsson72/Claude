@@ -711,6 +711,49 @@ for score, name, d, v in rows:
 '
 }
 
+# WHAT GOT MUTATED IS DECIDED BEFORE THE SCORE, AND NOTHING READ IT (row 047). ighweld-2026: a mutate
+# pattern `'**/X.cs{845-1080}'` matched no file and the run still scored (F184); `{98..120}` is a
+# CHARACTER span that was read as lines (F197); a well-formed span did not shrink the run (F185). Stryker
+# reports none of it, so every pass -- not only --full -- checks the patterns in every committed config and
+# the literal -m arguments of the project runner. The rules live in scripts/stryker_guard.py, which the
+# PreToolUse guard asks too. Unchecked is said, never passed (mutation-timeouts.md trap 4).
+# One owner for the rules: with python3 the helper finds the configs and the runner itself. Bash only
+# decides, when it cannot ask, whether there was anything to leave unchecked.
+HAVE_STRYKER_GUARD=0
+command -v python3 >/dev/null 2>&1 && [ -f scripts/stryker_guard.py ] && HAVE_STRYKER_GUARD=1
+if [ "$HAVE_STRYKER_GUARD" -eq 1 ] && MUT_PAT_OUT=$(python3 scripts/stryker_guard.py configs . 2>/dev/null); then
+  # `skipped` (a runtime-assembled `-m "$P"`) is said as a note: unchecked, and not a defect either.
+  MUT_PAT_BAD=$(printf '%s\n' "$MUT_PAT_OUT" | grep -v '^skipped' | grep .)
+  MUT_PAT_SKIP=$(printf '%s\n' "$MUT_PAT_OUT" | grep '^skipped')
+  if [ -n "$MUT_PAT_BAD" ]; then
+    add "[MUTATION] $(printf '%s\n' "$MUT_PAT_BAD" | grep -c .) mutate pattern(s) select nothing, or not what they say — and the score still prints:
+$(printf '%s\n' "$MUT_PAT_BAD" | awk -F'\t' '$3 == "-" { printf "  %s %s\n", $2, $4; next } { printf "  %s: \047%s\047 %s\n", $2, $3, $4 }')"
+  fi
+  [ -n "$MUT_PAT_SKIP" ] && note "[note] mutate patterns: $(printf '%s' "$MUT_PAT_SKIP" | awk -F'\t' '{ printf "%s %s", $2, $4 }')"
+elif [ -f scripts/run-mutation-gate.sh ] ||
+     [ -n "$(find . -type d \( -name node_modules -o -name StrykerOutput -o -name bin -o -name obj -o -name .git -o -name .stryker-tmp \) -prune -o \
+               -type f -iname 'stryker-config*.json' -print -quit 2>/dev/null)" ]; then
+  add "[MUTATION] mutate patterns UNCHECKED — python3 or scripts/stryker_guard.py is missing or failed, so a pattern
+  that matches no file, or a span read as lines, would score as if it measured something (row 047)."
+fi
+
+# STRYKER RUNS ALONE (row 047, ighweld F069). A dotnet build or test in the same project overwrites the
+# mutated assembly, and the run scores about 0% with no warning. --full looks once, before it starts; a
+# build started in another terminal after that is outside what this can see.
+# A process table it could not read is a note, not a refusal and not a silence: the run goes ahead and
+# the report says the run-alone check was blind (Git Bash's ps cannot list dotnet.exe at all).
+MUT_LIVE=""
+if [ -n "$MUTATION_CMD" ] && [ "$FULL" -eq 1 ]; then
+  if [ "$HAVE_STRYKER_GUARD" -eq 1 ]; then
+    MUT_LIVE_OUT=$(python3 scripts/stryker_guard.py live . 2>/dev/null)
+    MUT_LIVE=$(printf '%s\n' "$MUT_LIVE_OUT" | grep -E '^[0-9]')
+    MUT_BLIND=$(printf '%s\n' "$MUT_LIVE_OUT" | awk -F'\t' '$1 == "unknown" { print $3 }' | paste -sd ';' -)
+    [ -n "$MUT_BLIND" ] && note "[note] Stryker run-alone check was partly blind: $MUT_BLIND."
+  else
+    note "[note] Stryker run-alone check UNCHECKED — python3 or scripts/stryker_guard.py is missing."
+  fi
+fi
+
 # Did this invocation actually MEASURE the gate? Not "did it try" — the due-state stamp below is a
 # claim that the obligation was discharged, and a crash or an unreadable run discharges nothing.
 # Set only on the two branches where a score came back (gate passed, or gate failed on the number —
@@ -718,7 +761,12 @@ for score, name, d, v in rows:
 MUT_MEASURED=0
 
 if [ -n "$MUTATION_CMD" ]; then
-  if [ "$FULL" -eq 1 ]; then
+  if [ "$FULL" -eq 1 ] && [ -n "$MUT_LIVE" ]; then
+    add "[MUTATION] NOT RUN — Stryker must run alone, and this project already has one running:
+$(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2, $3 }')
+  A build beside Stryker overwrites the mutated assembly and the run scores about 0% with no warning
+  (ighweld F069). Not stamped: the job stays due. Re-run --full once it has finished."
+  elif [ "$FULL" -eq 1 ]; then
     # Which config this bare invocation will actually read, and how many exist. Both tools default to a
     # config in the working directory; the count is what turns "one gate" into an honest sentence.
     case "$MUTATION_CMD" in

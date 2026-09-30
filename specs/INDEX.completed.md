@@ -1026,3 +1026,35 @@ must not render identically (`.claude/rules/mutation-timeouts.md`, trap 4).
 ## H1 — integration-hardening
 
 - [x] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
+
+## 047 — stryker-spans-fail-silently-and-score-well
+
+Ticked 2026-09-30.
+
+- [x] 047 — stryker-spans-fail-silently-and-score-well — spec-only — an invalid mutate glob matches no file and reports a clean score; spans are CHARACTER offsets, not lines; a concurrent `dotnet build` zeroes the run silently. From ighweld-2026. Diagnosis: `specs/INDEX.pending.md`
+
+**Done.** `scripts/stryker_guard.py` owns the rules. Every maintenance pass checks each committed `stryker-config*.json` `mutate` pattern, plus the literal `-m` values in the project runner. A malformed span (F184), a glob that matches no `.cs` file, and a valid CHARACTER span (F197/F185) are each a finding. `--full` will not start beside a live Stryker run or dotnet build (F069). `scripts/stryker-guard-hook.sh` (PreToolUse, Bash) denies the same shapes when Claude issues the command, with `STRYKER_SPANS_ARE_CHARACTERS=1` / `STRYKER_GUARD=off` as the overrides. It fails open on anything it cannot read. Hardened: threat model in the spec. The security-scanner adversarial review found 10 issues, 9 fixed with arms. /security-review found nothing. Hand mutants: 43/43 killed. The run also fixed `hook-verdict.sh` (its bash 3.2 pattern substitution hung on a 40 KB reason). Findings F051–F053.
+
+
+Three findings, one theme: Stryker.NET's per-file targeting fails in ways that read as success.
+
+- **F184 — an invalid line span matches nothing and scores well.** `'**/X.cs{845-1080}'` uses a hyphen
+  where Stryker wants `..`. It is not an error; the glob simply matches no file, so the run mutates
+  nothing in that file and reports a clean result. A gate that measures nothing and passes is worse
+  than no gate.
+- **F197 — spans are CHARACTER offsets, not line numbers.** `SyncService.cs{98..120}` selects
+  characters 98–120 of the file. ighweld spec 161's first run was scoped to a couple of dozen
+  characters and nobody could tell from the output.
+- **F185 — spans are unusable as a per-spec gate anyway.** With `'**/WpqrService.cs{840..1140}'` the
+  file still generates its whole mutant set; the span does not reduce the run.
+- **F069 — a concurrent `dotnet build` or `dotnet test` silently destroys the measurement.** The
+  sibling build overwrites the mutated assembly, and the run scores ~0% with no warning. ighweld
+  carries this as a project memory (`stryker_runs_alone`) because it cost a full run. It belongs in
+  the mutation docs and, better, in a guard.
+
+Distinct from 043 (which is about the reporter list) and 041 (the timeouts rule). The common fix
+shape: refuse a mutate glob that matches no file, and say so.
+
+## 079 — traceability-loses-the-second-id-in-a-chain
+
+- [x] 079 — traceability-loses-the-second-id-in-a-chain — spec-only — `grep -o` is non-overlapping, so `SCNNN_SCNNN_Name` in a C# method read as one id and the second row was reported uncovered. 8 of agentcrm's 58 "uncovered" rows were this, each with a passing test. Pattern takes `(...)+`, `tr` splits; case46 asserts both forms. Found as agentcrm H6 / F391.
