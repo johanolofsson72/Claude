@@ -1201,3 +1201,16 @@ every `INDEX*.md` archive.
 Fixed 2026-09-30: `next-register-id.sh --suffix <parent>` returns the parent plus the letter after the
 highest one used, over the register and every `INDEX*.md` archive, case-folded, single-letter children
 only; unknown parent, mixed modes and past-`z` exit 2. `scripts/test-next-register-id.sh`.
+
+## 067 — traceability-walk-races-test-results
+
+From fundit F116 (2026-09-10). Three consecutive runs on identical input gave 141, 0 and 0 of 148
+covered while a Playwright suite was writing and deleting `test-results/`. The reference walk is a
+`find` over the tree, and a directory vanishing mid-walk ends it early, with the error swallowed.
+Related to 044 (zero vs broken are indistinguishable), but a separate cause: this walk should
+prune `test-results/` and other build output, and treat a walk error as unreadable, not as zero.
+
+Fixed 2026-09-30: `test-results/` was already pruned (6bf2e52); the live gap was the partial case. A
+walk whose `find` or `grep` reported any error now refuses (exit 4, error lines + files read per root)
+instead of printing a partial `coverage:`. `blob-report/`, `allure-results/`, `.nyc_output/` pruned.
+`scripts/test-validate-scenario-traceability.sh` case49/case50 + two sabotage arms.

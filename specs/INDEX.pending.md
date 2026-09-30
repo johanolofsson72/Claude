@@ -160,14 +160,6 @@ Same class as the row's own subject — a catastrophic-sounding report with a tr
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
 
-## 067 — traceability-walk-races-test-results
-
-From fundit F116 (2026-09-10). Three consecutive runs on identical input gave 141, 0 and 0 of 148
-covered while a Playwright suite was writing and deleting `test-results/`. The reference walk is a
-`find` over the tree, and a directory vanishing mid-walk ends it early, with the error swallowed.
-Related to 044 (zero vs broken are indistinguishable), but a separate cause: this walk should
-prune `test-results/` and other build output, and treat a walk error as unreadable, not as zero.
-
 ## 068 — checkpoint-cadence-counts-checkpoints
 
 From fundit F211 (2026-09-24). `spec-register-orientation-hook.sh` counts every ticked row toward

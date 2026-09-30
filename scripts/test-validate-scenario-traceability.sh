@@ -955,6 +955,73 @@ else
 fi
 rm -rf "$proj"
 
+# case49 — A WALK THAT ERRORED IS NOT A COVERAGE RESULT (row 067). fundit read 141, 0 and 0 of 148 on
+# identical input while Playwright rewrote files under the roots. 044 made the zero case refuse; the
+# partial one still printed "141 of 148" over seven rows the walk never reached. chmod 000 stands in
+# for the vanished directory: find and grep report both the same way, and this one is deterministic.
+# Root reads through chmod 000, so the case cannot run as root and says so rather than passing.
+if [ "$(command id -u)" -eq 0 ]; then
+  skip "case49-errored-walk-refuses" "running as root; chmod 000 does not make a path unreadable"
+else
+  # (a) an unreadable directory: find cannot descend, and the id under it is lost.
+  proj=$(new_project)
+  { map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+  write_test "$proj" "a.test.ts" 901
+  mkdir -p "$proj/tests/sub"
+  write_test "$proj" "sub/b.test.ts" 902
+  chmod 000 "$proj/tests/sub"
+  run_gate "$proj"
+  chmod 755 "$proj/tests/sub"
+  if [ "$RC" -eq 4 ] && ! grep -q '^coverage:' <<< "$OUT" && grep -q 'sub' <<< "$OUT" \
+     && grep -qi 'denied' <<< "$OUT"; then
+    ok "case49a-unreadable-directory-refuses"
+  else
+    bad "case49a-unreadable-directory-refuses" "expected exit 4 quoting the error, no coverage line, got $RC: $OUT"
+  fi
+  # (c) ...and the refusal says how many files each root DID read.
+  if grep -q 'tests: 1 file' <<< "$OUT"; then
+    ok "case49c-errored-walk-names-file-counts"
+  else
+    bad "case49c-errored-walk-names-file-counts" "expected 'tests: 1 file(s)' in: $OUT"
+  fi
+  rm -rf "$proj"
+
+  # (b) an unreadable file: find lists it, grep cannot open it.
+  proj=$(new_project)
+  { map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+  write_test "$proj" "a.test.ts" 901
+  write_test "$proj" "b.test.ts" 902
+  chmod 000 "$proj/tests/b.test.ts"
+  run_gate "$proj"
+  chmod 644 "$proj/tests/b.test.ts"
+  if [ "$RC" -eq 4 ] && ! grep -q '^coverage:' <<< "$OUT" && grep -q 'b.test.ts' <<< "$OUT"; then
+    ok "case49b-unreadable-file-refuses"
+  else
+    bad "case49b-unreadable-file-refuses" "expected exit 4 naming b.test.ts, no coverage line, got $RC: $OUT"
+  fi
+  rm -rf "$proj"
+fi
+
+# case50 — PLAYWRIGHT'S OTHER OUTPUT IS BUILD OUTPUT TOO (row 067). test-results/ was already pruned;
+# blob-report/ is written by the same run, and allure-results/ and .nyc_output/ by the reporters
+# beside it. An id quoted in a report is neither coverage (the covering row stays uncovered) nor a
+# dangling reference (the id nobody wrote stays out of the list).
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+for dir in blob-report allure-results .nyc_output; do
+  mkdir -p "$proj/tests/$dir"
+  printf 'report quotes %s and %s\n' "$(id 902)" "$(id 907)" > "$proj/tests/$dir/report.json"
+done
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "uncovered" <<< "$OUT" && grep -q "$(id 902)" <<< "$OUT" \
+   && ! grep -q "$(id 907)" <<< "$OUT"; then
+  ok "case50-report-directories-are-pruned"
+else
+  bad "case50-report-directories-are-pruned" "expected $(id 902) uncovered and no $(id 907), got $RC: $OUT"
+fi
+rm -rf "$proj"
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be
@@ -1123,10 +1190,10 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   sab_run "$SABDIR/q.sh"
   expect_red "width-rule-removed" "$SAB_OUT" case48a-mixed-width-map-keeps-the-width-line || SAB_FAIL=1
 
-  # (f) the missing-root guard removed. Since spec 044 a missing root has TWO defences: this guard,
-  # and the zero-refs guard, which sees the empty scan the missing root causes and refuses it,
-  # naming the root with its 0 files. So removing this one alone must leave case9 green, and only
-  # removing both (o) may turn it red — the same shape as the two locale defences above.
+  # (f) the missing-root guard removed. Since spec 044 a missing root has more than one defence: this
+  # guard, the zero-refs guard (the empty scan it causes, naming the root with its 0 files), and since
+  # row 067 the walk-error guard (find's own complaint about the path). So removing this one alone
+  # must leave case9 green, and only removing all three (o2) may turn it red.
   replace_region "$SCRIPT" "$SABDIR/f.sh" root-guard ':'
   sab_run "$SABDIR/f.sh"
   expect_green "root-guard-removed-zero-refs-intact" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
@@ -1137,11 +1204,37 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   expect_red "zero-refs-guard-removed" "$SAB_OUT" \
     case41-zero-ids-with-claims-refuses case42-refusal-names-roots-and-file-counts || SAB_FAIL=1
 
-  # (o) BOTH removed — a typo'd root reports every scenario as uncovered, and case9 must catch it.
+  # (r) the walk-error guard removed (row 067) — a walk that lost part of the tree prints a partial
+  # coverage number again. case49c goes too: the file counts are only printed by the refusal.
+  replace_region "$SCRIPT" "$SABDIR/r.sh" walk-error-guard ':'
+  sab_run "$SABDIR/r.sh"
+  if [ "$(command id -u)" -ne 0 ]; then
+    expect_red "walk-error-guard-removed" "$SAB_OUT" \
+      case49a-unreadable-directory-refuses case49b-unreadable-file-refuses \
+      case49c-errored-walk-names-file-counts || SAB_FAIL=1
+  fi
+
+  # (s) the report directories row 067 added to the prune dropped — their quoted ids count again.
+  sed 's/ -o -name blob-report -o -name allure-results -o -name .nyc_output//' "$SCRIPT" > "$SABDIR/s.sh"
+  if cmp -s "$SCRIPT" "$SABDIR/s.sh"; then
+    echo "  FAIL  sabotage/s — the sed matched nothing; the prune line has moved"
+    SAB_FAIL=1
+  fi
+  sab_run "$SABDIR/s.sh"
+  expect_red "report-dirs-unpruned" "$SAB_OUT" case50-report-directories-are-pruned || SAB_FAIL=1
+
+  # (o) Since row 067 a missing root has a THIRD defence: find reports the path it cannot walk, and
+  # the walk-error guard refuses. So removing root-guard and zero-refs together must still leave
+  # case9 green (o), and only removing all three (o2) may turn it red.
   replace_region "$SCRIPT" "$SABDIR/o0.sh" root-guard ':'
   replace_region "$SABDIR/o0.sh" "$SABDIR/o.sh" zero-refs-guard ':'
   sab_run "$SABDIR/o.sh"
-  expect_red "root-guard-and-zero-refs-removed" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
+  expect_green "root-guard-and-zero-refs-removed-walk-error-intact" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
+
+  # (o2) ALL THREE removed — a typo'd root reports every scenario as uncovered, and case9 must catch it.
+  replace_region "$SABDIR/o.sh" "$SABDIR/o2.sh" walk-error-guard ':'
+  sab_run "$SABDIR/o2.sh"
+  expect_red "root-guard-zero-refs-and-walk-error-removed" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
 
   # (l) discovery replaced by the constant it grew out of. This is the shape the gate shipped with
   # for its whole life, and the reason it went unseen is worth stating: on a project whose tests all

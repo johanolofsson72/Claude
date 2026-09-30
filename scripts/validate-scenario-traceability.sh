@@ -104,7 +104,9 @@
 #   3  the map could not be read, the extractor refused entirely, or it yielded zero rows
 #   4  no reference root to read — either one the caller NAMED does not exist, or discovery found
 #      none of its candidates — or every root was read and not one file named any id while the
-#      map claims rows. All three are "I could not look", and none is ever reported as coverage.
+#      map claims rows — or the walk reported an error (a path vanished or was unreadable), so
+#      what it read is partial. All four are "I could not look", and none is ever reported as
+#      coverage.
 #   5  checked, but part of the map was unreadable — never reported as clean
 #   7  NOT APPLICABLE — the project has no scenario map at all. Distinct from 3,
 #      which means a map exists and could not be read.
@@ -580,6 +582,7 @@ for root in $ROOTS; do
   # >>> build-prune
   find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
        -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \
+       -o -name blob-report -o -name allure-results -o -name .nyc_output \
        -o -name '*-snapshots' \) \
        -prune -o -type f \
        ! -name '*.png' ! -name '*.jpg' ! -name '*.jpeg' ! -name '*.gif' ! -name '*.webp' \
@@ -609,13 +612,38 @@ IFS=$OLDIFS
 grep -xE "${PREFIX}-[0-9]+[a-z]?" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" || : > "$TMP/refs.u"
 # <<< id-length-filter
 
+# >>> walk-error-guard
+# A WALK THAT REPORTED AN ERROR READ PART OF THE TREE, and a part is not a coverage result (row 067).
+# fundit read 141, then 0, then 0 of 148 on identical input while a Playwright run rewrote files
+# under the roots. 044 made the zero reading refuse; the 141 still printed as seven uncovered rows,
+# which a reader acts on. A directory that vanished or went unreadable mid-walk costs find its
+# subtree, a file that went away between find and grep costs grep its contents, and both say so in
+# scan.err — which used to be read only when the scan found nothing at all.
+#
+# A vanished file is not excused on the grounds that it no longer cites anything. It proves the tree
+# changed during the walk, so the report describes no single moment, and the only honest answer is
+# to say that and ask for a rerun. Checked before the zero-refs guard, so that guard keeps its 044
+# meaning: a walk that ran cleanly and found nothing.
+if [ -s "$TMP/scan.err" ]; then
+  echo "scenario-traceability: the reference scan reported $(grep -c . "$TMP/scan.err") error(s); what it read is partial, not a coverage result" >&2
+  echo "  first 10:" >&2
+  head -10 "$TMP/scan.err" | sed 's/^/    /' >&2
+  echo "  Files read:" >&2
+  sed 's/^/    /' "$TMP/scanned" >&2
+  echo "  Rerun when nothing is writing under the roots (a test run rewriting its output is the usual" >&2
+  echo "  cause). If it persists, the paths above are unreadable: fix their permissions or prune them." >&2
+  exit 4
+fi
+# <<< walk-error-guard
+
 # >>> zero-refs-guard
 # ZERO IDS FROM A SCAN THAT RAN is the missing-root case arriving by another door. Every root exists
 # and the walk finished, yet not one file named any id — so every claimed row would print as
 # uncovered, the catastrophic-looking report with a trivial cause that the root-guard refuses. The
 # gate used to print it as `coverage: 0 of N` and exit 1. fundit read 0 of 182 that way, then 175
 # of 182 minutes later with nothing changed; the cause was never proven, and the scan's own errors
-# were going to /dev/null, so the report carried no handle on it.
+# were going to /dev/null, so the report carried no handle on it. Those errors are the walk-error
+# guard's now (row 067), so this guard only ever sees a walk that finished cleanly.
 #
 # Only when the map CLAIMS something. A map of nothing but mapped and retired rows has no claim to
 # leave unbacked, and refusing it would turn every roadmap-only project red (case5's argument).
@@ -624,10 +652,6 @@ if [ ! -s "$TMP/refs.u" ] && [ -s "$TMP/claimed" ]; then
   echo "scenario-traceability: no scenario id found in any file under the roots, while the map claims $(grep -c . "$TMP/claimed") row(s)" >&2
   echo "  Zero ids anywhere is a broken or empty scan, not a coverage result. Files read:" >&2
   sed 's/^/    /' "$TMP/scanned" >&2
-  if [ -s "$TMP/scan.err" ]; then
-    echo "  the scan reported errors ($(grep -c . "$TMP/scan.err") line(s); first 10):" >&2
-    head -10 "$TMP/scan.err" | sed 's/^/    /' >&2
-  fi
   echo "  Rerun first; a scan racing files that change under it has read 0 and then most. If it" >&2
   echo "  persists, check the roots (--roots, or specs/traceability-roots). If the suite genuinely" >&2
   echo "  cites no scenario id, every claimed row is unbacked, and that is the thing to fix." >&2
