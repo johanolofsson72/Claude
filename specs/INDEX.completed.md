@@ -1281,3 +1281,7 @@ source. The rule as written steers the next project into the weaker shape. Fix: 
 come from an orchestrator secret store mounted as files (Swarm/Kubernetes secrets) or a vault;
 environment variables only where the platform offers nothing else, and never baked into an image.
 Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value (`op run --env-file=.env.op` locally). Production pipes `op read … | docker secret create <name> -` and mounts it under `/run/secrets`, and the app reads it with `AddKeyPerFile`. Env vars are a fallback only, never `ENV`/`ARG`. Rule, deploy-checklist, deployment.md and wizard Q39 agree and point there. Guard: `scripts/test-doc-secrets-guidance.sh` (template-only).
+
+## 078 — autosync-tests-miss-ten-of-twelve-mutants
+
+- [x] 078 — autosync-tests-miss-ten-of-twelve-mutants — spec-only — H1 sampled 12 operator mutants in template-autosync.sh; the 16 suites that run it killed 2. Add a surgical arm per survivor (list in specs/H1-integration-hardening/checkpoint.md). — carved by H1 — approved F050
