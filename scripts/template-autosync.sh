@@ -289,7 +289,8 @@ validate-rule-citations.sh test-validate-rule-citations.sh"
 #   Template-authoring tools. update-template.sh drives THIS repository's own refresh and
 #   verify-local-llm-hooks.sh checks the template's local-LLM wiring. A project has no use for
 #   either; both are already present in older projects only because a long-ago prose sync copied
-#   them, which is not a reason to keep shipping them.
+#   them, which is not a reason to keep shipping them. test-doc-dotnet-playwright-apis.sh (spec
+#   071) checks the template's own docs; projects get the fixed docs through sync, not the check.
 #
 # A name here is a claim that somebody looked. Moving a name OUT of this list and into CORE_SCRIPTS
 # is the fix when the claim turns out to be wrong.
@@ -297,7 +298,8 @@ TEMPLATE_ONLY_SCRIPTS="after-specify-hook.sh allium-hook.sh tla-hook.sh ui-desig
 sqlite-nfs-safety-hook.sh test-coverage-hook.sh
 run-mutation-gate.sh
 update-template.sh verify-local-llm-hooks.sh
-bench-hooks.sh install-global-skills.sh test-install-global-skills.sh test-on-linux.sh"
+bench-hooks.sh install-global-skills.sh test-install-global-skills.sh test-on-linux.sh
+test-doc-dotnet-playwright-apis.sh"
 
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md

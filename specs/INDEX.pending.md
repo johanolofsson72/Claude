@@ -160,16 +160,6 @@ Same class as the row's own subject — a catastrophic-sounding report with a tr
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
 
-## 071 — testing-doc-prescribes-js-screenshot-api
-
-From teach F007 (spec 003, confirmed at teach H1–H3). `.claude/docs/testing.md` prescribes
-`Expect(Page).ToHaveScreenshotAsync` for visual regression on .NET. That assertion belongs to
-Playwright's JS/TS test runner (`@playwright/test`); `Microsoft.Playwright` has no screenshot
-comparison at all. teach built its own `VisualBaseline` (in-browser canvas diff against a committed
-PNG) to satisfy the rule. Fix: say what .NET projects actually have — `Page.ScreenshotAsync` plus a
-pixel diff (a canvas diff in the page, or ImageSharp/Codeuctivity.ImageSharpCompare) with committed
-baselines — and keep the JS API only for Node projects.
-
 ## 072 — security-rule-says-secrets-in-env
 
 From teach F061 (spec 014 deploy-hardening, 2026-09-28). `.claude/rules/security.md` ends with "Never

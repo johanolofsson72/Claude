@@ -406,12 +406,14 @@ if cmp -s "$FRESH" "$SAB/arm1.sh" || cmp -s "$FRESH" "$SAB/arm2.sh"; then
 else
   P=$(mkrepo sab1); : > "$P/build.gradle"
   OSV_UNDER_TEST="$TMP/stubs/c21/osv-scanner"; mkstub "$OSV_UNDER_TEST" "No issues found" 0
-  if sabrun "$SAB/arm1.sh" "$P" | grep -Fq "[SKIP] ./build.gradle — no auditor: no lockfile"; then
+  SABOUT=$(sabrun "$SAB/arm1.sh" "$P")
+  if grep -Fq "[SKIP] ./build.gradle — no auditor: no lockfile" <<< "$SABOUT"; then
     bad "arm 1 (lockfile rule dropped) turns C17 red" "the SKIP line disappears" "still there"
   else ok "arm 1 (lockfile rule dropped) turns C17 red"; fi
   P=$(mkrepo sab2); : > "$P/pom.xml"
   OSV_UNDER_TEST="$NO_BIN/osv-scanner"
-  if sabrun "$SAB/arm2.sh" "$P" | grep -Fq "NOT SCANNED: deps(./pom.xml)"; then
+  SABOUT=$(sabrun "$SAB/arm2.sh" "$P")
+  if grep -Fq "NOT SCANNED: deps(./pom.xml)" <<< "$SABOUT"; then
     bad "arm 2 (NOT_SCANNED join dropped) turns C15 red" "RESULT loses NOT SCANNED" "still there"
   else ok "arm 2 (NOT_SCANNED join dropped) turns C15 red"; fi
 fi

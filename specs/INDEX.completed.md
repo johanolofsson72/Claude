@@ -1254,3 +1254,16 @@ org.owasp:dependency-check-maven:check` needs an NVD API key and is slow, so con
 reads pom.xml / lockfiles offline-first), and print an explicit `[SKIP] <manifest> — no auditor` line for
 any ecosystem it cannot check, so an unchecked backend never reads as clean.
 Fixed 2026-09-30: the template already had osv-scanner and dotnet passes (ekofak's copy predated them). Added pass 6, dependency coverage: every Maven/Gradle/Cargo/Go/Python/Ruby/PHP/Elixir/Dart manifest is `[OK] … osv-scanner (<file>)` or `[SKIP] … no auditor: <why>`, and an unchecked one is NOT SCANNED in RESULT. `Deps:` renamed `npm:`.
+
+## 071 — testing-doc-prescribes-js-screenshot-api
+
+- [x] 071 — testing-doc-prescribes-js-screenshot-api — spec-only — testing.md tells .NET projects to use Expect(Page).ToHaveScreenshotAsync, which exists only in Playwright's JS runner. From teach F007. Diagnosis: `specs/INDEX.pending.md`
+
+From teach F007 (spec 003, confirmed at teach H1–H3). `.claude/docs/testing.md` prescribes
+`Expect(Page).ToHaveScreenshotAsync` for visual regression on .NET. That assertion belongs to
+Playwright's JS/TS test runner (`@playwright/test`); `Microsoft.Playwright` has no screenshot
+comparison at all. teach built its own `VisualBaseline` (in-browser canvas diff against a committed
+PNG) to satisfy the rule. Fix: say what .NET projects actually have — `Page.ScreenshotAsync` plus a
+pixel diff (a canvas diff in the page, or ImageSharp/Codeuctivity.ImageSharpCompare) with committed
+baselines — and keep the JS API only for Node projects.
+Fixed 2026-09-30: the Node block is TS `toHaveScreenshot`; the .NET block is `ScreenshotAsync` + Codeuctivity.SkiaSharpCompare, per-OS baselines in the source tree, missing baseline fails, `VRT_UPDATE=1` writes. Verified by running the snippet. Guard: `scripts/test-doc-dotnet-playwright-apis.sh` (template-only).

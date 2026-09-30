@@ -288,16 +288,46 @@ For logic with a wide input space, hand-picked example tests sample a few points
 
 ## Visual regression tests (REQUIRED for UI — AI writes code, not pixels)
 
-Functional and destructive tests pass while the page still looks broken: AI reasons over code tokens, not rendered output, so it ships wrong spacing, dead design tokens, and collapsed responsive layouts that no `getByRole` assertion catches. Screenshot baselines close that gap and Playwright does it natively — no new infra, **local-only** (respects `github-actions.md` CI-minimalism).
+Functional and destructive tests pass while the page still looks broken: AI reasons over code tokens, not rendered output, so it ships wrong spacing, dead design tokens, and collapsed responsive layouts that no `getByRole` assertion catches. Screenshot baselines close that gap, **local-only** (respects `github-actions.md` CI-minimalism). How you get them depends on the runner.
 
-```csharp
+**Node (`@playwright/test`)** has the comparison built in. `toHaveScreenshot` diffs against a committed PNG, and `npx playwright test --update-snapshots` writes the baselines:
+
+```ts
 // Baseline the key states of each screen (default, empty, error, loaded, dark mode).
 // The width comes from the shared suite (see Viewports below), not from this test.
-await Expect(Page).ToHaveScreenshotAsync("dashboard-default.png");
+await expect(page).toHaveScreenshot('dashboard-default.png');
 ```
 
+**.NET (`Microsoft.Playwright`)** has no screenshot assertion. `ToHaveScreenshotAsync` exists only in the JS runner, and a test that calls it does not compile. The .NET suite takes the picture with `ScreenshotAsync` and does the diff itself, against a PNG committed next to the tests:
+
+```csharp
+// Inside a ScreenTest-derived fixture (see Viewports below); Width is the fixture's width.
+// using Codeuctivity.SkiaSharpCompare;  (Apache-2.0, ships its Linux native assets)
+// Baselines live in the test project's source tree, not in bin/ (TestDirectory is bin/<config>/<tfm>).
+var os       = OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux";
+var dir      = Path.GetFullPath(Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "Baselines", os));
+var baseline = Path.Combine(dir, $"dashboard-default-{Width}.png");
+var actual   = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"dashboard-default-{Width}.png");
+await Page.ScreenshotAsync(new() { Path = actual, Animations = ScreenshotAnimations.Disabled });
+
+if (Environment.GetEnvironmentVariable("VRT_UPDATE") == "1")
+{
+    Directory.CreateDirectory(dir);
+    File.Copy(actual, baseline, overwrite: true);   // review the diff, then commit it
+    Assert.Inconclusive($"baseline written: {baseline}");
+}
+Assert.That(File.Exists(baseline), $"no baseline at {baseline} — run once with VRT_UPDATE=1 and commit it");
+
+var diff = Compare.CalcDiff(actual, baseline);
+Assert.That(diff.PixelErrorPercentage, Is.LessThanOrEqualTo(0.1), $"{baseline}: {diff.PixelErrorCount} pixels differ");
+```
+
+- The comparer can be any pixel diff. `Codeuctivity.ImageSharpCompare` has the same API, but its ImageSharp dependency has a commercial licence above a revenue threshold. You can also skip the package and draw both PNGs onto a `<canvas>` in the page, then count differing pixels with `getImageData` (teach's `VisualBaseline`).
+- `Animations = ScreenshotAnimations.Disabled` jumps running CSS transitions to their final frame. Without it a baseline can record the middle of a transition, and it fails randomly under load.
+- Baselines are per platform. Font rendering differs between macOS and Linux, so keep one baseline set per OS (the `os` folder above) or render in the same container everywhere. Don't loosen the threshold until it stops catching real changes.
+- A missing baseline fails the test. If it quietly wrote a new one, a fresh clone would pass with nothing to compare against.
 - Capture the *states that matter* (empty / loading / error / loaded, plus dark mode), not every pixel of every page. The shared suite runs each of them at every viewport.
-- First run writes baselines (`--update-snapshots`); commit them. Later runs diff against them and fail on drift.
+- The first run writes baselines (`--update-snapshots` on Node, `VRT_UPDATE=1` in the .NET sketch above); commit them. Later runs diff against them and fail on drift.
 - Update baselines **deliberately** when a design change is intended — a baseline update is a reviewable diff, never an automatic overwrite.
 - For component-level isolation (fewer false positives on churny output) a Storybook + Chromatic setup is the heavier alternative; default to Playwright screenshots first.
 
@@ -320,6 +350,7 @@ projects: [
 [TestFixture(375, 812)]
 public abstract class ScreenTest(int width, int height) : PageTest
 {
+    protected int Width => width;   // for baseline names; a derived class reading `width` gets CS9107
     public override BrowserNewContextOptions ContextOptions() =>
         new() { ViewportSize = new() { Width = width, Height = height } };
 }
