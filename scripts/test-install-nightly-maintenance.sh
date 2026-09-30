@@ -24,7 +24,8 @@ export CRONTAB_FILE="$WORK/crontab"
 cat > "$STUB/crontab" <<'SH'
 #!/bin/sh
 case "$1" in
-  -l) [ -f "$CRONTAB_FILE" ] || exit 1; cat "$CRONTAB_FILE" ;;
+  -l) [ -n "${CRONTAB_BROKEN:-}" ] && { echo "crontab: tmp/crontab.XXXX: Permission denied" >&2; exit 1; }
+      [ -f "$CRONTAB_FILE" ] || { echo "crontab: no crontab for tester" >&2; exit 1; }; cat "$CRONTAB_FILE" ;;
   -)  cat > "$CRONTAB_FILE" ;;
   *)  exit 2 ;;
 esac
@@ -154,6 +155,24 @@ echo "07 07 * * * /usr/bin/true # mine" > "$CRONTAB_FILE"; before=$(cat "$CRONTA
 rc=$( cd "$P" && HOME="$WORK/home" PATH="$BASEPATH" NIGHTLY_PARSE_SHELL="$STUB/badsh" /bin/bash scripts/install-nightly-maintenance.sh --dry-run >/dev/null 2>&1; echo $? )
 [ "$rc" = 1 ] && ok "--dry-run refuses an unparsable line too" || bad "--dry-run gave exit $rc on an unparsable line"
 [ "$(cat "$CRONTAB_FILE")" = "$before" ] && ok "--dry-run leaves the crontab alone" || bad "--dry-run wrote the crontab"
+
+# H2 — a project whose path starts with ours keeps its line when we install or remove.
+Q=$(mkproj plain-admin)
+rm -f "$CRONTAB_FILE"; inst "$Q" >/dev/null; inst "$P" >/dev/null; inst "$P" >/dev/null
+grep -qF "claude-nightly-maintenance:$Q" "$CRONTAB_FILE" && ok "H2 installing /plain keeps /plain-admin's line" \
+  || bad "H2 installing /plain took /plain-admin's line (prefix match)"
+inst "$P" --remove >/dev/null
+grep -qF "claude-nightly-maintenance:$Q" "$CRONTAB_FILE" && ok "H2 removing /plain keeps /plain-admin's line" \
+  || bad "H2 removing /plain took /plain-admin's line (prefix match)"
+
+# H2 — a crontab that cannot be read is not an empty one.
+echo "07 07 * * * /usr/bin/true # mine" > "$CRONTAB_FILE"
+rc=$( cd "$P" && HOME="$WORK/home" PATH="$BASEPATH" CRONTAB_BROKEN=1 /bin/bash scripts/install-nightly-maintenance.sh >/dev/null 2>&1; echo $? )
+[ "$rc" = 1 ] && ok "H2 an unreadable crontab refuses (exit 1)" || bad "H2 an unreadable crontab gave exit $rc"
+grep -q '# mine' "$CRONTAB_FILE" && ok "H2 …and the developer's jobs survive" || bad "H2 an unreadable crontab was overwritten"
+rm -f "$CRONTAB_FILE"; inst "$P" >/dev/null
+grep -qF "claude-nightly-maintenance:$P" "$CRONTAB_FILE" && ok "H2 no crontab yet is still an empty start" \
+  || bad "H2 'no crontab' was treated as a failure"
 
 echo
 echo "install-nightly-maintenance: $PASS passed, $FAIL failed"

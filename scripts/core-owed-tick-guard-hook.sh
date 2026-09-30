@@ -117,7 +117,7 @@ fi
 # which lands the owed work is itself a tick made while the work is still owed — so the way through
 # exists; it is just not quiet.
 if [ "${ALLOW_TICK_WITH_CORE_OWED:-0}" = "1" ]; then
-  jq -n '{hookSpecificOutput: {additionalContext: "core-owed-tick-guard: ALLOW_TICK_WITH_CORE_OWED=1 is set, so the register tick proceeds. If this project still owes the template CORE work, the next sync overwrites it — land it in the template, or it is gone."}}' 2>/dev/null
+  jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: "core-owed-tick-guard: ALLOW_TICK_WITH_CORE_OWED=1 is set, so the register tick proceeds. If this project still owes the template CORE work, the next sync overwrites it — land it in the template, or it is gone."}}' 2>/dev/null
   exit 0
 fi
 

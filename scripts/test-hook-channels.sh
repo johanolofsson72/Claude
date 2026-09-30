@@ -54,6 +54,8 @@ echo "== 2. every hookSpecificOutput carries a hookEventName =="
 MISSING=""
 for f in scripts/*-hook.sh scripts/emit-*.sh scripts/feature-pipeline-detect.sh; do
   [ -f "$f" ] || continue
+  # A self-test named for the hook it tests (test-allium-check-hook.sh) READS payloads; it emits none.
+  case "$f" in scripts/test-*) continue ;; esac
   EMITS=$(grep 'hookSpecificOutput' "$f" 2>/dev/null | grep -cv 'jq -r')
   [ "${EMITS:-0}" -eq 0 ] && continue
   grep -q 'hookEventName' "$f" || MISSING="$MISSING $f"

@@ -16,7 +16,7 @@
 #   a checkpoint  id H<digit>…, or track field (field 3) "checkpoint"
 #   a carve       id NNN<letters> (016a), or "carved by <id>" on the row
 #   standing      track field "standing" / "stående" (the T0 pointer row)
-# The track is read from field 3 only: a slug must not be able to decide what a row is (SC-1444).
+# The track is read from field 3 only: a slug must not be able to decide what a row is (a project's SC-NNNN).
 #
 # Usage:
 #   bash scripts/checkpoint-cadence.sh [--dir DIR]

@@ -84,7 +84,19 @@ MSG
   exit 3
 fi
 
-current=$(crontab -l 2>/dev/null || true)
+# "No crontab yet" is an empty start. Any other failure to read it is a stop: installing on
+# top of a crontab we could not read would replace the developer's other jobs with ours (H2).
+CRONTAB_ERR=$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/nightly-crontab.$$")
+if current=$(crontab -l 2>"$CRONTAB_ERR"); then
+  :
+elif grep -qi 'no crontab' "$CRONTAB_ERR"; then
+  current=""
+else
+  echo "install-nightly-maintenance.sh: cannot read the current crontab, so nothing was changed:" >&2
+  sed 's/^/  /' "$CRONTAB_ERR" >&2
+  rm -f "$CRONTAB_ERR"; exit 1
+fi
+rm -f "$CRONTAB_ERR"
 
 if [ "$MODE" = "list" ]; then
   ours=$(printf '%s\n' "$current" | grep -F "claude-nightly-maintenance:")
@@ -101,7 +113,10 @@ fi
 
 # Drop any existing line for THIS project. Both modes need it: remove is only this,
 # and install must not stack a second entry every time it is run.
-cleaned=$(printf '%s\n' "$current" | grep -vF "$MARKER" | sed '/^$/d')
+# The marker must END the line: a substring match would also take the line of a project whose
+# path merely starts with this one (/repos/app vs /repos/app-admin).
+cleaned=$(printf '%s\n' "$current" | awk -v m=" $MARKER" \
+  'length($0) >= length(m) && substr($0, length($0) - length(m) + 1) == m { next } { print }' | sed '/^$/d')
 
 if [ "$MODE" = "remove" ]; then
   if [ "$DRY" -eq 1 ]; then echo "(dry-run) would remove the nightly job for $PROJECT"; exit 0; fi

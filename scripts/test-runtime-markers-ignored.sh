@@ -75,7 +75,8 @@ TRACKED_BY_DESIGN='.claude/.template-sync%the sync manifest — a project commit
 .claude/.sync-stack%the declared stack for this project, read by the guards
 .claude/.sync-local%accepted intentional differences from the template
 .claude/.template-sync-verify%the verify command this project declares for its sync commits
-.claude/.runtime-markers%project-local bucket additions (below) — a record a project commits'
+.claude/.runtime-markers%project-local bucket additions (below) — a record a project commits
+.claude/.suite-command%the whole-suite command a project declares for project-maintenance --suite (spec 051) — a project decision, committed like .template-sync-verify'
 
 HELPER_REL="scripts/harness-gitignore.sh"
 

@@ -165,16 +165,31 @@ if [ "$DO_SECRETS" -eq 1 ]; then
     # commits: "failed to read index file"), and any code we do not recognise is the same
     # third state: not clean, not a finding (spec 038).
     TH_ERR=$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/freshness-th.$$")
+    TH_OUT=$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/freshness-th-out.$$")
+    # --json, never the plain printer: plain prints "Raw result: <the credential>", and this
+    # output lands in maintenance reports, the nightly log and the model's transcript (H2).
     if [ -d .git ]; then
       # git history scan: naturally skips gitignored node_modules/build output.
       TH_WHERE="git history"
-      "$TRUFFLEHOG_BIN" git "file://$ROOT" --only-verified --no-update --fail --fail-on-scan-errors 2>"$TH_ERR"
+      "$TRUFFLEHOG_BIN" git "file://$ROOT" --only-verified --no-update --fail --fail-on-scan-errors --json >"$TH_OUT" 2>"$TH_ERR"
     else
       TH_WHERE="working tree"
-      "$TRUFFLEHOG_BIN" filesystem "$ROOT" --only-verified --no-update --fail --fail-on-scan-errors 2>"$TH_ERR"
+      "$TRUFFLEHOG_BIN" filesystem "$ROOT" --only-verified --no-update --fail --fail-on-scan-errors --json >"$TH_OUT" 2>"$TH_ERR"
     fi
     TH_RC=$?
     cat "$TH_ERR" >&2
+    # Detector and location only. Raw, RawV2, Redacted and ExtraData never leave the file.
+    if [ -s "$TH_OUT" ]; then
+      if command -v jq >/dev/null 2>&1; then
+        jq -Rr 'fromjson? // empty
+          | (first(.SourceMetadata.Data | .. | objects | select(has("file"))) // {}) as $at
+          | "  [VERIFIED] \(.DetectorName // "unknown detector") — \($at.file // "?"):\($at.line // "?")\(if $at.commit then " @ " + ($at.commit | tostring | .[0:12]) else "" end)"' \
+          "$TH_OUT" 2>/dev/null
+      else
+        echo "  [VERIFIED] $(grep -c . "$TH_OUT" | tr -d ' ') result(s) — detector and location withheld without jq; the raw output is never printed."
+      fi
+    fi
+    rm -f "$TH_OUT"
     case "$TH_RC" in
       0)
         # Verified means provider-checkable: an API token a provider will answer for. A key

@@ -785,6 +785,22 @@ keyscan "$P"
 expect_contains "SC-038-02 exit 183 is a finding" "[FINDING] trufflehog found verified secret(s)" "$OUT"
 expect_contains "…in the SUMMARY" "Secrets: VERIFIED SECRET(S) FOUND" "$OUT"
 expect_contains "…and exits 1" "EXIT=1" "$OUT"
+# H2: the plain printer shows "Raw result: <credential>" and this output reaches reports, the
+# nightly log and the transcript. The script asks for --json and prints detector + location only.
+TH_UNDER_TEST="$TMP/stubs/th29/json/trufflehog"; mkdir -p "$(dirname "$TH_UNDER_TEST")"
+cat > "$TH_UNDER_TEST" <<'STUB'
+#!/bin/sh
+echo "$0 $*" >> "$0.calls"
+printf '%s\n' '{"SourceMetadata":{"Data":{"Git":{"commit":"0123456789abcdef0123","file":"appsettings.json","line":7}}},"DetectorName":"AWS","Verified":true,"Raw":"AKIAH2RAWSECRETVALUE","RawV2":"AKIAH2RAWSECRETVALUEv2","Redacted":"AKIAH2RED"}'
+exit 183
+STUB
+chmod +x "$TH_UNDER_TEST"
+keyscan "$P"
+expect_contains "a verified hit asks trufflehog for --json" "--json" "$(cat "$TH_UNDER_TEST.calls" 2>/dev/null)"
+expect_contains "…names detector, file, line and commit" "[VERIFIED] AWS — appsettings.json:7 @ 0123456789ab" "$OUT"
+expect_absent   "…and never prints the credential" "AKIAH2RAWSECRETVALUE" "$OUT"
+expect_absent   "…nor its redacted form" "AKIAH2RED" "$OUT"
+expect_contains "…and is still a finding" "[FINDING] trufflehog found verified secret(s)" "$OUT"
 TH_UNDER_TEST="$TMP/stubs/th29/err/trufflehog"; mkthstub "$TH_UNDER_TEST" 1 "error running scan: failed to read index file"
 keyscan "$P"
 expect_contains "SC-038-03 exit 1 could not scan" "[WARN] trufflehog could not scan (exit 1)" "$OUT"

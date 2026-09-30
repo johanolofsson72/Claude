@@ -90,6 +90,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 076 — malformed-id-deny-blames-a-healthy-register — spec-only — both PreToolUse guards deny a malformed active id (`7-x`) with the "resolver missing / register unparsable" text. Own exit 97 + text naming token and grammar. Found as consultpilot H7ai / Q2.
 - [x] 079 — traceability-loses-the-second-id-in-a-chain — spec-only — `grep -o` is non-overlapping, so `SCNNN_SCNNN_Name` in a C# method read as one id and the second row was reported uncovered. 8 of agentcrm's 58 "uncovered" rows were this, each with a passing test. Pattern takes `(...)+`, `tr` splits; case46 asserts both forms. Found as agentcrm H6 / F391. — approved F061
 - [x] 078 — autosync-tests-miss-ten-of-twelve-mutants — spec-only — H1 sampled 12 operator mutants in template-autosync.sh; the 16 suites that run it killed 2. Add a surgical arm per survivor (list in specs/H1-integration-hardening/checkpoint.md). — carved by H1 — approved F050
+- [/] H2 — integration-hardening — checkpoint — full-system regression + security sweep + mutation spot-check over the ~30 rows ticked since H1 (043–079).
 
 ## Register history (newest first)
 

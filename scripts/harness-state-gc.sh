@@ -116,13 +116,13 @@ fi
 REMOVED_MARKERS=0
 MARKER_DIR="$PROJECT_ROOT/.claude/state/bash-write"
 if [ -d "$MARKER_DIR" ]; then
-  while IFS= read -r f; do
+  # NUL-separated: a marker named "x<newline>.git" would otherwise split into a second line,
+  # a relative path resolved against the hook's cwd, and _act would rm -rf it (H2).
+  while IFS= read -r -d '' f; do
     [ -n "$f" ] || continue
     _act "$f"
     REMOVED_MARKERS=$((REMOVED_MARKERS + 1))
-  done <<EOF
-$(find "$MARKER_DIR" -maxdepth 1 -type f -mmin +1440 2>/dev/null)
-EOF
+  done < <(find "$MARKER_DIR" -maxdepth 1 -type f -mmin +1440 -print0 2>/dev/null)
 fi
 
 # ------------------------------------------------------------ 2. TLC scratch
