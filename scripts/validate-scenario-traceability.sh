@@ -553,6 +553,20 @@ for root in $ROOTS; do
   # negatives before it was believed: `SCNNNN_A...`, `Checkout_SCNNN_D...` and `SC-NNN` all match;
   # `SC2086`, `DESC-NNN` and a bare `SCNNNN` do not.
   #
+  # THE UNDERSCORE FORM CHAINS, and one `+` was the difference between reading a citation and losing
+  # it. A method covering two adjacent rows is written `SCNNN_SCNNN_WhatItDoes`, and `grep -o` takes
+  # NON-OVERLAPPING matches: the `_` that opens the second id is the same byte the first match ended
+  # on, already consumed, so `(^|[^A-Za-z0-9])` had nothing left to match against and the second id
+  # was invisible. Measured on one project 2026-09-30: 8 of its 58 "uncovered" rows were this shape,
+  # every one of them with a passing test naming it — the gate reporting a row unproven while its
+  # proof sat in the method name. Wrong in the direction that looks like diligence, again.
+  #
+  # The `+` makes the whole run ONE match and `tr` splits it back into one id per line, which is
+  # portable where a lookbehind is not: POSIX ERE has none, and `grep -P` is absent on BSD. The
+  # hyphenated alternative carries no `_`, so `tr` cannot touch it. case46 asserts both the chained
+  # and the single form in one run, so a pattern that stopped matching the underscore form at all
+  # cannot pass by reporting everything uncovered for a different reason.
+  #
   # The `sed` normalises what grep returns — leading separator stripped, trailing `_` dropped, the
   # missing hyphen inserted — so everything downstream still sees exactly one id shape.
   # >>> build-prune
@@ -565,7 +579,8 @@ for root in $ROOTS; do
        ! -name '*.woff' ! -name '*.woff2' ! -name '*.ttf' ! -name '*.otf' \
        -print0 2>>"$TMP/scan.err" \
     | tee "$TMP/files" \
-    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b|(^|[^A-Za-z0-9])${PREFIX}[0-9]+[a-z]?_" 2>>"$TMP/scan.err" \
+    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b|(^|[^A-Za-z0-9])(${PREFIX}[0-9]+[a-z]?_)+" 2>>"$TMP/scan.err" \
+      | tr '_' '\n' \
       | sed -e "s/^[^${PREFIX}]*//" -e 's/_$//' -e "s/^${PREFIX}\\([0-9]\\)/${PREFIX}-\\1/" \
       >> "$TMP/refs" || true
   # <<< build-prune

@@ -872,6 +872,30 @@ else
 fi
 rm -rf "$proj"
 
+# case46 — A CHAINED UNDERSCORE FORM NAMES EVERY ID IN IT, not just the first. A C# or Java method
+# cannot carry a hyphen, so a test covering two adjacent rows is written `SCNNN_SCNNN_WhatItDoes`
+# — and `grep -o` takes NON-OVERLAPPING matches, so the separator that opened the second id was
+# already eaten by the first. The second id was invisible, and the row it covers was reported
+# uncovered: a gate wrong in the direction that looks like diligence. Measured on one project
+# 2026-09-30: 8 of its 58 "uncovered" rows were this one shape, each with a passing test naming it.
+#
+# THE SINGLE FORM IS ASSERTED IN THE SAME CASE, as a known positive. Without it a pattern that had
+# stopped matching the underscore form altogether would pass this case by reporting both rows
+# uncovered for a different reason, which is how an enumeration lies about having looked.
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$V"; row 903 "$V"; } > "$proj/specs/SCENARIOS.md"
+{
+  printf 'public async Task %s901_%s902_TwoAdjacentRowsInOneTest()\n' "$P" "$P"
+  printf 'public async Task %s903_TheSingleFormStillWorks()\n' "$P"
+} > "$proj/tests/Chained.cs"
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then
+  ok "case46-chained-underscore-ids-both-count"
+else
+  bad "case46-chained-underscore-ids-both-count" "expected exit 0, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be
