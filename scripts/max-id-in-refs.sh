@@ -9,7 +9,7 @@
 #                          F141–F143. merge=union on FINDINGS.md kept both sides without a conflict
 #                          marker, so the collision was silent. A deleted line also freed its number.
 #   scenario ids (060)     had no allocator at all. agentcrm measured 47 colliding SC-ids on
-#                          2026-09-21; 26 of them were specs 052 and 055 both taking SC-1625..1650.
+#                          2026-09-21; 26 of them were specs 052 and 055 both taking ids 1625..1650.
 #
 # The cure for both is the same: read the MAXIMUM id, never a count, and read it everywhere this
 # clone can see — the working tree (uncommitted and untracked edits included) AND every local and

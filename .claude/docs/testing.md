@@ -84,6 +84,40 @@ sudo pwsh bin/Debug/net*/playwright.ps1 install-deps chromium   # run this yours
   features. Microsoft.Playwright tests run under xUnit, which has neither; in .NET, use an xUnit collection for tests
   that share a resource.
 
+### The app under test starts from one declared port (row 063)
+
+Without a pattern, every project invents its own startup. agentcrm kept its web port in four places:
+`vite.config.ts`, an appsettings key, `playwright.config.ts` and a test helper. It had no `webServer`
+key, so the server was started by hand and the four values were kept in sync from memory. Vite also
+needed `--host`, because without it vite listens on `::1` only and an IPv4 hostname gets ECONNREFUSED.
+That cost four runs in one evening. With the `@playwright/test` runner:
+
+```ts
+// e2e/port.ts — the only place the number is written; vite.config.ts and the tests import it
+export const WEB_PORT = Number(process.env.WEB_PORT ?? 5173);
+
+// playwright.config.ts
+import { WEB_PORT } from './e2e/port';
+export default defineConfig({
+  use: { baseURL: `http://localhost:${WEB_PORT}` },
+  webServer: {
+    command: `npm run dev -- --host --port ${WEB_PORT} --strictPort`,
+    url: `http://localhost:${WEB_PORT}`,
+    reuseExistingServer: !process.env.CI, // use a dev server that is already running
+    timeout: 120_000,
+  },
+});
+```
+
+- **One declaration, many readers.** A backend setting that has to know the web port (a public-link
+  base, CORS) gets it from the same env var, never from a second literal.
+- `--strictPort` makes a taken port fail loudly instead of moving to the next free one, where the
+  tests would not look.
+- `reuseExistingServer` means the suite starts what it needs and does not fight a dev server the
+  developer already has running.
+- A .NET backend the UI calls is a second `webServer` entry (it takes an array), with its own `url`
+  health check, so the suite never runs against a half-started API.
+
 ## Running tests
 
 ```bash

@@ -569,6 +569,14 @@ for root in $ROOTS; do
   #
   # The `sed` normalises what grep returns — leading separator stripped, trailing `_` dropped, the
   # missing hyphen inserted — so everything downstream still sees exactly one id shape.
+  #
+  # A SECOND `-<digits>` MAKES IT A CRITERION, NOT A SCENARIO (row 061). A spec that numbers its own
+  # success criteria SC-NNN-NN hands `\b` a boundary after the first number, because `-` is not a
+  # word character, and the gate read SC-NNN: dangling when the map had no such row, and silently
+  # covering it when it did. The optional `(-[0-9]...)` group makes the whole criterion ONE match,
+  # and the id-length filter's `-x` below then drops it, so it is neither a reference nor a hole.
+  # Nothing is lost by it: no map writes a range as SC-NNNN-NNNN (checked on agentcrm, 2026-09-30),
+  # and `.claude/rules/scenarios.md` already tells criteria to use letters. case47 pins both halves.
   # >>> build-prune
   find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
        -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \
@@ -579,7 +587,7 @@ for root in $ROOTS; do
        ! -name '*.woff' ! -name '*.woff2' ! -name '*.ttf' ! -name '*.otf' \
        -print0 2>>"$TMP/scan.err" \
     | tee "$TMP/files" \
-    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b|(^|[^A-Za-z0-9])(${PREFIX}[0-9]+[a-z]?_)+" 2>>"$TMP/scan.err" \
+    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?(-[0-9][0-9A-Za-z]*)?\\b|(^|[^A-Za-z0-9])(${PREFIX}[0-9]+[a-z]?_)+" 2>>"$TMP/scan.err" \
       | tr '_' '\n' \
       | sed -e "s/^[^${PREFIX}]*//" -e 's/_$//' -e "s/^${PREFIX}\\([0-9]\\)/${PREFIX}-\\1/" \
       >> "$TMP/refs" || true

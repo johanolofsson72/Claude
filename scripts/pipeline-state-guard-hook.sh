@@ -115,6 +115,20 @@ done
 [ -z "$LANG_MARKER" ] && exit 0   # template/scratch repo — no code project
 [ -z "$REGISTER" ] && exit 0      # no spec register up to the git root
 
+# 3b) MID-MERGE (row 059, agentcrm F094). Ticking a row moves "the active spec" on, and the merge that
+# closes the previous row finishes AFTER the tick — so an edit the merge still needs was judged against
+# a spec that had not started, and denied. While MERGE_HEAD exists, a file that either side of the
+# merge changed since the merge base is part of finishing that merge, not new work, and passes.
+# Scoped to that set on purpose: "any edit while a merge is open" would make `git merge --no-commit`
+# a way past this guard. A file neither side touched is judged as usual. If git cannot answer, the
+# check falls through to the normal verdict — never to allow.
+if git -C "$GIT_ROOT" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+  REL="${FILE#"$GIT_ROOT"/}"
+  MERGE_FILES=$(git -C "$GIT_ROOT" diff --name-only HEAD...MERGE_HEAD 2>/dev/null
+                git -C "$GIT_ROOT" diff --name-only MERGE_HEAD...HEAD 2>/dev/null)
+  grep -qxF -- "$REL" <<< "$MERGE_FILES" && exit 0
+fi
+
 # 4) Parse register + check artifacts in Python (regex + filesystem)
 HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 

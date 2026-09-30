@@ -2,7 +2,6 @@
 
 The long form of rows not yet started. Never pipeline input.
 
-
 ## 007
 
 _2026-09-03: folded into row 007 — one script, three defects. Row as it stood:_
@@ -116,7 +115,6 @@ cannot be computed from this register`, with a non-zero exit so the maintenance 
 it. Keep `clean` for the case it was meant for: attributions present, none over budget, none
 past depth 2. The threshold below which "no attributions" is honest (a young register really
 has no carves yet) needs measuring across the machine's registers, not guessing.
-
 
 ## 037 — sync-copies-nothing-under-zsh
 
@@ -261,29 +259,6 @@ half was closed 2026-09-03 by syncing 16 CORE scripts. Each new consumer of the 
 the exclusion separately; a fifth will too. Fix at the source: sweep stale `.stryker-tmp` when a
 mutation run starts, or point Stryker's `tempDirName` outside the working tree.
 
-## 058 — write-guard-resolves-paths-against-the-wrong-root
-
-**Reproduced twice while working the T0 row it was filed from, 2026-09-25.** Both times the command
-ran in `/home/daol/repos/Claude` or a scratchpad directory and the guard named a path in agentcrm:
-
-- `cd /home/daol/repos/Claude && python3 - <<'PY' ... p="scripts/validate-scenario-traceability.sh"`
-  → *"Target: /home/daol/Github/agentcrm/scripts/validate-scenario-traceability.sh"*.
-- `cd "$T" && ... > scripts/finding.sh` where `$T` was a scratchpad fixture
-  → *"Target: /home/daol/Github/agentcrm/scripts/finding.sh"*.
-
-Neither command could touch agentcrm. The guard takes a relative path out of a command line and
-joins it to the project root, ignoring the `cd` the same command line performs — so a relative write
-to **any** other tree is judged as a write to this one. Absolute paths pass, which is why the defect
-is survivable and why it has lasted.
-
-The second arm (agentcrm F237) is the mirror image: a token that merely ENDS in a source extension —
-a git URL, or free text like `whisper.cpp` — is read as a repo file and denied, including inside an
-argument to `finding.sh`. One is a path that is not where it says; the other is not a path at all.
-
-Both live in `scripts/bash-write-detect-hook.sh`. The honest fix is narrow: resolve against the
-command's own working directory when one is established in the same line, and require a path-shaped
-context (a redirect target, an argument to a writer) rather than an extension match anywhere.
-
 ## 044 — traceability-gate-cannot-tell-zero-from-broken
 
 **A second reporting defect in the same script, from agentcrm F316, 2026-09-22.** The gate printed
@@ -297,87 +272,6 @@ add up. The reader is told a fraction of the map was lost and given no way to fi
 Same class as the row's own subject — a catastrophic-sounding report with a trivial cause and no
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
-
-## 059 — pipeline-state-guard-denies-during-a-merge
-
-**From agentcrm F094, spec V1, 2026-09-08.** The guard fired on a one-line namespace fix to a
-migration the *other* lane had just landed, while the merge closing the previous row was in flight.
-
-The guard is not wrong about the rule; the hazard is ordering. Ticking a row moves "the active spec"
-to the next one, and a merge that closes the previous row is finished *after* the tick — so any
-source edit the merge still needs is judged against a spec that has not started and has no
-artifacts. The work is legitimate and the guard has no way to see that.
-
-`branch-per-spec-guard` already reads `MERGE_HEAD`, and `template-autosync.sh:721` does too, so the
-precedent for "this repository is mid-merge" exists in two places. Decide whether
-`pipeline-state-guard-hook.sh` should join them, or whether the tick should move later. Either
-answer is fine; the current state — a guard that blocks the last step of a merge — is not.
-
-## 061 — spec-criteria-numbering-reads-as-a-dangling-scenario
-
-**From agentcrm F208, 2026-09-18.** agentcrm spec 044 numbers its own success criteria
-`SC-044-01 … SC-044-04`. The traceability extractor matches `\bSC-[0-9]+[a-z]?\b`, and `-` is not a
-word character, so `SC-044-01` yields a reference to **SC-044** — an id the map does not have, which
-surfaces as dangling.
-
-`.claude/rules/scenarios.md` already warns against a second numeric SC- sequence and tells authors to
-use letters; nothing enforces it, and row 007 solved the neighbouring case (spec-kit's own `SC-001`
-criteria) by digit WIDTH, which cannot help here because the width matches.
-
-Two candidate fixes, and they are not equivalent: refuse the shape in the gate (a reference
-immediately followed by `-<digits>` is not a scenario id), or refuse it at the source (a checklist
-gate on spec files). The first is cheap and local; the second stops the collision being minted.
-
-## 062 — the-map-has-no-way-to-say-superseded
-
-**From agentcrm F270 / F279 / F330 / F334, 2026-09-21.** `scenarios.md` defines three statuses —
-`☐ mapped`, `◐ tested`, `✓ validated` — plus retired (`~~SC-nnn~~`, status `—`). A row that a later
-spec **replaced** is none of those: it was validated, the behaviour is gone, and the replacement has
-its own id.
-
-agentcrm documented a fourth, `⊘ superseded`, in its own map header, and then could not use it:
-`test-scenario-map-index.py` reads the tally alternation `✓ *|✓ int|✓|◐|☐` and nothing else, so an
-index stating `⊘` cannot match the file. Both rows that had carried `⊘` were retired at H5 instead,
-each keeping the history in its text — `_(retired at H5; had carried ⊘.)_`.
-
-That retreat may well be the right answer, and that is the point: **the template has never decided.**
-Either the gates learn a fourth status, or `scenarios.md` says plainly that retired-with-a-pointer is
-how a superseded row is written, so the next project does not spend a spec rediscovering it. Row 036
-already taught the alternation `✓ int` once, so the mechanism is known.
-
-## 063 — e2e-startup-has-no-declared-port
-
-**From agentcrm F205, 2026-09-18.** `webServer` appears nowhere in the template — not in
-`.claude/docs/testing.md`, not in any rule — so every project invents its own browser-suite startup.
-
-agentcrm holds the web port in **four** independent places: `vite.config.ts`,
-`appsettings.Development.json` (`Tenancy:PublicLinkPort`), `playwright.config.ts` and
-`tests/e2e/support/urls.ts`. Its `playwright.config.ts` has no `webServer` key at all, so the server
-is started by hand and three values are kept in sync by memory. A fourth value, `--host`, is needed
-because without it vite listens on `::1` only and `crm-*.agentcrm.localhost` gets ECONNREFUSED over
-IPv4. That combination cost four runs in one evening.
-
-`strictPort` makes the drift loud but does not remove the duplication. What the template can offer is
-the shape: one declaration that feeds all consumers, plus a `webServer` block with
-`reuseExistingServer` so the suite starts what it needs and does not fight a running dev server.
-
-## 064 — a-sabotage-arm-is-not-surgical
-
-**Found while running the suite during agentcrm's T0 pass, 2026-09-25**, and confirmed to predate the
-session's own changes by re-running against `HEAD` (39 passed · 1 failed · 2 inconclusive, both
-before and after).
-
-`scripts/test-validate-scenario-traceability.sh` checks its own teeth by sabotaging a copy of the
-gate one marked region at a time, then asserting that the right cases go red **and** that
-`case1-clean` survives. Arm `l` replaces the roots-discovery region with the constant `ROOTS="tests"`
-— and `case1-clean` breaks too, so the arm proves nothing about the defence it targets and the suite
-reports a failure on every run.
-
-The script's own comment at that arm ("tests DO live in tests/ this sabotage is invisible") says what
-was expected; the fixture evidently does not satisfy it. Either the fixture grows a root outside
-`tests/` so the sabotage becomes surgical, or the arm is retired with a line saying why. **A suite
-that is permanently 1-red is a suite whose next real red goes unread**, which is the failure this
-whole file exists to prevent.
 
 ## 065 — nightly-cron-line-runs-blind
 

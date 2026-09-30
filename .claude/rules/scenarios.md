@@ -130,7 +130,9 @@ _(retired; had been ✓ before it was superseded.)_ | — |`. The rejected alter
 invariant instead and let a retired row keep its old status; that keeps one sentence of history at
 the price of every count downstream being ambiguous, which is the wrong trade for the column the
 machinery consumes. `scripts/test-scenario-map-index.py` enforces this: status is `—` exactly when
-the row is struck.
+the row is struck. **Superseded is not a fourth status.** A row a later spec replaced is written
+retired, with the pointer above. agentcrm tried a `⊘ superseded` status, and no gate or tally could
+read it. It then retired both rows as described here (row 062).
 
 **Two `SC-` namespaces exist, and only arithmetic keeps them apart.** spec-kit's spec template
 numbers a spec's Success Criteria `SC-001`, `SC-002`, … — the same prefix this map uses for

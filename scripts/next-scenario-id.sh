@@ -3,7 +3,7 @@
 #
 # WHY THIS EXISTS (row 060). Register rows have next-register-id.sh; scenario ids had nothing, so
 # every spec picked its range by eye and every parallel merge collided. agentcrm measured 47
-# colliding ids on 2026-09-21: 26 from specs 052 and 055 both taking SC-1625..SC-1650 in one
+# colliding ids on 2026-09-21: 26 from specs 052 and 055 both taking ids 1625..1650 in one
 # window, the rest spread over 017/017b, 008b/022, 055/063. The same defect produced S1 (104 ids
 # renumbered) and S2 (13). A cleanup without an allocator recreates it at the next parallel spec.
 #
@@ -12,14 +12,14 @@
 # local and remote-tracking branch (scripts/max-id-in-refs.sh). Appends past the highest; never
 # fills a gap, for the same reason next-register-id.sh does not.
 #
-# Width follows the highest id, three digits minimum, and simply grows past SC-999 (row 048: a map
-# that outgrew three digits gets SC-1000, not a refusal).
+# Width follows the highest id, three digits minimum, and simply grows past 999 (row 048: a map
+# that outgrew three digits gets a four-digit id, not a refusal).
 #
 # Take the ids BEFORE writing the map rows, and push the spec branch once they are in: an unpushed
 # branch is the one place this cannot look.
 #
 # Usage:
-#   bash scripts/next-scenario-id.sh              # e.g. SC-2485
+#   bash scripts/next-scenario-id.sh              # one past the highest id
 #   bash scripts/next-scenario-id.sh --count 12   # a block for one spec
 #   bash scripts/next-scenario-id.sh --prefix UC  # a map with its own prefix
 #

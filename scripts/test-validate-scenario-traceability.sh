@@ -896,6 +896,34 @@ else
 fi
 rm -rf "$proj"
 
+# case47 — A SPEC'S OWN CRITERION NUMBER IS NOT A SCENARIO ID (row 061). agentcrm spec 044 numbered
+# its success criteria SC-NNN-NN; `-` is not a word character, so `\b` fired after the first number
+# and the gate read a reference to SC-NNN — a row the map did not have, reported dangling.
+# Two directions, one case: the criterion must neither dangle (47a) nor cover the row whose number
+# it happens to share (47b). The plain row citation in 47a is the known positive, so a pattern that stopped reading
+# hyphenated ids altogether cannot pass 47a by finding nothing.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+printf '// %s-901 is the row; %s-944-01 and %s-944-02a are criteria\n' "$P" "$P" "$P" > "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then
+  ok "case47a-a-criterion-number-does-not-dangle"
+else
+  bad "case47a-a-criterion-number-does-not-dangle" "expected exit 0, got $RC: $OUT"
+fi
+rm -rf "$proj"
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+# 902 is cited for real so the scan finds an id: with none at all the zero-refs guard answers first.
+printf '// %s-902, and criterion %s-901-01\n' "$P" "$P" > "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "${P}-901" <<< "$OUT"; then
+  ok "case47b-a-criterion-number-does-not-cover-its-namesake"
+else
+  bad "case47b-a-criterion-number-does-not-cover-its-namesake" "expected the row reported uncovered, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be

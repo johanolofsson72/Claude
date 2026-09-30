@@ -198,6 +198,7 @@ warn() { printf '%s\n' "$*" >&2; }
 CORE_SCRIPTS="pipeline-trigger-match.sh pipeline-trigger-match.py emit-pipeline-reminder.sh
 emit-clarify-reminder.sh emit-analyze-reminder.sh feature-pipeline-detect.sh
 spec_active.py resolve-active-spec.sh test-active-spec-resolution.sh test-spec-dir-absent.sh
+test-pipeline-state-merge.sh
 spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-guard-hook.sh
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
 sync-feature-json-hook.sh
