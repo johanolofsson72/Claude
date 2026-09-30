@@ -225,7 +225,7 @@ max-id-in-refs.sh test-max-id-in-refs.sh next-scenario-id.sh test-next-scenario-
 maintenance-due.sh test-maintenance-due.sh carve_audit.py maintenance_ledger.py test-maintenance-ledger.sh register_freeze.py finding_review.py
 validate-portability.sh portability_audit.py
 finding.sh test-finding.sh
-skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
+skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh test-tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
 core-owed-tick-guard-hook.sh test-core-owed-tick-guard.sh
