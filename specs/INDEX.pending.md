@@ -160,14 +160,6 @@ Same class as the row's own subject — a catastrophic-sounding report with a tr
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
 
-## 068 — checkpoint-cadence-counts-checkpoints
-
-From fundit F211 (2026-09-24). `spec-register-orientation-hook.sh` counts every ticked row toward
-the every-5 checkpoint cadence, checkpoint rows (H1, H2) and carved rows (016a) included, and fired
-"checkpoint due" at 20 done when only four feature specs had been ticked since H2. The register's
-own precedent counts feature specs since the last checkpoint. Fix: count ticked rows that are not
-H rows and carry no `carved by`, since the last ticked H row.
-
 ## 069 — tlc-cleanup-kills-the-run-it-guards
 
 From ekofak spec 005 (2026-09-28). `scripts/tlc-cleanup.sh` does `pkill -f "tla2tools"` and

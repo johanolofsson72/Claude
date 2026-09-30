@@ -9,8 +9,8 @@
 # missed. Seven jobs were scheduled on 2026-09-03 and not one had produced a log by the next morning.
 #
 # The project already knew how to do this properly, for exactly one job.
-# spec-register-orientation-hook.sh:201 computes `DONE % 5` and says an integration-hardening
-# checkpoint is due. That is the whole idea, working, since spec-hardening.md was written. The other
+# spec-register-orientation-hook.sh asks checkpoint-cadence.sh (once `DONE % 5`) and says an
+# integration-hardening checkpoint is due. That is the whole idea, working, since spec-hardening.md was written. The other
 # five recurring jobs had no equivalent because the primitive underneath was missing:
 # project-maintenance.sh never recorded that it ran, so nothing could ask "how long since".
 #

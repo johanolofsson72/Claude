@@ -1214,3 +1214,11 @@ Fixed 2026-09-30: `test-results/` was already pruned (6bf2e52); the live gap was
 walk whose `find` or `grep` reported any error now refuses (exit 4, error lines + files read per root)
 instead of printing a partial `coverage:`. `blob-report/`, `allure-results/`, `.nyc_output/` pruned.
 `scripts/test-validate-scenario-traceability.sh` case49/case50 + two sabotage arms.
+
+## 068 — checkpoint-cadence-counts-checkpoints
+
+From fundit F211 (2026-09-24). `spec-register-orientation-hook.sh` counts every ticked row toward
+the every-5 checkpoint cadence, checkpoint rows (H1, H2) and carved rows (016a) included, and fired
+"checkpoint due" at 20 done when only four feature specs had been ticked since H2. The register's
+own precedent counts feature specs since the last checkpoint. Fix: count ticked rows that are not
+H rows and carry no `carved by`, since the last ticked H row.

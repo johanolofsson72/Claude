@@ -205,7 +205,7 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   esac
 
   # What this project OWES, and what made it owe it. The checkpoint cadence below has worked this
-  # way since spec-hardening.md was written -- DONE % 5 -- and it was the only recurring job with a
+  # way since spec-hardening.md was written -- see checkpoint-cadence.sh -- and it was the only recurring job with a
   # due state. maintenance-due.sh generalises it to the other four, so a stale mutation gate or an
   # unrun suite is surfaced here rather than depending on a nightly cron firing on a sleeping
   # laptop. Delegated, never recomputed: three readers, one engine.
@@ -216,19 +216,29 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
 $MAINT_DUE"
   fi
 
-  # Cross-spec integration-hardening checkpoint cadence (every 5 completed specs).
-  # If DONE is a nonzero multiple of 5 and the next row is NOT already a checkpoint,
-  # flag that a checkpoint row is due before the next feature spec.
+  # Cross-spec integration-hardening checkpoint cadence (.claude/rules/spec-hardening.md).
+  # Delegated to checkpoint-cadence.sh, never recomputed here. This used to be `DONE % 5` over every
+  # ticked row, which counted H rows and carved rows as feature specs (fundit F211: "due" with four
+  # feature specs since H2) and went silent at 6 on a checkpoint that was never worked (spec 068).
+  # Nothing to flag when the next row already is the checkpoint.
   CHECKPOINT_DUE=""
   case "$NEXT_TRACK" in
-    *checkpoint*) : ;;  # already on a checkpoint row — nothing to flag
+    *checkpoint*) : ;;
     *)
-      if [ "$DONE" -gt 0 ] && [ $((DONE % 5)) -eq 0 ]; then
-        CHECKPOINT_DUE="
-⚠ INTEGRATION-HARDENING CHECKPOINT DUE — ${DONE} specs done (multiple of 5).
+      if [ -f "${_ORIENT_SCRIPT_DIR}/checkpoint-cadence.sh" ]; then
+        _CADENCE=$(bash "${_ORIENT_SCRIPT_DIR}/checkpoint-cadence.sh" --dir "$PROJECT_ROOT" 2>/dev/null)
+        case "$_CADENCE" in
+          *due=1)
+            _CP_COUNT=$(printf '%s' "$_CADENCE" | sed -n 's/.*count=\([0-9]*\).*/\1/p')
+            _CP_SINCE=$(printf '%s' "$_CADENCE" | sed -n 's/^since=\([^ ]*\).*/\1/p')
+            if [ "$_CP_SINCE" = "none" ]; then _CP_SINCE="the start of the register"; fi
+            CHECKPOINT_DUE="
+⚠ INTEGRATION-HARDENING CHECKPOINT DUE — ${_CP_COUNT} feature specs since ${_CP_SINCE}.
   Per .claude/rules/spec-hardening.md, insert + work an integration-hardening
   checkpoint row (full-system regression + security sweep + scenario reconciliation
   + mutation spot-check) BEFORE the next feature spec. Do not skip it silently."
+            ;;
+        esac
       fi
       ;;
   esac

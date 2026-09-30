@@ -151,7 +151,7 @@ out=$(bash "$SUT" --dir "$T/u" --suffix 006 --count 3 2>"$T/err"); rc=$?
 for par in 005 006 007 007c; do
   n=$(bash "$SUT" --dir "$T/s" --suffix "$par" 2>/dev/null)
   if [ -n "$n" ] && ! grep -qiE "^- \[[ xX/!]\] +\*{0,2}${n} — " "$T/s/specs/INDEX.md" \
-     && printf '%s' "$n" | grep -qE '^[0-9]+[a-z]+$'; then P=$((P+1)); else bad "carved id '$n' is taken or off-grammar"; fi
+     && grep -qE '^[0-9]+[a-z]+$' <<< "$n"; then P=$((P+1)); else bad "carved id '$n' is taken or off-grammar"; fi
 done
 ok "every carved id is free and on-grammar"
 

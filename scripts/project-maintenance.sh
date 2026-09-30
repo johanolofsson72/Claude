@@ -339,14 +339,21 @@ fi
 if [ -f specs/INDEX.md ]; then
   BLOCKED=$(grep -cE '^- \[!\]' specs/INDEX.md 2>/dev/null | tr -dc '0-9'); BLOCKED=${BLOCKED:-0}
   INPROG=$(grep -cE '^- \[/\]' specs/INDEX.md 2>/dev/null | tr -dc '0-9'); INPROG=${INPROG:-0}
-  DONE=$(grep -cE '^- \[x\]' specs/INDEX.md 2>/dev/null | tr -dc '0-9'); DONE=${DONE:-0}
   [ "${BLOCKED:-0}" -gt 0 ] && add "[REGISTER] $BLOCKED row(s) marked blocked \`- [!]\` — a register-rewrite decision is pending."
   [ "${INPROG:-0}" -gt 1 ] && add "[REGISTER] $INPROG rows marked in-progress \`- [/]\` — only one spec runs at a time."
-  # Integration-hardening checkpoint cadence (.claude/rules/spec-hardening.md).
-  if [ "${DONE:-0}" -gt 0 ] && [ $((DONE % 5)) -eq 0 ]; then
-    if ! grep -qiE '^- \[[ /]\].*checkpoint' specs/INDEX.md 2>/dev/null; then
-      add "[HARDENING] $DONE specs done (multiple of 5) but no pending checkpoint row — insert an integration-hardening checkpoint before the next feature spec."
-    fi
+  # Integration-hardening checkpoint cadence (.claude/rules/spec-hardening.md), from the same engine
+  # the SessionStart banner reads (spec 068 — this was `DONE % 5` over every ticked row).
+  if [ -f scripts/checkpoint-cadence.sh ]; then
+    CADENCE=$(bash scripts/checkpoint-cadence.sh 2>/dev/null)
+    case "$CADENCE" in
+      *due=1)
+        if ! grep -qiE '^- \[[ /]\].*checkpoint' specs/INDEX.md 2>/dev/null; then
+          CP_COUNT=$(printf '%s' "$CADENCE" | sed -n 's/.*count=\([0-9]*\).*/\1/p')
+          CP_SINCE=$(printf '%s' "$CADENCE" | sed -n 's/^since=\([^ ]*\).*/\1/p')
+          add "[HARDENING] $CP_COUNT feature specs since ${CP_SINCE/#none/the start of the register} but no pending checkpoint row — insert an integration-hardening checkpoint before the next feature spec."
+        fi
+        ;;
+    esac
   fi
 fi
 

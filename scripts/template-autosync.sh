@@ -215,6 +215,7 @@ speckit-extension-policy.sh
 archive-spec-history.sh test-archive-spec-history.sh
 archive-completed-rows.sh test-archive-completed-rows.sh
 register-convergence.sh test-register-convergence.sh
+checkpoint-cadence.sh test-checkpoint-cadence.sh
 install-nightly-maintenance.sh test-install-nightly-maintenance.sh
 install-lane-merge-drivers.sh test-lane-merge-drivers.sh
 register-similarity.sh register_similarity.py test-register-similarity.sh
