@@ -146,17 +146,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 053 — stryker-tmp-outlives-its-run (from msroute, 2026-09-25)
-
-Reported by msroute F007, 2026-09-25 (verbatim):
-
-> F007 — harness — 2026-09-08 · from spec 010 — Abandoned .stryker-tmp sandboxes are now excluded by four separate consumers (project-freshness, project-maintenance, vitest, eslint); the fix is to stop the directory existing — sweep on entry of the next run, or move tempDirName out of the tree. Template-owned
-
-Related product-side row: msroute `007cm — stryker-tmp-untracked-and-trips-the-guard`, whose guard
-half was closed 2026-09-03 by syncing 16 CORE scripts. Each new consumer of the tree has had to learn
-the exclusion separately; a fifth will too. Fix at the source: sweep stale `.stryker-tmp` when a
-mutation run starts, or point Stryker's `tempDirName` outside the working tree.
-
 ## 044 — traceability-gate-cannot-tell-zero-from-broken
 
 **A second reporting defect in the same script, from agentcrm F316, 2026-09-22.** The gate printed

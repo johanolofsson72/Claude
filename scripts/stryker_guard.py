@@ -4,6 +4,7 @@
     python3 scripts/stryker_guard.py configs <root>   # every committed config's mutate patterns
     python3 scripts/stryker_guard.py live <root>      # Stryker or a dotnet build running in <root>
     STRYKER_GUARD_CMD='<bash command>' python3 scripts/stryker_guard.py command <root>
+    python3 scripts/stryker_guard.py sweep <root>     # remove abandoned StrykerJS temp dirs (row 053)
 
 1. THE PATTERN SAYS ONE THING AND STRYKER DOES ANOTHER. ighweld-2026 measured three shapes:
    `'**/X.cs{845-1080}'` (F184) has a hyphen where Stryker wants `..`, so the braces become part of
@@ -31,11 +32,20 @@ What this does NOT read, on purpose: a pattern assembled at runtime (`-m "$P"`) 
 expands to would invent a finding, so it is reported as skipped. StrykerJS patterns have their own
 range syntax and are out of scope. The live check scopes to the project ROOT, not to one .csproj: a
 Stryker run on project A also refuses `dotnet build B/` in the same repository.
+
+3. AN ABANDONED STRYKERJS SANDBOX OUTLIVES ITS RUN (row 053, msroute F007). StrykerJS deletes its temp
+   directory only after a successful run, so a killed, timed-out or failed run leaves a copy of the
+   project in the tree, and every tool that walks it has to learn to skip it. `sweep` removes it when
+   the next run starts. Here the asymmetry is the other way round: deleting is the destructive
+   direction, so anything it cannot read -- the process table, a working directory -- keeps the
+   directory, and so does anything that is not plainly an abandoned sandbox. An in-place `backup-*`
+   is never removed: it can hold the only copy of the original sources.
 """
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -54,6 +64,17 @@ SHELLS = ("bash", "sh", "zsh", "dash")
 RUNNER = "run-mutation-gate.sh"   # the project-local runner, in scripts/ (not shipped; 045)
 SEPARATORS = set(";&|()")
 ECHO_LIMIT = 120                  # characters of a pattern quoted back in a deny reason
+
+# StrykerJS (row 053). The JS kind is read only by the sweep: the F069 run-alone deny stays .NET-only.
+TMP_DEFAULT = ".stryker-tmp"
+JS_CONFIG = re.compile(r"^stryker\.conf(?:ig)?\.(?:json|js|mjs|cjs)$")
+JS_TEMP_NAME = re.compile(r"""["']?tempDirName["']?\s*:\s*["']([^"'\n]+)["']""")
+JS_KEEP = re.compile(r"""["']?cleanTempDir["']?\s*:\s*false\b""")
+JS_BINS = ("stryker", "stryker.js", "stryker.cmd")
+JS_CORE = "@stryker-mutator/core"
+JS_RUNNERS = ("npx", "bunx", "pnpx")
+JS_PMS = ("npm", "pnpm", "yarn", "bun")
+CONFIG_LIMIT = 64 * 1024          # bytes of a Stryker config read for tempDirName / cleanTempDir
 
 MSG = {
     "badspan": "has a span Stryker cannot read (a span is {start..end}, two dots). Stryker treats the "
@@ -278,6 +299,29 @@ def skip_interpreter(toks):
     return toks
 
 
+def js_stryker(toks, need_run):
+    """True when this argv runs StrykerJS: its bin directly, through node, or through npx / bunx / pnpx /
+    `npm|pnpm|yarn exec` / `pnpm|yarn stryker`. A command (need_run) must say `run` -- `stryker init`
+    starts nothing. A process needs only to be running Stryker's code, so its workers count too."""
+    base = lambda t: os.path.basename(t).lower()
+    i = 0
+    if toks and base(toks[0]) in JS_PMS:
+        i = 2 if len(toks) > 1 and toks[1] in ("exec", "x", "dlx") else 1
+    elif toks and (base(toks[0]) in JS_RUNNERS or base(toks[0]) in ("node", "node.exe")):
+        i = 1
+    while i < len(toks) and toks[i].startswith("-"):
+        i += 1
+    if i >= len(toks):
+        return False
+    prog = toks[i]
+    if not (base(prog) in JS_BINS or prog.startswith(JS_CORE) or "/%s/" % JS_CORE in prog.replace("\\", "/")):
+        return False
+    if not need_run:
+        return True
+    rest = [t for t in toks[i + 1:] if not t.startswith("-")]
+    return bool(rest) and rest[0] == "run"
+
+
 # ----------------------------------------------------------------------------------- processes
 
 def cwds_of(pids):
@@ -304,6 +348,11 @@ def cwds_of(pids):
     return out
 
 
+def proc_kind(args):
+    argv = skip_interpreter(args.split())
+    return argv_kind(argv, PROC_VERBS) or ("stryker-js" if js_stryker(argv, False) else None)
+
+
 def live(root, kinds=("stryker", "build")):
     """([(pid, kind, args)] of those kinds inside root, [why the table was incomplete])."""
     try:
@@ -324,8 +373,7 @@ def live(root, kinds=("stryker", "build")):
     while p in parent and p not in mine:
         mine.add(p)
         p = parent[p]
-    cands = [(pid, argv_kind(skip_interpreter(args.split()), PROC_VERBS), args)
-             for pid, _pp, args in rows if pid not in mine]
+    cands = [(pid, proc_kind(args), args) for pid, _pp, args in rows if pid not in mine]
     cands = [c for c in cands if c[1] in kinds]   # a cwd is only looked up when it can matter
     if not cands:
         return [], []
@@ -341,6 +389,114 @@ def live(root, kinds=("stryker", "build")):
         if cwd == real_root or cwd.startswith(real_root + "/"):
             found.append((pid, kind, args[:200]))
     return found, blind
+
+
+# ----------------------------------------------------------------------------------- sweep (row 053)
+
+def read_config(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read(CONFIG_LIMIT)
+    except OSError:
+        return ""
+
+
+def temp_dirs(root):
+    """{temp dir: True when the config beside it sets cleanTempDir: false}, outermost only."""
+    found, configs = {}, {}
+    for d, dirs, files in os.walk(root):
+        for x in dirs:
+            if x == TMP_DEFAULT:
+                found[os.path.join(d, x)] = d
+        dirs[:] = [x for x in dirs if x not in PRUNE and not os.path.islink(os.path.join(d, x))]
+        for f in files:
+            if JS_CONFIG.match(f):
+                configs.setdefault(d, []).append(read_config(os.path.join(d, f)))
+    for d, texts in configs.items():
+        for text in texts:
+            m = JS_TEMP_NAME.search(text)
+            name = m.group(1).strip() if m else ""
+            # One plain path segment. `../web` or `.` would point the sweep at something that is not a
+            # temp directory, so a name like that is not read at all.
+            if name and name not in (".", "..") and "/" not in name and "\\" not in name:
+                path = os.path.join(d, name)
+                if os.path.isdir(path) or os.path.islink(path):
+                    found[path] = d
+    # A configured temp dir is not pruned by the walk, so its sandboxes' copies of the config and of
+    # .stryker-tmp were found too. Only the outermost candidate is a temp dir of this project.
+    outer = sorted(found, key=len)
+    keep = [c for i, c in enumerate(outer) if not any(c.startswith(o + os.sep) for o in outer[:i])]
+    return {c: any(JS_KEEP.search(t) for t in configs.get(found[c], [])) for c in keep}
+
+
+def tracked_under(root, paths):
+    """The subset of paths git tracks anything inside; empty when git is absent or root is no repo."""
+    try:
+        r = subprocess.run(["git", "-C", root, "ls-files", "-z", "--"] + [os.path.relpath(p, root) for p in paths],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if r.returncode != 0:
+        return set()
+    files = [os.path.join(root, f) for f in r.stdout.split("\0") if f]
+    return {p for p in paths if any(f.startswith(p + os.sep) for f in files)}
+
+
+def sweep(root):
+    """[(removed|kept|backup, path relative to root, detail)] for every StrykerJS temp dir under root."""
+    cands = temp_dirs(root)
+    if not cands:
+        return []
+    rel = lambda p: os.path.relpath(p, root).replace(os.sep, "/")
+    out = []
+    running, blind = live(root, ("stryker", "stryker-js"))
+    if running is None or running or blind:
+        if running:
+            why = "a Stryker run is live in this project (pid %s)" % running[0][0]
+        else:
+            why = "a live Stryker run cannot be ruled out (%s)" % "; ".join(blind)
+        return [("kept", rel(c), why) for c in sorted(cands)]
+    tracked = tracked_under(root, [c for c in cands if not os.path.islink(c)])
+    for c in sorted(cands):
+        if os.path.islink(c):
+            out.append(("kept", rel(c), "it is a symlink; the sweep does not follow it"))
+            continue
+        try:
+            entries = sorted(os.listdir(c))
+        except OSError as e:
+            out.append(("kept", rel(c), "it could not be listed (%s)" % e.strerror))
+            continue
+        backups = [e for e in entries if e.startswith("backup-")]
+        odd = [e for e in entries if not (e.startswith("sandbox-") and os.path.isdir(os.path.join(c, e))
+                                          and not os.path.islink(os.path.join(c, e)))]
+        if backups:
+            out.append(("backup", rel(c),
+                        "%s/%s is left by an interrupted in-place Stryker run and may hold the only copy of "
+                        "the original sources. Compare it with `git diff`, restore what the run mutated, then "
+                        "delete %s yourself (row 053)" % (rel(c), backups[0], rel(c))))
+        elif odd:
+            out.append(("kept", rel(c), "it holds %s, which is not a Stryker sandbox" % ", ".join(odd[:3])))
+        elif cands[c]:
+            out.append(("kept", rel(c), "the Stryker config beside it sets cleanTempDir: false"))
+        elif c in tracked:
+            out.append(("kept", rel(c), "git tracks files inside it"))
+        else:
+            try:
+                shutil.rmtree(c)
+                out.append(("removed", rel(c), "%d abandoned sandbox(es)" % len(entries)))
+            except OSError as e:
+                out.append(("kept", rel(c), "it could not be removed (%s)" % e.strerror))
+    return out
+
+
+def sweep_note(results):
+    """One sentence for the model, or '' when there is nothing to say."""
+    parts = []
+    swept = ["%s (%s)" % (p, d) for k, p, d in results if k == "removed"]
+    if swept:
+        parts.append("swept abandoned StrykerJS temp dir(s) before this run: " + ", ".join(swept))
+    parts.extend("kept %s: %s" % (p, d) for k, p, d in results if k == "kept")
+    return ("Stryker sweep (row 053): " + "; ".join(parts) + ".") if parts else ""
 
 
 # ----------------------------------------------------------------------------------- commands
@@ -398,11 +554,22 @@ def invocation(toks):
 
 
 def verdict(root, cmd):
-    """[] to allow, or the reasons to deny."""
+    """([] to allow, or the reasons to deny; a note for the model). A command that starts a Stryker run
+    and is not denied sweeps abandoned StrykerJS temp dirs first (row 053)."""
+    reasons, starts = verdict_of(root, cmd)
+    if reasons or not starts:
+        return reasons, ""
+    results = sweep(root)
+    backups = [d for k, _p, d in results if k == "backup"]
+    return backups, ("" if backups else sweep_note(results))
+
+
+def verdict_of(root, cmd):
+    """(the reasons to deny, whether the command starts a Stryker run of either kind)."""
     if not cmd or "STRYKER_GUARD=off" in cmd:
-        return []
+        return [], False
     body = strip_heredocs(cmd)
-    kinds, pats = set(), []
+    kinds, pats, js = set(), [], False
     if len(body) > PARSE_LIMIT:
         # A command this size after its heredocs are gone is not a dotnet call worth tokenizing, so it
         # gets a coarse reading: the run-alone half still holds, the pattern half is skipped.
@@ -414,15 +581,17 @@ def verdict(root, cmd):
         try:
             cmds = list(simple_commands(body))
         except ValueError:
-            return []  # unbalanced quoting: fail open
+            return [], False  # unbalanced quoting: fail open
         for toks in cmds:
             kind, argv = invocation(toks)
+            if kind is None and js_stryker(argv, True):
+                js = True
             kinds.add(kind)
             if kind == "stryker":
                 pats.extend(mutate_values(argv[1:])[0])
     kinds.discard(None)
     if not kinds:
-        return []
+        return [], js
     starts_stryker = "stryker" in kinds
     # Starting Stryker collides with anything; a build collides only with Stryker, so only a live
     # Stryker's cwd is worth a lookup.
@@ -443,11 +612,11 @@ def verdict(root, cmd):
             shown = p if len(p) <= ECHO_LIMIT else p[:ECHO_LIMIT] + "..."
             extra = " If you mean characters, prefix STRYKER_SPANS_ARE_CHARACTERS=1." if v == "span" else ""
             reasons.append("mutate pattern '%s' %s%s" % (shown, MSG[v], extra))
-    return reasons
+    return reasons, starts_stryker or js
 
 
 def main(argv):
-    if len(argv) != 3 or argv[1] not in ("configs", "live", "command"):
+    if len(argv) != 3 or argv[1] not in ("configs", "live", "command", "sweep"):
         sys.stderr.write(__doc__)
         return 2
     root = argv[2]
@@ -460,8 +629,15 @@ def main(argv):
         for why in blind:
             print("unknown\t-\t%s" % why)
         return 0
-    reasons = verdict(root, os.environ.get("STRYKER_GUARD_CMD", ""))
-    print("deny\t" + " | ".join(reasons) + " (row 047; override: STRYKER_GUARD=off)" if reasons else "allow")
+    if argv[1] == "sweep":
+        for kind, path, detail in sweep(root):
+            print("%s\t%s\t%s" % (kind, path, detail))
+        return 0
+    reasons, note = verdict(root, os.environ.get("STRYKER_GUARD_CMD", ""))
+    if reasons:
+        print("deny\t" + " | ".join(reasons) + " (rows 047/053; override: STRYKER_GUARD=off)")
+    else:
+        print("allow\t" + note if note else "allow")
     return 0
 
 

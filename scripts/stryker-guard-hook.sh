@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse guard on Bash: a Stryker.NET run that would measure nothing is refused before it starts
-# (row 047).
+# (row 047), and a Stryker run of either kind first sweeps the StrykerJS sandboxes an abandoned run left
+# in the tree (row 053).
 #
 # Two shapes, both measured on ighweld-2026, both invisible in Stryker's output:
 #
@@ -20,6 +21,10 @@
 #
 # Overrides, both named in the deny text: `STRYKER_GUARD=off` (in the command or the environment) turns
 # the guard off; `STRYKER_SPANS_ARE_CHARACTERS=1` in the command accepts a well-formed span.
+#
+# The sweep is the one side effect. It removes a temp dir only when it is plainly an abandoned sandbox
+# and no Stryker run is live; an in-place `backup-*` is never removed and denies the run instead. What
+# it removed or kept reaches the model as additionalContext. The rules are in stryker_guard.py.
 #
 # Exit: always 0. A deny is permissionDecision JSON on stdout, with hookEventName (spec 029).
 
@@ -56,6 +61,9 @@ case "${BASH_SOURCE[0]}" in */*) HELPER="${BASH_SOURCE[0]%/*}/stryker_guard.py" 
 VERDICT=$(STRYKER_GUARD_CMD="$CMD" python3 "$HELPER" command "$ROOT" 2>/dev/null) || exit 0
 case "$VERDICT" in
   deny"	"*) ;;
+  allow"	"*)
+    jq -n --arg c "${VERDICT#allow	}" '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: $c}}'
+    exit 0 ;;
   *) exit 0 ;;
 esac
 

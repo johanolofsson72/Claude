@@ -1153,5 +1153,28 @@ else
   printf '  --   C98 not exercised: this host has timeout in /usr/bin:/bin\n'
 fi
 
+# --- C99/C100: an abandoned StrykerJS sandbox is swept before the run starts (row 053) ----------------
+mk_dotnet_ran() { # mk_dotnet_ran <dir> — a dotnet that records it ran and scores 90
+  printf '%s\n' '#!/bin/bash' 'touch dotnet-ran' 'echo "The final mutation score is 90.00 %"' 'exit 0' > "$1/bin/dotnet"
+  chmod +x "$1/bin/dotnet"
+}
+D=$(mkfix_mut c99 80); mk_dotnet_ran "$D"
+mkdir -p "$D/client/.stryker-tmp/sandbox-a1b2/src"; printf '{}\n' > "$D/client/.stryker-tmp/sandbox-a1b2/package.json"
+OUT=$(run_full "$D")
+expect_rc       "C99 the abandoned sandbox is gone" 1 "$( [ -d "$D/client/.stryker-tmp" ]; echo $?)"
+expect_contains "C99 the pass says what it swept"   "client/.stryker-tmp" "$OUT"
+expect_rc       "C99 the run still ran"             0 "$( [ -f "$D/dotnet-ran" ]; echo $?)"
+
+D=$(mkfix_mut c100 80); mk_dotnet_ran "$D"
+printf '#!/bin/bash\n[ "$1" = --stamp ] && echo "$2" >> "%s/stamped"\nexit 0\n' "$D" > "$D/scripts/maintenance-due.sh"
+mkdir -p "$D/.stryker-tmp/backup-9f/src"; printf 'original\n' > "$D/.stryker-tmp/backup-9f/src/a.js"
+OUT=$(run_full "$D"); RC=$?
+expect_contains "C100 an in-place backup refuses the run" "[MUTATION] NOT RUN — an interrupted in-place Stryker run" "$OUT"
+expect_contains "C100 names the backup"                   ".stryker-tmp" "$OUT"
+expect_rc       "C100 the backup is untouched"            0 "$( [ -f "$D/.stryker-tmp/backup-9f/src/a.js" ]; echo $?)"
+expect_rc       "C100 dotnet never invoked"               1 "$( [ -f "$D/dotnet-ran" ]; echo $?)"
+expect_rc       "C100 mutation not stamped"               0 "$(grep -cx mutation "$D/stamped" 2>/dev/null)"
+expect_rc       "C100 verdict is red"                     1 "$RC"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

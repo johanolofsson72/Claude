@@ -195,5 +195,89 @@ if [ "$(hook_verdict "$OUT")" = deny ] && [ $((T1 - T0)) -le 10 ]; then ok "G33 
 else bad "G33 1 MB beside Stryker: verdict $(hook_verdict "$OUT") in $((T1 - T0))s"; fi
 stop "$P"
 
+# ------------------------------------------------------------------ sweep (row 053)
+# An abandoned StrykerJS sandbox is removed when the next run starts, and only then; everything that is
+# not plainly an abandoned sandbox is kept and said. Weighted like the rest of this file toward what it
+# must NOT do: deleting is the destructive direction.
+swfix() { # swfix — a fresh project root with one abandoned sandbox at .stryker-tmp; echoes its path
+  local d; d=$(mktemp -d "$WORK/sw.XXXXXX")   # not a counter: $(swfix) runs in a subshell
+  mkdir -p "$d/.stryker-tmp/sandbox-a1/src"; printf '{}\n' > "$d/.stryker-tmp/sandbox-a1/package.json"
+  printf '%s' "$d"
+}
+sweep() { python3 "$SELF_DIR/stryker_guard.py" sweep "$1"; }
+gone() { [ ! -e "$1" ] && [ ! -L "$1" ]; }
+ctx() { printf '%s' "$1" | jq -r 'select(.hookSpecificOutput.hookEventName == "PreToolUse") | .hookSpecificOutput.additionalContext // empty' 2>/dev/null; }
+
+D=$(swfix); OUT=$(sweep "$D")
+if gone "$D/.stryker-tmp" && grep -q "^removed	.stryker-tmp	" <<< "$OUT"; then ok "S1 an abandoned sandbox is removed and said"; else bad "S1 '$OUT'"; fi
+D=$(swfix); mv "$D/.stryker-tmp" "$D/x"; mkdir -p "$D/client"; mv "$D/x" "$D/client/.stryker-tmp"; OUT=$(sweep "$D")
+if gone "$D/client/.stryker-tmp" && grep -q "client/.stryker-tmp" <<< "$OUT"; then ok "S2 a nested sandbox is removed"; else bad "S2 '$OUT'"; fi
+D=$(swfix); mkdir -p "$D/.stryker-tmp/backup-9f/src"; printf 'orig\n' > "$D/.stryker-tmp/backup-9f/src/a.js"; OUT=$(sweep "$D")
+if [ -f "$D/.stryker-tmp/backup-9f/src/a.js" ] && grep -q "^backup	" <<< "$OUT"; then ok "S3 an in-place backup is never removed"; else bad "S3 '$OUT'"; fi
+expect "S4 and the next StrykerJS run is denied, naming it" deny "$(hook "npx stryker run" CLAUDE_PROJECT_DIR="$D")" "backup-9f"
+D=$(swfix); printf 'x\n' > "$D/.stryker-tmp/notes.txt"; OUT=$(sweep "$D")
+if [ -d "$D/.stryker-tmp/sandbox-a1" ] && grep -q "^kept	.*notes.txt" <<< "$OUT"; then ok "S5 an unexpected entry keeps the directory, named"; else bad "S5 '$OUT'"; fi
+D=$(swfix); mkdir -p "$D/.stryker-tmp/notes"; OUT=$(sweep "$D")
+if [ -d "$D/.stryker-tmp/notes" ] && grep -q "^kept	" <<< "$OUT"; then ok "S6 an unexpected directory keeps it too"; else bad "S6 '$OUT'"; fi
+D=$(swfix); printf '{ "cleanTempDir": false }\n' > "$D/stryker.conf.json"; OUT=$(sweep "$D")
+if [ -d "$D/.stryker-tmp/sandbox-a1" ] && grep -q "cleanTempDir" <<< "$OUT"; then ok "S7 cleanTempDir: false keeps it"; else bad "S7 '$OUT'"; fi
+D=$(swfix); printf 'export default { cleanTempDir: false };\n' > "$D/stryker.config.mjs"; OUT=$(sweep "$D")
+if [ -d "$D/.stryker-tmp/sandbox-a1" ]; then ok "S8 cleanTempDir: false in a .mjs config keeps it"; else bad "S8 '$OUT'"; fi
+D=$(swfix); mkdir -p "$D/real/sandbox-z"; rm -rf "$D/.stryker-tmp"; ln -s "$D/real" "$D/.stryker-tmp"; OUT=$(sweep "$D")
+if [ -d "$D/real/sandbox-z" ] && [ -L "$D/.stryker-tmp" ] && grep -q "^kept	.*symlink" <<< "$OUT"; then ok "S9 a symlink is kept, target untouched"; else bad "S9 '$OUT'"; fi
+D=$(swfix); ( cd "$D" && git init -q && git add -f .stryker-tmp && git -c user.email=t@t -c user.name=t commit -qm t ) >/dev/null 2>&1; OUT=$(sweep "$D")
+if [ -d "$D/.stryker-tmp/sandbox-a1" ] && grep -q "git tracks" <<< "$OUT"; then ok "S10 git-tracked content is kept"; else bad "S10 '$OUT'"; fi
+D=$(swfix); mv "$D/.stryker-tmp" "$D/stryker-tmp"; printf '{ "tempDirName": "stryker-tmp" }\n' > "$D/stryker.conf.json"; OUT=$(sweep "$D")
+if gone "$D/stryker-tmp"; then ok "S11 a configured tempDirName is swept"; else bad "S11 '$OUT'"; fi
+D=$(swfix); mkdir -p "$D/web/sandbox-q"; printf '{ "tempDirName": "../web" }\n' > "$D/sub.json"; mkdir -p "$D/pkg"
+printf '{ "tempDirName": "../web" }\n' > "$D/pkg/stryker.conf.json"; printf '{ "tempDirName": "." }\n' > "$D/stryker.conf.json"; OUT=$(sweep "$D")
+if [ -d "$D/web/sandbox-q" ] && [ -f "$D/stryker.conf.json" ]; then ok "S12 a tempDirName of ../x or . is ignored"; else bad "S12 '$OUT'"; fi
+D="$WORK/sw-empty"; mkdir -p "$D/src"; OUT=$(sweep "$D")
+if [ -z "$OUT" ]; then ok "S13 no temp directory: no output"; else bad "S13 '$OUT'"; fi
+D=$(swfix); rm -rf "$D/.stryker-tmp/sandbox-a1"; OUT=$(sweep "$D")
+if gone "$D/.stryker-tmp"; then ok "S14 an empty temp directory is removed"; else bad "S14 '$OUT'"; fi
+D=$(swfix); mkdir -p "$D/node_modules/pkg/.stryker-tmp/sandbox-n"; OUT=$(sweep "$D")
+if [ -d "$D/node_modules/pkg/.stryker-tmp/sandbox-n" ]; then ok "S15 node_modules is not walked"; else bad "S15 '$OUT'"; fi
+
+# live runs: a node process running StrykerJS, a Stryker.NET, in this project or another
+cp "$BIN/dotnet" "$BIN/node"; chmod +x "$BIN/node"
+D=$(swfix); P=$(spawn "$D" "$BIN/node" "$D/node_modules/@stryker-mutator/core/bin/stryker.js" run); PIDS="$PIDS $P"; sleep 0.5
+OUT=$(sweep "$D")
+if [ -d "$D/.stryker-tmp/sandbox-a1" ] && grep -q "pid $P" <<< "$OUT"; then ok "S16 a live StrykerJS run keeps it, naming the pid"; else bad "S16 '$OUT'"; fi
+expect "S17 a live StrykerJS does not deny dotnet build (F069 stays .NET)" none "$(hook "dotnet build" CLAUDE_PROJECT_DIR="$D")"
+stop "$P"
+D=$(swfix); P=$(spawn "$D" "$BIN/dotnet-stryker"); PIDS="$PIDS $P"; sleep 0.5; OUT=$(sweep "$D")
+if [ -d "$D/.stryker-tmp/sandbox-a1" ]; then ok "S18 a live Stryker.NET keeps it"; else bad "S18 '$OUT'"; fi
+stop "$P"
+D=$(swfix); P=$(spawn "$OTHER" "$BIN/node" "$OTHER/node_modules/.bin/stryker" run); PIDS="$PIDS $P"; sleep 0.5; OUT=$(sweep "$D")
+if gone "$D/.stryker-tmp"; then ok "S19 a StrykerJS run in another project does not keep it"; else bad "S19 '$OUT'"; fi
+stop "$P"
+D=$(swfix); NOPS="$WORK/nops"; mkdir -p "$NOPS"; for t in python3 git; do ln -sf "$(command -v "$t")" "$NOPS/$t"; done
+OUT=$(PATH="$NOPS" sweep "$D")
+if [ -d "$D/.stryker-tmp/sandbox-a1" ] && grep -q "^kept	" <<< "$OUT"; then ok "S20 no ps: blind keeps"; else bad "S20 '$OUT'"; fi
+
+# the hook: which commands start a run, and how the sweep reaches the model
+for c in "npx stryker run" "pnpm exec stryker run" "yarn stryker run" "bunx stryker run" \
+         "node node_modules/.bin/stryker run" "./node_modules/.bin/stryker run --concurrency 2" \
+         "npx --yes @stryker-mutator/core run" "cd client && npx stryker run" "dotnet stryker" \
+         "npm exec -- stryker run"; do
+  D=$(swfix); OUT=$(hook "$c" CLAUDE_PROJECT_DIR="$D")
+  if gone "$D/.stryker-tmp" && [ "$(hook_verdict "$OUT")" = none ] && grep -q "swept" <<< "$(ctx "$OUT")"; then ok "S21 '$c' sweeps, said as additionalContext"
+  else bad "S21 '$c': verdict $(hook_verdict "$OUT"), ctx '$(ctx "$OUT")', left: $(ls "$D/.stryker-tmp" 2>/dev/null)"; fi
+done
+for c in "npx stryker init" "echo stryker run" "grep -r stryker ." "git commit -m 'stryker run fix'" "npx stryker --version" \
+         "cat > n.md <<'EOF'
+npx stryker run
+EOF"; do
+  D=$(swfix); OUT=$(hook "$c" CLAUDE_PROJECT_DIR="$D")
+  if [ -d "$D/.stryker-tmp/sandbox-a1" ] && [ -z "$OUT" ]; then ok "S22 '${c%%$'\n'*}' does not sweep"; else bad "S22 '$c' swept or spoke: '$OUT'"; fi
+done
+D=$(swfix); OUT=$(hook "npx stryker run" CLAUDE_PROJECT_DIR="$D" STRYKER_GUARD=off)
+if [ -d "$D/.stryker-tmp/sandbox-a1" ]; then ok "S23 STRYKER_GUARD=off does not sweep"; else bad "S23 swept under off"; fi
+D="$WORK/sw-quiet"; mkdir -p "$D"; OUT=$(hook "npx stryker run" CLAUDE_PROJECT_DIR="$D")
+if [ -z "$OUT" ]; then ok "S24 nothing to sweep: the hook says nothing"; else bad "S24 '$OUT'"; fi
+D=$(swfix); printf 'x\n' > "$D/.stryker-tmp/notes.txt"; OUT=$(hook "npx stryker run" CLAUDE_PROJECT_DIR="$D")
+if [ "$(hook_verdict "$OUT")" = none ] && grep -q "notes.txt" <<< "$(ctx "$OUT")"; then ok "S25 a kept directory is said, the run allowed"; else bad "S25 '$OUT'"; fi
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -796,7 +796,18 @@ $(solution_list "$MUT_SLNS")
 $(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2, $3 }')
   A build beside Stryker overwrites the mutated assembly and the run scores about 0% with no warning
   (ighweld F069). Not stamped: the job stays due. Re-run --full once it has finished."
+  elif [ "$FULL" -eq 1 ] && [ "$HAVE_STRYKER_GUARD" -eq 1 ] &&
+       MUT_SWEEP=$(python3 scripts/stryker_guard.py sweep . 2>/dev/null) &&
+       printf '%s\n' "$MUT_SWEEP" | grep -q '^backup'; then
+    # Row 053. The sweep below removes abandoned StrykerJS sandboxes before the run, but an in-place
+    # backup can be the only copy of the original sources; a new run would back up the mutated ones.
+    add "[MUTATION] NOT RUN — an interrupted in-place Stryker run left a backup in the tree:
+$(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '$1 == "backup" { printf "  %s\n", $3 }')
+  Not stamped: the job stays due."
   elif [ "$FULL" -eq 1 ]; then
+    # Row 053: what the sweep just removed or kept (it ran in the condition above).
+    [ -n "${MUT_SWEEP:-}" ] && note "[note] Stryker sweep before the run:
+$(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '{ printf "  %s %s — %s\n", $1, $2, $3 }')"
     # Which config this bare invocation will actually read, and how many exist. Both tools default to a
     # config in the working directory; the count is what turns "one gate" into an honest sentence.
     case "$MUTATION_CMD" in

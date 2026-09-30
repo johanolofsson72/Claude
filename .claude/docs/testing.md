@@ -376,6 +376,13 @@ Line coverage proves a line *executed*; it says nothing about whether a test wou
   Claude issues the command. The overrides are `STRYKER_SPANS_ARE_CHARACTERS=1` and
   `STRYKER_GUARD=off`. On Windows Git Bash `ps` cannot see `dotnet.exe`, so there the run-alone
   rule is yours to keep.
+- **An abandoned StrykerJS sandbox is removed when the next run starts** (row 053). StrykerJS
+  deletes `.stryker-tmp` (or your `tempDirName`) only after a successful run, so a killed or failed
+  run leaves a copy of the project in the tree. The guard hook and `--full` sweep it before a run,
+  but only when no Stryker run is live and every entry is a `sandbox-*` directory. A directory
+  holding anything else, one git tracks, or one whose config sets `cleanTempDir: false` is kept and
+  reported. A `backup-*` entry comes from an interrupted `inPlace` run and may be the only copy of
+  your original sources. It is never removed, and the next run is refused until you restore it.
 - **A timeout is not a kill.** Stryker scores `Killed + Timeout`, gremlins' efficacy can rise as
   timeouts rise, and the percentage is not comparable run to run. Read the score by
   `.claude/rules/mutation-timeouts.md` (five traps, with the measurements).

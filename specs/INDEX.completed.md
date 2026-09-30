@@ -1159,3 +1159,16 @@ config there, only `stryker-config.NNN.json` files, one per spec. Proposed fix: 
 declare its solution and test project (as `specs/traceability-roots` does for test roots) and fail
 loudly when no declaration exists and more than one candidate is present, rather than taking
 whatever the root holds.
+
+## 053 — stryker-tmp-outlives-its-run
+
+Ticked 2026-09-30.
+
+Reported by msroute F007, 2026-09-25 (verbatim):
+
+> F007 — harness — 2026-09-08 · from spec 010 — Abandoned .stryker-tmp sandboxes are now excluded by four separate consumers (project-freshness, project-maintenance, vitest, eslint); the fix is to stop the directory existing — sweep on entry of the next run, or move tempDirName out of the tree. Template-owned
+
+Related product-side row: msroute `007cm — stryker-tmp-untracked-and-trips-the-guard`, whose guard
+half was closed 2026-09-03 by syncing 16 CORE scripts. Each new consumer of the tree has had to learn
+the exclusion separately; a fifth will too. Fix at the source: sweep stale `.stryker-tmp` when a
+mutation run starts, or point Stryker's `tempDirName` outside the working tree.
