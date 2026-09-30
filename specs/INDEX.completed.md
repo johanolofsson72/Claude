@@ -2,6 +2,56 @@
 
 Rows verbatim as they read at tick time. Never pipeline input.
 
+## 054 — finding-ids-collide-across-lanes
+
+Ticked 2026-09-30.
+
+- [x] 054 — finding-ids-collide-across-lanes — spec-only — `finding.sh` numbers by COUNTING the local ledger, so two lanes mint the same F-id and a resolved row lets the next reuse a number. agentcrm: F141–F143 named six findings. Diagnosis: `specs/INDEX.pending.md`
+
+**Done.** `finding.sh --add` takes the highest F-id, never a count, from `scripts/max-id-in-refs.sh`: the working tree (uncommitted and untracked included), every `FINDINGS*.md`, and every local and remote-tracking branch in one `git grep`. A pushed spec branch in the other lane is counted before its merge; a deleted line no longer frees its number while any ref holds it. Residual, stated in the helper: an unpushed branch or a stale fetch. `test-max-id-in-refs.sh` 12 cases, two-lane repro included; `test-finding.sh` 73/73.
+
+**Two defects in one line.** `scripts/finding.sh` allocates by counting:
+
+```
+N=$(grep -cE '^- \[[ x]\]' "$LEDGER"); N=$((N + 1))
+```
+
+That is a count of ROWS in the LOCAL file, so:
+
+1. **Two lanes collide.** Each branch counts its own ledger and both mint the same next id. Proven on
+   agentcrm 2026-09-17: `origin/main` carried F141 (a person's name missing, spec 034), F142
+   (DemoPhotoTests red on clean main) and F143 (language links too small), while the branch
+   `spec/044-named-refusals` carried a different F141 (FeedRunner:191 stale guard), F142 and F143.
+   Three numbers, six findings. `merge=union` on `FINDINGS.md` keeps both sides without a conflict
+   marker, so the collision is **silent** — `validate-register-ids.sh` protects the register and
+   nothing protects the ledger. The three branch ids were moved to F202–F204 by hand at the merge.
+2. **A deleted row reuses a number**, even in one lane, because the count falls when a line goes.
+
+The fix is the one the register already uses: read the highest id, not the count, and read it in
+this branch AND in `origin/main` — `next-register-id.sh` does exactly that for rows and is the
+model. Both halves need it; fixing only the first leaves the reuse.
+
+## 060 — sc-ids-have-no-allocator
+
+Ticked 2026-09-30.
+
+- [x] 060 — sc-ids-have-no-allocator — full track — rows have `next-register-id.sh`; scenario ids have nothing, so every parallel merge collides. agentcrm: 47 collisions, 26 from two lanes taking one range. Diagnosis: `specs/INDEX.pending.md`
+
+**Done.** `scripts/next-scenario-id.sh [--count N] [--prefix X]` appends past the highest map-row id (struck rows included, prose and flowchart mentions ignored) across the working tree, `SCENARIOS*.md`, `scenarios/*.md` and every local and remote-tracking ref, via the same `max-id-in-refs.sh` as 054. Width follows the map and grows past SC-999 to SC-1000 — the allocation half of 048; 048's gate half stays open. `scenarios.md` says never pick an SC-id by eye. `test-next-scenario-id.sh` 13 cases, including the agentcrm SC-1625..1650 two-lane shape. agentcrm answers SC-2485.
+
+**Root cause, not a tidy-up.** Register rows have `scripts/next-register-id.sh`, which appends past
+the highest id in the register AND in every `INDEX*.md` archive beside it. Scenario ids have no
+equivalent, so every lane picks by eye and every parallel merge collides.
+
+agentcrm measured **47 colliding ids on 2026-09-21**. Twenty-six were specs 052 and 055 in one
+window: both lanes took SC-1625..SC-1650 independently and met in the merge. The same defect
+produced S1 (104 ids), S2 (13) and F196 (`fragor.md` numbered by hand). Twenty-one older collisions
+span both lanes' specs — 017/017b (4), 008b/022 (3), 055/063 (3).
+
+**A cleanup without an allocator recreates the defect at the next parallel spec**, which is the
+reason this is a row rather than a chore. Row 048 (the three-digit id space is full) is the adjacent
+problem and wants deciding in the same pass: an allocator that mints `SC-1000+` settles both.
+
 ## 044 — traceability-gate-cannot-tell-zero-from-broken
 
 Ticked 2026-09-30.

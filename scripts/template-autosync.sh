@@ -219,6 +219,7 @@ install-lane-merge-drivers.sh test-lane-merge-drivers.sh
 register-similarity.sh register_similarity.py test-register-similarity.sh
 lane-catchup.sh test-sync-prompt-core-parity.sh
 next-register-id.sh test-next-register-id.sh
+max-id-in-refs.sh test-max-id-in-refs.sh next-scenario-id.sh test-next-scenario-id.sh
 maintenance-due.sh test-maintenance-due.sh carve_audit.py maintenance_ledger.py test-maintenance-ledger.sh register_freeze.py finding_review.py
 validate-portability.sh portability_audit.py
 finding.sh test-finding.sh

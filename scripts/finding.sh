@@ -133,7 +133,13 @@ case "$MODE" in
     # A ledger saved without a final newline would glue this line onto the last one, hide it from
     # the count, and hand the NEXT add a duplicate id.
     [ -s "$LEDGER" ] && [ -n "$(tail -c1 "$LEDGER")" ] && printf '\n' >> "$LEDGER"
-    N=$(grep -cE '^- \[[ x]\]' "$LEDGER" 2>/dev/null); N=$(printf '%s' "$N" | head -1)
+    # THE HIGHEST ID, NEVER A COUNT, and read across every branch (row 054). Counting local rows
+    # handed two lanes the same F141–F143 on agentcrm, silently, because merge=union keeps both
+    # sides; and a deleted line freed its number for reuse. max-id-in-refs.sh reads the working
+    # tree plus every local and remote-tracking ref, so a pushed branch's ids are taken already.
+    N=$(bash "$(dirname "$0")/max-id-in-refs.sh" --dir "$ROOT" \
+          --regex '^- \[[ xX]\] F[0-9]+' -- 'specs/FINDINGS*.md' 2>/dev/null)
+    N=$(printf '%s' "$N" | sed 's/^0*//')
     case "$N" in ''|*[!0-9]*) N=0 ;; esac
     N=$((N + 1))
     printf -- '- [ ] F%03d — %s — %s%s — %s%s\n' "$N" "$KIND" \

@@ -261,29 +261,6 @@ half was closed 2026-09-03 by syncing 16 CORE scripts. Each new consumer of the 
 the exclusion separately; a fifth will too. Fix at the source: sweep stale `.stryker-tmp` when a
 mutation run starts, or point Stryker's `tempDirName` outside the working tree.
 
-## 054 — finding-ids-collide-across-lanes
-
-**Two defects in one line.** `scripts/finding.sh` allocates by counting:
-
-```
-N=$(grep -cE '^- \[[ x]\]' "$LEDGER"); N=$((N + 1))
-```
-
-That is a count of ROWS in the LOCAL file, so:
-
-1. **Two lanes collide.** Each branch counts its own ledger and both mint the same next id. Proven on
-   agentcrm 2026-09-17: `origin/main` carried F141 (a person's name missing, spec 034), F142
-   (DemoPhotoTests red on clean main) and F143 (language links too small), while the branch
-   `spec/044-named-refusals` carried a different F141 (FeedRunner:191 stale guard), F142 and F143.
-   Three numbers, six findings. `merge=union` on `FINDINGS.md` keeps both sides without a conflict
-   marker, so the collision is **silent** — `validate-register-ids.sh` protects the register and
-   nothing protects the ledger. The three branch ids were moved to F202–F204 by hand at the merge.
-2. **A deleted row reuses a number**, even in one lane, because the count falls when a line goes.
-
-The fix is the one the register already uses: read the highest id, not the count, and read it in
-this branch AND in `origin/main` — `next-register-id.sh` does exactly that for rows and is the
-model. Both halves need it; fixing only the first leaves the reuse.
-
 ## 058 — write-guard-resolves-paths-against-the-wrong-root
 
 **Reproduced twice while working the T0 row it was filed from, 2026-09-25.** Both times the command
@@ -306,21 +283,6 @@ argument to `finding.sh`. One is a path that is not where it says; the other is 
 Both live in `scripts/bash-write-detect-hook.sh`. The honest fix is narrow: resolve against the
 command's own working directory when one is established in the same line, and require a path-shaped
 context (a redirect target, an argument to a writer) rather than an extension match anywhere.
-
-## 060 — sc-ids-have-no-allocator
-
-**Root cause, not a tidy-up.** Register rows have `scripts/next-register-id.sh`, which appends past
-the highest id in the register AND in every `INDEX*.md` archive beside it. Scenario ids have no
-equivalent, so every lane picks by eye and every parallel merge collides.
-
-agentcrm measured **47 colliding ids on 2026-09-21**. Twenty-six were specs 052 and 055 in one
-window: both lanes took SC-1625..SC-1650 independently and met in the merge. The same defect
-produced S1 (104 ids), S2 (13) and F196 (`fragor.md` numbered by hand). Twenty-one older collisions
-span both lanes' specs — 017/017b (4), 008b/022 (3), 055/063 (3).
-
-**A cleanup without an allocator recreates the defect at the next parallel spec**, which is the
-reason this is a row rather than a chore. Row 048 (the three-digit id space is full) is the adjacent
-problem and wants deciding in the same pass: an allocator that mints `SC-1000+` settles both.
 
 ## 044 — traceability-gate-cannot-tell-zero-from-broken
 

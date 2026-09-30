@@ -103,6 +103,7 @@ flowchart TD
 ````
 
 - **SC-id** — `SC-NNN`, three digits, globally unique, **never reused** even if a scenario is deleted (strike it through, keep the id). The same id appears in the flowchart node and the table row.
+- **Never pick an SC-id by eye** — `bash scripts/next-scenario-id.sh --count N` hands out a block past the highest id in the working tree *and* every local and remote-tracking branch, so a pushed spec branch in the other lane is already counted. Take the block before writing rows; push the spec branch soon after, because an unpushed branch is the one place it cannot see. Past `SC-999` it continues at `SC-1000`.
 - **Type** — one of `happy` · `edge` · `adversarial` · `error` · `offline` (extend only with good reason).
 - **Status** — `☐ mapped` (written down) → `◐ tested` (a test exists) → `✓ validated` (the test exercises the REAL behaviour and it actually works at runtime). Only `✓` counts as done.
 - Group by **actor**, then **feature**, and tag each feature block with the owning spec (`NNN-slug`). The use-case diagram sits above the actors as the project overview.
