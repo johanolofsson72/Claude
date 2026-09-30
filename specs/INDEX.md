@@ -88,11 +88,12 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [ ] 072 — security-rule-says-secrets-in-env — spec-only — rules/security.md says production secrets go in environment variables; Swarm secret files are the safer shape (docker inspect shows env). From teach F061. Diagnosis: `specs/INDEX.pending.md`
 - [x] 073 — pipeline-refresh-2026-09 — spec-only — one sync engine for wizard/update/sync-template, spec-kit pinned, zsh + GNU fixes, supply-chain cooldowns, context diet, hook latency; then roll out to 15 projects. Folds 037, 022. User-requested 2026-09-28.
 - [x] 076 — malformed-id-deny-blames-a-healthy-register — spec-only — both PreToolUse guards deny a malformed active id (`7-x`) with the "resolver missing / register unparsable" text. Own exit 97 + text naming token and grammar. Found as consultpilot H7ai / Q2.
+- [ ] 078 — autosync-tests-miss-ten-of-twelve-mutants — spec-only — H1 sampled 12 operator mutants in template-autosync.sh; the 16 suites that run it killed 2. Add a surgical arm per survivor (list in specs/H1-integration-hardening/checkpoint.md). — carved by H1 — approved F050
 
 ## Register history (newest first)
 
+- 2026-09-30 — H1 ticked: 57/57 after two fixes; 078 added from approved proposal F050 (autosync kills 2/12 mutants).
 - 2026-09-29 — 034 ticked without new code: 774a909 (2026-09-09) had already fixed it. fundit's deps pass shows 0 bogus SKIPs.
 - 2026-09-29 — 030 ticked without new code: 045 had already landed the fix. --unlisted is clean on rocky and all 46 repos.
 - 2026-09-29 — 029 re-diagnosed: the permission mode was never the cause (live A/B); re-tracked spec-only [hardened]. F029 recorded.
 - 2026-09-29 — 020 held: Ollama is disabled machine-wide since 2026-09-06, so the hooks it re-measures are no-ops; resumes on a machine that runs a local model.
-- 2026-09-29 — 075 held: ledger spans 0 of 5 specs and has no Stryker/suite run anywhere; resumes when `maintenance_ledger.py report --all` clears 5.
