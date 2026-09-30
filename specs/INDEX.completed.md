@@ -1099,3 +1099,21 @@ Holding a row is precisely the moment the note matters — somebody stopped for 
 cannot express as a dependency, and the next session needs to know what it was. The two needs are not
 in conflict; they are two different questions asked of one resolver. "Which row should I work?" must
 skip held rows. "Which row is this note about?" must not.
+
+## 050 — allium-cli-warns-on-every-spec-it-has
+
+Ticked 2026-09-30.
+
+- [ ] 050 — allium-cli-warns-on-every-spec-it-has — spec-only — the deferred location-hint lint wants a syntax its own parser rejects, so `allium check` warns on every spec and the warning means nothing. Diagnosis: `specs/INDEX.pending.md`
+
+`allium check` emits "deferred specification should include a location hint" for every `deferred` in
+every spec in the project (F080). ighweld probed the syntax the lint seems to want — `in "p"`, `"p"`,
+`{ lo… }` — and its own parser rejects each one (F001, F031), so there is no spelling that satisfies
+it.
+
+A warning that fires on every spec and cannot be satisfied is noise that trains people to skip the
+whole report — which then hides the warnings that mean something. Either implement the syntax, or drop
+the lint.
+
+F089 is a second allium-cli defect found the same way: a rule that assigns a status through a
+trigger-param binding (`when: SyncPush(item)` + `ensures: item.status = …`) is not accepted.

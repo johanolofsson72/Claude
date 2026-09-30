@@ -146,20 +146,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 050 — allium-cli-warns-on-every-spec-it-has (from ighweld-2026, 2026-09-16)
-
-`allium check` emits "deferred specification should include a location hint" for every `deferred` in
-every spec in the project (F080). ighweld probed the syntax the lint seems to want — `in "p"`, `"p"`,
-`{ lo… }` — and its own parser rejects each one (F001, F031), so there is no spelling that satisfies
-it.
-
-A warning that fires on every spec and cannot be satisfied is noise that trains people to skip the
-whole report — which then hides the warnings that mean something. Either implement the syntax, or drop
-the lint.
-
-F089 is a second allium-cli defect found the same way: a rule that assigns a status through a
-trigger-param binding (`when: SyncPush(item)` + `ensures: item.status = …`) is not accepted.
-
 ## 051 — maintenance-suite-blind-to-standalone-node-tests (from emaljen, 2026-09-18)
 
 emaljen runs its whole suite as standalone Playwright scripts (`node tests/*.mjs`, about 20 files,

@@ -61,7 +61,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 047 — stryker-spans-fail-silently-and-score-well — spec-only [hardened] — dead mutate patterns and valid char spans are findings every pass; --full and a PreToolUse guard refuse Stryker beside a build. Verbatim in `INDEX.completed.md`
 - [x] 048 — sc-id-space-is-three-digits-and-full — spec-only — SC ids are three digits minimum and grow past 999; the fixture gate lost its 4-digit cap; the width line is pinned by case48 + two sabotage arms. Verbatim in `INDEX.completed.md`.
 - [x] 049 — a-held-row-cannot-be-written-to — spec-only — `--spec` takes a register id at any status (`--spec 049`), so a held or ticked row's run log is writable; implicit failures name the flag. Verbatim in `INDEX.completed.md`.
-- [ ] 050 — allium-cli-warns-on-every-spec-it-has — spec-only — the deferred location-hint lint wants a syntax its own parser rejects, so `allium check` warns on every spec and the warning means nothing. Diagnosis: `specs/INDEX.pending.md`
+- [x] 050 — allium-cli-warns-on-every-spec-it-has — spec-only — the lint was fixed upstream in 3.3.0; the hook now notes an older CLI once per session and the skill teaches `-- see:` and the F089 cause. Verbatim in `INDEX.completed.md`.
 - [ ] 051 — maintenance-suite-blind-to-standalone-node-tests — spec-only — `project-maintenance.sh --suite` detects only `npm test`/.NET, so a repo of bare `node tests/*.mjs` never stamps `suite`; mutation is unwired too. Diagnosis: `specs/INDEX.pending.md`
 - [x] 046 — hooks-shout-at-the-developer-and-whisper-to-the-model — full track — every advisory hook emits `systemMessage` ("Warning shown to user in UI" per the CLI's own reference), so reminders addressed to the model land as red warnings in the transcript; and 42 hooks — including all four wired UserPromptSubmit pipeline reminders — emit top-level `additionalContext`, which Claude Code silently ignores. Both channels are backwards.
 - [x] 045 — unlisted-predicate-denies-a-tick-it-cannot-clear — full track — four defects in the CORE-ownership machinery, each already recorded and never landed. Detalj: specs/INDEX.completed.md
@@ -93,8 +93,8 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 
 ## Register history (newest first)
 
+- 2026-09-30 — 050 ticked: the hint lint works from allium 3.3.0; the hook flags an older CLI once, the skill teaches `-- see:` and names the F089 trigger.
 - 2026-09-30 — 049 ticked: --spec takes a register id at any status, so a held or ticked row's run log is writable again. Implicit failures name the flag.
 - 2026-09-30 — 048 ticked: SC ids grow past 999 without re-padding; the width discriminator measures the narrowest id and now has a test.
 - 2026-09-30 — 047 ticked: mutate patterns that match nothing or count characters are findings; Stryker beside a build is refused.
 - 2026-09-30 — 079 added and ticked in one pass: the traceability gate could not read a chained underscore id; agentcrm H6 measured 8 lost citations.
-- 2026-09-30 — 044 ticked: zero ids from a scan that ran is refused, not reported as 0 of N; "see above" now has something above it.

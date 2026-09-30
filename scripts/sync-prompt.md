@@ -382,7 +382,7 @@ Browser tests (destructive) → /tla (distill + drift + invariants) → Done
 
 If any are missing — copy from template.
 
-**Optional: Install Allium CLI** for automatic `.allium` file validation:
+**Optional: Install Allium CLI** (3.3.0 or later; older versions warn on every `deferred`) for automatic `.allium` file validation:
 
 ```bash
 # macOS / Linuxbrew
