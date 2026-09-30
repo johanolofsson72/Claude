@@ -2,6 +2,14 @@
 
 Rows verbatim as they read at tick time. Never pipeline input.
 
+## 044 — traceability-gate-cannot-tell-zero-from-broken
+
+Ticked 2026-09-30.
+
+- [x] 044 — traceability-gate-cannot-tell-zero-from-broken — spec-only — `validate-scenario-traceability.sh` already exits 4 when a root is MISSING, because zero references renders as 'every claimed scenario is uncovered' — a catastrophic report with a trivial cause. The same is true when a root EXISTS and the scan returns nothing, and there the script reports `coverage: 0 of N` instead. Seen once in fundit (0 of 182, then 175 of 182 unchanged minutes later, with 2146 TLC scratch files under `tests/`); cause unproven, and NOT binary-ness — the `-a` is deliberate and documented. Fix the reporting, not the guess: no ids found anywhere is a broken scan, so refuse.
+
+**Done.** `scripts/validate-scenario-traceability.sh`: when the map claims a ✓/◐ row and no file under any existing root names an id, the gate exits 4 instead of printing `coverage: 0 of N`, naming each root with its file count and the scan's own stderr (no longer sent to /dev/null). A map claiming nothing stays a normal run. The extractor's stderr (file:line of every refused row) is now printed, and the partial-read line gives the refused count and points "above" only when something is there (agentcrm F316, from `INDEX.pending.md`). New region `zero-refs-guard`; a missing root now has two defences, proven by sabotage arms f/n/o. Harness 47 -> 50 cases, 15 surgical arms. The fundit cause stays unproven.
+
 ## 043 — mutation-gate-reports-a-headline-only
 
 Ticked 2026-09-30.

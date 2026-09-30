@@ -106,6 +106,14 @@ write_test() {
   } > "$proj/tests/$name"
 }
 
+# anchor <project> — a second validated row, 902, and a test citing it. A fixture whose whole suite
+# names no id at all is what the zero-refs guard refuses (case41), so a case that proves one token is
+# NOT a reference needs one real reference beside it, or it would be testing the refusal instead.
+anchor() {
+  row 902 "$V" >> "$1/specs/SCENARIOS.md"
+  write_test "$1" "anchor.test.ts" 902
+}
+
 # Run the gate; capture output and exit code without tripping anything.
 run_gate() { # <project> [extra args...]
   proj="$1"; shift
@@ -358,6 +366,7 @@ fi
 # not were inside such a report.
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+anchor "$proj"
 mkdir -p "$proj/tests/Unit/bin/Release/StrykerOutput/2026-07-01"
 printf 'a deleted test that used to cover %s\n' "$(id 901)" \
   > "$proj/tests/Unit/bin/Release/StrykerOutput/2026-07-01/mutation-report.json"
@@ -430,6 +439,7 @@ fi
 # not have and it must become dangling. Same project, one edit each way.
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+anchor "$proj"
 write_test "$proj" "a.test.ts" 901
 run_gate "$proj"
 _clean=$RC
@@ -520,6 +530,7 @@ fi
 # answer here: an unbacked coverage claim is the one thing this gate exists to refuse.
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+anchor "$proj"
 { printf 'test file a.test.ts\n'; printf 'a fixture named %sabc\n' "$(id 901)"; } > "$proj/tests/a.test.ts"
 run_gate "$proj"
 if [ "$RC" -eq 1 ] && grep -qE "^  $(id 901) " <<< "$OUT" && grep -q 'uncovered' <<< "$OUT"; then
@@ -672,6 +683,7 @@ fi
 # something that is not a live test is the one thing this gate exists to refuse.
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+anchor "$proj"
 run_gate "$proj"
 if [ "$RC" -eq 1 ] && grep -q "$(id 901)" <<< "$OUT" && grep -q 'uncovered' <<< "$OUT" \
    && ! grep -q 'roots: .*specs' <<< "$OUT"; then
@@ -728,7 +740,11 @@ core_id_census() { # <project> → 0 clean, 1 with CENSUS_WHY set
   grep -q 'coverage: 1 of 1' <<< "$OUT" && found="$found
 $(id 900)"
   if [ -z "$(printf '%s' "$found" | tr -d '[:space:]')" ]; then
-    if [ "$RC" -eq 1 ] && grep -q 'coverage: 0 of 1' <<< "$OUT"; then return 0; fi
+    # Clean is the gate's zero-refs refusal, and it must say it read every copied file: "no id in
+    # any of N files" is the census's clean reading exactly, and the count is what tells it apart
+    # from a walk that read nothing (spec 044).
+    if [ "$RC" -eq 4 ] && grep -q 'no scenario id found' <<< "$OUT" \
+       && grep -q "core: $CORE_COPIED file(s)" <<< "$OUT"; then return 0; fi
     CENSUS_WHY="the gate did not give the expected reading (exit $RC): $OUT"
     return 1
   fi
@@ -793,6 +809,68 @@ else
   bad "case40a-core-production-scripts-name-no-scenario-id" "template-autosync.sh --list-core-scripts failed — could not list CORE"
 fi
 rm -rf "$c40"
+
+# case41 — ZERO IDS FROM A SCAN THAT RAN is not coverage. Every root exists, the map claims a row,
+# and no file under the roots names any id. That renders as "every claimed scenario is uncovered",
+# the same catastrophic-looking report the missing-root guard refuses — fundit read 0 of 182 and
+# then 175 of 182 minutes later with nothing changed. Exit 4, never 1.
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$T"; } > "$proj/specs/SCENARIOS.md"
+printf 'no ids in here\n' > "$proj/tests/a.test.ts"
+printf 'nor here\n' > "$proj/tests/b.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 4 ] && grep -q 'no scenario id' <<< "$OUT" && ! grep -q '^coverage:' <<< "$OUT"; then
+  ok "case41-zero-ids-with-claims-refuses"
+else
+  bad "case41-zero-ids-with-claims-refuses" "expected exit 4 and no coverage line, got $RC: $OUT"
+fi
+
+# case42 — ...and the refusal names every root with the number of files it read under it. A reader
+# told "the scan found nothing" needs to see whether it read 2 files or 2146.
+if grep -q 'tests: 2 file' <<< "$OUT"; then
+  ok "case42-refusal-names-roots-and-file-counts"
+else
+  bad "case42-refusal-names-roots-and-file-counts" "expected 'tests: 2 file(s)' in: $OUT"
+fi
+rm -rf "$proj"
+
+# case43 — ...but a map that CLAIMS NOTHING with nothing found stays a normal run. No claim goes
+# unbacked, so there is no catastrophic report to refuse, and an all-mapped roadmap is legitimate
+# (case5's argument).
+proj=$(new_project)
+{ map_header; row 901 "$M"; row 902 "$M"; } > "$proj/specs/SCENARIOS.md"
+printf 'no ids in here\n' > "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then ok "case43-zero-ids-without-claims-is-a-normal-run"; else bad "case43-zero-ids-without-claims-is-a-normal-run" "expected exit 0, got $RC: $OUT"; fi
+rm -rf "$proj"
+
+# case44 — A PARTIAL READ NAMES WHAT IT DROPPED. The extractor names every refused row as file:line
+# on stderr; the gate captured that and printed "see above" over nothing (agentcrm F316: 31 rows
+# lost to one doubled pipe, and no way to find them).
+proj=$(new_project)
+{ map_header; row 901 "$V"; printf '| %s | happy | missing a column |\n' "$(id 902)"; } \
+  > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 5 ] && grep -q 'SCENARIOS.md:10' <<< "$OUT" && grep -q '1 row(s) refused' <<< "$OUT"; then
+  ok "case44-partial-read-names-refused-rows"
+else
+  bad "case44-partial-read-names-refused-rows" "expected exit 5 naming SCENARIOS.md:10 and the count, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
+# case45 — a clean read says nothing about "see above". The pointer is printed only when something
+# above it exists.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && ! grep -q 'see above' <<< "$OUT"; then
+  ok "case45-no-see-above-on-a-clean-read"
+else
+  bad "case45-no-see-above-on-a-clean-read" "expected exit 0 with no 'see above', got $RC: $OUT"
+fi
+rm -rf "$proj"
 
 # ------------------------------------------------------------- sabotage ----
 #
@@ -945,10 +1023,25 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   sab_run "$SABDIR/k.sh"
   expect_red "out-of-range-split-removed" "$SAB_OUT" case25-below-the-floor-is-not-dangling || SAB_FAIL=1
 
-  # (f) the missing-root guard removed — a typo'd root reports every scenario as uncovered.
+  # (f) the missing-root guard removed. Since spec 044 a missing root has TWO defences: this guard,
+  # and the zero-refs guard, which sees the empty scan the missing root causes and refuses it,
+  # naming the root with its 0 files. So removing this one alone must leave case9 green, and only
+  # removing both (o) may turn it red — the same shape as the two locale defences above.
   replace_region "$SCRIPT" "$SABDIR/f.sh" root-guard ':'
   sab_run "$SABDIR/f.sh"
-  expect_red "root-guard-removed" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
+  expect_green "root-guard-removed-zero-refs-intact" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
+
+  # (n) the zero-refs guard removed — a scan that found no id anywhere prints "0 of N" again.
+  replace_region "$SCRIPT" "$SABDIR/n.sh" zero-refs-guard ':'
+  sab_run "$SABDIR/n.sh"
+  expect_red "zero-refs-guard-removed" "$SAB_OUT" \
+    case41-zero-ids-with-claims-refuses case42-refusal-names-roots-and-file-counts || SAB_FAIL=1
+
+  # (o) BOTH removed — a typo'd root reports every scenario as uncovered, and case9 must catch it.
+  replace_region "$SCRIPT" "$SABDIR/o0.sh" root-guard ':'
+  replace_region "$SABDIR/o0.sh" "$SABDIR/o.sh" zero-refs-guard ':'
+  sab_run "$SABDIR/o.sh"
+  expect_red "root-guard-and-zero-refs-removed" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
 
   # (l) discovery replaced by the constant it grew out of. This is the shape the gate shipped with
   # for its whole life, and the reason it went unseen is worth stating: on a project whose tests all
@@ -981,7 +1074,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
 
   # The clean case must survive every surgical sabotage. If it broke, the sabotage was wholesale and
   # the reds above would be meaningless.
-  for s in a b c d e f g l m; do
+  for s in a b c d e f g l m n o; do
     sab_run "$SABDIR/$s.sh"
     if grep -q "FAIL  case1-clean" <<< "$SAB_OUT"; then
       echo "  FAIL  sabotage/$s — case1-clean also broke, so the sabotage was not surgical"
@@ -992,8 +1085,8 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   # tally in a message about thoroughness is the one number nobody re-reads when they add an arm.
   # `! -type l` excludes the two dependency SYMLINKS linked into this directory above, which a
   # plain *.sh count includes — it reported 12 arms for 10, which is how a derived number goes
-  # wrong in the same direction a hardcoded one does. c0.sh is an intermediate, not an arm.
-  SAB_COUNT=$(find "$SABDIR" -maxdepth 1 -name '*.sh' ! -type l ! -name 'c0.sh' | wc -l | tr -d ' ')
+  # wrong in the same direction a hardcoded one does. c0.sh and o0.sh are intermediates, not arms.
+  SAB_COUNT=$(find "$SABDIR" -maxdepth 1 -name '*.sh' ! -type l ! -name 'c0.sh' ! -name 'o0.sh' | wc -l | tr -d ' ')
   [ "$SAB_FAIL" -eq 0 ] && echo "  PASS  sabotage — every sabotage was surgical (case1-clean survived all $SAB_COUNT)"
 
   rm -rf "$SABDIR"

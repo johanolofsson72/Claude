@@ -103,7 +103,8 @@
 #   2  usage error
 #   3  the map could not be read, the extractor refused entirely, or it yielded zero rows
 #   4  no reference root to read — either one the caller NAMED does not exist, or discovery found
-#      none of its candidates. Both are "I could not look", and neither is ever reported as clean.
+#      none of its candidates — or every root was read and not one file named any id while the
+#      map claims rows. All three are "I could not look", and none is ever reported as coverage.
 #   5  checked, but part of the map was unreadable — never reported as clean
 #   7  NOT APPLICABLE — the project has no scenario map at all. Distinct from 3,
 #      which means a map exists and could not be read.
@@ -242,8 +243,16 @@ IFS=$OLDIFS
 EXTRACT_RC=0
 "$HERE/scenario-map-rows.sh" --partial "$@" > "$TMP/rows" 2>"$TMP/rows.err" || EXTRACT_RC=$?
 
+# Whatever the extractor said, it says out loud. It names every row it refused as file:line and
+# every file it read as commentary; this gate captured all of it and then printed none, so a partial
+# read ended with "see above" over nothing (agentcrm F316: 31 rows lost to one doubled pipe, and no
+# way to find them). Printed on a clean read too, because a whole file read as commentary is rows
+# this gate cannot see either.
+if [ "$EXTRACT_RC" -eq 0 ] && [ -s "$TMP/rows.err" ]; then cat "$TMP/rows.err" >&2; fi
+
 PARTIAL_READ=0
 if [ "$EXTRACT_RC" -eq 4 ]; then
+  cat "$TMP/rows.err" >&2
   PARTIAL_READ=1
 elif [ "$EXTRACT_RC" -ne 0 ]; then
   echo "scenario-traceability: scenario-map-rows.sh refused the map" >&2
@@ -447,6 +456,8 @@ fi
 # ------------------------------------------------------------------------------------- references
 # One tree walk emitting every id token, not one `grep -r` per id: 150 ids would be 150 walks.
 : > "$TMP/refs"
+: > "$TMP/scanned"
+: > "$TMP/scan.err"
 OLDIFS=$IFS
 IFS=,
 for root in $ROOTS; do
@@ -465,6 +476,7 @@ for root in $ROOTS; do
     exit 4
   fi
   # <<< root-guard
+  : > "$TMP/files"
   # Match ids of ANY length. The keep-filter below used to be [0-9]{3} — see there.
   #
   # \b ON THE LEFT, and it is not decoration. Without it the pattern matches INSIDE a longer
@@ -551,11 +563,15 @@ for root in $ROOTS; do
        ! -name '*.png' ! -name '*.jpg' ! -name '*.jpeg' ! -name '*.gif' ! -name '*.webp' \
        ! -name '*.ico' ! -name '*.pdf' ! -name '*.zip' ! -name '*.webm' ! -name '*.mp4' \
        ! -name '*.woff' ! -name '*.woff2' ! -name '*.ttf' ! -name '*.otf' \
-       -print0 2>/dev/null \
-    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b|(^|[^A-Za-z0-9])${PREFIX}[0-9]+[a-z]?_" 2>/dev/null \
+       -print0 2>>"$TMP/scan.err" \
+    | tee "$TMP/files" \
+    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b|(^|[^A-Za-z0-9])${PREFIX}[0-9]+[a-z]?_" 2>>"$TMP/scan.err" \
       | sed -e "s/^[^${PREFIX}]*//" -e 's/_$//' -e "s/^${PREFIX}\\([0-9]\\)/${PREFIX}-\\1/" \
       >> "$TMP/refs" || true
   # <<< build-prune
+  # Files read under this root, for the zero-ids refusal below. Counted from the list the walk
+  # already produced, so a reader told "no id anywhere" can see whether 2 files were read or 2146.
+  printf '%s: %s file(s)\n' "$root" "$(tr -cd '\000' < "$TMP/files" 2>/dev/null | wc -c | tr -d ' ')" >> "$TMP/scanned"
   IFS=,
 done
 IFS=$OLDIFS
@@ -569,6 +585,32 @@ IFS=$OLDIFS
 # >>> id-length-filter
 grep -xE "${PREFIX}-[0-9]+[a-z]?" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" || : > "$TMP/refs.u"
 # <<< id-length-filter
+
+# >>> zero-refs-guard
+# ZERO IDS FROM A SCAN THAT RAN is the missing-root case arriving by another door. Every root exists
+# and the walk finished, yet not one file named any id — so every claimed row would print as
+# uncovered, the catastrophic-looking report with a trivial cause that the root-guard refuses. The
+# gate used to print it as `coverage: 0 of N` and exit 1. fundit read 0 of 182 that way, then 175
+# of 182 minutes later with nothing changed; the cause was never proven, and the scan's own errors
+# were going to /dev/null, so the report carried no handle on it.
+#
+# Only when the map CLAIMS something. A map of nothing but mapped and retired rows has no claim to
+# leave unbacked, and refusing it would turn every roadmap-only project red (case5's argument).
+# Any kept id counts, out-of-range ones included: an id found anywhere proves the scan read files.
+if [ ! -s "$TMP/refs.u" ] && [ -s "$TMP/claimed" ]; then
+  echo "scenario-traceability: no scenario id found in any file under the roots, while the map claims $(grep -c . "$TMP/claimed") row(s)" >&2
+  echo "  Zero ids anywhere is a broken or empty scan, not a coverage result. Files read:" >&2
+  sed 's/^/    /' "$TMP/scanned" >&2
+  if [ -s "$TMP/scan.err" ]; then
+    echo "  the scan reported errors ($(grep -c . "$TMP/scan.err") line(s); first 10):" >&2
+    head -10 "$TMP/scan.err" | sed 's/^/    /' >&2
+  fi
+  echo "  Rerun first; a scan racing files that change under it has read 0 and then most. If it" >&2
+  echo "  persists, check the roots (--roots, or specs/traceability-roots). If the suite genuinely" >&2
+  echo "  cites no scenario id, every claimed row is unbacked, and that is the thing to fix." >&2
+  exit 4
+fi
+# <<< zero-refs-guard
 
 # --------------------------------------------------------------------------------- the two answers
 comm -23 "$TMP/claimed" "$TMP/refs.u" > "$TMP/uncovered"
@@ -696,7 +738,14 @@ if [ "$PARTIAL_READ" -eq 1 ]; then
   # "Clean over what I could read" reported as clean is the defect --partial exists to remove, so a
   # partial read gets its own code and can never be 0. It is reported AFTER the numbers, because the
   # numbers are still worth having — they are just not the whole map.
-  echo "scenario-traceability: part of the map was unreadable (see above) — this reading is partial" >&2
+  # The count comes from the extractor's own per-row lines, and "see above" only appears when those
+  # lines were printed. A pointer at nothing is the defect this line had.
+  N_REFUSED=$(grep -c ' columns, expected ' "$TMP/rows.err" || true)
+  if [ "$N_REFUSED" -gt 0 ]; then
+    echo "scenario-traceability: part of the map was unreadable — $N_REFUSED row(s) refused, each named above by file:line — this reading is partial" >&2
+  else
+    echo "scenario-traceability: part of the map was unreadable — the extractor reported skipped rows but named none — this reading is partial" >&2
+  fi
   exit 5
 fi
 # <<< partial-exit

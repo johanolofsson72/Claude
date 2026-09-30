@@ -57,7 +57,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 042 — needs-clause-swallows-a-null-dependency — spec-only — `lane_status.py`: a digit-less `needs` entry (`inget`) no longer blocks; an unknown id still does, and is named. Verbatim in `INDEX.completed.md`.
 - [x] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
 - [x] 043 — mutation-gate-reports-a-headline-only — spec-only — maintenance §5 reads this run's Stryker JSON reports, merged per mutant, and lists every module under the limit; no report = module gate unmeasured. Verbatim in `INDEX.completed.md`.
-- [ ] 044 — traceability-gate-cannot-tell-zero-from-broken — spec-only — `validate-scenario-traceability.sh` already exits 4 when a root is MISSING, because zero references renders as 'every claimed scenario is uncovered' — a catastrophic report with a trivial cause. The same is true when a root EXISTS and the scan returns nothing, and there the script reports `coverage: 0 of N` instead. Seen once in fundit (0 of 182, then 175 of 182 unchanged minutes later, with 2146 TLC scratch files under `tests/`); cause unproven, and NOT binary-ness — the `-a` is deliberate and documented. Fix the reporting, not the guess: no ids found anywhere is a broken scan, so refuse.
+- [x] 044 — traceability-gate-cannot-tell-zero-from-broken — spec-only — a scan that finds no id while the map claims rows now refuses (exit 4, roots + file counts); a partial read names its refused rows. Verbatim in `INDEX.completed.md`.
 - [ ] 047 — stryker-spans-fail-silently-and-score-well — spec-only — an invalid mutate glob matches no file and reports a clean score; spans are CHARACTER offsets, not lines; a concurrent `dotnet build` zeroes the run silently. From ighweld-2026. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 048 — sc-id-space-is-three-digits-and-full — spec-only — `scenarios.md` mandates `SC-NNN`; ighweld has used 961 of 999 and already mints `SC-1000+`. Row 007 split the two SC- namespaces by digit WIDTH. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 049 — a-held-row-cannot-be-written-to — spec-only — `spec-run-log-hook.sh` resolves through `spec_active.py`, which skips `- [!]` rows, so holding a row stops you logging why you held it. Diagnosis: `specs/INDEX.pending.md`
@@ -92,8 +92,8 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 
 ## Register history (newest first)
 
+- 2026-09-30 — 044 ticked: zero ids from a scan that ran is refused, not reported as 0 of N; "see above" now has something above it.
 - 2026-09-30 — 043 ticked: the live defect was the CORE reader, not the runner; a passing headline over a weak module is now a finding.
 - 2026-09-30 — H1 ticked: 57/57 after two fixes; 078 added from approved proposal F050 (autosync kills 2/12 mutants).
 - 2026-09-29 — 034 ticked without new code: 774a909 (2026-09-09) had already fixed it. fundit's deps pass shows 0 bogus SKIPs.
 - 2026-09-29 — 030 ticked without new code: 045 had already landed the fix. --unlisted is clean on rocky and all 46 repos.
-- 2026-09-29 — 029 re-diagnosed: the permission mode was never the cause (live A/B); re-tracked spec-only [hardened]. F029 recorded.
