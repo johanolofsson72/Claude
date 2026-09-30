@@ -146,25 +146,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 051 — maintenance-suite-blind-to-standalone-node-tests (from emaljen, 2026-09-18)
-
-emaljen runs its whole suite as standalone Playwright scripts (`node tests/*.mjs`, about 20 files,
-plus `tests/vrt/`), with no `package.json`. `project-maintenance.sh --suite` looks only for
-`npm test` or a .NET test project, so it prints "nothing to run" and never stamps `suite`. The
-due flag therefore can't clear through `--full`, and emaljen stamps it by hand after a real green
-run (emaljen F027). Mutation has the same gap: no `run-mutation-gate.sh` stack for PHP/WordPress.
-
-Fix direction: read `.claude/.template-sync-verify` (or a sibling `.claude/.suite-command`) as the
-suite command when no stack is detected, rather than adding one more hard-coded stack.
-
-Second case (iskvalp, 2026-09-25) — worse, because it stamps instead of refusing: the jest suite
-lives in `client/package.json` and the repo root has only `iskvalp.sln`, so `--suite` runs
-`dotnet test` alone (1194 tests) and on green stamps `suite` — "unit + integration + E2E + visual
-regression" — without the 4138 jest tests, Maestro E2E or VRT. The package.json probe only looks at
-the root. The same override file fixes both; a detected stack should not outrank a declared one.
-
----
-
 ## 052 — maintenance-runs-what-it-finds
 
 From ighweld-2026's findings batch review, 2026-09-18.

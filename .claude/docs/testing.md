@@ -358,6 +358,7 @@ Line coverage proves a line *executed*; it says nothing about whether a test wou
   of one project's kills before the split.
 - **NEVER in CI per push** (see `github-actions.md` — it's minutes-expensive and was a budget incident). Run it **nightly or on-demand**, and incrementally (changed files) on a branch.
 - **"Nightly" needs a body, not just an intention.** Nothing schedules itself, and an unscheduled nightly gate runs never. `bash scripts/project-maintenance.sh --full` is the local pass that actually executes it (plus the secret/CVE scan and register drift checks), reporting only when it finds something. Attach it to a `/schedule` routine, `/loop 7d`, or crontab — never to a GitHub Action `schedule:` trigger.
+- **A declared suite beats a guessed one.** `bash scripts/project-maintenance.sh --suite` runs the first non-comment line of `.claude/.suite-command`. Without that file it falls back to a root `npm test`, then `dotnet test`. A project with neither (bare `node tests/*.mjs`, PHP) can only clear the due job by declaring its suite. A .NET root with a nested `package.json` test script is never stamped green until the whole suite is declared. For mutation, a stack with no runner declares `scripts/run-mutation-gate.sh`.
 - **Stryker does not tell you when it measured nothing.** Three ways, all measured on one project
   (row 047):
   - A span is `{start..end}` with two dots. `'**/X.cs{845-1080}'` is not an error. The braces become

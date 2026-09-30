@@ -543,7 +543,7 @@ if [ -f "$D/specs/FINDINGS.md" ]; then bad "C34 small map — no ledger created"
 expect_rc       "C34 small map — clean exit" 0 "$RC"
 
 # --- C35: a DECIDED finding for the path does not suppress a new open one ---------------------------
-D=$(mkfix c35); cp "$DIR/finding.sh" "$D/scripts/"; mkbig "$D/specs/SCENARIOS.md"
+D=$(mkfix c35); cp "$DIR/finding.sh" "$DIR/max-id-in-refs.sh" "$D/scripts/"; mkbig "$D/specs/SCENARIOS.md"
 printf '# Findings\n\n## Open\n\n- [x] F001 — debt — 2026-09-01 — scenario-map canary: specs/SCENARIOS.md is 30 KB (single-file map, canary 25 KB) — split — decided: live with it\n' > "$D/specs/FINDINGS.md"
 OUT=$(run "$D")
 expect_rc       "C35 decided finding — a new open one is added" 1 "$(open_map_lines "$D" specs/SCENARIOS.md)"
@@ -952,6 +952,97 @@ expect_contains "C77 a continued -m line is checked"             "scripts/run-mu
 D=$(mkfix_mut c78 79); mk_dotnet "$D" 90.00 0; rm -f "$D/scripts/stryker_guard.py"
 OUT=$(run_full "$D")
 expect_contains "C78 no helper — run-alone check said UNCHECKED"  "run-alone check UNCHECKED" "$OUT"
+
+# ================================================ C79-C87 — the suite a project declares (row 051)
+#
+# emaljen runs its suite as bare `node tests/*.mjs` with no package.json, so --suite found nothing and
+# the job could never be discharged by the command meant to discharge it. iskvalp keeps jest in
+# client/package.json beside a root .sln, so --suite ran `dotnet test` alone and stamped "unit +
+# integration + E2E + visual regression" over half of it. .claude/.suite-command is the declaration.
+mkdecl() { # mkdecl NAME — a suite fixture with no stack; tests/run.sh prints $SUITE_TEXT, exits $2
+  local d; d=$(mkfix "$1")
+  mkdir -p "$d/bin" "$d/tests"
+  printf '%s\n' "$SUITE_TEXT" > "$d/tests/transcript.txt"
+  printf '#!/bin/sh\ncat "%s/tests/transcript.txt"\necho ran >> "%s/ran"\nexit %s\n' "$d" "$d" "${2:-0}" > "$d/tests/run.sh"
+  printf '#!/bin/bash\n[ "$1" = --stamp ] && echo "$2" >> "%s/stamped"\nexit 0\n' "$d" > "$d/scripts/maintenance-due.sh"
+  cp "$DIR/run-verdict.sh" "$d/scripts/" 2>/dev/null
+  printf '%s' "$d"
+}
+SUITE_TEXT='20 passed, 0 failed'
+
+# --- C79: a declaration with no stack at all — the emaljen case, discharged ---------------------------
+D=$(mkdecl c79 0); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+OUT=$(run_suite "$D"); RC=$?
+expect_contains "C79 declared command — suite green"             "suite green — \`sh tests/run.sh\`" "$OUT"
+expect_contains "C79 provenance is said"                         "declared in .claude/.suite-command" "$OUT"
+expect_rc       "C79 declared green — stamped" 1 "$(stamped_suite "$D")"
+expect_rc       "C79 clean exit" 0 "$RC"
+
+# --- C80: the declaration outranks a detected stack ---------------------------------------------------
+D=$(mkdecl c80 0); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+printf '<Project Sdk="Microsoft.NET.Sdk" />\n' > "$D/app.csproj"
+printf '#!/bin/bash\necho DOTNET-RAN\nexit 0\n' > "$D/bin/dotnet"; chmod +x "$D/bin/dotnet"
+OUT=$(run_suite "$D")
+expect_absent   "C80 dotnet test is not run"                     "dotnet test" "$OUT"
+expect_rc       "C80 the declared command ran" 1 "$(cat "$D/ran" 2>/dev/null | grep -c ran)"
+expect_rc       "C80 stamped" 1 "$(stamped_suite "$D")"
+
+# --- C81: comments and blanks before the command are skipped ------------------------------------------
+D=$(mkdecl c81 0); printf '# the whole suite: unit + e2e + vrt\n\n   \nsh tests/run.sh\necho second-line\n' > "$D/.claude/.suite-command"
+OUT=$(run_suite "$D")
+expect_contains "C81 first non-comment line is the command"      "suite green — \`sh tests/run.sh\`" "$OUT"
+expect_absent   "C81 later lines are not run"                    "second-line" "$OUT"
+
+# --- C82: a declared command that fails is a finding, and not stamped ---------------------------------
+SUITE_TEXT='3 passed, 2 failed'
+D=$(mkdecl c82 1); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+OUT=$(run_suite "$D"); RC=$?
+expect_contains "C82 declared red — SUITE finding"               "[SUITE] \`sh tests/run.sh\` failed (exit 1)" "$OUT"
+expect_rc       "C82 not stamped" 0 "$(stamped_suite "$D")"
+expect_rc       "C82 verdict is red" 1 "$RC"
+
+# --- C83: a declared command is still read for an abort -----------------------------------------------
+SUITE_TEXT='The active test run was aborted. Reason: Test host process crashed
+Passed!  - Failed: 0, Passed: 10, Skipped: 0, Total: 10'
+D=$(mkdecl c83 0); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+OUT=$(run_suite "$D")
+expect_contains "C83 declared abort — named as aborted"          "the test run ABORTED" "$OUT"
+expect_rc       "C83 not stamped" 0 "$(stamped_suite "$D")"
+SUITE_TEXT='Passed!  - Failed:     0, Passed:    12, Skipped:     0, Total:    12'
+
+# --- C84: the iskvalp shape — dotnet green, jest beside it, nothing declared ---------------------------
+D=$(mksuite c84 0); mkdir -p "$D/client"
+printf '{ "scripts": { "test": "jest" } }\n' > "$D/client/package.json"
+mkdir -p "$D/client/node_modules/dep"; printf '{ "scripts": { "test": "x" } }\n' > "$D/client/node_modules/dep/package.json"
+mkdir -p "$D/node_modules/dep"; printf '{ "scripts": { "test": "x" } }\n' > "$D/node_modules/dep/package.json"
+OUT=$(run_suite "$D"); RC=$?
+expect_contains "C84 half suite — a SUITE finding"               "[SUITE] \`dotnet test\` is green, but it is not the whole suite" "$OUT"
+expect_contains "C84 names the uncovered manifest"               "client/package.json" "$OUT"
+expect_absent   "C84 node_modules is not a test surface"         "node_modules" "$OUT"
+expect_contains "C84 names the declaration"                      ".claude/.suite-command" "$OUT"
+expect_rc       "C84 not stamped" 0 "$(stamped_suite "$D")"
+expect_rc       "C84 verdict is red" 1 "$RC"
+
+# --- C85: the same shape with a nested manifest that has no test script stays green --------------------
+D=$(mksuite c85 0); mkdir -p "$D/client"; printf '{ "scripts": { "build": "vite" } }\n' > "$D/client/package.json"
+OUT=$(run_suite "$D")
+expect_rc       "C85 no nested test script — stamped" 1 "$(stamped_suite "$D")"
+
+# --- C86: the emaljen shape with no declaration — says where to declare, runs nothing -----------------
+D=$(mkdecl c86 0)
+printf '# unit slice\nsh tests/run.sh --unit\n' > "$D/.claude/.template-sync-verify"
+OUT=$(run_suite "$D"); RC=$?
+expect_contains "C86 nothing to run — names the declaration"     ".claude/.suite-command" "$OUT"
+expect_contains "C86 the sync-verify command is a quoted candidate" "sh tests/run.sh --unit" "$OUT"
+expect_rc       "C86 the sync-verify command is never run" 0 "$(cat "$D/ran" 2>/dev/null | grep -c ran)"
+expect_rc       "C86 not stamped" 0 "$(stamped_suite "$D")"
+expect_rc       "C86 a note, not a finding" 0 "$RC"
+
+# --- C87: --full on a stack with no mutation runner says so -------------------------------------------
+D=$(mkfix c87)
+OUT=$(run_full "$D")
+expect_contains "C87 no mutation runner — said"                  "no mutation runner" "$OUT"
+expect_contains "C87 names the project-owned runner"             "scripts/run-mutation-gate.sh" "$OUT"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

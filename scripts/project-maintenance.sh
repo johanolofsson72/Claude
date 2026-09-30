@@ -18,6 +18,10 @@
 #   bash scripts/project-maintenance.sh            # report-only sweep (fast)
 #   bash scripts/project-maintenance.sh --full     # also run the mutation pass (slow)
 #   bash scripts/project-maintenance.sh --quiet    # findings only, no clean-run line
+#   bash scripts/project-maintenance.sh --suite    # also run the whole test suite, stamp it on green
+#
+# The suite command is the first non-comment line of .claude/.suite-command when the project
+# declares one; otherwise a root `npm test` script, otherwise `dotnet test` (row 051).
 #
 # MAINTENANCE_WORKTREE_GRACE_HOURS=N  how long an agent worktree may sit untouched
 #   before it is reported as abandoned (default 24). Agent worktrees are not locked,
@@ -853,6 +857,11 @@ $MUT_MODULES"
     REPORT="${REPORT}[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow, and it covers only the working-directory config).
 "
   fi
+elif [ "$FULL" -eq 1 ]; then
+  # Row 051: a stack with no runner (PHP, bare node) heard nothing at all from --full, and the due
+  # banner kept asking for a pass that had no way to happen. Not stamped, as before; now it is said.
+  note "[note] --full: no mutation runner for this stack — nothing measured, not stamped. A project whose stack
+  has none declares one as scripts/run-mutation-gate.sh (project-owned; it must print \`mutation score N%\`)."
 fi
 
 # ---------------------------------------------------------------- 6. census audits
@@ -1051,6 +1060,20 @@ fi
 # (.claude/rules/mutation-timeouts.md, trap 4).
 if [ "$SUITE" -eq 1 ]; then
   SUITE_CMD=""
+  SUITE_FROM=""
+  SUITE_PARTIAL=""
+  # A DECLARATION OUTRANKS EVERY DETECTED STACK (row 051). Detection knew two stacks, so emaljen's
+  # bare `node tests/*.mjs` suite could never be discharged here, and iskvalp's root .sln hid the
+  # jest suite in client/package.json and got stamped green over half of it. The project says what
+  # its whole suite is in .claude/.suite-command, first line that is neither blank nor a # comment.
+  # Judged like a detected command (exit code + run-verdict.sh); a human chose it, so no evidence
+  # gate, the same rule template-sync-verify.sh keeps.
+  declared_command() { # declared_command FILE — first line neither blank nor a # comment; empty when unreadable
+    [ -r "$1" ] && grep -v '^[[:space:]]*#' "$1" 2>/dev/null | grep -v '^[[:space:]]*$' | sed -n 1p
+  }
+  SUITE_DECL=.claude/.suite-command
+  SUITE_CMD=$(declared_command "$SUITE_DECL")
+  [ -n "$SUITE_CMD" ] && SUITE_FROM="declared in $SUITE_DECL"
   # THE PROJECT'S OWN `test` SCRIPT WINS, and this order used to be reversed.
   # On a project that is both .NET and web, `dotnet test` matched first and
   # `npm test` was never reached — so the step ran unit and integration tests,
@@ -1063,7 +1086,9 @@ if [ "$SUITE" -eq 1 ]; then
   # suite is. Preferring it is also why it must not be ASSUMED to cover .NET on
   # a project where it only covers the frontend — hence the note rather than
   # silence.
-  if [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json 2>/dev/null; then
+  if [ -n "$SUITE_CMD" ]; then
+    :
+  elif [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json 2>/dev/null; then
     SUITE_CMD="npm test"
     if [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ] \
        && ! grep -q 'dotnet test' package.json 2>/dev/null; then
@@ -1071,10 +1096,23 @@ if [ "$SUITE" -eq 1 ]; then
     fi
   elif [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
     SUITE_CMD="dotnet test"
+    # `dotnet test` never runs a nested package.json's tests, so a green run here is half a suite
+    # when one exists (iskvalp: 1194 .NET tests stamped, 4138 jest tests never run). It still runs,
+    # because the result is information; only the stamp is refused.
+    SUITE_PARTIAL=$(find . -maxdepth 3 -name node_modules -prune -o -name package.json -type f ! -path ./package.json -print 2>/dev/null |
+      while IFS= read -r f; do grep -q '"test"[[:space:]]*:' "$f" 2>/dev/null && printf '%s ' "${f#./}"; done)
+    SUITE_PARTIAL=${SUITE_PARTIAL% }
   fi
+  [ -n "$SUITE_CMD" ] && [ -z "$SUITE_FROM" ] && SUITE_FROM="detected, not declared"
 
   if [ -z "$SUITE_CMD" ]; then
-    note "[note] --suite: no .NET solution and no npm test script — nothing to run. Not a pass."
+    # Nothing detected is not the end: say where the project declares it. A .template-sync-verify
+    # command is quoted as a candidate and NEVER run here. That file often declares a unit slice on
+    # purpose (its own help recommends one), and stamping a slice as the whole suite is the iskvalp
+    # failure this section just stopped.
+    SUITE_SYNC=$(declared_command .claude/.template-sync-verify)
+    note "[note] --suite: nothing declared in $SUITE_DECL, and no .NET solution or npm test script to detect — nothing to run. Not a pass.
+  Put the command that runs the whole suite (unit + integration + E2E + visual regression) on one line in $SUITE_DECL.$([ -n "$SUITE_SYNC" ] && printf '\n  Candidate: .claude/.template-sync-verify declares `%s` — declare it here only if it is the whole suite, not a slice.' "$SUITE_SYNC")"
   else
     SUITE_OUT=$(measured suite bash -c "$SUITE_CMD" 2>&1); SUITE_RC=$?
     SUITE_TAIL=$(printf '%s' "$SUITE_OUT" | tail -12)
@@ -1093,8 +1131,12 @@ if [ "$SUITE" -eq 1 ]; then
       add "[SUITE] \`$SUITE_CMD\` — the test run ABORTED (exit $SUITE_RC): the test host did not finish, so any
   Passed!/Total line below counts only the tests that ran. Not stamped: the job stays due.
 $SUITE_TAIL"
+    elif [ "$SUITE_VERDICT" = passed ] && [ -n "$SUITE_PARTIAL" ]; then
+      add "[SUITE] \`$SUITE_CMD\` is green, but it is not the whole suite: it never runs the test script in
+  $SUITE_PARTIAL. Not stamped: the job stays due. Put the command that runs every
+  part on one line in $SUITE_DECL, and --suite runs that instead."
     elif [ "$SUITE_VERDICT" = passed ]; then
-      note "[note] suite green — \`$SUITE_CMD\`"
+      note "[note] suite green — \`$SUITE_CMD\` ($SUITE_FROM)"
       [ -f scripts/maintenance-due.sh ] && bash scripts/maintenance-due.sh --stamp suite 2>/dev/null
     else
       # NOT stamped. A red suite has not satisfied the obligation, and stamping it would mark the
