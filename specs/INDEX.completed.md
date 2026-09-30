@@ -1058,3 +1058,24 @@ shape: refuse a mutate glob that matches no file, and say so.
 ## 079 — traceability-loses-the-second-id-in-a-chain
 
 - [x] 079 — traceability-loses-the-second-id-in-a-chain — spec-only — `grep -o` is non-overlapping, so `SCNNN_SCNNN_Name` in a C# method read as one id and the second row was reported uncovered. 8 of agentcrm's 58 "uncovered" rows were this, each with a passing test. Pattern takes `(...)+`, `tr` splits; case46 asserts both forms. Found as agentcrm H6 / F391.
+
+## 048 — sc-id-space-is-three-digits-and-full
+
+Ticked 2026-09-30.
+
+- [x] 048 — sc-id-space-is-three-digits-and-full — spec-only — `scenarios.md` mandates `SC-NNN`; ighweld has used 961 of 999 and already mints `SC-1000+`. Row 007 split the two SC- namespaces by digit WIDTH. Diagnosis: `specs/INDEX.pending.md`
+
+**Done.** `scenarios.md`: an SC id is zero-padded to at least three digits and grows past `SC-999`; low gaps are not reused and old ids are not re-padded. The locate grep reads `SC-[0-9]{3,}`. The namespace paragraph names both out-of-range rules (narrowest width, floor). `validate-fixture-map-ids.sh` counts ids of any width ≥ 3 (five places had a 4-digit cap). `test-validate-scenario-traceability.sh` case48a/b pin the width rule on a mixed-width map, the first test it ever had; sabotage (p) widest-width and (q) width-removed each turn a case red. `test-fixture-map-ids.sh` C16/C16b: a five-digit owned id is seen by R1 and R3.
+
+`.claude/rules/scenarios.md` specifies `SC-NNN`, "three digits, padded". ighweld-2026 has used 961 of
+the 999 (F065; F057 measured 950 a week earlier), and the free ids are all in low gaps, which are the
+worst ones to reuse because an old test may still name them.
+
+It has already overflowed in practice: spec 112 minted `SC-1000..1006` for the public API block
+(F078), so the project is running four-digit ids against a rule that says three.
+
+**The interaction that makes this more than a widening.** Row 007 split the two `SC-` namespaces — the
+scenario map's permanent handles and spec-kit's per-spec Success Criteria — **by digit width**,
+deliberately, because a magnitude floor is useless on a map that starts at SC-001. Four-digit map ids
+walk straight into that discriminator. Decide the two together or the traceability gate starts
+mis-bucketing.

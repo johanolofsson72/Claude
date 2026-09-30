@@ -924,6 +924,37 @@ else
 fi
 rm -rf "$proj"
 
+# case48 — A MAP THAT GREW PAST THREE DIGITS KEEPS ITS NAMESPACE LINE (row 048). The out-of-range
+# split tells a spec's criteria from scenario ids by digit width, and a grown map holds ids of two
+# widths. The width is the NARROWEST id's, so growth does not move the line. Measured from the widest
+# id instead, a three-digit citation of a scenario the map LACKS would be filed as a criterion and
+# never dangle (48b). The map starts at one on purpose: there the floor catches nothing, so only the
+# width rule can bucket the two-digit criterion (48a). Before this case nothing tested the width
+# rule at all.
+proj=$(new_project)
+{ map_header; row 001 "$V"; row 1001 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 001 1001
+printf 'and this spec own success criterion %s\n' "$(id 12)" >> "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && grep -q 'out-of-range' <<< "$OUT" && ! grep -q '^dangling' <<< "$OUT"; then
+  ok "case48a-mixed-width-map-keeps-the-width-line"
+else
+  bad "case48a-mixed-width-map-keeps-the-width-line" "expected both rows covered and the criterion out-of-range, got $RC: $OUT"
+fi
+rm -rf "$proj"
+# 48b: the other direction. A missing three-digit id above the floor is a scenario id the map lacks,
+# so it dangles on a grown map exactly as it would on a three-digit one.
+proj=$(new_project)
+{ map_header; row 001 "$V"; row 1001 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 001 1001 950
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "$(id 950)" <<< "$OUT" && grep -q 'dangling' <<< "$OUT"; then
+  ok "case48b-mixed-width-map-still-dangles-three-digits"
+else
+  bad "case48b-mixed-width-map-still-dangles-three-digits" "expected $(id 950) under dangling, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
 # ------------------------------------------------------------- sabotage ----
 #
 # One marked region at a time, on a COPY. Asserting only "the sabotaged run exits non-zero" would be
@@ -1074,6 +1105,23 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   replace_region "$SCRIPT" "$SABDIR/k.sh" out-of-range 'cp "$TMP/dangling.all" "$TMP/dangling"; : > "$TMP/outofrange"'
   sab_run "$SABDIR/k.sh"
   expect_red "out-of-range-split-removed" "$SAB_OUT" case25-below-the-floor-is-not-dangling || SAB_FAIL=1
+
+  # (p) the width measured from the WIDEST id — the natural "fix" once a map holds four-digit ids.
+  # (q) the width rule dropped, leaving only the floor. Both are one-token edits inside the
+  # out-of-range region, so they are sed on a copy, and a copy sed did not change is a failed arm.
+  sed 's/awk .{ print length(\$0) }. | sort -n | head -1)/awk '"'"'{ print length($0) }'"'"' | sort -n | tail -1)/' \
+    "$SCRIPT" > "$SABDIR/p.sh"
+  sed 's/-v width="\${MAP_WIDTH:-0}"/-v width=0/' "$SCRIPT" > "$SABDIR/q.sh"
+  for arm in p q; do
+    if cmp -s "$SCRIPT" "$SABDIR/$arm.sh"; then
+      echo "  FAIL  sabotage/$arm — the sed matched nothing; the width line has moved"
+      SAB_FAIL=1
+    fi
+  done
+  sab_run "$SABDIR/p.sh"
+  expect_red "width-from-widest-id" "$SAB_OUT" case48b-mixed-width-map-still-dangles-three-digits || SAB_FAIL=1
+  sab_run "$SABDIR/q.sh"
+  expect_red "width-rule-removed" "$SAB_OUT" case48a-mixed-width-map-keeps-the-width-line || SAB_FAIL=1
 
   # (f) the missing-root guard removed. Since spec 044 a missing root has TWO defences: this guard,
   # and the zero-refs guard, which sees the empty scan the missing root causes and refuses it,

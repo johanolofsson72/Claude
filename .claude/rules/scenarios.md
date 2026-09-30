@@ -102,7 +102,7 @@ flowchart TD
 - 2026-06-15 — initial map seeded from spec 001
 ````
 
-- **SC-id** — `SC-NNN`, three digits, globally unique, **never reused** even if a scenario is deleted (strike it through, keep the id). The same id appears in the flowchart node and the table row.
+- **SC-id** — `SC-NNN`, zero-padded to **at least** three digits, globally unique, **never reused** even if a scenario is deleted (strike it through, keep the id). The same id appears in the flowchart node and the table row. Past `SC-999` the id grows to `SC-1000`, `SC-1001` and so on. A full three-digit space is no reason to fill low gaps (an old test may still name them) or to re-pad old ids to four digits (that renames every handle and every test citing one). A grown map holds ids of two widths, and that is the intended state (row 048).
 - **Never pick an SC-id by eye** — `bash scripts/next-scenario-id.sh --count N` hands out a block past the highest id in the working tree *and* every local and remote-tracking branch, so a pushed spec branch in the other lane is already counted. Take the block before writing rows; push the spec branch soon after, because an unpushed branch is the one place it cannot see. Past `SC-999` it continues at `SC-1000`.
 - **Type** — one of `happy` · `edge` · `adversarial` · `error` · `offline` (extend only with good reason).
 - **Status** — `☐ mapped` (written down) → `◐ tested` (a test exists) → `✓ validated` (the test exercises the REAL behaviour and it actually works at runtime). Only `✓` counts as done.
@@ -137,9 +137,12 @@ read it. It then retired both rows as described here (row 062).
 **Two `SC-` namespaces exist, and only arithmetic keeps them apart.** spec-kit's spec template
 numbers a spec's Success Criteria `SC-001`, `SC-002`, … — the same prefix this map uses for
 permanent handles. A test citing its own spec's criteria is therefore indistinguishable from a test
-citing a scenario that does not exist, and `validate-scenario-traceability.sh` reports references
-below the map's lowest id in a separate **out-of-range** bucket rather than as dangling. That split
-is a floor, not a fix: it holds only while no spec numbers a criterion up into the map's range, and
+citing a scenario that does not exist, and `validate-scenario-traceability.sh` reports two kinds of
+reference in a separate **out-of-range** bucket rather than as dangling: one with fewer digits than
+the map's **narrowest** id, and one below the map's lowest id. Width does most of the work, because
+most maps start at `SC-001` and nothing is below that. It is the narrowest width on purpose: a map
+that grew past `SC-999` still starts at three digits, so growth does not move the line. That split
+is arithmetic, not a fix: it holds only while no spec numbers a criterion up into the map's range, and
 that has already happened at least once. When you write a spec, prefer letters for its Success
 Criteria (`SC-A`, `SC-B`) or reuse the map ids the spec actually claims — do not start a second
 numeric sequence under the same prefix.
@@ -167,7 +170,7 @@ The map is the artefact most likely to balloon, because it grows with *every* be
 
 - **Read only the slice you need.** When you touch the map for feature X, load only that feature's flowchart + its SC-id rows. You almost never need the whole map at once — the use-case diagram and other features' ledgers are not inputs to the spec in front of you. The recipe depends on the layout:
   - **Split** — read `specs/SCENARIOS.md` (small by construction) to find the feature's row, then open its `specs/scenarios/<slug>.md` whole. To go straight from an id: `grep -rn 'SC-047' specs/SCENARIOS.md specs/scenarios/` names both the index row and the file that owns it.
-  - **Single-file** — `grep -nE 'Feature: <name>|SC-0[0-9]{2}' specs/SCENARIOS.md` to locate the block, then `Read` with `offset`/`limit` around it. Never a whole-file read.
+  - **Single-file** — `grep -nE 'Feature: <name>|SC-[0-9]{3,}' specs/SCENARIOS.md` to locate the block, then `Read` with `offset`/`limit` around it. Never a whole-file read.
 - **Edit surgically.** Add the new feature's rows/flowchart with `Edit` at the right location; do not read-and-rewrite the entire map to append a few rows.
 - **History is one line each, and it gets archived.** `## Scenario history` entries are `- YYYY-MM-DD — <one sentence>`, never paragraphs. When the section passes ~5 entries, move the older ones to `specs/SCENARIOS.history.md` (never read in-flight) with `scripts/archive-spec-history.sh`.
 - **An entry that stays inline is budgeted at 300 bytes** (`archive-spec-history.sh --max-bytes N`, `0` disables; over budget is exit 4, which reports without blocking the archiving). The budget does not replace "one sentence" — it is the measurable floor under it, because sentence-counting over prose full of file paths and `e.g.` is a heuristic and bytes are not. 300 is calibrated, not chosen: it is the smallest round number above the 95th percentile of the entries in this project that already comply. The **archive is exempt** — it is never read during the pipeline, so its entries cost nothing. This exists because `--keep` only ever controlled how MANY entries stayed inline: on 2026-08-28 three of the seven entries here ran 2,075, 2,634 and 2,925 bytes — nine to twelve sentences each, 88% of the section — and passed every check the project had, because each was one line and a markdown bullet has no length limit.

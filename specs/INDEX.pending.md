@@ -146,21 +146,6 @@ next variant of this is the assertion, not the loop.
 Scope: one block in `sync-prompt.md`, plus a check that no sibling `for x in $VAR` over a
 command-substituted list survives elsewhere in the sync path.
 
-## 048 — sc-id-space-is-three-digits-and-full (from ighweld-2026, 2026-09-16)
-
-`.claude/rules/scenarios.md` specifies `SC-NNN`, "three digits, padded". ighweld-2026 has used 961 of
-the 999 (F065; F057 measured 950 a week earlier), and the free ids are all in low gaps, which are the
-worst ones to reuse because an old test may still name them.
-
-It has already overflowed in practice: spec 112 minted `SC-1000..1006` for the public API block
-(F078), so the project is running four-digit ids against a rule that says three.
-
-**The interaction that makes this more than a widening.** Row 007 split the two `SC-` namespaces — the
-scenario map's permanent handles and spec-kit's per-spec Success Criteria — **by digit width**,
-deliberately, because a magnitude floor is useless on a map that starts at SC-001. Four-digit map ids
-walk straight into that discriminator. Decide the two together or the traceability gate starts
-mis-bucketing.
-
 ## 049 — a-held-row-cannot-be-written-to (from ighweld-2026, 2026-09-16)
 
 `spec_active.py` resolves the active spec and skips `- [!]` held rows — correct, and

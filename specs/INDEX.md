@@ -59,7 +59,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 043 — mutation-gate-reports-a-headline-only — spec-only — maintenance §5 reads this run's Stryker JSON reports, merged per mutant, and lists every module under the limit; no report = module gate unmeasured. Verbatim in `INDEX.completed.md`.
 - [x] 044 — traceability-gate-cannot-tell-zero-from-broken — spec-only — a scan that finds no id while the map claims rows now refuses (exit 4, roots + file counts); a partial read names its refused rows. Verbatim in `INDEX.completed.md`.
 - [x] 047 — stryker-spans-fail-silently-and-score-well — spec-only [hardened] — dead mutate patterns and valid char spans are findings every pass; --full and a PreToolUse guard refuse Stryker beside a build. Verbatim in `INDEX.completed.md`
-- [ ] 048 — sc-id-space-is-three-digits-and-full — spec-only — `scenarios.md` mandates `SC-NNN`; ighweld has used 961 of 999 and already mints `SC-1000+`. Row 007 split the two SC- namespaces by digit WIDTH. Diagnosis: `specs/INDEX.pending.md`
+- [x] 048 — sc-id-space-is-three-digits-and-full — spec-only — SC ids are three digits minimum and grow past 999; the fixture gate lost its 4-digit cap; the width line is pinned by case48 + two sabotage arms. Verbatim in `INDEX.completed.md`.
 - [ ] 049 — a-held-row-cannot-be-written-to — spec-only — `spec-run-log-hook.sh` resolves through `spec_active.py`, which skips `- [!]` rows, so holding a row stops you logging why you held it. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 050 — allium-cli-warns-on-every-spec-it-has — spec-only — the deferred location-hint lint wants a syntax its own parser rejects, so `allium check` warns on every spec and the warning means nothing. Diagnosis: `specs/INDEX.pending.md`
 - [ ] 051 — maintenance-suite-blind-to-standalone-node-tests — spec-only — `project-maintenance.sh --suite` detects only `npm test`/.NET, so a repo of bare `node tests/*.mjs` never stamps `suite`; mutation is unwired too. Diagnosis: `specs/INDEX.pending.md`
@@ -93,8 +93,8 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 
 ## Register history (newest first)
 
+- 2026-09-30 — 048 ticked: SC ids grow past 999 without re-padding; the width discriminator measures the narrowest id and now has a test.
 - 2026-09-30 — 047 ticked: mutate patterns that match nothing or count characters are findings; Stryker beside a build is refused.
 - 2026-09-30 — 079 added and ticked in one pass: the traceability gate could not read a chained underscore id; agentcrm H6 measured 8 lost citations.
 - 2026-09-30 — 044 ticked: zero ids from a scan that ran is refused, not reported as 0 of N; "see above" now has something above it.
 - 2026-09-30 — 043 ticked: the live defect was the CORE reader, not the runner; a passing headline over a weak module is now a finding.
-- 2026-09-30 — H1 ticked: 57/57 after two fixes; 078 added from approved proposal F050 (autosync kills 2/12 mutants).
