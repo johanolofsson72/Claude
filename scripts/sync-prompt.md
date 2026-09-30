@@ -981,7 +981,7 @@ Make the freshness script executable and run it from the project root (report-fi
 if [ ! -f scripts/project-freshness.sh ]; then
   mkdir -p scripts
   cp "$TEMPLATE/scripts/project-freshness.sh" scripts/project-freshness.sh 2>/dev/null \
-    || curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/project-freshness.sh -o scripts/project-freshness.sh
+    || curl -fsSL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/project-freshness.sh -o scripts/project-freshness.sh
 fi
 chmod +x scripts/project-freshness.sh
 bash scripts/project-freshness.sh
@@ -1028,7 +1028,7 @@ Ensure the script is present (fetch from `$TEMPLATE` if a pre-audit project lack
 if [ ! -f scripts/skill-audit.sh ]; then
   mkdir -p scripts
   cp "$TEMPLATE/scripts/skill-audit.sh" scripts/skill-audit.sh 2>/dev/null \
-    || curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/skill-audit.sh -o scripts/skill-audit.sh
+    || curl -fsSL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/skill-audit.sh -o scripts/skill-audit.sh
 fi
 chmod +x scripts/skill-audit.sh
 bash scripts/skill-audit.sh

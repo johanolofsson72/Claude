@@ -30,6 +30,15 @@ same()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$3', got '$2
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+# The dangling citations the arms plant, spelled so this file never holds one literally. SC-L runs
+# the validator over the template itself, and this file is tracked: a literal rule path
+# in a printf format is text the scan reads as a citation (H1, F036). Splitting the extension is
+# narrower than any exemption the validator could grow for it.
+NOWHERE='.claude/rules/nowhere'.md
+GONE='.claude/docs/gone'.md
+MISSING_MD='missing-rule'.md
+BASE_MD='base'.md
+
 # A git repo holding one rule with two traps, one doc, and whatever the arm adds. Files are tracked,
 # because the validator reads the index, not the directory.
 fixture() {
@@ -50,14 +59,14 @@ same "SC-A clean fixture exits 0" "$RC" 0
 has  "SC-A …and says how many citations it checked" "$OUT" "2 citation(s)"
 
 R=$(fixture missing-rule)
-printf '# per .claude/rules/nowhere.md\n' > "$R/scripts/bad.sh"; track "$R"; run "$R"
+printf '# per %s\n' "$NOWHERE" > "$R/scripts/bad.sh"; track "$R"; run "$R"
 same "SC-B missing rule exits 1" "$RC" 1
-has  "SC-B …names file:line and the path" "$OUT" "scripts/bad.sh:1: .claude/rules/nowhere.md does not exist"
+has  "SC-B …names file:line and the path" "$OUT" "scripts/bad.sh:1: $NOWHERE does not exist"
 
 R=$(fixture missing-doc)
-printf 'See `.claude/docs/gone.md`.\n' > "$R/.claude/rules/cites.md"; track "$R"; run "$R"
+printf 'See `%s`.\n' "$GONE" > "$R/.claude/rules/cites.md"; track "$R"; run "$R"
 same "SC-C missing doc exits 1" "$RC" 1
-has  "SC-C …names the doc" "$OUT" ".claude/rules/cites.md:1: .claude/docs/gone.md does not exist"
+has  "SC-C …names the doc" "$OUT" ".claude/rules/cites.md:1: $GONE does not exist"
 
 R=$(fixture fixture-path)
 cat > "$R/scripts/test-thing.sh" <<'EOF'
@@ -84,14 +93,14 @@ printf '# the known positive from trap 2 in\n#   .claude/rules/base.md: bites\n'
 same "SC-G …and the defined one resolves" "$RC" 0
 
 R=$(fixture bare-basename)
-printf '#   2. never run as clean — trap 4 in missing-rule.md.\n' > "$R/scripts/t.sh"; track "$R"; run "$R"
+printf '#   2. never run as clean — trap 4 in %s.\n' "$MISSING_MD" > "$R/scripts/t.sh"; track "$R"; run "$R"
 same "SC-H a bare trap citation of an absent file exits 1" "$RC" 1
 has  "SC-H …names the basename" "$OUT" "missing-rule.md"
-printf '#   2. an empty result — trap 1 in base.md.\n' > "$R/scripts/t.sh"; track "$R"; run "$R"
+printf '#   2. an empty result — trap 1 in %s.\n' "$BASE_MD" > "$R/scripts/t.sh"; track "$R"; run "$R"
 same "SC-H …and a bare citation of a real rule resolves" "$RC" 0
 
 R=$(fixture specs-skipped)
-mkdir -p "$R/specs"; printf 'cites .claude/rules/nowhere.md, trap 4\n' > "$R/specs/INDEX.pending.md"; track "$R"; run "$R"
+mkdir -p "$R/specs"; printf 'cites %s, trap 4\n' "$NOWHERE" > "$R/specs/INDEX.pending.md"; track "$R"; run "$R"
 same "SC-I specs/ is history, not scanned" "$RC" 0
 
 R="$TMP/empty"; rm -rf "$R"; mkdir -p "$R"; git -C "$R" init -q; printf 'nothing\n' > "$R/a.txt"; track "$R"; run "$R"
@@ -119,8 +128,10 @@ fi
 
 # Membership, not substring: a list that holds only `test-validate-rule-citations.sh` must not pass
 # the validator's own arm.
+# Query modes only, so drive_sync_readonly: a direct run here is what the sandbox gate forbids (H1).
+. "$REPO/scripts/drive-sync.sh"
 listed() {
-  _l=$(bash "$REPO/scripts/template-autosync.sh" "$2" 2>/dev/null)
+  _l=$(DRIVE_SYNC_SCRIPT="$REPO/scripts/template-autosync.sh" drive_sync_readonly "$REPO" "$2" 2>/dev/null)
   case "
 $_l
 " in *"

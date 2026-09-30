@@ -816,3 +816,7 @@ That distinction is the whole content of this row: an unresolvable reference and
 must not render identically (`.claude/rules/mutation-timeouts.md`, trap 4).
 
 `validate-register-ids.sh` does not catch it — it validates row ids, not the ids rows cite.
+
+## H1 — integration-hardening
+
+- [x] H1 — integration-hardening — checkpoint — full-system regression + security sweep after the five rows closed 2026-09-03; the template ships to six projects, so its seams are theirs.
