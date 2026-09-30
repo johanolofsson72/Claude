@@ -242,7 +242,7 @@ sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-path
 template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
-test-template-autosync-unlisted.sh
+test-template-autosync-unlisted.sh test-template-autosync-arms.sh
 validate-sync-sandbox-declarations.sh test-validate-sync-sandbox-declarations.sh
 drive-sync.sh test-drive-sync.sh
 test-sync-prompt-bootstrap.sh
