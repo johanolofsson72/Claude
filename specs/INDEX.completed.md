@@ -1188,3 +1188,16 @@ Fixed 2026-09-30: the PATH is captured to `~/.claude/nightly/<project>.path` (in
 999-character command limit), the line opens its log first with start/end lines, paths are quoted,
 `%`/newline and over-long lines are refused, `sh -n` runs before crontab is touched, `--list` flags
 stale lines. `scripts/test-install-nightly-maintenance.sh`.
+
+## 066 — allocator-cannot-make-a-carved-suffix
+
+From fundit F095 (2026-09-09). Carved rows are ids like `002a`, `005b`, `015a`: the parent's number
+plus a letter. `next-register-id.sh --alpha` is for letter-led series (`S21`, `H3`), so
+`--alpha 005` returns `0051`. The rule says never pick an id by eye, and for the one shape carving
+produces, eye is the only allocator there is. Fundit's H3 picked `015a`/`015b` that way on
+2026-09-27. Fix: a `--suffix NNN` form that returns the next free letter across the register and
+every `INDEX*.md` archive.
+
+Fixed 2026-09-30: `next-register-id.sh --suffix <parent>` returns the parent plus the letter after the
+highest one used, over the register and every `INDEX*.md` archive, case-folded, single-letter children
+only; unknown parent, mixed modes and past-`z` exit 2. `scripts/test-next-register-id.sh`.

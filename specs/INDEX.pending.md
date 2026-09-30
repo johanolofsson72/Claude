@@ -160,15 +160,6 @@ Same class as the row's own subject — a catastrophic-sounding report with a tr
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
 
-## 066 — allocator-cannot-make-a-carved-suffix
-
-From fundit F095 (2026-09-09). Carved rows are ids like `002a`, `005b`, `015a`: the parent's number
-plus a letter. `next-register-id.sh --alpha` is for letter-led series (`S21`, `H3`), so
-`--alpha 005` returns `0051`. The rule says never pick an id by eye, and for the one shape carving
-produces, eye is the only allocator there is. Fundit's H3 picked `015a`/`015b` that way on
-2026-09-27. Fix: a `--suffix NNN` form that returns the next free letter across the register and
-every `INDEX*.md` archive.
-
 ## 067 — traceability-walk-races-test-results
 
 From fundit F116 (2026-09-10). Three consecutive runs on identical input gave 141, 0 and 0 of 148

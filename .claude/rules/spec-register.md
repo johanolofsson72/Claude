@@ -54,7 +54,7 @@ Status markers:
 - **Prose lives outside the register** — explainers, dependency tables and rule commentary go in `specs/INDEX.notes.md` with a one-line pointer. The 25 KB canary splits the file with `scripts/register-bytes.sh` (rows / history / prose) and names only the moves that exist; a register where every part complies gets one info line, not a warning.
 - **A row is a pointer; the diagnosis lives in one of two archives** — ticked rows verbatim in `specs/INDEX.completed.md`, not-started diagnoses in `specs/INDEX.pending.md` (moved to completed on tick). Neither is pipeline input. A row must still be a self-sufficient pointer: what is wrong, where, which archive holds the rest — never "fix the thing".
 - **Preserve first, shorten second** — shorten a row only once its long form is archived; `archive-completed-rows.sh` labels rows `shortenable` or `archive first`. Run it when you tick a row.
-- **Never pick a row id by eye** — `bash scripts/next-register-id.sh` (`--count N`, `--alpha S`, `--checkpoint`); `scripts/validate-register-ids.sh` catches collisions.
+- **Never pick a row id by eye** — `bash scripts/next-register-id.sh` (`--count N`, `--alpha S`, `--checkpoint`, `--suffix NNN` for a carved row); `scripts/validate-register-ids.sh` catches collisions.
 - **Ticking a row is an Edit, not a rewrite** — surgical `Edit` of `- [ ]` → `- [x]`.
 - **A tick is refused while the project owes the template CORE work** (`scripts/core-owed-tick-guard-hook.sh`). Fix by landing the change in the template and syncing back — not by the override.
 

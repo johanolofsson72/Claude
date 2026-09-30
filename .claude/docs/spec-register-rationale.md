@@ -138,7 +138,7 @@ The register is read (and often re-read) on essentially every spec. If it balloo
   date.
 
 - **Never pick a row id by eye.** `bash scripts/next-register-id.sh` returns the next free one
-  (`--count N`, `--alpha S`, `--checkpoint`). An id is a permanent handle: `spec_active.py` resolves
+  (`--count N`, `--alpha S`, `--checkpoint`, `--suffix 015` for a carved row → `015a`). An id is a permanent handle: `spec_active.py` resolves
   it, both PreToolUse guards glob `specs/<id>-*` from it, and the archiver keys on it. Reading a
   150-row register and guessing is a coin toss — three colliding ids were picked by hand on
   2026-09-03 alone, each caught by `validate-register-ids.sh` and each costing a commit, a renumber
