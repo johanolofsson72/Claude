@@ -1285,3 +1285,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 078 — autosync-tests-miss-ten-of-twelve-mutants
 
 - [x] 078 — autosync-tests-miss-ten-of-twelve-mutants — spec-only — H1 sampled 12 operator mutants in template-autosync.sh; the 16 suites that run it killed 2. Add a surgical arm per survivor (list in specs/H1-integration-hardening/checkpoint.md). — carved by H1 — approved F050
+
+## H2 — integration-hardening
+
+- [x] H2 — integration-hardening — checkpoint — full-system regression + security sweep + mutation spot-check over the ~30 rows ticked since H1 (043–079).
