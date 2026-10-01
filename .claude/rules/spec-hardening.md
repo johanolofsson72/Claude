@@ -50,4 +50,4 @@ Hardened triggers are the strong prior for human overflow questions in the spec 
 - Skipping the checkpoint because "the last five specs all passed".
 - Downgrading the mutation gate to "nightly, optional" on a hardened spec.
 - Powering through a full/hardened spec on a polluted context after the `/clear` banner fired.
-- Wiring any hardening step as a GitHub Action. Local only.
+- Wiring any hardening step as a GitHub Action. Local or Claude cloud (`scripts/workload-placement.tsv`), never GitHub Actions.

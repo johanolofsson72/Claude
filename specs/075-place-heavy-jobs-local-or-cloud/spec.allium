@@ -1,0 +1,232 @@
+-- allium: 3
+--
+-- 075 — place heavy jobs local or cloud.
+--
+-- Three things meet here: a placement decision per job, a maintenance run that honours it, and a
+-- results file that carries a cloud run's evidence back to a machine whose state outlives it.
+-- The template keeps no scenario map, so rules cite requirement ids (R1..R8) from spec.md.
+
+enum Place { local | cloud }
+
+external entity Output {
+    text: String
+}
+
+external entity StampWrite {
+    job: String
+}
+
+external entity LedgerLine {
+    job: String
+    place: Place
+    rc: Integer
+}
+
+config {
+    vm_ram_gb: Integer = 16
+    rss_ceiling_gb: Integer = 12
+    min_median_minutes: Integer = 5
+    results_branch: String = `claude/maintenance-results`
+    results_dir: String = `.claude/cloud-results`
+    table_path: String = `scripts/workload-placement.tsv`
+    override_path: String = `.claude/workload-placement.tsv`
+}
+
+-- One line of a placement table, as read. `raw_place` is kept so an unknown value can be named.
+value PlacementLine {
+    job: String
+    raw_place: String
+    reason: String
+    source: template | project_override
+}
+
+-- The effective placement of one job after the override is applied (R1).
+entity Placement {
+    job: String
+    line: PlacementLine?                       -- null: the job has no line anywhere
+    resolution: resolved | unknown_place
+    place: Place when resolution = resolved
+
+    -- No line means local (R1). An unknown value is never quietly local (R1, Q7).
+    invariant NoLineIsLocal { this.line = null implies (this.resolution = resolved and this.place = local) }
+}
+
+-- The measurements the decision rule reads (R2).
+value JobMeasurements {
+    runs: Integer
+    median_seconds: Decimal
+    max_rss_mb: Integer?                       -- null: never sampled
+    needs_local_setup: Boolean
+}
+
+-- A job's evidence and the place the rule would give it.
+entity PlacementDecision {
+    job: String
+    measured: JobMeasurements
+    decided: Place
+
+    -- R2: all three conditions, or local. Unmeasured is local (Q9).
+    invariant CloudNeedsAllThree {
+        this.decided = cloud implies (
+            this.measured.runs > 0
+            and this.measured.needs_local_setup = false
+            and this.measured.max_rss_mb != null
+            and this.measured.max_rss_mb < config.rss_ceiling_gb * 1024
+            and this.measured.median_seconds >= config.min_median_minutes * 60
+        )
+    }
+}
+
+-- One maintenance pass started with or without --placed (R3).
+entity MaintenancePass {
+    here: Place                                -- cloud iff CLAUDE_CODE_REMOTE=true
+    placed_flag: Boolean
+    jobs: Set<PassJob>
+}
+
+entity PassJob {
+    pass: MaintenancePass
+    placement: Placement
+    outcome: pending | ran_green | ran_red | skipped_elsewhere | refused_unknown
+
+    transitions outcome {
+        pending -> ran_green
+        pending -> ran_red
+        pending -> skipped_elsewhere
+        pending -> refused_unknown
+        terminal: ran_green, ran_red, skipped_elsewhere, refused_unknown
+    }
+
+    stamped: Boolean
+    -- Only a green run is stamped (clarification 4).
+    invariant StampOnlyOnGreen { this.stamped = true implies this.outcome = ran_green }
+}
+
+rule RunWithoutPlacedFlag {
+    -- R3: without --placed nothing changes; every job runs.
+    when: JobReached(job)
+    requires: job.pass.placed_flag = false
+    ensures: JobExecuted(job)
+}
+
+rule RunPlacedHere {
+    when: JobReached(job)
+    requires:
+        job.pass.placed_flag = true
+        job.placement.resolution = resolved
+        job.placement.place = job.pass.here
+    ensures: JobExecuted(job)
+}
+
+rule SkipPlacedElsewhere {
+    -- R3: one line naming where it runs instead; not run, not stamped.
+    when: JobReached(job)
+    requires:
+        job.pass.placed_flag = true
+        job.placement.resolution = resolved
+        job.placement.place != job.pass.here
+    ensures:
+        job.outcome = skipped_elsewhere
+        Output.created(text: job.placement.job)
+}
+
+rule RefuseUnknownPlace {
+    -- R1 / Q7: a typo neither runs the job nor skips it silently.
+    when: JobReached(job)
+    requires:
+        job.pass.placed_flag = true
+        job.placement.resolution = unknown_place
+    ensures:
+        job.outcome = refused_unknown
+        Output.created(text: job.placement.line.raw_place)
+}
+
+rule JobGreen {
+    when: JobFinished(job, rc)
+    requires:
+        job.outcome = pending
+        rc = 0
+    ensures:
+        job.outcome = ran_green
+        job.stamped = true
+        StampWrite.created(job: job.placement.job)
+}
+
+rule JobRed {
+    when: JobFinished(job, rc)
+    requires:
+        job.outcome = pending
+        rc != 0
+    ensures: job.outcome = ran_red
+}
+
+-- A cloud run's evidence (R6). One file per run; nothing in it is executed (Q20).
+entity ResultsFile {
+    name: String                               -- UTC timestamp, unique per run (Q13)
+    branch: String
+    lines: Set<LedgerLine>
+    stamps: Set<StampWrite>
+    publish_status: written | pushed | push_failed
+
+    transitions publish_status {
+        written -> pushed
+        written -> push_failed
+        terminal: pushed, push_failed
+    }
+
+    -- Q12: the results branch and nothing else.
+    invariant OnlyResultsBranch { this.branch = config.results_branch }
+}
+
+rule PublishFromCloud {
+    when: CloudPassFinished(pass, file)
+    requires: pass.here = cloud
+    ensures:
+        file.branch = config.results_branch
+        file.publish_status = pushed
+}
+
+rule PublishRefusedLocally {
+    -- R5: the entry point refuses to run outside the cloud unless forced for tests.
+    when: CloudEntryStarted(pass, forced)
+    requires:
+        pass.here = local
+        forced = false
+    ensures: Output.created(text: `not a cloud session`)
+}
+
+-- The local side of the return path (R6, Q15).
+entity ImportLog {
+    imported: Set<ResultsFile>
+}
+
+rule PullImportsUnseen {
+    when: PullRequested(log, file)
+    requires: not (file in log.imported)
+    ensures:
+        log.imported = log.imported + {file}
+        StampsApplied(file: file)
+}
+
+rule ApplyImportedStamps {
+    -- Clarification 3: imported stamps go through the same stamp key a local pass writes.
+    when: StampsApplied(file)
+    for s in file.stamps:
+        ensures: StampWrite.created(job: s.job)
+}
+
+rule PullSkipsSeen {
+    -- Q15: a second pull is a no-op.
+    when: PullRequested(log, file)
+    requires: file in log.imported
+    ensures: Output.created(text: file.name)
+}
+
+-- R4: the due banner names the cloud for a cloud-placed due job, and the Run line adds --placed.
+surface DueBanner {
+    context placement: Placement
+    exposes: placement.place
+}
+
+open question "How long may one cloud session run a command? Undocumented as of 2026-10-01 (Q17); the first cloud Stryker run is the proof."
+open question "Does the environment's setup script run inside the cloned repository, so it can call scripts/cloud-setup.sh? Not stated in the docs read on 2026-10-01."

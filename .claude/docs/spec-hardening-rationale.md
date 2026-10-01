@@ -87,4 +87,4 @@ When you see that banner and the current session already carries unrelated conte
 - Skipping the integration-hardening checkpoint because "the last five specs all passed." Each spec passing in isolation is exactly the condition the checkpoint exists to look past.
 - Downgrading the mutation-kill gate to "nightly, optional" on a hardened spec — on hardened specs it is a blocking tick gate.
 - Powering through a full/hardened spec on a context-polluted session after the `/clear` banner fired, instead of clearing.
-- Wiring any hardening step as a GitHub Action. Local only.
+- Wiring any hardening step as a GitHub Action. Local or Claude cloud (`scripts/workload-placement.tsv`), never GitHub Actions.

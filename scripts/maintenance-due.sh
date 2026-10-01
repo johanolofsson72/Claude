@@ -34,6 +34,7 @@
 #   bash scripts/maintenance-due.sh --brief      # one line per due job, nothing when clean
 #   bash scripts/maintenance-due.sh --any        # exit 0 if anything is due, 1 if not (no output)
 #   bash scripts/maintenance-due.sh --stamp JOB  # record that JOB just ran
+#   bash scripts/maintenance-due.sh --stamp-as JOB DATE DONE ROWS  # a run's own stamp (cloud import)
 #   bash scripts/maintenance-due.sh --state      # dump the state file as it stands
 #
 # Exit: 0 something is due (or the report printed) · 1 nothing due (--any only) · 2 could not run
@@ -43,13 +44,20 @@ export LC_ALL=C
 
 MODE=full
 STAMP_JOB=""
+AS_DATE=""; AS_DONE=""; AS_ROWS=""; AS_GIVEN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --brief) MODE=brief; shift ;;
     --any)   MODE=any;   shift ;;
     --state) MODE=state; shift ;;
     --stamp) MODE=stamp; STAMP_JOB="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # Row 075: a stamp a cloud run wrote, carried back by cloud-maintenance.sh --pull. It keeps the
+    # run's own date and counts: stamping with today's count would hide every spec ticked between
+    # the cloud run and the pull.
+    --stamp-as) MODE=stamp; AS_GIVEN=1; STAMP_JOB="${2:-}"; AS_DATE="${3:-}"; AS_DONE="${4:-}"; AS_ROWS="${5:-}"
+                [ $# -ge 5 ] || { echo "maintenance-due.sh: --stamp-as needs JOB DATE DONE ROWS" >&2; exit 2; }
+                shift 5 ;;
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
     *) echo "maintenance-due.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -97,14 +105,40 @@ fi
 
 if [ "$MODE" = stamp ]; then
   [ -n "$STAMP_JOB" ] || { echo "maintenance-due.sh: --stamp needs a job name" >&2; exit 2; }
-  grep -q "^$STAMP_JOB|" <<< "$JOBS" || {
+  grep -qxF -- "$STAMP_JOB" <<< "$(printf '%s\n' "$JOBS" | cut -d'|' -f1)" || {
     echo "maintenance-due.sh: unknown job '$STAMP_JOB' — known: $(printf '%s\n' "$JOBS" | cut -d'|' -f1 | tr '\n' ' ')" >&2
     exit 2; }
+  if [ "$AS_GIVEN" -eq 1 ]; then
+    # Every field is checked on its own and against what this machine can verify (075 adversarial
+    # review, finding 1): an empty date used to fall through to a plain --stamp with today's date, and
+    # a date in 2099 or a count of 999999 made a job never due again.
+    clean() { printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:]._:+ -' | cut -c1-40; }
+    case "$AS_DATE" in [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) ;; *)
+      echo "maintenance-due.sh: --stamp-as date '$(clean "$AS_DATE")' is not YYYY-MM-DD" >&2; exit 2 ;; esac
+    case "$AS_DONE" in ''|*[!0-9]*|???????*) echo "maintenance-due.sh: --stamp-as done count must be a whole number of at most 6 digits" >&2; exit 2 ;; esac
+    case "$AS_ROWS" in ''|*[!0-9]*|???????*) echo "maintenance-due.sh: --stamp-as row count must be a whole number of at most 6 digits" >&2; exit 2 ;; esac
+    if [ "$(today_days "$AS_DATE")" -gt "$TODAY_N" ] || [ "$(today_days "$AS_DATE")" -eq 0 ]; then
+      echo "maintenance-due.sh: --stamp-as date $AS_DATE is not a real date on or before today" >&2; exit 2
+    fi
+    # Six digits at most (checked above), so these comparisons can never fail with an overflow error,
+    # which an `if` would read as false (075 /security-review).
+    if [ "$AS_DONE" -gt "$DONE" ] || [ "$AS_ROWS" -gt "$ROWS" ]; then
+      echo "maintenance-due.sh: --stamp-as counts ($AS_DONE done, $AS_ROWS rows) exceed this register ($DONE, $ROWS)" >&2; exit 2
+    fi
+    # Never backwards: a local run newer than the imported one keeps its stamp.
+    CUR_DONE=$(state_get "$STAMP_JOB" | cut -f2)
+    case "$CUR_DONE" in ''|*[!0-9]*) CUR_DONE=-1 ;; esac
+    if [ "$CUR_DONE" -gt "$AS_DONE" ]; then
+      echo "maintenance-due.sh: $STAMP_JOB kept — local stamp at $CUR_DONE spec(s) is newer than $AS_DONE" >&2
+      exit 0
+    fi
+    TODAY=$AS_DATE; DONE=$AS_DONE; ROWS=$AS_ROWS
+  fi
   mkdir -p "$ROOT/.claude" || exit 2
   TMP="$STATE.tmp.$$"
   # Rewrite rather than append: an append-only stamp file grows without bound and the newest entry
   # would win only by luck of the awk order.
-  { [ -f "$STATE" ] && grep -v "^$STAMP_JOB	" "$STATE" 2>/dev/null; printf '%s\t%s\t%s\t%s\n' "$STAMP_JOB" "$TODAY" "$DONE" "$ROWS"; } > "$TMP" 2>/dev/null
+  { [ -f "$STATE" ] && awk -F'\t' -v j="$STAMP_JOB" '$1 != j' "$STATE" 2>/dev/null; printf '%s\t%s\t%s\t%s\n' "$STAMP_JOB" "$TODAY" "$DONE" "$ROWS"; } > "$TMP" 2>/dev/null
   mv "$TMP" "$STATE" 2>/dev/null || { rm -f "$TMP"; exit 2; }
   exit 0
 fi
@@ -112,6 +146,14 @@ fi
 DUE_COUNT=0
 DUE_TEXT=""
 NEVER_TEXT=""
+# Row 075: a job placed in Claude cloud is still due here (its stamp comes back through
+# cloud-maintenance.sh --pull), but the banner must say where it runs, or the developer runs Stryker
+# on the laptop again. An unknown place is shown as such; workload-placement.sh names the line.
+CLOUD_DUE=0
+place_of() {
+  [ -f "$ROOT/scripts/workload-placement.sh" ] || { echo local; return; }
+  WORKLOAD_PLACEMENT_ROOT="$ROOT" bash "$ROOT/scripts/workload-placement.sh" --place "$1" 2>/dev/null || echo unknown
+}
 
 OLDIFS=$IFS
 IFS='
@@ -133,12 +175,18 @@ for line in $JOBS; do
     label="$label — $NF open"
   fi
 
+  case "$(place_of "$job")" in
+    cloud)   label="$label (Claude cloud)"; CLOUD_PENDING=1 ;;
+    unknown) label="$label (place unknown — see scripts/workload-placement.sh --place $job)"; CLOUD_PENDING=0 ;;
+    *)       CLOUD_PENDING=0 ;;
+  esac
+
   rec=$(state_get "$job")
   if [ -z "$rec" ]; then
     # NEVER RUN IS DUE, and it says so differently. "0 days since" would be a lie about a run that
     # did not happen, and .claude/rules/mutation-timeouts.md trap 4 is exactly this: an unmeasured
     # thing and a measured-clean thing must never render identically.
-    DUE_COUNT=$((DUE_COUNT + 1))
+    DUE_COUNT=$((DUE_COUNT + 1)); [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
     NEVER_TEXT="$NEVER_TEXT  · $label — never run in this project
 "
     continue
@@ -153,19 +201,19 @@ for line in $JOBS; do
     days)
       n=$(today_days "$last_date"); delta=$((TODAY_N - n))
       [ "$delta" -ge "$thresh" ] && {
-        DUE_COUNT=$((DUE_COUNT + 1))
+        DUE_COUNT=$((DUE_COUNT + 1)); [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
         DUE_TEXT="$DUE_TEXT  · $label — $delta day(s) since $last_date (due at $thresh)
 "; } ;;
     specs)
       delta=$((DONE - last_done))
       [ "$delta" -ge "$thresh" ] && {
-        DUE_COUNT=$((DUE_COUNT + 1))
+        DUE_COUNT=$((DUE_COUNT + 1)); [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
         DUE_TEXT="$DUE_TEXT  · $label — $delta spec(s) ticked since $last_date (due at $thresh)
 "; } ;;
     rows)
       delta=$((ROWS - last_rows))
       [ "$delta" -ge "$thresh" ] && {
-        DUE_COUNT=$((DUE_COUNT + 1))
+        DUE_COUNT=$((DUE_COUNT + 1)); [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
         DUE_TEXT="$DUE_TEXT  · $label — $delta row(s) added since $last_date (due at $thresh)
 "; } ;;
   esac
@@ -183,14 +231,25 @@ fi
 
 if [ "$MODE" = brief ]; then
   printf '⚠ MAINTENANCE DUE (%s):\n%s%s' "$DUE_COUNT" "$DUE_TEXT" "$NEVER_TEXT"
-  echo "  Run now: bash scripts/project-maintenance.sh --full"
+  if [ "$CLOUD_DUE" -eq 1 ]; then
+    echo "  Run now: bash scripts/project-maintenance.sh --full --placed   (the local half)"
+    echo "  Cloud half: a Claude cloud session runs bash scripts/cloud-maintenance.sh; then bash scripts/cloud-maintenance.sh --pull"
+  else
+    echo "  Run now: bash scripts/project-maintenance.sh --full"
+  fi
   echo "  Or defer: it stays due until it runs, so the next session says so again."
 else
   echo "maintenance due — $DUE_COUNT job(s)   [$DONE spec(s) done, $ROWS row(s)]"
   echo
   printf '%s%s' "$DUE_TEXT" "$NEVER_TEXT"
   echo
-  echo "Run:      bash scripts/project-maintenance.sh --full"
+  if [ "$CLOUD_DUE" -eq 1 ]; then
+    echo "Run:      bash scripts/project-maintenance.sh --full --placed   (the local half)"
+    echo "Cloud:    a Claude cloud session runs bash scripts/cloud-maintenance.sh"
+    echo "Pull:     bash scripts/cloud-maintenance.sh --pull   (brings its stamps back)"
+  else
+    echo "Run:      bash scripts/project-maintenance.sh --full"
+  fi
   echo "Deferring is safe: nothing is cleared until the job actually runs."
 fi
 exit 0

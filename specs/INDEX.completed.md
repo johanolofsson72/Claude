@@ -1289,3 +1289,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## H2 — integration-hardening
 
 - [x] H2 — integration-hardening — checkpoint — full-system regression + security sweep + mutation spot-check over the ~30 rows ticked since H1 (043–079).
+
+## 075 — place-heavy-jobs-local-or-cloud
+
+- [x] 075 — place-heavy-jobs-local-or-cloud — light track [hardened] — needs 074 + five ordinary specs ticked under its ledger. Per job (Stryker, suite, freshness, similarity, findings/carve review): local or Claude cloud, decided from the numbers. Developer request 2026-09-29.

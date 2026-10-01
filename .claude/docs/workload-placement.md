@@ -1,7 +1,33 @@
 # Workload placement: local machine or Claude cloud
 
-Status: measuring. Row 074 records the numbers, and row 075 turns them into a placement once five
-ordinary specs have ticked under the ledger. Until 075 lands, nothing moves and no rule changes.
+Status: decided 2026-10-01 (row 075). Every job stays local for now, and the reason is a measured
+one: the only heavy job that needs nothing local, Stryker, does not fit the cloud VM at the
+concurrency it runs with today. The machinery to run the cloud half is in place and tested. One line
+in `scripts/workload-placement.tsv` moves a job.
+
+## The decision (2026-10-01)
+
+The rule: a job goes to the cloud only when all three hold. It needs nothing local. Its measured
+max RSS is under 12 GB. Its median local run is at least 5 minutes, because below that a cloud
+session's start-up and clone cost more than they save. A job with no measurement stays local.
+
+| job | measured | place | why |
+|---|---|---|---|
+| mutation | agentcrm 2026-10-01: still running after ~1 h 45 min, 4 parallel testhosts at ~4.4 GB each (~17 GB) | local | over the 12 GB ceiling at this concurrency |
+| suite | not measured on 2026-10-01; agentcrm peaked 11.5 GB (2026-09-01) | local | E2E and visual-regression baselines are rendered locally |
+| secrets | 6-51 s, 1.3 GB | local | too short to be worth a session |
+| similarity | 16 s, needs Ollama | local | needs a local model |
+| traceability, portability | under 2 s | local | too short |
+
+What moves Stryker: one cloud run with its concurrency at 2. The VM has 4 vCPU, so two testhosts
+(about 9 GB) is the natural setting there. That is an inference from the 2026-10-01 numbers, not a
+measurement, and the rule does not place on inference. Run it once by hand in a cloud session. If
+the ledger line it brings back is under 12 GB, change the `mutation` line to `cloud`.
+
+The measurement batch over agentcrm, ighweld-2026, iskvalp and rocky was stopped at its two-hour
+limit while agentcrm's Stryker was still running, so no ledger line was written for it. The
+observation above was read from the process table during the run. A stale `stryker_guard.py` from
+another session was holding one core throughout, so the time is slightly high.
 
 ## The principle (developer, 2026-09-29)
 
@@ -65,9 +91,33 @@ job nobody has measured is not a cheap job.
 The template itself has no .NET suite and no Stryker config. The numbers that decide placement come
 from the product projects, which pick the ledger up through autosync. So 075 reads `--all`.
 
-## What 075 decides
+## Running the cloud half (row 075)
 
-For each job: local, a cloud session started by hand, or a cloud routine. That comes with a setup
-script for the .NET SDK and a way to get cloud results back, since the VM's `.claude/state/` does
-not survive the session. It also covers changing `spec-hardening.md`'s "Local only" to "local or
-Claude cloud, never GitHub Actions" and `maintenance-due.sh`'s "Run now" line to name the place.
+Everything below is in CORE and reaches every project through autosync.
+
+- `scripts/workload-placement.tsv` holds the template's decision, one line per job
+  (`job<TAB>place<TAB>reason`). A project overrides a line in `.claude/workload-placement.tsv`.
+  `bash scripts/workload-placement.sh --list` prints the table as it applies to this checkout.
+- `bash scripts/project-maintenance.sh --full --suite --placed` runs only the jobs placed where it
+  runs. A job placed elsewhere gets one line saying where it runs, and is neither run nor stamped.
+  Without `--placed` nothing changes.
+- `maintenance-due.sh` marks a due cloud job "(Claude cloud)" and names both halves.
+- `bash scripts/cloud-maintenance.sh` is what a cloud session runs. It installs the .NET SDK through
+  `scripts/cloud-setup.sh` when the project has a solution and the VM has no `dotnet`, runs the pass
+  with `--placed`, and publishes one results file to `claude/maintenance-results`. That branch is the
+  only thing it writes. Routines cannot push anywhere but `claude/*`, and the script never tries.
+- `bash scripts/cloud-maintenance.sh --pull` on the laptop fetches the branch and imports what it
+  has not seen: ledger lines into `.claude/state/maintenance-runs.tsv`, and stamps through
+  `maintenance-due.sh --stamp-as`. A stamp keeps the cloud run's own date and counts, and never moves
+  backwards. A results file is data. Nothing in it is executed, every field is checked, and a file
+  over 64 KB, a symlink, or an unexpected name is skipped with a message.
+
+To set up the routine (once per repository, by the developer, at claude.ai/code/routines or
+`/schedule`): repository = the project, environment with network access to nuget.org and dot.net,
+prompt `Run bash scripts/cloud-maintenance.sh and report its last line.`, schedule daily at most.
+Optionally paste `bash scripts/cloud-setup.sh` as the environment's setup script so the SDK install
+is cached between runs. Whether that script runs inside the clone is not documented (2026-10-01);
+`cloud-maintenance.sh` calls it anyway, so the run works either way.
+
+Not yet proven: how long one cloud command may run. The docs say nothing (2026-10-01). The first
+cloud Stryker run is the measurement.

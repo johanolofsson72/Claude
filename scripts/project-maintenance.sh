@@ -19,6 +19,8 @@
 #   bash scripts/project-maintenance.sh --full     # also run the mutation pass (slow)
 #   bash scripts/project-maintenance.sh --quiet    # findings only, no clean-run line
 #   bash scripts/project-maintenance.sh --suite    # also run the whole test suite, stamp it on green
+#   bash scripts/project-maintenance.sh --full --suite --placed   # only the heavy jobs placed HERE
+#                                                  # (scripts/workload-placement.tsv, row 075)
 #
 # The suite command is the first non-comment line of .claude/.suite-command when the project
 # declares one; otherwise a root `npm test` script, otherwise `dotnet test` (row 051). A detected
@@ -51,12 +53,14 @@ FULL=0
 IF_DUE=0
 SUITE=0
 QUIET=0
+PLACED=0
 for arg in "$@"; do
   case "$arg" in
     --full)  FULL=1 ;;
     --if-due) IF_DUE=1 ;;
     --suite) SUITE=1 ;;
     --quiet) QUIET=1 ;;
+    --placed) PLACED=1 ;;
     # Print the whole leading comment block, not a hardcoded line range: this header
     # has grown twice now, and a range silently truncates --help when it does.
     -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "$0"; exit 0 ;;
@@ -111,6 +115,34 @@ measured() { # measured JOB CMD [ARGS...]
   local job=$1; shift
   if [ "$LEDGER_OK" -eq 1 ]; then python3 scripts/maintenance_ledger.py run "$job" -- "$@"; else "$@"; fi
 }
+
+# --placed (row 075): run a heavy job only where scripts/workload-placement.tsv puts it. A job placed
+# elsewhere gets one line saying where it runs, and is neither run nor stamped -- the place that owns
+# it stamps it. An unknown place is a finding, not a quiet local run. Without --placed every
+# requested job runs, as it always has: an explicit --full is the developer asking for everything.
+MUT_RUN=$FULL; SIM_RUN=$FULL; SUITE_RUN=$SUITE
+MUT_AWAY=0
+if [ "$PLACED" -eq 1 ]; then
+  if [ ! -f scripts/workload-placement.sh ]; then
+    note "[note] --placed: scripts/workload-placement.sh missing — every requested job runs here."
+  else
+    PLACE_HERE=$(bash scripts/workload-placement.sh --here)
+    for PJOB in mutation similarity suite; do
+      case "$PJOB" in mutation) PREQ=$FULL ;; similarity) PREQ=$FULL ;; suite) PREQ=$SUITE ;; esac
+      [ "$PREQ" -eq 1 ] || continue
+      PLACE_ERR=$(bash scripts/workload-placement.sh --place "$PJOB" 2>&1 >/dev/null)
+      PJOB_PLACE=$(bash scripts/workload-placement.sh --place "$PJOB" 2>/dev/null); PRC=$?
+      if [ "$PRC" -ne 0 ]; then
+        add "[PLACEMENT] $PJOB NOT RUN — $PLACE_ERR"
+      elif [ "$PJOB_PLACE" = "$PLACE_HERE" ]; then
+        continue
+      else
+        note "[note] --placed: $PJOB runs in $([ "$PJOB_PLACE" = cloud ] && echo 'Claude cloud (scripts/cloud-maintenance.sh)' || echo 'the local pass') — not run here, not stamped."
+      fi
+      case "$PJOB" in mutation) MUT_RUN=0; MUT_AWAY=1 ;; similarity) SIM_RUN=0 ;; suite) SUITE_RUN=0 ;; esac
+    done
+  fi
+fi
 
 # Every .NET solution a bare `dotnet test` / `dotnet stryker` could be meant for (row 052). Two or
 # more with nothing declared means the root one gets built blind: ighweld-2026's root IGHWeld.Web.sln
@@ -409,7 +441,7 @@ fi
 # few hundred rows) and needs Ollama, so it runs only in --full, and its absence is
 # not a finding -- a maintenance pass that fails because a service is off gets
 # switched off.
-if [ "$FULL" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-similarity.sh ]; then
+if [ "$SIM_RUN" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-similarity.sh ]; then
   # Exit 2 is "never started" (no Ollama, model not pulled): not a run, so no ledger line (F074).
   if [ "$LEDGER_OK" -eq 1 ]; then
     SIM_OUT=$(python3 scripts/maintenance_ledger.py run similarity --skip-rc 2 -- bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
@@ -777,7 +809,7 @@ fi
 # A process table it could not read is a note, not a refusal and not a silence: the run goes ahead and
 # the report says the run-alone check was blind (Git Bash's ps cannot list dotnet.exe at all).
 MUT_LIVE=""
-if [ -n "$MUTATION_CMD" ] && [ "$FULL" -eq 1 ]; then
+if [ -n "$MUTATION_CMD" ] && [ "$MUT_RUN" -eq 1 ]; then
   if [ "$HAVE_STRYKER_GUARD" -eq 1 ]; then
     MUT_LIVE_OUT=$(python3 scripts/stryker_guard.py live . 2>/dev/null)
     MUT_LIVE=$(printf '%s\n' "$MUT_LIVE_OUT" | grep -E '^[0-9]')
@@ -797,18 +829,18 @@ MUT_MEASURED=0
 if [ -n "$MUTATION_CMD" ]; then
   MUT_SLNS=""
   [ "$MUTATION_CMD" = "dotnet stryker" ] && MUT_SLNS=$(dotnet_solutions)
-  if [ "$FULL" -eq 1 ] && [ "$(printf '%s' "$MUT_SLNS" | grep -c .)" -gt 1 ]; then
+  if [ "$MUT_RUN" -eq 1 ] && [ "$(printf '%s' "$MUT_SLNS" | grep -c .)" -gt 1 ]; then
     # Row 052. Not stamped: nothing was measured, and the job stays due until the project says which.
     add "[MUTATION] NOT RUN — $(printf '%s\n' "$MUT_SLNS" | grep -c .) .NET solutions and no project-owned runner, so a bare \`dotnet stryker\` would
   mutate whichever one sits at the root, blind:
 $(solution_list "$MUT_SLNS")
   Declare the run as scripts/run-mutation-gate.sh (project-owned; it must print \`mutation score N%\`)."
-  elif [ "$FULL" -eq 1 ] && [ -n "$MUT_LIVE" ]; then
+  elif [ "$MUT_RUN" -eq 1 ] && [ -n "$MUT_LIVE" ]; then
     add "[MUTATION] NOT RUN — Stryker must run alone, and this project already has one running:
 $(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2, $3 }')
   A build beside Stryker overwrites the mutated assembly and the run scores about 0% with no warning
   (ighweld F069). Not stamped: the job stays due. Re-run --full once it has finished."
-  elif [ "$FULL" -eq 1 ] && [ "$HAVE_STRYKER_GUARD" -eq 1 ] &&
+  elif [ "$MUT_RUN" -eq 1 ] && [ "$HAVE_STRYKER_GUARD" -eq 1 ] &&
        MUT_SWEEP=$(python3 scripts/stryker_guard.py sweep . 2>/dev/null) &&
        grep -q '^backup' <<< "$MUT_SWEEP"; then
     # Row 053. The sweep below removes abandoned StrykerJS sandboxes before the run, but an in-place
@@ -816,7 +848,7 @@ $(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2
     add "[MUTATION] NOT RUN — an interrupted in-place Stryker run left a backup in the tree:
 $(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '$1 == "backup" { printf "  %s\n", $3 }')
   Not stamped: the job stays due."
-  elif [ "$FULL" -eq 1 ]; then
+  elif [ "$MUT_RUN" -eq 1 ]; then
     # Row 053: what the sweep just removed or kept (it ran in the condition above).
     [ -n "${MUT_SWEEP:-}" ] && note "[note] Stryker sweep before the run:
 $(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '{ printf "  %s %s — %s\n", $1, $2, $3 }')"
@@ -902,11 +934,11 @@ $MUT_MODULES"
   runner to print the phrase rather than widening this grep, which would start reading numbers out
   of any tool that happens to be in the output. Not stamped: the job stays due."
     fi
-  else
+  elif [ "$MUT_AWAY" -eq 0 ]; then
     REPORT="${REPORT}[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow, and it covers only the working-directory config).
 "
   fi
-elif [ "$FULL" -eq 1 ]; then
+elif [ "$MUT_RUN" -eq 1 ]; then
   # Row 051: a stack with no runner (PHP, bare node) heard nothing at all from --full, and the due
   # banner kept asking for a pass that had no way to happen. Not stamped, as before; now it is said.
   note "[note] --full: no mutation runner for this stack — nothing measured, not stamped. A project whose stack
@@ -1156,7 +1188,7 @@ ${RATCHET_SKIPS%
 # THE STACK IS DETECTED, NEVER ASSUMED, and a project with no detectable suite says so rather than
 # reporting a pass. An unrun suite and a green one must not render identically
 # (.claude/rules/mutation-timeouts.md, trap 4).
-if [ "$SUITE" -eq 1 ]; then
+if [ "$SUITE_RUN" -eq 1 ]; then
   SUITE_CMD=""
   SUITE_FROM=""
   SUITE_PARTIAL=""
@@ -1270,7 +1302,9 @@ if [ -f scripts/maintenance-due.sh ]; then
   bash scripts/maintenance-due.sh --stamp secrets 2>/dev/null
   if [ "$FULL" -eq 1 ]; then
     [ "$MUT_MEASURED" -eq 1 ] && bash scripts/maintenance-due.sh --stamp mutation 2>/dev/null
-    bash scripts/maintenance-due.sh --stamp similarity 2>/dev/null
+    # Stamped only when the check ran (0 clean, 1 pairs found). Exit 2 is "never started" (F074),
+    # and a job placed elsewhere never ran here at all.
+    [ "$SIM_RUN" -eq 1 ] && [ "${SIM_RC:-2}" -le 1 ] && bash scripts/maintenance-due.sh --stamp similarity 2>/dev/null
   fi
 fi
 

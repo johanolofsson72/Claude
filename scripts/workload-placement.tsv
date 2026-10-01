@@ -1,0 +1,10 @@
+# Where each maintenance job runs. Read by scripts/workload-placement.sh (row 075).
+# job<TAB>place<TAB>reason. place: local | cloud. A job with no line is local.
+# A project overrides a line in .claude/workload-placement.tsv.
+# Decided 2026-10-01 (row 075) from the ledger and one observed run; rule in .claude/docs/workload-placement.md.
+mutation	local	needs nothing local and runs >1h45m, but agentcrm peaked ~17 GB (4 testhosts x ~4.4 GB) over the VM's 12 GB ceiling; move after one cloud run at concurrency 2 fits
+suite	local	E2E + visual-regression baselines are rendered on this machine; agentcrm's integration suite peaked 11.5 GB (2026-09-01)
+secrets	local	6-51 s; a cloud session costs more than it saves
+similarity	local	16 s, and it needs a local Ollama model the VM does not have
+traceability	local	2 s
+portability	local	under 1 s
