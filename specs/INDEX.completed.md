@@ -1305,3 +1305,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 020 — quality-gate-hooks-unwired-for-latency-we-no-longer-pay
 
 - [x] 020 — quality-gate-hooks-unwired-for-latency-we-no-longer-pay — full track — 15 local-LLM hooks (test-realism, test-assertion, test-gap, secret-scan…) are unwired because they cost in-session latency. The nightly pass makes that free. Re-measure them at 02:30.
+
+## 082 — harness-supply-chain-and-unattended-exec
+
+- [x] 082 — harness-supply-chain-and-unattended-exec — full track [hardened] — autosync pulls main unpinned, the nightly runs repo-controlled strings, lane-catchup strips ~/.ssh denies, prune can destroy agent work. F037 F043 F045 F062–F067.
