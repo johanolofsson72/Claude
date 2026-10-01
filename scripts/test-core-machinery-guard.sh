@@ -154,7 +154,8 @@ fi
 BROKEN=$(make_project broken)
 printf '#!/bin/bash\nexit 77\n' > "$BROKEN/scripts/template-autosync.sh"
 OUT=$(run_hook "$BROKEN/scripts/spec_active.py")
-[ -z "$OUT" ] && ok "a classifier that errors fails open, silently" \
+# Spec 083 (GAP-1): open, but no longer silent — an additionalContext notice, never a decision.
+[ "$(decision "$OUT")" = none ] && ok "a classifier that errors fails open (announced, spec 083)" \
              || { bad "a broken classifier produced a decision"; info "$OUT"; }
 
 # ---- A11: the classifier hangs ------------------------------------------------
@@ -167,7 +168,7 @@ if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; th
   T1=$(date +%s)
   if [ $((T1 - T0)) -lt 15 ]; then ok "a hanging classifier is bounded ($((T1 - T0))s)"
   else bad "a hanging classifier was not bounded ($((T1 - T0))s)"; fi
-  [ -z "$OUT" ] && ok "  and the timeout fails open" || bad "  but produced a decision"
+  [ "$(decision "$OUT")" = none ] && ok "  and the timeout fails open" || bad "  but produced a decision"
 else
   info "no timeout(1) available — the bound arm is skipped, not passed"
 fi

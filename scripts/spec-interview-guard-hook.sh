@@ -62,7 +62,7 @@ INPUT=$(cat)
 # precheck can never quietly disagree with the test it stands in front of. Markup and stylesheets are
 # source too (spec 032): fundit's 016a shipped a whole static site as .html/.css with no spec at all.
 # The three path guards carry this list byte-identical; test-spec-dir-absent.sh fails if one drifts.
-SOURCE_EXTS='cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
+SOURCE_EXTS='cs|ts|tsx|mts|cts|js|jsx|mjs|cjs|vb|ps1|groovy|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
 
 # Cheapest exit first (spec 073, R9). This hook runs on every Edit/Write in every project, and nearly
 # every one of those is to a file it ignores — but the extension test in step 2 needs FILE, and FILE
@@ -81,18 +81,30 @@ if [ "${#INPUT}" -le 4096 ]; then
   shopt -u nocasematch
 fi
 
-FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
-[ -z "$FILE" ] && exit 0
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# 1) Path allowlist — pipeline-running edits and tooling pass through
-case "$FILE" in
-  */specs/*|*/.specify/*) exit 0 ;;
-  */.claude/*) exit 0 ;;
-  */scripts/*) exit 0 ;;
-  */CLAUDE.md|*/CLAUDE.local.md|*/README*|*/LICENSE*|*/CHANGELOG*) exit 0 ;;
-  */.gitignore|*/.env|*/.env.*|*/.editorconfig|*/.gitattributes) exit 0 ;;
-  */Dockerfile|*/docker-compose*|*/.dockerignore) exit 0 ;;
-esac
+# Spec 083: reading, writing and path canonicalisation go through one library. Without it this
+# fail-closed guard cannot read anything, so a payload naming a source file gets a fixed-text deny.
+if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
+  shopt -s nocasematch
+  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED — spec-interview-guard cannot load scripts/guard-lib.sh, so it cannot read this tool call. Re-run the template sync (it is in CORE_SCRIPTS). Edits under scripts/, specs/ and .claude/ stay allowed."}}'
+  exit 0
+fi
+
+# FAILS CLOSED when the payload cannot be read (spec 083, R2, O3; F044 found it allowing in silence).
+FILE=$(guard_field .tool_input.file_path); FRC=$?
+if [ "$FRC" -ne 0 ]; then
+  shopt -s nocasematch
+  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  guard_unreadable_deny spec-interview-guard "$(guard_cause "$FRC")"
+  exit 0
+fi
+[ -z "$FILE" ] && exit 0
+FILE=$(guard_canon "$FILE")          # spec 083, R4 (F040)
+
+# 1) Name allowlist on the basename; the directory allowlist is root-anchored after the walk (3c).
+guard_name_exempt "$FILE" && exit 0
 
 # 2) Extension allowlist — only block clearly-source-code extensions
 EXT="${FILE##*.}"
@@ -121,10 +133,14 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
   fi
   [ -z "$LANG_MARKER" ] && has_match "$DIR"/*.csproj && LANG_MARKER="*.csproj"
   [ -z "$LANG_MARKER" ] && has_match "$DIR"/*.sln && LANG_MARKER="*.sln"
-  if [ -z "$REGISTER" ] && [ -f "$DIR/specs/INDEX.md" ]; then
+  # The OUTERMOST register wins (spec 083, adversarial review #3): .md writes are ungated, so a
+  # nearest-wins walk let a planted src/specs/INDEX.md, every row ticked, stand in for the real one
+  # and make src/ its root, which exempted src/scripts/ again. A monorepo with one register in its
+  # package directory resolves exactly as before.
+  if [ -f "$DIR/specs/INDEX.md" ]; then
     REGISTER="$DIR/specs/INDEX.md"; PROJECT_ROOT="$DIR"
   fi
-  if [ -d "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi
+  if [ -e "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi   # a worktree's .git is a file (spec 083)
   # `dirname` without the process: "/a/b" -> "/a", "/a" -> "/", "a" -> ".".
   case "$DIR" in */*) DIR="${DIR%/*}"; [ -n "$DIR" ] || DIR="/" ;; *) DIR="." ;; esac
 done
@@ -133,10 +149,16 @@ done
 [ -z "$LANG_MARKER" ] && exit 0   # template/scratch repo — no code project
 [ -z "$REGISTER" ] && exit 0      # no spec register up to the git root
 
+# 3c) Directory allowlist, anchored to the git root and the register root (spec 083, R5, F041).
+REL_GIT="${FILE#"$GIT_ROOT"/}"
+guard_root_exempt "$REL_GIT" && exit 0
+if [ "$PROJECT_ROOT" != "$GIT_ROOT" ]; then
+  guard_root_exempt "${FILE#"$PROJECT_ROOT"/}" && exit 0
+fi
+
 # 4) Parse register + count answered interview questions in Python.
 MIN_QUESTIONS="${SPEC_INTERVIEW_MIN:-15}"
 INTERVIEW_MODE="${SPEC_INTERVIEW_MODE:-auto}"
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 RESULT=$(EDIT_FILE="$FILE" PROJECT_ROOT_PATH="$PROJECT_ROOT" MIN_Q="$MIN_QUESTIONS" MODE="$INTERVIEW_MODE" HOOK_DIR="$HOOK_DIR" python3 <<'PY' 2>/dev/null
 import glob
@@ -288,12 +310,12 @@ RC=$?
 # 96 — the interview is complete and the acceptance-case step (spec 080) denied. The reason text
 # comes from acceptance_cases.gate(), which names what is missing and how to fix it.
 if [ "$RC" -eq 96 ]; then
-  REASON=$(printf '%s' "$RESULT" | jq -r '.reason // empty')
+  REASON=$(guard_field .reason "$RESULT")
   [ -n "$REASON" ] || REASON="BLOCKED — acceptance cases for the active spec are not in order (no reason text came back)."
   REASON="${REASON}
 
 Markdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so acceptance.md can be written now. This is not a permission stop: draft the cases and ask the developer to confirm them."
-  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+  guard_deny "$REASON"
   exit 0
 fi
 
@@ -302,8 +324,8 @@ fi
 # text sends the reader to check that scripts/spec_active.py exists, and here it
 # does. See the comment at the sys.exit(97) above.
 if [ "$RC" -eq 97 ]; then
-  TOKEN=$(printf '%s' "$RESULT" | jq -r '.token // "(empty)"')
-  ROWSTATUS=$(printf '%s' "$RESULT" | jq -r '.status // "?"')
+  TOKEN=$(guard_field .token "$RESULT"); [ -n "$TOKEN" ] || TOKEN="(empty)"
+  ROWSTATUS=$(guard_field .status "$RESULT"); [ -n "$ROWSTATUS" ] || ROWSTATUS="?"
   REASON="BLOCKED — the active register row has an id this parser does not recognise: \"${TOKEN}\"
 
 The register at ${REGISTER} was read without error and the active row (status \"[${ROWSTATUS}]\") was found. Its track, owner and slug all parsed. The ONE thing that failed is sorting the id token into a known form, and without that there is no way to tell whether this row owes an interview (a spec) or owes none (a checkpoint).
@@ -323,7 +345,7 @@ To fix, do ONE of:
   Check either with:  bash scripts/validate-register-ids.sh
 
 Markdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so you can fix the register or the grammar right now."
-  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+  guard_deny "$REASON"
   exit 0
 fi
 
@@ -335,33 +357,45 @@ fi
 # Note the deliberate asymmetry: "the resolver answered NONE" (every row ticked)
 # is an answer and allows; only "the resolver could not answer" denies.
 if [ "$RC" -eq 98 ]; then
-  cat <<JSON
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "BLOCKED — cannot determine which spec is active.\n\nA spec register exists at $REGISTER, but the canonical resolver (scripts/spec_active.py) could not be loaded or the register could not be parsed.\n\nThis guard fails CLOSED on resolution failure by design: a gate that cannot establish what it is guarding must not allow edits. Before this, a resolution failure silently allowed everything — which is how a numeric-only spec-id parser approved source edits for specs with zero artifacts, unnoticed, for ten days.\n\nTo fix:\n  1. Confirm scripts/spec_active.py exists next to this hook and is readable.\n     (If a template sync removed it, re-run the sync — it is in CORE_SCRIPTS.)\n  2. Check specs/INDEX.md parses: bash scripts/resolve-active-spec.sh\n     Exit 0 = resolved · 3 = no active row (fine) · 4 = cannot answer.\n  3. Confirm the active row matches the register format:\n     - [/] 007m — prereq-spec-resolution — spec-only track — goal\n\nMarkdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so you can fix the tooling or the register right now."
-  }
-}
-JSON
+  guard_deny "BLOCKED — cannot determine which spec is active.
+
+A spec register exists at ${REGISTER}, but the canonical resolver (scripts/spec_active.py) could not be loaded or the register could not be parsed.
+
+This guard fails CLOSED on resolution failure by design: a gate that cannot establish what it is guarding must not allow edits. Before this, a resolution failure silently allowed everything — which is how a numeric-only spec-id parser approved source edits for specs with zero artifacts, unnoticed, for ten days.
+
+To fix:
+  1. Confirm scripts/spec_active.py exists next to this hook and is readable.
+     (If a template sync removed it, re-run the sync — it is in CORE_SCRIPTS.)
+  2. Check specs/INDEX.md parses: bash scripts/resolve-active-spec.sh
+     Exit 0 = resolved · 3 = no active row (fine) · 4 = cannot answer.
+  3. Confirm the active row matches the register format:
+     - [/] 007m — prereq-spec-resolution — spec-only track — goal
+
+Markdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so you can fix the tooling or the register right now."
   exit 0
 fi
 
-# Allow on any other unexpected exit (fail-open — never break the user's workflow
-# because of a tooling bug in this hook).
+# Any other exit is the resolver failing to answer: deny like 98 (spec 083, R2). 127 is python3
+# missing, which used to allow every source edit in silence.
+[ "$RC" -eq 0 ] && exit 0              # the resolver's answer: nothing owed, allow
 if [ "$RC" -ne 99 ]; then
+  case "$RC" in
+    126|127) CAUSE="python3 is not on PATH, and the interview is counted in python3" ;;
+    *)       CAUSE="the resolver exited $RC without an answer" ;;
+  esac
+  guard_unreadable_deny spec-interview-guard "$CAUSE"
   exit 0
 fi
 
-SPEC_ID=$(printf '%s' "$RESULT" | jq -r '.spec_id')
-SLUG=$(printf '%s' "$RESULT" | jq -r '.slug')
-SPEC_DIR=$(printf '%s' "$RESULT" | jq -r '.spec_dir')
-INTERVIEW=$(printf '%s' "$RESULT" | jq -r '.interview')
-ANSWERED=$(printf '%s' "$RESULT" | jq -r '.answered')
-HUMAN=$(printf '%s' "$RESULT" | jq -r '.human')
-AUTO=$(printf '%s' "$RESULT" | jq -r '.auto')
-MODE=$(printf '%s' "$RESULT" | jq -r '.mode')
-MIN=$(printf '%s' "$RESULT" | jq -r '.min')
+SPEC_ID=$(guard_field .spec_id "$RESULT")
+SLUG=$(guard_field .slug "$RESULT")
+SPEC_DIR=$(guard_field .spec_dir "$RESULT")
+INTERVIEW=$(guard_field .interview "$RESULT")
+ANSWERED=$(guard_field .answered "$RESULT")
+HUMAN=$(guard_field .human "$RESULT")
+AUTO=$(guard_field .auto "$RESULT")
+MODE=$(guard_field .mode "$RESULT")
+MIN=$(guard_field .min "$RESULT")
 
 if [ "$MODE" = "manual" ]; then
   HOWTO="This project runs the interview in MANUAL mode (SPEC_INTERVIEW_MODE=manual), so ONLY human-answered questions count.
@@ -417,5 +451,5 @@ The block scope is strictly source-code extensions. Edits to markdown, config, .
 
 This is NOT a permission stop: do not ask the user whether to run the interview. Run it (per .claude/rules/continuous-execution.md), record the answers, then continue."
 
-jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+guard_deny "$REASON"
 exit 0

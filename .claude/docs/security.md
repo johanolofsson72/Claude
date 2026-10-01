@@ -74,13 +74,20 @@ Third-party images use their `*_FILE` convention, for example
 - **CI:** GitHub Secrets still hold CI credentials (`LIVE4_SSH_KEY`). A runtime value the deploy
   workflow has to set goes into a Swarm secret, not into the service's `environment:`.
 
-## Claude Code permissions.deny — known bug
+## Claude Code permissions.deny and the hooks behind it
 
-`permissions.deny` in `.claude/settings.json` has known bugs (GitHub issues #6699, #6631, #27040) where deny rules are not always enforced. Our settings.json therefore contains a **PreToolUse backup hook** that blocks access to sensitive files (`.ssh`, `.aws`, `.env`, credentials) via `hookSpecificOutput.permissionDecision: "deny"`. This hook is reliable — unlike `permissions.deny`.
+`permissions.deny` in `.claude/settings.json` is the first layer, and it is not enough on its own. It has known enforcement bugs (GitHub issues #6699, #6631, #27040), and a Bash rule matches the command text by prefix. `Bash(rm -rf *)` does not match `rm -r -f x`, `/bin/rm -rf x` or `command rm -rf x`, and `Bash(git push --force*)` does not match `git push -f`. This template runs with `defaultMode: bypassPermissions` and `allow: Bash`, so every other spelling runs (spec 083, F038).
 
-If you add new deny rules for security-critical files, always create a matching PreToolUse hook as backup.
+Two PreToolUse hooks sit behind the list and deny with `hookSpecificOutput.permissionDecision: "deny"`:
 
-**March 2026 fix:** A bug where PreToolUse hooks returning "allow" could bypass deny rules (including enterprise managed settings) has been fixed. The backup hook above is still recommended as defense-in-depth.
+- `scripts/sensitive-file-guard-hook.sh` keeps credential paths out of Read, Edit, Write, MultiEdit, NotebookEdit, Grep, Glob and Bash. That covers anything under `.ssh`, `.aws`, `.azure`, `.kube` or `.gnupg`, the Docker and `gh` configs, `.git-credentials`, `.netrc`, `.npmrc`, `.env` and `.env.<suffix>`. `.env.example`, `.env.sample` and `.env.template` hold empty placeholders and are allowed. It replaced an inline hook that only covered Read, Edit and Write.
+- `scripts/destructive-command-guard-hook.sh` splits a Bash command the way the shell does and denies the deny list's commands in any spelling: a recursive forced `rm`, `sudo`, a force push (`+refspec` and `--force-with-lease` included), `git reset --hard`, `git clean -f`, and `find -delete` or `find -exec rm`.
+
+Both have limits, written in the hook headers. They see what a command names, not what it computes. A variable, an alias, a script that deletes, `eval "$x"` or `python -c "shutil.rmtree(...)"` gets through, and `grep -r` over a directory reads a `.env` it never names. They stop a careless or injected command; they are not a sandbox against a program written to get around them. Neither has an override. If the operation is really needed, the developer runs it with `!`.
+
+If you add a deny rule for a security-critical file or command, extend one of these two hooks as well and add the case to its test (`scripts/test-sensitive-file-guard.sh`, `scripts/test-destructive-command-guard.sh`).
+
+**March 2026 fix:** A bug where PreToolUse hooks returning "allow" could bypass deny rules (including enterprise managed settings) has been fixed. The hooks above are still the reliable layer.
 
 ## Subprocess credentials
 

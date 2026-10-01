@@ -30,6 +30,28 @@ _ORIENT_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && p
 # additionalContext puts it where it was always addressed.
 . "$_ORIENT_SCRIPT_DIR/hook-notice.sh"
 
+# SPEC 083 (R11, F044) — the guards read every payload with jq, fall back to python3, and with neither
+# the three pipeline guards deny every source edit while the rest allow. That is a machine-wide state,
+# so it is said once per session, here, before any of the early exits below — a project with no
+# register is still guarded. Silent when both tools are present, which is every provisioned machine.
+PARSER_NOTE=""
+_has_jq=0; _has_py=0
+command -v jq >/dev/null 2>&1 && _has_jq=1
+command -v python3 >/dev/null 2>&1 && _has_py=1
+if [ "$_has_jq" -eq 0 ] && [ "$_has_py" -eq 0 ]; then
+  PARSER_NOTE="⚠ Neither jq nor python3 is on PATH. The PreToolUse guards cannot read their payloads: spec-register, pipeline-state and spec-interview DENY every source-code edit, the sensitive-file and destructive-command guards deny what they cannot classify, and core-machinery, core-owed-tick and bash-write ALLOW unchecked. Install jq (brew install jq · apt/dnf/pacman install jq · winget install jqlang.jq) and python3.
+"
+elif [ "$_has_jq" -eq 0 ]; then
+  PARSER_NOTE="· jq is not on PATH; the PreToolUse guards read payloads through python3 instead (slower, same verdicts). Install jq to restore the fast path.
+"
+elif [ "$_has_py" -eq 0 ]; then
+  PARSER_NOTE="⚠ python3 is not on PATH. pipeline-state and spec-interview cannot resolve the active spec and DENY every source-code edit; the sensitive-file and destructive-command guards deny what they cannot classify; bash-write ALLOWS shell writes unchecked. Install python3.
+"
+fi
+_ORIENT_EMITTED=0
+orient_emit() { _ORIENT_EMITTED=1; notice_model SessionStart "${PARSER_NOTE}$1"; }
+trap '[ "$_ORIENT_EMITTED" -eq 0 ] && [ -n "$PARSER_NOTE" ] && notice_model SessionStart "$PARSER_NOTE"' EXIT
+
 DIR="$PWD"
 FOUND_REG=""
 LANG_MARKER=""
@@ -443,7 +465,7 @@ ${CONV_LINE:+· ${CONV_LINE}
   ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${MAINT_DUE}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
     MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)${SIZE_NOTE}"
-    notice_model SessionStart "$MSG"
+    orient_emit "$MSG"
     exit 0
   fi
 
@@ -452,7 +474,7 @@ Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${B
 Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${SIZE_NOTE}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
-  notice_model SessionStart "$MSG"
+  orient_emit "$MSG"
   exit 0
 fi
 
@@ -466,7 +488,7 @@ Bootstrap:
   3. Write specs/INDEX.md with the register + a dated Register history entry.
   4. git commit + git push origin main.
   5. Then start spec 001 with /specify."
-  notice_model SessionStart "$MSG"
+  orient_emit "$MSG"
   exit 0
 fi
 

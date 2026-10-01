@@ -28,7 +28,7 @@
 # rule in feature-pipeline.md cover that phase.
 #
 # Allowed without state check (so the pipeline itself can run):
-#   - anything under specs/, .specify/, .claude/, scripts/
+#   - anything under specs/, .specify/, .claude/, scripts/ AT THE PROJECT ROOT (spec 083: anchored)
 #   - markdown, config, README/CHANGELOG/LICENSE, Dockerfile, .env*, etc.
 #   - any non-source-code extension
 #
@@ -44,7 +44,7 @@ INPUT=$(cat)
 # precheck can never quietly disagree with the test it stands in front of. Markup and stylesheets are
 # source too (spec 032): fundit's 016a shipped a whole static site as .html/.css with no spec at all.
 # The three path guards carry this list byte-identical; test-spec-dir-absent.sh fails if one drifts.
-SOURCE_EXTS='cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
+SOURCE_EXTS='cs|ts|tsx|mts|cts|js|jsx|mjs|cjs|vb|ps1|groovy|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
 
 # Cheapest exit first (spec 073, R9). This hook runs on every Edit/Write in every project, and nearly
 # every one of those is to a file it ignores — but the extension test in step 2 needs FILE, and FILE
@@ -63,18 +63,35 @@ if [ "${#INPUT}" -le 4096 ]; then
   shopt -u nocasematch
 fi
 
-FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
-[ -z "$FILE" ] && exit 0
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# 1) Path allowlist — pipeline-running edits and tooling pass through
-case "$FILE" in
-  */specs/*|*/.specify/*) exit 0 ;;
-  */.claude/*) exit 0 ;;
-  */scripts/*) exit 0 ;;
-  */CLAUDE.md|*/CLAUDE.local.md|*/README*|*/LICENSE*|*/CHANGELOG*) exit 0 ;;
-  */.gitignore|*/.env|*/.env.*|*/.editorconfig|*/.gitattributes) exit 0 ;;
-  */Dockerfile|*/docker-compose*|*/.dockerignore) exit 0 ;;
-esac
+# Spec 083: reading, writing and path canonicalisation go through one library. If it is missing (a
+# truncated sync), this guard cannot read anything, and it is fail-closed: a payload that names a
+# source file is denied with a fixed text that needs no escaping.
+if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
+  shopt -s nocasematch
+  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED — pipeline-state-guard cannot load scripts/guard-lib.sh, so it cannot read this tool call. Re-run the template sync (it is in CORE_SCRIPTS). Edits under scripts/, specs/ and .claude/ stay allowed."}}'
+  exit 0
+fi
+
+# FAILS CLOSED when the payload cannot be read (spec 083, R2; the developer's choice, O3). Before 083
+# a missing jq made FILE empty and this guard allowed every edit in silence (F044). Only a payload
+# whose raw text names a source-extension path is denied: anything else could not have been gated.
+FILE=$(guard_field .tool_input.file_path); FRC=$?
+if [ "$FRC" -ne 0 ]; then
+  shopt -s nocasematch
+  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  guard_unreadable_deny pipeline-state-guard "$(guard_cause "$FRC")"
+  exit 0
+fi
+[ -z "$FILE" ] && exit 0
+# Every test below sees the path a write would land on (spec 083, R4, F040).
+FILE=$(guard_canon "$FILE")
+
+# 1) Name allowlist — matched on the basename only. The DIRECTORY allowlist (scripts/, specs/,
+#    .specify/, .claude/) needs the project root, so it is applied after the walk in step 3c.
+guard_name_exempt "$FILE" && exit 0
 
 # 2) Extension allowlist — only block clearly-source-code extensions
 EXT="${FILE##*.}"
@@ -103,10 +120,14 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
   fi
   [ -z "$LANG_MARKER" ] && has_match "$DIR"/*.csproj && LANG_MARKER="*.csproj"
   [ -z "$LANG_MARKER" ] && has_match "$DIR"/*.sln && LANG_MARKER="*.sln"
-  if [ -z "$REGISTER" ] && [ -f "$DIR/specs/INDEX.md" ]; then
+  # The OUTERMOST register wins (spec 083, adversarial review #3): .md writes are ungated, so a
+  # nearest-wins walk let a planted src/specs/INDEX.md, every row ticked, stand in for the real one
+  # and make src/ its root, which exempted src/scripts/ again. A monorepo with one register in its
+  # package directory resolves exactly as before.
+  if [ -f "$DIR/specs/INDEX.md" ]; then
     REGISTER="$DIR/specs/INDEX.md"; PROJECT_ROOT="$DIR"
   fi
-  if [ -d "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi
+  if [ -e "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi   # a worktree's .git is a file (spec 083)
   # `dirname` without the process: "/a/b" -> "/a", "/a" -> "/", "a" -> ".".
   case "$DIR" in */*) DIR="${DIR%/*}"; [ -n "$DIR" ] || DIR="/" ;; *) DIR="." ;; esac
 done
@@ -114,6 +135,17 @@ done
 [ -z "$GIT_ROOT" ] && exit 0      # not inside a git repo
 [ -z "$LANG_MARKER" ] && exit 0   # template/scratch repo — no code project
 [ -z "$REGISTER" ] && exit 0      # no spec register up to the git root
+
+# 3c) Directory allowlist, anchored (spec 083, R5, F041). The pipeline's own tooling lives at the
+#     project root: <git-root>/scripts/**, specs/**, .specify/**, .claude/**, and the same four under
+#     the directory holding the register when that is not the git root (a monorepo package). This was
+#     `*/scripts/*` — any path containing the word — so a web project's src/scripts/app.js skipped the
+#     whole pipeline gate.
+REL_GIT="${FILE#"$GIT_ROOT"/}"
+guard_root_exempt "$REL_GIT" && exit 0
+if [ "$PROJECT_ROOT" != "$GIT_ROOT" ]; then
+  guard_root_exempt "${FILE#"$PROJECT_ROOT"/}" && exit 0
+fi
 
 # 3b) MID-MERGE (row 059, agentcrm F094). Ticking a row moves "the active spec" on, and the merge that
 # closes the previous row finishes AFTER the tick — so an edit the merge still needs was judged against
@@ -130,7 +162,6 @@ if git -C "$GIT_ROOT" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
 fi
 
 # 4) Parse register + check artifacts in Python (regex + filesystem)
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 RESULT=$(PROJECT_ROOT_PATH="$PROJECT_ROOT" HOOK_DIR="$HOOK_DIR" python3 <<'PY' 2>/dev/null
 import glob
@@ -261,6 +292,7 @@ print(
             "track": track,
             "spec_dir": spec_dir if spec_dir else "(missing — run /specify first)",
             "missing": missing,
+            "missing_text": ", ".join(missing),
         }
     )
 )
@@ -274,8 +306,8 @@ RC=$?
 # text sends the reader to check that scripts/spec_active.py exists, and here it
 # does. See the comment at the sys.exit(97) above.
 if [ "$RC" -eq 97 ]; then
-  TOKEN=$(printf '%s' "$RESULT" | jq -r '.token // "(empty)"')
-  ROWSTATUS=$(printf '%s' "$RESULT" | jq -r '.status // "?"')
+  TOKEN=$(guard_field .token "$RESULT"); [ -n "$TOKEN" ] || TOKEN="(empty)"
+  ROWSTATUS=$(guard_field .status "$RESULT"); [ -n "$ROWSTATUS" ] || ROWSTATUS="?"
   REASON="BLOCKED — the active register row has an id this parser does not recognise: \"${TOKEN}\"
 
 The register at ${REGISTER} was read without error and the active row (status \"[${ROWSTATUS}]\") was found. Its track, owner and slug all parsed. The ONE thing that failed is sorting the id token into a known form, and without that there is no way to tell whether this row owes pipeline artifacts (a spec) or owes none (a checkpoint).
@@ -295,7 +327,7 @@ To fix, do ONE of:
   Check either with:  bash scripts/validate-register-ids.sh
 
 Markdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so you can fix the register or the grammar right now."
-  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+  guard_deny "$REASON"
   exit 0
 fi
 
@@ -307,29 +339,42 @@ fi
 # Note the deliberate asymmetry: "the resolver answered NONE" (every row ticked)
 # is an answer and allows; only "the resolver could not answer" denies.
 if [ "$RC" -eq 98 ]; then
-  cat <<JSON
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "BLOCKED — cannot determine which spec is active.\n\nA spec register exists at $REGISTER, but the canonical resolver (scripts/spec_active.py) could not be loaded or the register could not be parsed.\n\nThis guard fails CLOSED on resolution failure by design: a gate that cannot establish what it is guarding must not allow edits. Before this, a resolution failure silently allowed everything — which is how a numeric-only spec-id parser approved source edits for specs with zero artifacts, unnoticed, for ten days.\n\nTo fix:\n  1. Confirm scripts/spec_active.py exists next to this hook and is readable.\n     (If a template sync removed it, re-run the sync — it is in CORE_SCRIPTS.)\n  2. Check specs/INDEX.md parses: bash scripts/resolve-active-spec.sh\n     Exit 0 = resolved · 3 = no active row (fine) · 4 = cannot answer.\n  3. Confirm the active row matches the register format:\n     - [/] 007m — prereq-spec-resolution — spec-only track — goal\n\nMarkdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so you can fix the tooling or the register right now."
-  }
-}
-JSON
+  guard_deny "BLOCKED — cannot determine which spec is active.
+
+A spec register exists at ${REGISTER}, but the canonical resolver (scripts/spec_active.py) could not be loaded or the register could not be parsed.
+
+This guard fails CLOSED on resolution failure by design: a gate that cannot establish what it is guarding must not allow edits. Before this, a resolution failure silently allowed everything — which is how a numeric-only spec-id parser approved source edits for specs with zero artifacts, unnoticed, for ten days.
+
+To fix:
+  1. Confirm scripts/spec_active.py exists next to this hook and is readable.
+     (If a template sync removed it, re-run the sync — it is in CORE_SCRIPTS.)
+  2. Check specs/INDEX.md parses: bash scripts/resolve-active-spec.sh
+     Exit 0 = resolved · 3 = no active row (fine) · 4 = cannot answer.
+  3. Confirm the active row matches the register format:
+     - [/] 007m — prereq-spec-resolution — spec-only track — goal
+
+Markdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so you can fix the tooling or the register right now."
   exit 0
 fi
 
-# Allow on any other unexpected exit (fail-open — never break the user's workflow
-# because of a tooling bug in this hook).
+# Any other exit is the resolver failing to answer, and it denies like 98 (spec 083, R2). This used
+# to allow "so a tooling bug never breaks the workflow" — and 127, python3 missing, is a tooling bug
+# that allowed every source edit in silence. scripts/** stays editable, so the repair is never blocked.
+[ "$RC" -eq 0 ] && exit 0              # the resolver's answer: nothing owed, allow
 if [ "$RC" -ne 99 ]; then
+  case "$RC" in
+    126|127) CAUSE="python3 is not on PATH, and the active spec is resolved in python3" ;;
+    *)       CAUSE="the resolver exited $RC without an answer" ;;
+  esac
+  guard_unreadable_deny pipeline-state-guard "$CAUSE"
   exit 0
 fi
 
-SPEC_ID=$(printf '%s' "$RESULT" | jq -r '.spec_id')
-SLUG=$(printf '%s' "$RESULT" | jq -r '.slug')
-TRACK=$(printf '%s' "$RESULT" | jq -r '.track')
-SPEC_DIR=$(printf '%s' "$RESULT" | jq -r '.spec_dir')
-MISSING=$(printf '%s' "$RESULT" | jq -r '.missing | join(", ")')
+SPEC_ID=$(guard_field .spec_id "$RESULT")
+SLUG=$(guard_field .slug "$RESULT")
+TRACK=$(guard_field .track "$RESULT")
+SPEC_DIR=$(guard_field .spec_dir "$RESULT")
+MISSING=$(guard_field .missing_text "$RESULT")
 
 REASON="BLOCKED — pipeline phases incomplete for active spec ${SPEC_ID}-${SLUG} (${TRACK} track).
 
@@ -351,5 +396,5 @@ The block scope is strictly source-code extensions. Edits to markdown, config, .
 
 If this is genuinely a trivial fix (typo, one-line bug, single-variable rename), classify it explicitly in your first sentence and edit a non-source file path, OR finish the active spec, tick it off in the register, and start the next one."
 
-jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+guard_deny "$REASON"
 exit 0

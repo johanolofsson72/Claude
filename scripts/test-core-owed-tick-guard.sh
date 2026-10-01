@@ -268,7 +268,7 @@ BROKEN=$(make_project broken)
 printf 'edited\n' > "$BROKEN/scripts/spec_active.py"
 printf 'exit 3\n' > "$BROKEN/scripts/template-autosync.sh"
 OUT=$(run_hook "$BROKEN/specs/INDEX.md" "$TICK")
-[ -z "$OUT" ] && ok "a sync that cannot answer fails OPEN" \
+[ "$(hook_verdict "$OUT")" = none ] && ok "a sync that cannot answer fails OPEN (announced since spec 083)" \
               || { bad "a broken sync BLOCKED a tick — the register would be unticket-able"; info "$(reason "$OUT")"; }
 
 # ---- no manifest at all ---------------------------------------------------------
@@ -277,7 +277,7 @@ OUT=$(run_hook "$BROKEN/specs/INDEX.md" "$TICK")
 FRESH=$(make_project fresh)
 rm -f "$FRESH/.claude/.template-sync"
 OUT=$(run_hook "$FRESH/specs/INDEX.md" "$TICK")
-[ -z "$OUT" ] && ok "a never-synced project is silent (no manifest, no claim)" \
+[ "$(hook_verdict "$OUT")" = none ] && ok "a never-synced project is not blocked (no manifest, no claim)" \
               || { bad "the guard fired on a project with no manifest"; info "$(reason "$OUT")"; }
 
 # ---- the template repository ----------------------------------------------------

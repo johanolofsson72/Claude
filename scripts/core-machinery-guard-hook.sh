@@ -51,14 +51,34 @@ INPUT=$(cat)
 # jq to find that out. A match only means "look properly"; the case statements below still decide.
 # Bounded to small payloads: bash's matchers are slow on long strings (a 200 KB Write took longer to
 # scan than jq takes to start), so a large payload skips this and pays exactly what it paid before.
+#
+# Spec 083 widened it to "scripts/" and "rules/" without the leading slash (a relative path has none)
+# and to "..", which can climb into scripts/ from a path that does not name it. A symlinked directory
+# whose own name hides both is the residual of a text precheck; making that link is itself a write this
+# guard is never asked about.
 if [ "${#INPUT}" -le 4096 ]; then
   case "$INPUT" in
-    */scripts/*|*/.claude/rules/*) ;;
+    *scripts/*|*rules/*|*..*) ;;
     *) exit 0 ;;
   esac
 fi
-FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# FAILS OPEN — AND SAYS SO (spec 083, R3; the rationale is the paragraph above `set -u`). Before 083 a
+# missing jq emptied FILE and this guard allowed without a word (F044).
+if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"core-machinery-guard cannot load scripts/guard-lib.sh and ALLOWED this edit unchecked. Re-run the template sync (it is in CORE_SCRIPTS)."}}'
+  exit 0
+fi
+FILE=$(guard_field .tool_input.file_path); FRC=$?
+if [ "$FRC" -ne 0 ]; then
+  guard_announce core-machinery-guard "$(guard_cause "$FRC")"
+  exit 0
+fi
 [ -z "$FILE" ] && exit 0
+# The path a write would land on (spec 083, R4, F040): `x/../scripts/<core>.sh`, `//scripts/…` and a
+# relative path all used to miss the prefix test below and pass as not-CORE.
+FILE=$(guard_canon "$FILE")
 
 # ------------------------------------------------------------------- the override
 # Named in the deny text below, and deliberately an environment variable rather than
@@ -69,7 +89,7 @@ FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null
 if [ "${ALLOW_CORE_MACHINERY_EDIT:-0}" = "1" ]; then
   case "$FILE" in
     */scripts/*|*/.claude/rules/*)
-      jq -n --arg f "$FILE" '{hookSpecificOutput: {additionalContext: ("core-machinery-guard: ALLOW_CORE_MACHINERY_EDIT=1 is set, so the edit to " + $f + " proceeds. If this file turns out to be CORE machinery, the next template sync overwrites it — land the change in the template as well, or it is gone.")}}' 2>/dev/null
+      guard_context "core-machinery-guard: ALLOW_CORE_MACHINERY_EDIT=1 is set, so the edit to $FILE proceeds. If this file turns out to be CORE machinery, the next template sync overwrites it — land the change in the template as well, or it is gone."
       ;;
   esac
   exit 0
@@ -88,7 +108,7 @@ esac
 DIR=$(dirname "$FILE")
 ROOT=""
 while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
-  if [ -d "$DIR/.git" ]; then ROOT="$DIR"; break; fi
+  if [ -e "$DIR/.git" ]; then ROOT="$DIR"; break; fi   # a worktree's .git is a file (spec 083)
   DIR=$(dirname "$DIR")
 done
 [ -n "$ROOT" ] || exit 0
@@ -125,9 +145,13 @@ elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 5"; fi
 
 REASON_BODY=$($TO bash "$SYNC" --is-core "$REL" 2>/dev/null)
 RC=$?
-# 0 = CORE. 1 = not CORE. Anything else is the classifier failing to answer, and it
-# has to be indistinguishable from "not CORE" here — see the fail-open note above.
-[ "$RC" -eq 0 ] || exit 0
+# 0 = CORE. 1 = not CORE. Anything else is the classifier failing to answer: still an allow (see the
+# fail-open note above), but no longer a silent one (spec 083, GAP-1 from /tla).
+[ "$RC" -eq 1 ] && exit 0
+if [ "$RC" -ne 0 ]; then
+  guard_announce core-machinery-guard "the CORE classifier (scripts/template-autosync.sh --is-core) did not answer (exit $RC; 124 is its 5 s timeout)"
+  exit 0
+fi
 [ -n "$REASON_BODY" ] || exit 0
 
 # ------------------------------------------------------------- where it belongs
@@ -220,7 +244,7 @@ A write whose bytes are byte-identical to the template's copy passes this guard 
 
 If you are knowingly making a temporary local repair — restoring work a sync deleted, say — set ALLOW_CORE_MACHINERY_EDIT=1 for the session. It still has to land in the template afterwards, or the next sync takes it back.
 
-This guard is scoped to the CORE set only. Every other file under scripts/ and .claude/rules/ is yours, and the three pipeline guards deliberately leave all of scripts/** open so the tooling can always be repaired."
+This guard is scoped to the CORE set only. Every other file under scripts/ and .claude/rules/ is yours, and the three pipeline guards deliberately leave the project's scripts/** open so the tooling can always be repaired."
 
-jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+guard_deny "$REASON"
 exit 0

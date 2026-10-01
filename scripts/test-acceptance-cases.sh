@@ -443,14 +443,14 @@ expect "a broken .git denies (only a timeout fails open)" "$P/src/app.ts" deny "
 
 echo "the gate cannot load its parser"
 G="$TMP/guardonly"; mkdir -p "$G"
-cp "$GUARD" "$SELF_DIR/spec_active.py" "$G/"
+cp "$GUARD" "$SELF_DIR/spec_active.py" "$SELF_DIR/guard-lib.sh" "$SELF_DIR/hook-notice.sh" "$G/"
 P=$(mk_project nop 080 "full track")
 out=$(jq -n --arg p "$P/src/app.ts" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"}}' | bash "$G/spec-interview-guard-hook.sh" 2>/dev/null)
 [ "$(hook_verdict "$out")" = deny ] && ok "acceptance_cases.py missing → deny" || fail "acceptance_cases.py missing → $(hook_verdict "$out")"
 
 echo "the gate crashes"
 G="$TMP/guardcrash"; mkdir -p "$G"
-cp "$GUARD" "$SELF_DIR/spec_active.py" "$G/"
+cp "$GUARD" "$SELF_DIR/spec_active.py" "$SELF_DIR/guard-lib.sh" "$SELF_DIR/hook-notice.sh" "$G/"
 printf 'def gate(root, info, file_path):\n    raise RuntimeError("boom")\n' > "$G/acceptance_cases.py"
 P=$(mk_project crs 080 "full track")
 out=$(jq -n --arg p "$P/src/app.ts" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"}}' | bash "$G/spec-interview-guard-hook.sh" 2>/dev/null)

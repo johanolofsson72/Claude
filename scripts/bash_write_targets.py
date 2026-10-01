@@ -409,16 +409,114 @@ def extract(cmd: str) -> list[tuple[str, int]]:
             if t and not t.startswith("-"):
                 targets.append((t, m.start()))
 
-    # (d) cp / mv — the destination is the last operand of the segment.
-    for seg, start in segments:
-        if not re.match(r"\s*(sudo\s+)?(cp|mv)\b", seg):
+    # (d) cp / mv — the destination is the last operand of the segment. When it is a directory the
+    #     files land at <dir>/<basename of each source>; combined() adds those (spec 083), because
+    #     only it knows the working directory to ask the filesystem in.
+    for _name, _flags, srcs, dst, start in copies(cmd):
+        targets.append((dst, start))
+
+    # (e) ln — a link is a write to what it points at (spec 083, adversarial review #11): after
+    #     `ln -s ../src/App.cs docs/x.txt`, a Write to docs/x.txt changes App.cs, and the guards that
+    #     judge by extension or by name only ever see x.txt. So the TARGET is the write target here,
+    #     resolved against the link's directory as the kernel resolves a relative link.
+    for m in re.finditer(r"[^;&|\n]+", text):
+        seg, start = m.group(0), m.start()
+        words = [w for w in (_pick(x, 1) for x in re.finditer(QUOTED, seg)) if w]
+        while words and words[0] in ("sudo", "command", "env", "nohup", "time"):
+            words = words[1:]
+        if not words or os.path.basename(words[0].lstrip("\\")) != "ln":
             continue
-        ops = [_pick(m, 1) for m in re.finditer(QUOTED, seg)]
-        ops = [o for o in ops if o and not o.startswith("-")]
-        if len(ops) >= 3:  # ["cp", src, ..., dst]
-            targets.append((ops[-1], start))
+        ops = [w for w in words[1:] if not w.startswith("-")]
+        if len(ops) < 2:
+            continue
+        link = ops[-1]
+        for tgt in ops[:-1]:
+            if os.path.isabs(tgt):
+                targets.append((tgt, start))
+            else:
+                link_dir = link if link.endswith("/") else (os.path.dirname(link) or ".")
+                targets.append((os.path.join(link_dir, tgt), start))
+        targets.append((link, start))
 
     return targets
+
+
+def copies(cmd: str) -> list[tuple[str, list[str], list[str], str, int]]:
+    """Every cp/mv segment as (command, flags, sources, destination, offset). Spec 083, R7."""
+    text = blank_heredoc_bodies(cmd)
+    out = []
+    for m in re.finditer(r"[^;&|\n]+", text):
+        seg, start = m.group(0), m.start()
+        words = [_pick(w, 1) for w in re.finditer(QUOTED, seg)]
+        words = [w for w in words if w]
+        # The command word through the wrappers that only run another command, and a path or a
+        # backslash in front of it: /bin/cp, \cp, command cp, env FOO=1 cp (adversarial review #12).
+        while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0])
+                         or words[0] in ("sudo", "command", "env", "nohup", "time", "exec", "builtin")):
+            words = words[1:]
+        if not words:
+            continue
+        name = os.path.basename(words[0].lstrip("\\"))
+        if name not in ("cp", "mv"):
+            continue
+        rest = words[1:]
+        target_dir = None
+        flags, ops, k = [], [], 0
+        while k < len(rest):
+            w = rest[k]
+            if w in ("-t", "--target-directory") and k + 1 < len(rest):
+                target_dir = rest[k + 1]; flags.append(w); k += 2; continue
+            if w.startswith("--target-directory="):
+                target_dir = w.split("=", 1)[1]; flags.append(w); k += 1; continue
+            (flags if w.startswith("-") else ops).append(w)
+            k += 1
+        if target_dir is not None and ops:
+            out.append((name, flags, ops, target_dir.rstrip("/") + "/", start))
+        elif len(ops) >= 2:
+            out.append((name, flags, ops[:-1], ops[-1], start))
+    return out
+
+
+def copy_pairs(cmd: str, cwd_at) -> tuple[list[tuple[str, int]], list[tuple[str, str]]]:
+    """(extra write targets, byte-provable pairs) for the cp/mv segments of cmd. Spec 083, R7.
+
+    Extra targets: a destination that is a directory (ends in / or exists as one) receives each
+    source under its basename, so `cp x/spec_active.py scripts/` is asked about scripts/spec_active.py
+    and not about scripts/ — which no guard owns, and which let the write through.
+
+    Pairs: a `cp` with exactly one source that is a regular file and no recursive or archive flag.
+    Only for those can the bytes the write leaves be read before it happens. Everything else stays a
+    path-only question, and the CORE guard's every-doubt-denies answer applies to it unchanged.
+    """
+    extra: list[tuple[str, int]] = []
+    pairs: list[tuple[str, str]] = []
+    text_once = blank_heredoc_bodies(cmd).strip()
+    for name, flags, srcs, dst, start in copies(cmd):
+        base = cwd_at(start)
+        if base is None or dst.startswith("$") or "$(" in dst or dst.startswith("`"):
+            continue
+        dst_abs = dst if os.path.isabs(dst) else os.path.normpath(os.path.join(base, dst))
+        is_dir = dst.endswith("/") or os.path.isdir(dst_abs)
+        landed = []
+        for s in srcs:
+            if s.startswith("$") or "$(" in s or s.startswith("`"):
+                continue
+            target = os.path.join(dst_abs, os.path.basename(s.rstrip("/"))) if is_dir else dst_abs
+            landed.append(target)
+            if is_dir:
+                extra.append((target, start))
+        # Bytes only for a command that is this cp and nothing else (adversarial review #1/#2): a
+        # second write to the same path (`cp … x && echo evil >> x`) or a write to the source before
+        # the copy (`printf evil > src; cp src x`) would otherwise borrow the template's verdict.
+        # Flags are an allowlist: -s and -l make links, -t and --parents move the destination.
+        harmless = all(re.match(r"^-[fpvin]+$", f) for f in flags)
+        alone = len(re.findall(r"[^;&|\n]+", text_once)) == 1 and not re.search(r"[<>`]|\$\(", text_once)
+        if name == "cp" and len(srcs) == 1 and len(landed) == 1 and harmless and alone:
+            s = srcs[0]
+            s_abs = s if os.path.isabs(s) else os.path.normpath(os.path.join(base, s))
+            if os.path.isfile(s_abs) and not os.path.islink(s_abs) and os.access(s_abs, os.R_OK):
+                pairs.append((s_abs, landed[0]))
+    return extra, pairs
 
 
 def absolutize(targets: list[tuple[str, int]], cwd_at) -> list[str]:
@@ -485,11 +583,18 @@ def combined(cmd: str, cwd: str) -> int:
     caller still asks the guards about the extracted targets first.
     """
     cwd_at = cwd_resolver(blank_heredoc_bodies(cmd), cwd)
-    targets = absolutize(extract(cmd), cwd_at)
+    extra, pairs = copy_pairs(cmd, cwd_at)
+    targets = absolutize(extract(cmd) + extra, cwd_at)
     print("@@ extract")
     _emit(targets, False)
     print("@@ extract-all")
     _emit(targets, True)
+    # Spec 083, R7: "<source>\t<destination>" for a cp whose bytes are known before it runs. A path
+    # cannot hold a tab here only by convention, so a line with more than one tab is not emitted.
+    print("@@ copy")
+    for s, d in pairs:
+        if "\t" not in s and "\t" not in d and "\n" not in s and "\n" not in d:
+            print(f"{s}\t{d}")
     try:
         opaque = absolutize(opaque_paths(cmd), cwd_at)
     except Exception:  # noqa: BLE001 — mirrors the old separate process failing

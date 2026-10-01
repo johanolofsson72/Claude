@@ -4,8 +4,8 @@
 # the register MUST exist before any development starts.
 #
 # Allowed without register (so bootstrap can happen):
-#   - The register itself and anything under specs/
-#   - .claude/**, scripts/**
+#   - The register itself and anything under <root>/specs/
+#   - <root>/.claude/**, <root>/scripts/**, <root>/.specify/** (root-anchored since spec 083)
 #   - Markdown, README/CHANGELOG/LICENSE/CLAUDE.md
 #   - .gitignore, .env*, .editorconfig, Dockerfile, docker-compose*
 #   - Anything that is not in the source-code extension allowlist below
@@ -25,7 +25,7 @@ INPUT=$(cat)
 # precheck can never quietly disagree with the test it stands in front of. Markup and stylesheets are
 # source too (spec 032): fundit's 016a shipped a whole static site as .html/.css with no spec at all.
 # The three path guards carry this list byte-identical; test-spec-dir-absent.sh fails if one drifts.
-SOURCE_EXTS='cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
+SOURCE_EXTS='cs|ts|tsx|mts|cts|js|jsx|mjs|cjs|vb|ps1|groovy|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
 
 # Cheapest exit first (spec 073, R9). This hook runs on every Edit/Write in every project, and nearly
 # every one of those is to a file it ignores — but the extension test in step 2 needs FILE, and FILE
@@ -44,18 +44,30 @@ if [ "${#INPUT}" -le 4096 ]; then
   shopt -u nocasematch
 fi
 
-FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
-[ -z "$FILE" ] && exit 0
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# 1) Path-based allow list — always pass these through, no register needed
-case "$FILE" in
-  */specs/*) exit 0 ;;
-  */.claude/*) exit 0 ;;
-  */scripts/*) exit 0 ;;
-  */CLAUDE.md|*/CLAUDE.local.md|*/README*|*/LICENSE*|*/CHANGELOG*) exit 0 ;;
-  */.gitignore|*/.env|*/.env.*|*/.editorconfig|*/.gitattributes) exit 0 ;;
-  */Dockerfile|*/docker-compose*|*/.dockerignore) exit 0 ;;
-esac
+# Spec 083: reading, writing and path canonicalisation go through one library. Without it this
+# fail-closed guard cannot read anything, so a payload naming a source file gets a fixed-text deny.
+if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
+  shopt -s nocasematch
+  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED — spec-register-guard cannot load scripts/guard-lib.sh, so it cannot read this tool call. Re-run the template sync (it is in CORE_SCRIPTS). Edits under scripts/, specs/ and .claude/ stay allowed."}}'
+  exit 0
+fi
+
+# FAILS CLOSED when the payload cannot be read (spec 083, R2, O3; F044 found it allowing in silence).
+FILE=$(guard_field .tool_input.file_path); FRC=$?
+if [ "$FRC" -ne 0 ]; then
+  shopt -s nocasematch
+  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  guard_unreadable_deny spec-register-guard "$(guard_cause "$FRC")"
+  exit 0
+fi
+[ -z "$FILE" ] && exit 0
+FILE=$(guard_canon "$FILE")          # spec 083, R4 (F040)
+
+# 1) Name allow list on the basename; the directory allow list is root-anchored after the walk.
+guard_name_exempt "$FILE" && exit 0
 
 # 2) Extension-based allow list — only block clearly-source-code extensions
 EXT="${FILE##*.}"
@@ -99,8 +111,12 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
   if [ -z "$LANG_MARKER" ]; then
     if has_match "$DIR"/*.sln; then LANG_MARKER="*.sln"; fi
   fi
-  if [ -z "$REGISTER" ] && [ -f "$DIR/specs/INDEX.md" ]; then REGISTER="$DIR/specs/INDEX.md"; fi
-  if [ -d "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi
+  # The OUTERMOST register wins (spec 083, adversarial review #3): .md writes are ungated, so a
+  # nearest-wins walk let a planted src/specs/INDEX.md, every row ticked, stand in for the real one
+  # and make src/ its root, which exempted src/scripts/ again. A monorepo with one register in its
+  # package directory resolves exactly as before.
+  if [ -f "$DIR/specs/INDEX.md" ]; then REGISTER="$DIR/specs/INDEX.md"; fi
+  if [ -e "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi   # a worktree's .git is a file (spec 083)
   # `dirname` without the process: "/a/b" -> "/a", "/a" -> "/", "a" -> ".".
   case "$DIR" in */*) DIR="${DIR%/*}"; [ -n "$DIR" ] || DIR="/" ;; *) DIR="." ;; esac
 done
@@ -108,6 +124,11 @@ done
 # Not in a git repo OR no language marker in this repo → silent (template/scratch)
 [ -z "$GIT_ROOT" ] && exit 0
 [ -z "$LANG_MARKER" ] && exit 0
+
+# Directory allow list, anchored to the git root (spec 083, R5, F041): the bootstrap paths are the
+# project's own scripts/, specs/, .specify/ and .claude/, not any directory that happens to share a
+# name. `*/scripts/*` let a web project's src/scripts/app.js past this gate.
+guard_root_exempt "${FILE#"$GIT_ROOT"/}" && exit 0
 
 # 4) Register check — any register between the file and the git root satisfies it.
 if [ -n "$REGISTER" ]; then
@@ -130,5 +151,5 @@ Bootstrap the register first:
 
 Edits ALLOWED while no register exists: anything under specs/, .claude/**, scripts/**, README/CHANGELOG/LICENSE/CLAUDE.md, .gitignore, .env*, .editorconfig, Dockerfile, docker-compose*, and any non-source-code extension (markdown, yaml, json, toml, etc.). The block is scoped strictly to source code."
 
-jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+guard_deny "$REASON"
 exit 0

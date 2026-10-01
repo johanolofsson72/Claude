@@ -245,6 +245,9 @@ test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
 core-owed-tick-guard-hook.sh test-core-owed-tick-guard.sh
 bash_write_targets.py bash-write-guard-hook.sh bash-write-detect-hook.sh test-bash-write-guard.sh
+guard-lib.sh test-guard-lib.sh test-guard-fail-closed.sh test-guard-exit-codes.sh
+destructive-command-guard-hook.sh destructive_command.py test-destructive-command-guard.sh
+sensitive-file-guard-hook.sh sensitive_paths.py test-sensitive-file-guard.sh
 test-runtime-markers-ignored.sh
 validate-register-ids.sh test-register-ids.sh
 validate-no-sigpipe-assertions.sh test-no-sigpipe-assertions.sh

@@ -102,6 +102,24 @@ _TEMPLATE_INLINE_SPEEDUPS: list[tuple[str, str, str]] = [
 ]
 
 
+# Spec 083 (R10) — inline hooks the template REPLACED with a script, retired from a project once the
+# script is there. The inline credential read-block covered Read|Edit|Write only, wanted a leading `/`,
+# and allowed above 4096 bytes without jq (F039); scripts/sensitive-file-guard-hook.sh replaces it on a
+# wider matcher and arrives through the core-hook append below. Left in place, the old one would only
+# be redundant — but a project whose sync stopped short of the script must keep it, so retirement
+# waits for the replacement. Keyed on the template's exact past texts, so a project's own edited copy
+# is never touched (it stays, harmless next to the script).
+_TEMPLATE_INLINE_RETIRED: list[tuple[str, str, str]] = [
+    ("PreToolUse", _TEMPLATE_INLINE_SPEEDUPS[0][1], "sensitive-file-guard-hook.sh"),
+    ("PreToolUse", _TEMPLATE_INLINE_SPEEDUPS[0][2], "sensitive-file-guard-hook.sh"),
+]
+
+
+def is_retired(cmd: str, event: str, scripts_dir: Path) -> bool:
+    return any(ev == event and cmd == old and (scripts_dir / repl).is_file()
+               for ev, old, repl in _TEMPLATE_INLINE_RETIRED)
+
+
 # PreCompact is special: its documented channel is plain stdout, not JSON.
 #
 # Matched by SHAPE, not by exact text. The first version of this compared the
@@ -211,6 +229,8 @@ def main() -> int:
             kept_hooks = []
             for h in config.get("hooks", []):
                 if is_core_hook(h) and frozenset(core_scripts(h)) in template_identities:
+                    removed += 1
+                elif is_retired(h.get("command", ""), event, project_scripts):
                     removed += 1
                 else:
                     kept_hooks.append(h)

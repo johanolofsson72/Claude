@@ -1,0 +1,187 @@
+-- allium: 3
+--
+-- 083 — guard bypass and fail-open.
+--
+-- What a PreToolUse guard may answer when it cannot read its input (R1-R3, R11), which path it
+-- judges (R4, R5), what counts as a register tick (R6), what a byte-identical shell copy is (R7),
+-- what the exit code must be (R8), and which commands and paths the two new floor guards refuse
+-- (R9, R10). Rules cite R1..R12 (spec.md) and the developer's overflow answers O1..O3
+-- (interview.md). The template keeps no scenario map.
+
+enum Parser { jq | python3 | none }
+
+enum GuardClass { fail_closed | fail_open }
+
+enum Verdict { allow | deny | allow_announced }
+
+enum PayloadState { parsed | unparseable | no_parser }
+
+config {
+    precheck_bound_bytes: Integer = 4096
+}
+
+entity Guard {
+    name: String
+    class: GuardClass                           -- fail_closed: register, pipeline-state, interview
+                                                -- fail_open: core-machinery, core-owed-tick, bash-write
+}
+
+entity ToolCall {
+    raw: String                                 -- the payload text as received
+    parser: Parser
+    state: PayloadState
+    names_source_path: Boolean                  -- raw matches \.(SOURCE_EXTS)"
+    file_path: String?
+    canonical_path: String?                     -- guard_canon(file_path, cwd)
+    gated: Boolean                              -- the guard's own policy says deny for canonical_path
+    exit_code: Integer
+    stdout_decision: Verdict
+
+    -- R8 (F029): a decision on stdout is only honoured on exit 0.
+    invariant DecisionOnExitZero {
+        this.stdout_decision != allow implies this.exit_code = 0
+    }
+
+    -- R8: exit 1 is a non-blocking error, which is a silent allow.
+    invariant NeverExitOne {
+        this.exit_code != 1
+    }
+}
+
+rule FailClosedWithoutParser {
+    -- R2, O3: a fail-closed guard cannot read the payload and the raw text names a source path.
+    when: GuardInvoked(guard, call)
+    requires:
+        guard.class = fail_closed
+        call.state != parsed
+        call.names_source_path
+    ensures: call.stdout_decision = deny
+}
+
+rule FailOpenAnnounced {
+    -- R3: a fail-open guard that cannot decide says so.
+    when: GuardInvoked(guard, call)
+    requires:
+        guard.class = fail_open
+        call.state != parsed
+    ensures: call.stdout_decision = allow_announced
+}
+
+rule JudgeCanonicalPath {
+    -- R4 (F040): every pattern, walk and prefix test sees the canonical path.
+    when: GuardInvoked(guard, call)
+    requires: call.state = parsed and call.file_path != null
+    ensures: call.gated = GuardPolicy(guard, call.canonical_path)
+}
+
+entity ProjectPath {
+    git_root: String
+    register_root: String?
+    relative: String                            -- canonical path relative to git_root
+
+    exempt_dir: Boolean                         -- R5 (F041): relative starts with scripts/,
+                                                -- specs/, .specify/ or .claude/ (root-anchored)
+}
+
+rule NestedScriptsAreSource {
+    -- R5: src/scripts/app.js is not exempt.
+    when: PipelineGuardJudges(path)
+    requires: not path.exempt_dir
+    ensures: PipelineStateDecides(path)
+}
+
+entity RegisterEdit {
+    before_ticked: Set<String>                  -- row ids with [x] in the current file
+    after_ticked: Set<String>?                  -- row ids with [x] after applying the edit; null if
+                                                -- the result cannot be computed
+    written_has_x: Boolean                      -- any "[x]" in new_string / content / edits
+    result_known: Boolean                       -- after_ticked could be computed
+    new_tick: Boolean                           -- some id in after_ticked is not in before_ticked
+    is_tick: Boolean
+
+    -- R6 (F042): a tick is an id that becomes [x]; unknown result reads conservatively.
+    invariant TickByRowId {
+        this.result_known implies this.is_tick = this.new_tick
+    }
+    invariant TickConservative {
+        not this.result_known implies this.is_tick = this.written_has_x
+    }
+}
+
+rule TickGuardDeniesOwedTick {
+    when: RegisterEditProposed(edit, project)
+    requires:
+        edit.is_tick
+        project.owes_core
+        not project.allow_tick_override
+    ensures: Deny(edit)
+}
+
+entity ShellCopy {
+    source_count: Integer
+    source_is_regular_file: Boolean
+    recursive_flag: Boolean
+    source_bytes_equal_template: Boolean
+    bytes_known: Boolean
+
+    -- R7 (F035): only a provable byte-identical copy reaches the allow.
+    invariant BytesKnownOnlyForOneFile {
+        this.bytes_known implies (this.source_count = 1 and this.source_is_regular_file and not this.recursive_flag)
+    }
+}
+
+rule ByteIdenticalCopyPasses {
+    when: CoreMachineryJudges(copy)
+    requires: copy.bytes_known and copy.source_bytes_equal_template
+    ensures: Allow(copy)
+}
+
+enum DestructiveForm { rm_recursive_force | sudo | git_force_push | git_reset_hard | git_clean_force | find_delete | none }
+
+entity BashCommand {
+    form: DestructiveForm                       -- sudo covers doas, su, pkexec; after tokenising,
+                                                -- through sudo/env/xargs/nohup/time/exec/command,
+                                                -- path prefixes and backslash, and one -c level
+    inside_quoted_data: Boolean                 -- the words are an argument to a non-shell command
+}
+
+rule DestructiveFloor {
+    -- R9 (F038), O2: find -delete and find -exec rm count.
+    when: BashProposed(cmd)
+    requires: cmd.form != none and not cmd.inside_quoted_data
+    ensures: Deny(cmd)
+}
+
+entity SensitiveProbe {
+    token: String                               -- a path field, or one shell token split on = and redirections
+    segment_hit: Boolean                        -- a segment in .ssh .aws .azure .kube .gnupg
+    suffix_hit: Boolean                         -- ends .docker/config.json, contains .config/gh/
+    basename_hit: Boolean                       -- .git-credentials .netrc .npmrc .env .env.<suffix>
+    env_template: Boolean                       -- basename .env.example .env.sample .env.template (O1)
+    sensitive: Boolean
+
+    invariant SensitiveDefinition {
+        this.sensitive = (this.segment_hit or this.suffix_hit or (this.basename_hit and not this.env_template))
+    }
+}
+
+rule SensitiveFloor {
+    -- R10 (F039): every tool that can name a path, at any payload size.
+    when: ToolProposed(probe)
+    requires: probe.sensitive
+    ensures: Deny(probe)
+}
+
+rule SensitiveUnparseable {
+    -- R10: a payload that names a sensitive token but cannot be parsed is denied.
+    when: ToolProposed(call)
+    requires: call.state != parsed and RawNamesSensitive(call.raw)
+    ensures: Deny(call)
+}
+
+rule AnnounceMissingParser {
+    -- R11 (F044): once per session, at SessionStart, before any early exit.
+    when: SessionStarted(session)
+    requires: session.parser != jq or not session.has_python3
+    ensures: Notice(session)
+}

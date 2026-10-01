@@ -443,7 +443,7 @@ if want falsify; then
   else
     MUT="$WORK/mutant"
     mkdir -p "$MUT"
-    for f in bash_write_targets.py core-machinery-guard-hook.sh spec-register-guard-hook.sh \
+    for f in bash_write_targets.py guard-lib.sh hook-notice.sh core-machinery-guard-hook.sh spec-register-guard-hook.sh \
              pipeline-state-guard-hook.sh spec-interview-guard-hook.sh; do
       cp "$SCRIPT_DIR/$f" "$MUT/$f" 2>/dev/null || true
     done

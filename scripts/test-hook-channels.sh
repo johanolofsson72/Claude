@@ -288,10 +288,12 @@ for path in sys.argv[1:]:
                 seen += len(KEY.findall(c))
                 if len(KEY.findall(c)) > len(EVENT.findall(c)):
                     print(f"{path.rsplit('/', 1)[-1]} {ev} matcher={g.get('matcher', '')}")
-# The template ships one inline deny (the sensitive-file rule). Seeing none means
-# the pattern stopped matching, which must not read as clean.
-if seen == 0:
-    print("inline:none-seen")
+# Since spec 083 the template ships no inline deny (the sensitive-file rule became
+# scripts/sensitive-file-guard-hook.sh), so zero seen is normal. The pattern must
+# still recognise one, or a project's own inline deny would read as clean.
+SAMPLE = r'''echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\"}}' '''
+if not KEY.findall(SAMPLE) or len(KEY.findall(SAMPLE)) <= len(EVENT.findall(SAMPLE)):
+    print("inline:pattern-broken")
 PY3
 }
 INLINE=$(inline_bare)
@@ -350,6 +352,9 @@ echo "== 13. hook_verdict reads what the CLI reads =="
 GV=$(mktemp -d) || exit 1
 mkdir -p "$GV/.git" "$GV/src"; echo '{}' > "$GV/package.json"
 sed -e 's/hookEventName: "PreToolUse", //' "$ROOT/scripts/spec-register-guard-hook.sh" > "$GV/bare-guard.sh"
+# Since spec 083 the guards print through guard-lib.sh, so the field is stripped there too.
+sed -e 's/"hookEventName":"PreToolUse",//' "$ROOT/scripts/guard-lib.sh" > "$GV/guard-lib.sh"
+cp "$ROOT/scripts/hook-notice.sh" "$GV/"
 P="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$GV/src/a.ts\"}}"
 # The CLI reads stdout JSON only on exit 0; a deny that exits 1 is not a deny.
 O1=$(printf '%s' "$P" | bash "$ROOT/scripts/spec-register-guard-hook.sh" 2>/dev/null); RC1=$?
@@ -361,7 +366,8 @@ V2=$(hook_verdict "$(printf '%s' "$P" | bash "$GV/bare-guard.sh" 2>/dev/null)")
 # resolves the active row through spec_active.py next to it, so the copy gets one.
 mkdir -p "$GV/specs" "$GV/g"
 printf '# Spec register\n\n## Specs\n\n- [ ] 001 — foo — full track — x\n' > "$GV/specs/INDEX.md"
-cp "$ROOT/scripts/spec_active.py" "$GV/g/"
+cp "$ROOT/scripts/spec_active.py" "$ROOT/scripts/hook-notice.sh" "$GV/g/"
+cp "$GV/guard-lib.sh" "$GV/g/"
 sed -e 's/hookEventName: "PreToolUse", //' -e '/"hookEventName": "PreToolUse",/d' \
   "$ROOT/scripts/pipeline-state-guard-hook.sh" > "$GV/g/pipeline-state-guard-hook.sh"
 V3=$(hook_verdict "$(printf '%s' "$P" | CLAUDE_PROJECT_DIR="$GV" bash "$ROOT/scripts/pipeline-state-guard-hook.sh" 2>/dev/null)")

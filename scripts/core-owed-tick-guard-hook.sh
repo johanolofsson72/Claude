@@ -49,8 +49,8 @@
 #
 # Silent (edit proceeds, nothing emitted) when:
 #   - the target is not <something>/specs/INDEX.md
-#   - the written bytes contain no `- [x]` (adding a row, marking `- [/]`, fixing prose, archiving
-#     history — none of those is the event this gate is about, and blocking `- [/]` in particular
+#   - no row id becomes [x] (adding a row, marking `- [/]`, fixing prose, archiving history,
+#     rewording a ticked row — none of those is the event this gate is about, and blocking `- [/]` in particular
 #     would block the repair path, since marking a row in progress is what you do ON THE WAY to
 #     fixing what is owed)
 #   - ALLOW_TICK_WITH_CORE_OWED=1 (deliberate override; says so rather than hiding)
@@ -72,12 +72,25 @@ INPUT=$(cat)
 # scan than jq takes to start), so a large payload skips this and pays exactly what it paid before.
 if [ "${#INPUT}" -le 4096 ]; then
   case "$INPUT" in
-    *specs/INDEX.md*) ;;
+    *INDEX.md*) ;;
     *) exit 0 ;;
   esac
 fi
-FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# FAILS OPEN — AND SAYS SO (spec 083, R3; the rationale is "FAILS OPEN" above). Before 083 a missing
+# jq emptied FILE and the tick went through without a word (F044).
+if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"core-owed-tick-guard cannot load scripts/guard-lib.sh and ALLOWED this register edit unchecked. Re-run the template sync (it is in CORE_SCRIPTS)."}}'
+  exit 0
+fi
+FILE=$(guard_field .tool_input.file_path); FRC=$?
+if [ "$FRC" -ne 0 ]; then
+  guard_announce core-owed-tick-guard "$(guard_cause "$FRC")"
+  exit 0
+fi
 [ -z "$FILE" ] && exit 0
+FILE=$(guard_canon "$FILE")          # spec 083, R4: specs/../specs/INDEX.md is the register too
 
 # ------------------------------------------------------------------- cheap pre-filter
 # First, because it rejects every edit in the repository but one file, and this hook must cost
@@ -88,28 +101,87 @@ case "$FILE" in
 esac
 
 # ------------------------------------------------------------------- is it a tick?
-# Edit carries new_string, Write carries content, MultiEdit carries an edits array. A tick is
-# textually `- [x]` at the start of a register row; the format is fixed by
-# .claude/rules/spec-register.md and three existing guards already parse it.
+# A tick is a register row whose status BECOMES [x] (spec 083, R6, F042). This used to look for
+# `- [x]` at the start of a line in the written strings, and an Edit whose old_string and new_string
+# began at the bracket — `[ ] 005` -> `[x] 005`, with the `- ` outside both — ticked unseen. So the
+# edit is applied to the current register, the way core-machinery-guard applies one (split/join,
+# first occurrence or replace_all, no offsets), and the row ids marked [x] before and after are
+# compared. Rewording an already-ticked row (archive-completed-rows.sh shortens them) changes no id's
+# status and is not a tick.
 #
-# EMPTY IS NOT "NO". The Bash delegate (scripts/bash-write-guard-hook.sh) synthesises
+# When the result cannot be computed — no python3, a register that is not there, an old_string that
+# is not in it — any `[x]` anywhere in the written strings counts: the conservative reading, which
+# can only add denies, never remove one.
+#
+# EMPTY IS NOT "NO". The Bash delegate (scripts/bash-write-guard-hook.sh) usually synthesises
 # {"tool_input":{"file_path": ...}} and has no content to give — it extracts write TARGETS from a
 # command string, not the bytes. Treating absent content as "not a tick" would make `sed -i` the
 # silent route past this gate, which is the exact defect row H7b was opened to remove: 56 register
 # rows shipped through the shell past three guards that denied every Edit. So no content means the
 # guard answers about the FILE, and the reason says it is doing that.
-NEW=$(printf '%s' "$INPUT" | jq -r '
-  [ .tool_input.new_string?, .tool_input.content?, (.tool_input.edits[]?.new_string?) ]
-  | map(select(. != null)) | join("\n")' 2>/dev/null)
+TICK=$(GUARD_INPUT="$INPUT" HOOK_DIR="$HOOK_DIR" python3 - "$FILE" <<'TICKPY' 2>/dev/null
+import json, os, re, sys
+
+# The resolver's own row grammar (adversarial review #9): a second copy here disagreed with it about
+# `**083**` and a non-breaking space, so a row the resolver read as ticked was invisible to this
+# guard. A register line is matched stripped, exactly as spec_active._rows() matches it.
+sys.path.insert(0, os.environ["HOOK_DIR"])
+from spec_active import ROW_RE
+
+def ticked(text):
+    out = set()
+    for line in text.splitlines():
+        m = ROW_RE.match(line.strip())
+        if m and m.group(1) in "xX":
+            out.add(m.group(2).strip("* "))
+    return out
+
+def apply(text, e):
+    old, new = e.get("old_string"), e.get("new_string")
+    if not isinstance(old, str) or old == "" or not isinstance(new, str):
+        raise ValueError("unusable edit")
+    if e.get("replace_all") is True:
+        return text.replace(old, new)
+    if old not in text:
+        raise ValueError("old_string not found")
+    return text.replace(old, new, 1)
+
+try:
+    t = json.loads(os.environ["GUARD_INPUT"]).get("tool_input") or {}
+    try:
+        with open(sys.argv[1], encoding="utf-8", newline="") as f:
+            cur = f.read()
+    except OSError:
+        cur = None
+    if isinstance(t.get("content"), str):
+        after = t["content"]
+    elif isinstance(t.get("edits"), list) and cur is not None:
+        after = cur
+        for e in t["edits"]:
+            after = apply(after, e)
+    elif "old_string" in t and cur is not None:
+        after = apply(cur, t)
+    else:
+        raise ValueError("no bytes")
+    print("tick" if ticked(after) - ticked(cur or "") else "none")
+except Exception:
+    print("unknown")
+TICKPY
+)
+NEW=$(guard_field .tool_input.new_string)$(guard_field .tool_input.content)$(guard_field .tool_input.edits)
 CONTENT_SEEN=0
-if [ -n "$NEW" ]; then
-  CONTENT_SEEN=1
-  # A here-string, not a pipeline into grep -q. The register can be tens of kilobytes and grep -q
-  # exits at the first match; scripts/validate-no-sigpipe-assertions.sh exists because that shape
-  # returns 141 under pipefail once the tail fills the pipe buffer. This hook sets no pipefail
-  # today, which is exactly the kind of thing that changes underneath a file later.
-  grep -qE '^[[:space:]]*- \[x\]' <<< "$NEW" || exit 0
-fi
+[ -n "$NEW" ] && CONTENT_SEEN=1
+case "$TICK" in
+  tick) ;;
+  none) exit 0 ;;
+  *)
+    # Unknown: the written strings decide, conservatively. A here-string, not a pipe into grep -q
+    # (scripts/validate-no-sigpipe-assertions.sh: grep -q under pipefail returns 141 on long input).
+    if [ "$CONTENT_SEEN" -eq 1 ]; then
+      grep -q '\[[xX]\]' <<< "$NEW" || exit 0
+    fi
+    ;;
+esac
 
 # ------------------------------------------------------------------- the override
 # An environment variable rather than anything settable inside the edit, because the failure mode to
@@ -117,7 +189,7 @@ fi
 # which lands the owed work is itself a tick made while the work is still owed — so the way through
 # exists; it is just not quiet.
 if [ "${ALLOW_TICK_WITH_CORE_OWED:-0}" = "1" ]; then
-  jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: "core-owed-tick-guard: ALLOW_TICK_WITH_CORE_OWED=1 is set, so the register tick proceeds. If this project still owes the template CORE work, the next sync overwrites it — land it in the template, or it is gone."}}' 2>/dev/null
+  guard_context "core-owed-tick-guard: ALLOW_TICK_WITH_CORE_OWED=1 is set, so the register tick proceeds. If this project still owes the template CORE work, the next sync overwrites it — land it in the template, or it is gone."
   exit 0
 fi
 
@@ -125,7 +197,7 @@ fi
 DIR=$(dirname "$FILE")
 ROOT=""
 while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
-  if [ -d "$DIR/.git" ]; then ROOT="$DIR"; break; fi
+  if [ -e "$DIR/.git" ]; then ROOT="$DIR"; break; fi   # a worktree's .git is a file (spec 083)
   DIR=$(dirname "$DIR")
 done
 [ -n "$ROOT" ] || exit 0
@@ -160,12 +232,19 @@ elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 15"; fi
 # about the session's repository instead of the file's. They are usually the same and then this
 # changes nothing; when they differ, the old form asked the wrong repository whether work was owed.
 # Same shape template-autosync-hook.sh already uses. Spec 010 (consultpilot H7bm).
-OWED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --owed 2>/dev/null)
-[ $? -eq 0 ] || OWED=""
-UNLISTED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --unlisted 2>/dev/null)
-[ $? -eq 0 ] || UNLISTED=""
+OWED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --owed 2>/dev/null); ORC=$?
+[ "$ORC" -eq 0 ] || OWED=""
+UNLISTED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --unlisted 2>/dev/null); URC=$?
+[ "$URC" -eq 0 ] || UNLISTED=""
 
-[ -n "$OWED" ] || [ -n "$UNLISTED" ] || exit 0
+if [ -z "$OWED" ] && [ -z "$UNLISTED" ]; then
+  # 1 is an answer (nothing owed). Anything else is the sync failing to answer: the tick still goes
+  # through (fail-open, above), but it says so (spec 083, GAP-1 from /tla).
+  if [ "$ORC" -gt 1 ] || [ "$URC" -gt 1 ]; then
+    guard_announce core-owed-tick-guard "template-autosync.sh --owed/--unlisted did not answer (exit $ORC/$URC; 124 is the 15 s timeout)"
+  fi
+  exit 0
+fi
 
 # ------------------------------------------------------------------- the refusal
 # The two families are rendered under separate headings because they need different repairs: one is
@@ -191,7 +270,7 @@ shipped cannot differ from anything. Add them to CORE_SCRIPTS in the template.
 fi
 
 if [ "$CONTENT_SEEN" -eq 1 ]; then
-  SCOPE="This edit ticks a register row (\`- [x]\`)."
+  SCOPE="This edit ticks a register row: a row id that is not [x] now would be [x] after it."
 else
   SCOPE="This write targets specs/INDEX.md through the shell, where the guard sees the target path but
 not the bytes — so it cannot tell a tick from any other register edit and answers about the file.
@@ -225,5 +304,5 @@ only the tick. Marking a row in progress is what you do on the way to fixing thi
 If the tick you are making IS the one that closes the spec which lands this work, set
 ALLOW_TICK_WITH_CORE_OWED=1 for the session. It says so in the transcript rather than passing quietly."
 
-jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+guard_deny "$REASON"
 exit 0

@@ -515,6 +515,7 @@ if want noresolver && [ "$EXPECT_PREFIX" -eq 0 ]; then
   echo "FIXTURE noresolver — spec_active.py missing: the unchanged resolver-failure text"
   BARE="$WORK/bare-guards"; mkdir -p "$BARE"
   cp "$GUARD_STATE" "$GUARD_INTERVIEW" "$BARE/"
+  cp "$(dirname "$GUARD_STATE")/guard-lib.sh" "$(dirname "$GUARD_STATE")/hook-notice.sh" "$BARE/"   # spec 083
   ROOT=$(make_fixture noresolver '# Spec register
 
 ## Specs

@@ -96,13 +96,30 @@ INPUT=$(cat 2>/dev/null || true)
 
 HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
+# FAILS OPEN — AND SAYS SO (spec 083, R3). This hook sits in front of every Bash call, so a parse
+# failure here that denied would stop the shell itself, including the command that installs jq. It
+# allows. Until 083 it allowed in silence at two places (F044: no jq at the field read, a crashed
+# extractor at the parse); both now announce through guard_announce, once per session per cause.
+if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"bash-write-guard cannot load scripts/guard-lib.sh and ALLOWED this command unchecked. Re-run the template sync (it is in CORE_SCRIPTS)."}}'
+  exit 0
+fi
+
 # One jq for the three fields, not one per field (spec 073, R9): every Bash call pays for this line.
 # @sh quotes each value for the shell, so the eval assigns exactly the strings jq read and nothing in a
 # command can escape its quotes. `$(jq -r …)` used to strip trailing newlines from each value; the loop
-# below does the same, so CMD and CWD are the strings they always were.
-FIELDS=$(printf '%s' "$INPUT" | jq -r '@sh "CMD=\(.tool_input.command // "") CWD=\(.cwd // "") TUID=\(.tool_use_id // "")"' 2>/dev/null) || exit 0
+# below does the same, so CMD and CWD are the strings they always were. Without jq, guard_field reads
+# them one at a time through python3 — slower, and only on a machine that has no jq.
 CMD=""; CWD=""; TUID=""
-eval "$FIELDS"
+if [ "$GUARD_PARSER" = jq ]; then
+  FIELDS=$(printf '%s' "$INPUT" | jq -r '@sh "CMD=\(.tool_input.command // "") CWD=\(.cwd // "") TUID=\(.tool_use_id // "")"' 2>/dev/null) \
+    || { guard_announce bash-write-guard "$(guard_cause 4)"; exit 0; }
+  eval "$FIELDS"
+else
+  CMD=$(guard_field .tool_input.command); FRC=$?
+  [ "$FRC" -eq 0 ] || { guard_announce bash-write-guard "$(guard_cause "$FRC")"; exit 0; }
+  CWD=$(guard_field .cwd); TUID=$(guard_field .tool_use_id)
+fi
 NL='
 '
 while [ "${CMD%"$NL"}" != "$CMD" ]; do CMD="${CMD%"$NL"}"; done
@@ -248,7 +265,7 @@ fi
 # eval word — ` -r` alone matched every `grep -rn`, and `eval` matched every `--eval`-less mention.
 NEED_PARSE=$INTERP
 case "$FD_FREE" in *">"*) NEED_PARSE=1 ;; esac
-case "$CMD" in *sed*|*tee*|*cp*|*mv*|*"<<"*) NEED_PARSE=1 ;; esac
+case "$CMD" in *sed*|*tee*|*cp*|*mv*|*"<<"*|ln\ *|*[\ \;\&\|/]ln\ *) NEED_PARSE=1 ;; esac   # ln: spec 083
 [ "$NEED_PARSE" -eq 1 ] || exit 0
 
 # ---------------------------------------------------------------------------
@@ -257,8 +274,9 @@ case "$CMD" in *sed*|*tee*|*cp*|*mv*|*"<<"*) NEED_PARSE=1 ;; esac
 #    One python start for all four lists (spec 073): extract, extract --all, --opaque, --opaque --all
 #    used to be four, and a python start is the most expensive thing this hook does.
 # ---------------------------------------------------------------------------
-COMBINED=$(CMD_TEXT="$CMD" CWD_PATH="${CWD:-$PWD}" python3 "$HOOK_DIR/bash_write_targets.py" --combined 2>/dev/null) || exit 0
-TARGETS=""; ALLRAW=""; OPAQUE=""; OALLRAW=""; OPAQUE_FAILED=0; _sec=""
+COMBINED=$(CMD_TEXT="$CMD" CWD_PATH="${CWD:-$PWD}" python3 "$HOOK_DIR/bash_write_targets.py" --combined 2>/dev/null) \
+  || { guard_announce bash-write-guard "the write-target extractor (python3 scripts/bash_write_targets.py) did not run"; exit 0; }
+TARGETS=""; ALLRAW=""; OPAQUE=""; OALLRAW=""; COPIES=""; OPAQUE_FAILED=0; _sec=""
 while IFS= read -r _l; do
   case "$_l" in
     "@@ opaque-failed") OPAQUE_FAILED=1; continue ;;
@@ -269,6 +287,7 @@ while IFS= read -r _l; do
     extract-all)  ALLRAW="$ALLRAW$_l$NL" ;;
     opaque)       OPAQUE="$OPAQUE$_l$NL" ;;
     opaque-all)   OALLRAW="$OALLRAW$_l$NL" ;;
+    copy)         COPIES="$COPIES$_l$NL" ;;
   esac
 done <<EOF
 $COMBINED
@@ -298,7 +317,7 @@ Two caps because there are two questions. The three pipeline guards decide from 
 Past either cap it stops rather than guessing: waving a write through unmeasured is the exact failure this guard exists to remove.
 
 Split the command into smaller writes, or make the edits with the Edit tool, which is gated the same way one file at a time."
-  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+  guard_deny "$REASON"
   exit 0
 fi
 
@@ -344,7 +363,7 @@ The guard's own reason follows.
 
 ────────────────────────────────────────────────────────────
 ${INNER}"
-    jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+    guard_deny "$REASON"
     exit 0
   fi
     # The provenance line has to be true, and there are two different truths here. The pipeline guards
@@ -388,23 +407,47 @@ The gate is the same one Edit/Write/MultiEdit have always passed through; before
 ${INNER}"
         ;;
     esac
-  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+  guard_deny "$REASON"
   exit 0
+}
+
+# The synthetic payload a delegate is asked with. Path only — except for a cp whose single source is
+# a regular file (spec 083, R7, F035): then the source's bytes go along as `content`, exactly as a
+# Write would carry them, so core-machinery's byte-identity check (spec 039) can pass a copy of the
+# template's own file. The bytes are read now; the cp runs after this hook, from the same file.
+payload_for() {     # $1 = target path
+  local target="$1" src="" line
+  if [ -n "$COPIES" ]; then
+    while IFS= read -r line; do
+      [ "${line#*$'\t'}" = "$target" ] && { src="${line%%$'\t'*}"; break; }
+    done <<EOF
+$COPIES
+EOF
+  fi
+  if [ -n "$src" ] && [ -f "$src" ]; then
+    case "$GUARD_PARSER" in
+      jq) jq -n --arg p "$target" --rawfile c "$src" '{tool_input: {file_path: $p, content: $c}}' 2>/dev/null && return 0 ;;
+      python3) python3 -c 'import json,sys
+c = open(sys.argv[2], "rb").read().decode("utf-8", "replace")
+print(json.dumps({"tool_input": {"file_path": sys.argv[1], "content": c}}))' "$target" "$src" 2>/dev/null && return 0 ;;
+    esac
+  fi
+  printf '{"tool_input":{"file_path":%s}}' "$(guard_json_str "$target")"
 }
 
 # Ask one guard list about one list of paths. First deny wins and never returns.
 ask_list() {        # $1 = newline-separated paths, $2... = guard filenames
   local paths="$1"; shift
   [ -z "$paths" ] && return 0
-  local target guard OUT INNER
+  local target guard OUT INNER PAYLOAD
   while IFS= read -r target; do
     [ -z "$target" ] && continue
+    PAYLOAD=$(payload_for "$target")
     for guard in "$@"; do
       [ -f "$HOOK_DIR/$guard" ] || continue
-      OUT=$(printf '{"tool_input":{"file_path":%s}}' "$(jq -Rn --arg p "$target" '$p')" \
-              | bash "$HOOK_DIR/$guard" 2>/dev/null)
+      OUT=$(printf '%s' "$PAYLOAD" | bash "$HOOK_DIR/$guard" 2>/dev/null)
       [ -z "$OUT" ] && continue
-      INNER=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
+      INNER=$(guard_field .hookSpecificOutput.permissionDecisionReason "$OUT" 2>/dev/null)
       [ -z "$INNER" ] && continue
       emit_and_exit "$guard" "$target" "$INNER"
     done
@@ -436,7 +479,10 @@ ask_list "$REPS" $PATH_GUARDS
 #
 #    Silent when the region names nothing guarded, which is the overwhelming majority of one-liners.
 # ---------------------------------------------------------------------------
-[ "$OPAQUE_FAILED" -eq 1 ] && exit 0      # the separate --opaque process used to fail here: allow
+if [ "$OPAQUE_FAILED" -eq 1 ]; then      # the opaque scan crashed: allow, and say so (spec 083, R3)
+  guard_announce bash-write-guard "the opaque-interpreter scan of the extractor failed"
+  exit 0
+fi
 OREPS=$(printf '%s\n' "$OPAQUE" | sed '1d' | sed '/^$/d')
 [ -z "$OREPS" ] && exit 0
 OALLP=$(printf '%s' "$OALLRAW" | sed '1d' | sed '/^$/d')

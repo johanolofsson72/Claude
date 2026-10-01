@@ -49,11 +49,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Read|Edit|Write",
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); if [ \"${#INPUT}\" -le 4096 ]; then case \"$INPUT\" in *.ssh/*|*.aws/*|*.azure/*|*.git-credentials*|*.docker/config.json*|*.config/gh/*|*.env*) ;; *) exit 0 ;; esac; fi; FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sensitive-file-guard-hook.sh\""
           }
         ]
       },
@@ -102,6 +102,15 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/bash-write-guard-hook.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/destructive-command-guard-hook.sh\""
           }
         ]
       },
