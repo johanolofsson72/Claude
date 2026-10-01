@@ -1,124 +1,81 @@
 # CLAUDE.md
 
+Long form (the reasoning behind each line below): `.claude/docs/claude-md-rationale.md`.
+
 ## Critical rules (READ FIRST)
 
-Rules tagged **(BLOCKING)** are enforced — by hooks (some are hard PreToolUse denies, some are advisory reminders or interviews you MUST act on) and by the Definition of Done. They are requirements, not suggestions. The rest are strong defaults. (Markers are scarce on purpose: when everything is "ALWAYS", nothing is.)
+**(BLOCKING)** rules are enforced by hooks and by the Definition of Done. The rest are strong defaults.
 
-- Read the code first — base conclusions on evidence, never assumptions. Read relevant files BEFORE answering about the codebase; never guess.
-- Use the Edit tool for surgical changes — never copy whole files.
-- Verify with `dotnet build` + `dotnet test` before claiming anything is "done".
-- Follow existing patterns — look at similar components first.
-- **(BLOCKING)** Non-trivial feature/refactor/fix → run the full pipeline as **one task** (`specify → interview → clarify → elicit → plan → tasks → analyze → implement → converge → simplify → tests → tla`); no permission stops between phases. `interview` and `clarify` run on all tracks; `elicit` on full/light only. Trivial-fix bypass needs an explicit one-sentence classification. See `.claude/rules/feature-pipeline.md`.
-- **(BLOCKING)** Spec interview — **every** spec, right after `specify` and before `clarify`, carries a **15–25 question** anti-drift interview recorded in `<spec-dir>/interview.md`; the `spec-interview-guard` hook hard-blocks source edits until ≥15 are answered. **Default is AUTO:** Claude auto-answers the base with the recommended option (tagged `**A (auto):**`), escalating only genuinely-ambiguous questions to the developer, and — when it judges the spec **large/advanced** (hardened triggers) — asks the developer the **overflow** questions the complexity demands. A project can force fully-human answering with `SPEC_INTERVIEW_MODE=manual`. See `.claude/rules/spec-interview.md`.
-- **(BLOCKING)** Before feature work, consult the spec register `specs/INDEX.md`; work the next unchecked spec end-to-end (pipeline → commit → push → tick), then stop with the status summary. See `.claude/rules/spec-register.md`.
-- **(BLOCKING)** Hardening — a spec that crosses a risk threshold (auth / payments / PII / upload / new external surface, full-track state machine, new entity or ≥6 files, or tagged `[hardened]`) runs the **hardened tier**: the full pipeline **plus** threat-model pass, expanded destructive + stress, a hard mutation-kill gate, and an adversarial review. Every 5 completed specs, work an **integration-hardening checkpoint** (register row: full-system regression + security sweep). Full-track and hardened specs **start in a fresh session** — when the SessionStart banner says so, run `/clear` first (a hook cannot clear context for you). See `.claude/rules/spec-hardening.md`.
-- **(BLOCKING)** Carve budget — the register has to **converge**. A finding is **recorded, not rowed**: `scripts/finding.sh --add` puts it in `specs/FINDINGS.md`, and every **5 ticked specs** the open findings are presented as one batch for a per-finding decision — fix, row, or drop. Only that review grows the register. An immediate carve is the exception (ceiling 2, never past depth 2), and the expected number for an ordinary spec is **zero**. A harness/tooling defect goes to the template repo, not to a product register. `scripts/register-convergence.sh` measures the carve ratio; at ≥1.3 over 10+ ticked rows it is a **convergence stop**. See `.claude/rules/carve-budget.md`.
-- **(BLOCKING)** Keep the scenario map `specs/SCENARIOS.md` current — a diagram-led, surveyable exploded view (Mermaid use-case diagram + per-feature user-flow flowchart + SC-id ledger; journey/wireflow/storyboard on-demand). A gap or drift → **start a scenario interview**, never invent the missing cases silently. See `.claude/rules/scenarios.md`.
-- **(BLOCKING)** Invoke the `frontend-design` skill BEFORE writing any UI code (HTML/CSS/JS, React Native / Flutter widgets).
-- **(BLOCKING)** Run generated human-facing text through the `humanizer` skill before delivering (docs, commits, PRs, email, README).
-- **(BLOCKING)** Testing — every behaviour-changing feature gets **unit + integration + E2E** (integration is where AI code most often breaks), **PBT** for wide-input logic, **visual-regression** baselines for UI, and a functional test for **every** implemented function. The destructive suite is **sized per interactive function from its input domain** (toggle ~3 → multi-step/auth ~20-30+), NOT a flat quota. The **mutation kill rate** (Stryker, nightly/on-demand, ~80% on critical modules) is the gate — test count is not. See `.claude/docs/testing.md` + `.claude/rules/scenarios.md`.
+- Read the code first. Base conclusions on evidence, and read the relevant files BEFORE answering about the codebase.
+- Use Edit for surgical changes. Follow existing patterns. Verify with `dotnet build` + `dotnet test` before claiming done.
+- **(BLOCKING)** Non-trivial work runs the full pipeline as **one task**, with no permission stops between phases. A trivial-fix bypass needs an explicit one-sentence classification. → `.claude/rules/feature-pipeline.md`
+- **(BLOCKING)** Every spec gets a **15–25 question** interview in `<spec-dir>/interview.md` before `clarify`, AUTO-answered by default. Full/hardened specs also carry 3–5 developer-confirmed acceptance cases. → `.claude/rules/spec-interview.md`
+- **(BLOCKING)** Before feature work, consult `specs/INDEX.md`. Work the next unchecked spec end to end (pipeline → commit → push → tick), then stop with the status summary. → `.claude/rules/spec-register.md`
+- **(BLOCKING)** A spec that crosses a risk threshold runs the **hardened tier**. Every 5 specs, run an integration checkpoint. Full and hardened specs start after `/clear`. → `.claude/rules/spec-hardening.md`
+- **(BLOCKING)** Carve budget: a finding is **recorded, not rowed** (`scripts/finding.sh --add`). → `.claude/rules/carve-budget.md`
+- **(BLOCKING)** Keep the scenario map `specs/SCENARIOS.md` current. A gap or drift → **scenario interview**, never invent cases. → `.claude/rules/scenarios.md`
+- **(BLOCKING)** Invoke the `frontend-design` skill BEFORE writing any UI code.
+- **(BLOCKING)** Run generated human-facing text (docs, commits, PRs, email, README) through the `humanizer` skill.
+- **(BLOCKING)** Testing: **unit + integration + E2E**, **PBT** for wide-input logic, **visual regression** for UI, one functional test per function, a destructive suite **sized per function**. The **mutation kill rate** is the gate. → `.claude/docs/testing.md`
 
-## Execution mode
+## Execution mode (autonomous)
 
-### Autonomous mode (NON-INTERACTIVE)
-
-- Act immediately without waiting for confirmation.
-- Missing information is not a blocker — make reasonable assumptions and continue.
-- Errors should be handled and fixed independently.
-- Questions are allowed ONLY for architecture decisions or requirement interpretations that cannot reasonably be assumed.
-- **Max 3 attempts per problem** — if the same approach fails 3 times, run `/clear` and try a completely different strategy with a better prompt. Enforced: `scripts/repeat-failure-guard-hook.sh` counts consecutive failures of the same verification command and fires at 3 ("change strategy, not syntax"), escalating at 5 ("this is a blocker — surface it"). It classifies every run into **three** states, not two (H6s): a recognized failure counts up, a recognized success resets, and a run it cannot classify — or a payload it cannot read — leaves the failure counter **untouched** and counts on a separate streak that fires its own weaker nudge ("I cannot tell whether this passed") at the same limit.
-
-### Anti-stall rule
-
-If no clear task is found — pick the most likely task and act. Stagnation is treated as failure.
-
-### Hook recovery rule
-
-When a hook stops continuation or provides feedback: acknowledge the feedback, handle it (fix the issue OR explain why it's not applicable), and **continue working autonomously**. Never stop and wait silently after hook feedback — that is treated as stalling.
-
-### Interview pattern
-
-For larger features: interview the developer with `AskUserQuestion` before implementation. Ask about technical implementation, edge cases, and tradeoffs. Then write a spec before coding begins.
+- Act without waiting for confirmation. Missing information is not a blocker: assume reasonably and continue. Fix errors yourself.
+- Ask only about architecture or requirement interpretations that cannot reasonably be assumed.
+- **Max 3 attempts per problem**, then `/clear` and try a different strategy. `scripts/repeat-failure-guard-hook.sh` enforces this.
+- **Anti-stall:** with no clear task, pick the most likely one and act.
+- **Hook feedback:** acknowledge it, handle it (fix it, or explain why it does not apply), and keep working. Never stop silently.
+- **Larger features:** interview the developer (`AskUserQuestion`), then write a spec before coding.
 
 ## Priority order
 
-1. **Security** — never compromise
-2. **Correctness** — the code must do the right thing
-3. **Simplicity** — minimum necessary complexity
-4. **Readability** — clear code over clever code
-5. **Performance** — optimize only when needed
+1. Security 2. Correctness 3. Simplicity 4. Readability 5. Performance (optimize only when needed)
 
 ## Project description
 
-This is a **template repo for Claude Code configuration** — a reusable set of rules, agents, hooks, and skills for .NET/fullstack projects. The repo is copied as a starting point for new projects.
-
-> **On project start:** Fill in core principles, architecture, and dev environment in `.claude/docs/project-template.md`
+A **template repo for Claude Code configuration**: rules, agents, hooks and skills for .NET/fullstack projects, copied as the starting point for new projects. On project start, fill in `.claude/docs/project-template.md`.
 
 ## Language
 
-- Communicate in **English** in conversations, commit messages, and documentation.
-- Code, variable names, and technical terms are written in **English**.
-- Comments in code are written in **English**.
+Conversation, commits and docs in **English**. Code, identifiers and comments in **English**.
 
 ## Tech stack
 
-- **.NET** (Web API, Blazor, MVC, Razor Pages) — latest stable version
-- **React** (first choice for frontend in new projects) — built to wwwroot in the .NET project for a single Docker image
-- **SQLite** as database (unless otherwise specified)
+- **.NET** (Web API, Blazor, MVC, Razor Pages), latest stable
+- **React** (first choice for new frontends), built to wwwroot for a single Docker image
+- **SQLite** unless otherwise specified
 - **WordPress** (PHP, themes, plugins)
-- **HTML, CSS, JavaScript, jQuery** (legacy projects / simpler pages)
+- **HTML, CSS, JavaScript, jQuery** (legacy and simpler pages)
 
 ## CI/CD and deployment
 
-Docker Swarm cluster on Azure (live4.se). For IP addresses, pipeline, commands, and checklist, see `.claude/docs/deployment.md`
+Docker Swarm on Azure (live4.se). → `.claude/docs/deployment.md`
 
 ## Workflow
 
-### Complexity assessment
+Trivial (one file, obvious) → do it. Medium (2–5 files) → brief plan, then do it. Complex → explore and plan first.
+Explore → Plan → Implement → Verify (all tests) → Commit `<type>: <description>` (→ `.claude/docs/git.md`).
 
-- **Trivial** (one file, obvious fix) → execute immediately
-- **Medium** (2-5 files, clear scope) → brief planning, then execute
-- **Complex** (architecture impact, unclear requirements) → full exploration and plan first
+## Definition of "implemented"
 
-### Plan → Implement → Verify
+Never say "implemented" or "done" until:
 
-1. **Explore** — read existing code, understand patterns and dependencies.
-2. **Plan** — for medium/complex: use Plan Mode (Shift+Tab) to write a plan before implementation.
-3. **Implement** — switch to Normal Mode, write code according to the plan. Follow existing patterns.
-4. **Verify** — run all tests, typecheck, confirm everything works.
-5. **Commit** — commit in English: `<type>: <description>` (feat/fix/refactor/test/docs/style/chore). Details in `.claude/docs/git.md`
+1. The spec's scenarios are in `specs/SCENARIOS.md` and `✓ validated` at runtime, with all four states proven: success, a specific visible **error**, empty, loading.
+2. **Unit + integration** tests pass (`dotnet test`). **PBT** where the input is wide.
+3. **E2E** passes (`dotnet test --filter "Category=UI"`).
+4. UI: one functional test per function, a destructive suite per interactive function sized to its input domain, and visual-regression baselines.
+5. **Mutation kill rate** on the changed critical modules meets the target (`dotnet stryker`, ~80%).
+6. UI: `/tla` has run (full/light tracks).
+7. Validated locally before any deploy: clean build, full suite green, runs in local dev AND `docker compose up`.
+8. Web: visually verified in the browser.
 
-## Verification and grounding
-
-> Giving Claude ways to verify its own work is the single most important measure for quality. — Anthropic Best Practices
-
-- **IMPORTANT:** ALWAYS read relevant files BEFORE answering about the codebase. NEVER guess.
-- Run tests after every implementation.
-- Run individual tests over the full suite for faster feedback.
-
-### Definition of "implemented"
-
-NEVER say something is "implemented" or "done" until:
-
-1. This spec's scenarios are in `specs/SCENARIOS.md` AND marked `✓ validated` — each one observed *actually working at runtime* (real behaviour, not a stub), with all four states proven: success, a specific visible **error** message (never silent — a failed login must say why), empty, loading. Validate prerequisite scenarios first; a broken prerequisite is a hard stop. See `.claude/rules/scenarios.md`.
-2. **Unit + integration tests** pass (`dotnet test`) — both layers, not just one. Integration is where AI code most often fails (units pass, the seams don't). **PBT** added for wide-input logic.
-3. **E2E tests** pass (`dotnet test --filter "Category=UI"`).
-4. For UI features: **functional coverage** for EVERY implemented function (1 test each), PLUS a **destructive suite per interactive function sized to its input domain** (toggle ~3 → multi-step/auth ~20-30+, not a flat quota), PLUS **visual-regression** baselines for the key states.
-5. **Mutation kill rate** on the changed critical module(s) meets target (`dotnet stryker`, ~80%, nightly/on-demand — NOT per-push CI). This is the gate that proves the tests bite; a green suite that kills no mutants is not done.
-6. For UI features: **TLA+** has been run (`/tla`) — race conditions, state-machine gaps, missing invariants (full/light tracks; auto-triggered after tests).
-7. **Validated locally before any deploy** — `dotnet build` clean, full suite green, and the app runs in local dev AND in `docker compose up` (the artifact you ship is the container, so prove the container works).
-8. For web: **visually verified** in the browser. The code is assessed as **fully functional**.
-
-If tests cannot be run (missing infrastructure), say so explicitly.
+If tests cannot be run, say so explicitly.
 
 ## Context management
 
-- During compaction: ALWAYS preserve modified files, error messages verbatim, debugging steps, and test commands. Compaction instruction: `"When compacting, always preserve the full list of modified files and any test commands"`.
-- Use subagents for exploration and research — keep the main context clean.
-- Use `/clear` between unrelated tasks — never mix unrelated tasks in the same session.
-- Use `/compact <focus>` for controlled compaction, e.g., `/compact Focus on the API changes`.
-- Break down large tasks into discrete subtasks — never request 5+ features in one step.
-- After 2 failed fixes of the same problem: `/clear` and write a better prompt from scratch.
+- On compaction, keep the modified files, verbatim error messages, debugging steps and test commands.
+- Use subagents for exploration. `/clear` between unrelated tasks. `/compact <focus>` for controlled compaction.
+- After 2 failed fixes of the same problem: `/clear` and write a better prompt.
 
 ## Commands
 
@@ -132,48 +89,32 @@ dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"  # Single
 
 ## Principles
 
-- **YAGNI** — only build what is needed now. Three similar lines > premature abstraction.
-- **Fail fast** — clear error messages with context. Never silent fallbacks.
-- **DX** — code should be readable without comments. Good naming is usually enough.
+**YAGNI** (three similar lines beat a premature abstraction) · **Fail fast** (clear errors, no silent fallbacks) · **DX** (names over comments).
 
-## Reference files (loaded on demand)
+## Reference files (read when needed, never @-import)
 
-Read these files WHEN you need them — do not load everything upfront:
+| Need | File |
+|---|---|
+| Project start, architecture | `.claude/docs/project-template.md` |
+| Code style, naming, forbidden patterns | `.claude/docs/conventions.md` |
+| Security | `.claude/docs/security.md` |
+| Git | `.claude/docs/git.md` |
+| Hooks, subagents, sessions | `.claude/docs/workflows.md` |
+| Agents, skills | `.claude/docs/agents-templates.md`, `.claude/docs/skills.md` |
+| Tests, destructive checklist | `.claude/docs/testing.md`, `.claude/docs/spec-testing-checklist.md` |
+| Design references | `.claude/rules/design-references.md`, `.claude/docs/design-reference-library.md` |
+| Deploy, stress tests | `.claude/docs/deployment.md`, `.claude/docs/stress-testing.md` |
+| Local vs Claude cloud | `.claude/docs/workload-placement.md` |
+| Template auto-sync | `.claude/docs/template-autosync.md` |
+| Knowledge graph (opt-in) | `.claude/docs/graphify.md` |
+| Why a rule says what it says | `.claude/docs/<rule>-rationale.md` |
 
-- **New project start** or architecture questions → `.claude/docs/project-template.md`
-- **Code style, naming, forbidden patterns** → `.claude/docs/conventions.md`
-- **Security questions** (SQL injection, XSS, secrets) → `.claude/docs/security.md`
-- **Git commit/branch/PR** → `.claude/docs/git.md`
-- **Hooks, subagents, plugins, sessions** → `.claude/docs/workflows.md`
-- **Creating new agents** → `.claude/docs/agents-templates.md`
-- **Skills, SKILL.md format, Agent Skills standard** → `.claude/docs/skills.md`
-- **Tests (layers, risk-tiered destructive, PBT, VRT, mutation gate)** → `.claude/docs/testing.md`
-- **Spec testing checklist (destructive tests)** → `.claude/docs/spec-testing-checklist.md`
-- **Scenario map (`SCENARIOS.md`, gap/drift → interview)** → `.claude/rules/scenarios.md`
-- **Design references (decompile "feeling of Spotify" → primitives)** → `.claude/rules/design-references.md` + `.claude/docs/design-reference-library.md`
-- **Carve budget (the register has to converge; 2 carves/spec, depth 2, convergence stop)** → `.claude/rules/carve-budget.md`
-- **Feature pipeline (auto-trigger, end-to-end execution)** → `.claude/rules/feature-pipeline.md`
-- **Spec interview (15–25 questions per spec, auto-answered by default / human on flag, anti-drift hard gate)** → `.claude/rules/spec-interview.md`
-- **Spec register (one stop per spec, project-level rail)** → `.claude/rules/spec-register.md`
-- **Spec hardening (risk tier above full, integration checkpoints, /clear for big specs)** → `.claude/rules/spec-hardening.md`
-- **Template auto-sync (SessionStart, keeps projects current without `/project-update`)** → `.claude/docs/template-autosync.md`
-- **Deploy, Docker, CI/CD** → `.claude/docs/deployment.md`
-- **Stress testing (pre-deploy)** → `.claude/docs/stress-testing.md`
-- **Local machine vs Claude cloud (where heavy jobs run; measuring until row 075)** → `.claude/docs/workload-placement.md`
-- **Codebase knowledge graph (opt-in per project)** → `.claude/docs/graphify.md`
+Always-loaded context is capped at 40 KB (`bash scripts/context-budget.sh`). New explanation goes in a doc with a pointer, not in a rule.
 
 ## File organization
 
-- **`scripts/`** — Maintenance scripts (`update-template.sh` to keep the template repo updated, `sync-prompt.md` with prompt for syncing other projects).
-- **`.claude/skills/`** — Project skills with SKILL.md (allium, code-review, deploy-checklist, explore-codebase, sync-template, tla, update-template). Follows the Agent Skills standard (agentskills.io).
-- **`.claude/agents/`** — Subagents (dotnet-reviewer, security-scanner, test-runner, db-agent). Supports `isolation: worktree`, `background`, `hooks` in frontmatter.
-- **`.claude/rules/`** — Rules auto-loaded every session. Supports path-scoping with YAML frontmatter.
-- **`.claude/docs/`** — Reference material loaded on demand. Reference WITHOUT `@` prefix to avoid auto-expansion.
-- **`CLAUDE.local.md`** — Personal project settings not committed (auto-gitignored).
+`scripts/` maintenance and hook scripts · `.claude/skills/` project skills (Agent Skills standard) · `.claude/agents/` subagents · `.claude/rules/` auto-loaded rules (path-scoped by frontmatter) · `.claude/docs/` on-demand reference · `CLAUDE.local.md` personal settings (gitignored).
 
 ## Iterative improvement
 
-- If the same mistake repeats: suggest a new rule for CLAUDE.md or a hook that prevents it.
-- Every code review comment is a signal that the agent lacked context — update CLAUDE.md.
-- Edit existing files over creating new ones.
-- Keep this file focused — if an instruction can be removed without Claude making errors, remove it.
+A repeated mistake → propose a rule or a hook. A review comment means missing context → update this file. Edit existing files rather than creating new ones. Keep this file focused.

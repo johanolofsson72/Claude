@@ -424,6 +424,20 @@ if [ -f scripts/allium-census.sh ] && ls specs/*/spec.allium >/dev/null 2>&1; th
   esac
 fi
 
+# ------------------------------------------- 3g. always-loaded context budget
+# CLAUDE.md + unscoped rules load into every session before the first prompt (spec 081). A
+# project's own CLAUDE.md is its business, so this is a note, never a failure; the template's own
+# ratchet lives in test-context-budget.sh.
+if [ -f scripts/context-budget.sh ]; then
+  BUDGET_OUT=$(bash scripts/context-budget.sh 2>&1); BUDGET_RC=$?
+  BUDGET_TOTAL=$(printf '%s\n' "$BUDGET_OUT" | grep '^total ' | head -n 1)
+  case "$BUDGET_RC" in
+    0) note "[ok] always-loaded context: ${BUDGET_TOTAL#total }" ;;
+    1) note "[note] always-loaded context over budget: ${BUDGET_TOTAL#total } — list: bash scripts/context-budget.sh" ;;
+    *) note "[note] context budget could not measure: $(printf '%s\n' "$BUDGET_OUT" | grep -v '^ ' | head -n 1)" ;;
+  esac
+fi
+
 # ------------------------------------------------------- 3e. script mode drift
 # A .sh without its executable bit still runs as `bash X`, so nothing fails --
 # it fails only where something guards with `-x`, and then it fails SILENTLY.

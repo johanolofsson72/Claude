@@ -92,7 +92,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 078 — autosync-tests-miss-ten-of-twelve-mutants — spec-only — H1 sampled 12 operator mutants in template-autosync.sh; the 16 suites that run it killed 2. Add a surgical arm per survivor (list in specs/H1-integration-hardening/checkpoint.md). — carved by H1 — approved F050
 - [x] H2 — integration-hardening — checkpoint — full-system regression + security sweep + mutation spot-check over the ~30 rows ticked since H1 (043–079).
 - [x] 080 — developer-authored-acceptance-cases — full track [hardened] — the developer confirms 3-5 Given/When/Then cases before code on full/hardened specs; guard blocks until then; each AC-n gets a test written first — approved F075
-- [ ] 081 — always-loaded-context-budget — spec-only — CLAUDE.md + unscoped rules are ~69 KB every session; context-budget.sh caps it at 40 KB with a ratchet test; rationale moves to on-demand docs — approved F076
+- [x] 081 — always-loaded-context-budget — spec-only — CLAUDE.md + unscoped rules are ~69 KB every session; context-budget.sh caps it at 40 KB with a ratchet test; rationale moves to on-demand docs — approved F076
 
 ## Register history (newest first)
 
