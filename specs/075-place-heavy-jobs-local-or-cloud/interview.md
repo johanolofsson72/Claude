@@ -98,22 +98,22 @@ then the doc says so.
 **Q:** Ollama jobs in the cloud?
 **A (auto):** No. The VM has 16 GB and no model; similarity is 16.6 s locally.
 
-## Q20 — Overflow (threat surface): what may the results file make the Mac do?  (overflow — developer asleep, conservative pick)
+## Q20 — Overflow (threat surface): what may the results file make the Mac do?  (overflow — auto-picked overnight, confirmed by the developer 2026-10-01)
 **Q:** The Mac imports a file a cloud session wrote. What can that file change?
-**A (auto):** Only ledger lines and stamps, parsed field by field against fixed job names and
-numeric fields. Nothing in it is executed or sourced. Confirm in the morning.
+**A:** Only ledger lines and stamps, parsed field by field against fixed job names and
+numeric fields. Nothing in it is executed or sourced. Confirmed by the developer 2026-10-01.
 
-## Q21 — Overflow (tampering): who else can write that branch?  (overflow — developer asleep, conservative pick)
+## Q21 — Overflow (tampering): who else can write that branch?  (overflow — auto-picked overnight, confirmed by the developer 2026-10-01)
 **Q:** Anyone with push access can write `claude/maintenance-results`. Is a forged stamp a risk?
-**A (auto):** It can at worst make a job look done when it was not. Accepted: the same people can
-already edit the local stamp file. The import prints every stamp it applies. Confirm in the morning.
+**A:** It can at worst make a job look done when it was not. Accepted: the same people can
+already edit the local stamp file. The import prints every stamp it applies. Confirmed by the developer 2026-10-01.
 
-## Q22 — Overflow (disclosure): does the results file leak anything?  (overflow — developer asleep, conservative pick)
+## Q22 — Overflow (disclosure): does the results file leak anything?  (overflow — auto-picked overnight, confirmed by the developer 2026-10-01)
 **Q:** Could a results file carry secrets?
-**A (auto):** It carries ledger fields only (timestamps, job names, numbers). Job output is not
-copied into it. Confirm in the morning.
+**A:** It carries ledger fields only (timestamps, job names, numbers). Job output is not
+copied into it. Confirmed by the developer 2026-10-01.
 
-## Q23 — Overflow (exhaustion): what stops a runaway routine?  (overflow — developer asleep, conservative pick)
+## Q23 — Overflow (exhaustion): what stops a runaway routine?  (overflow — auto-picked overnight, confirmed by the developer 2026-10-01)
 **Q:** A schedule that fires too often burns plan usage.
-**A (auto):** 075 does not create the routine; the doc recommends daily at most, and the routine
-skips when nothing is due (`--if-due`). Confirm in the morning.
+**A:** 075 does not create the routine; the doc recommends daily at most, and the routine
+skips when nothing is due (`--if-due`). Confirmed by the developer 2026-10-01.
