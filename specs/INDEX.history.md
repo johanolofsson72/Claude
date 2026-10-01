@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-09-30 — 079 added and ticked in one pass: the traceability gate could not read a chained underscore id; agentcrm H6 measured 8 lost citations.
+
 - 2026-09-30 — 044 ticked: zero ids from a scan that ran is refused, not reported as 0 of N; "see above" now has something above it.
 
 - 2026-09-30 — 043 ticked: the live defect was the CORE reader, not the runner; a passing headline over a weak module is now a finding.
