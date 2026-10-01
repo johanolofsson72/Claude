@@ -136,3 +136,75 @@ The hook unblocks source edits at the 15th counted answer; the 15–25 band is g
 - Dumping all questions in one message when asking the developer (MANUAL mode, escalations, or overflow). One question per turn (the wizard pattern); the only exception is 2–3 tightly-related trivial sub-questions grouped into a single `AskUserQuestion`.
 - Stopping after the interview to ask "ready to implement?" — that is a `continuous-execution.md` violation. Record the answers and continue the pipeline.
 - Treating the project-level wizard interview as a substitute. That interview scopes the project; this one scopes the spec. Both are required.
+
+## Acceptance cases
+
+Added by spec 080, from proposal F075. On 075, 19 of 23 interview answers and all 95 tests were
+Claude's. The sabotage set proved the tests bite, but not that they test what the developer wanted,
+because nothing the developer said had become a test. The overflow answers are the developer's, but
+they answer design questions; they are not behaviour a test can check. spec-kit's "Acceptance
+Scenarios" in `spec.md` are Claude's too.
+
+So a full or hardened spec carries 3-5 cases the developer confirmed, and each one is named by a
+test before production code is written.
+
+**The file.** `<spec-dir>/acceptance.md`:
+
+```markdown
+# Acceptance cases — 080-developer-authored-acceptance-cases
+
+**Confirmed:** 2026-10-01 · 95ccf1cdb293 — "Confirmed as written"
+
+## AC-1 — Unconfirmed cases block code
+**Given** a full-track active spec with the interview done and 3 cases but no Confirmed line
+**When** Claude edits src/app.ts
+**Then** the edit is denied, and the reason says how to ask the developer
+```
+
+A field may wrap onto following lines. A line that is not a field, such as `**And** ...`, is
+folded into the field above it. `**Given:**`, an en dash or a hyphen in the heading, a BOM and CRLF
+line endings are all read the same. Other `##` sections end a case and are ignored. Numbering runs
+1, 2, 3 with no gaps or repeats. Fewer than 3 or more than 5 is denied both ways: a list the
+developer reads in one sitting is the point, and a spec that needs six is two specs.
+
+**The digest.** The `**Confirmed:**` line carries the first 12 hex characters of a SHA-256 over each
+case's number, title and Given/When/Then text, with whitespace collapsed. Prose outside the cases and
+the Confirmed line itself are left out, so confirming does not change what was confirmed, and
+re-wrapping a line does not either. Changing a word does. The digest is not a signature. Claude can
+recompute it, but doing so is a deliberate act that sits in the same diff as the changed case. It
+cannot happen by accident while the code is being made to pass.
+
+**Who confirms.** Claude drafts, then shows the cases in one `AskUserQuestion` and records the answer
+with `scripts/acceptance-cases.sh --confirm <spec-dir> --quote "<their words>"`. The guard cannot tell
+who typed the line, and nothing here pretends it can. The record is the quote, and the developer can
+read `acceptance.md` in the commit.
+
+**Tests first.** Once the cases are confirmed, test files are editable and production source is not.
+A test file is recognised by path (`test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`,
+`integration_test/`, `*.Tests/`, `*.test.*`, `*.spec.*`, `*_test.*`, `test_*.py`, `*Tests.cs`,
+`*Test.cs`, `*_spec.rb`, and this template's `test-*.sh`). Production unlocks when some test file names
+every case as `<spec-id>-AC-<n>`, in a comment or the test name. A name in production code does not
+count, and neither does a symlink from `tests/` into `src/`: paths are resolved first. The scan is
+one `git grep` over tracked and untracked files with a 5 s timeout (`ACCEPTANCE_SCAN_TIMEOUT`). A
+timeout allows, because the developer chose fail-open over a stuck session (080 O6). Any other git
+error denies and quotes git. Once every case is named, `.claude/state/acceptance/<id>` records the
+digest and the test files that named them. Later edits re-read only those files instead of scanning
+the tree. The cache is a list to re-check, not a verdict: `.claude/state/` is gitignored, and a
+cached "covered" could be forged with no trace in any diff.
+
+A crash inside the check is a deny that names the exception. The hook allows on any exit code it
+does not know, so letting a crash out would turn a crafted file into an unlock.
+
+What the gate does not prove: that the test was red before the code, or that it asserts what its case
+says. Review and the mutation gate judge that.
+
+**Exempt.** Light, spec-only and checkpoint rows, unless tagged `[hardened]`. A spec that was
+already being implemented when 080 landed is also exempt: its `tasks.md` has a ticked task, it has
+no `acceptance.md`, and its `interview.md` was first committed before 2026-10-02. That is the rollout
+clause for projects that sync this mid-spec (080 O5). The date matters. spec-kit's Setup phase ticks
+tasks such as "T001 Initialize package.json" before any source edit, so without the date a brand-new
+spec would exempt itself. `SPEC_ACCEPTANCE=off` in `.claude/settings.json` `env`
+turns the whole step off; the interview count still applies.
+
+**Status summary.** The pipeline line reports `K acceptance cases confirmed, K named by tests`
+(`bash scripts/acceptance-cases.sh --coverage <spec-dir>`).

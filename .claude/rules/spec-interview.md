@@ -22,6 +22,12 @@ Claude proposes the flag, the developer disposes; a waved-through flag is record
 
 `scripts/spec-interview-guard-hook.sh` (PreToolUse) denies every source-code edit for the active spec until `interview.md` records **≥ 15 answered questions** — AUTO counts `**A:**` + `**A (auto):**`, MANUAL counts only `**A:**`. 15 is the floor (`SPEC_INTERVIEW_MIN`), 25 is guidance, never a ceiling.
 
+## Acceptance cases — full and hardened specs (BLOCKING)
+
+A full-track spec, or any row tagged `[hardened]`, also carries `<spec-dir>/acceptance.md`: 3–5 cases, each `## AC-<n> — <title>` with `**Given**` / `**When**` / `**Then**` lines. Claude drafts them after the interview. The developer confirms or corrects them in one `AskUserQuestion`. Then `bash scripts/acceptance-cases.sh --confirm <spec-dir> --quote "<their words>"` writes the `**Confirmed:**` line with a digest of the cases. Never confirm on the developer's behalf.
+
+The same guard enforces it in two steps. Until the cases parse and the digest matches, every source edit is denied, and editing a case after confirmation re-locks code until the developer confirms again. After that, test files are editable, and production source unlocks once a test file names every case as `<spec-id>-AC-<n>`. Exempt: light, spec-only and checkpoint rows, and a spec already being implemented when 080 landed (a ticked task, no `acceptance.md`, `interview.md` committed before 2026-10-02). `SPEC_ACCEPTANCE=off` turns the step off for a project. Long form: `.claude/docs/spec-interview-rationale.md` § Acceptance cases.
+
 ## Where it sits in the pipeline
 
 `/speckit-specify → SPEC INTERVIEW → /speckit-clarify (auto-pick residual, scripts/emit-clarify-reminder.sh) → /allium:elicit → /speckit-plan → /speckit-tasks → /speckit-analyze → /speckit-implement`. Same continuous task — no "ready to implement?" stop after it. Surprising or contradictory answers are findings (`.claude/rules/validation-followup.md`).

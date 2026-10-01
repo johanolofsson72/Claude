@@ -55,6 +55,11 @@ for g in "$GUARD_STATE" "$GUARD_INTERVIEW"; do
   [ -f "$g" ] || { echo "HARNESS ERROR: guard not found: $g" >&2; exit 2; }
 done
 
+# These fixtures pin WHICH spec the guards resolve, on full-track rows with no acceptance.md.
+# The acceptance-case step (spec 080) would deny every one of them for a reason this suite is not
+# about; it has its own suite, test-acceptance-cases.sh.
+export SPEC_ACCEPTANCE=off
+
 # --expect-prefix inverts the expectations for the two fixtures whose whole
 # point is that the pre-fix scripts get them wrong. Everything else is expected
 # to behave identically at both arms.

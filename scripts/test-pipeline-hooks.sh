@@ -271,14 +271,16 @@ echo
 echo "── spec-interview-guard-hook.sh ──────────────────────"
 echo
 
-# Fresh fixture: marker repo, register with in-progress spec 003, no interview yet.
+# Fresh fixture: marker repo, register with in-progress spec 003, no interview yet. A light row, so
+# these cases test the interview count alone; a full row also owes acceptance cases (spec 080,
+# test-acceptance-cases.sh).
 IVT=$(mktemp -d)
 mkdir -p "$IVT/.git" "$IVT/specs/003-search" "$IVT/src"
 echo '{"name":"iv"}' > "$IVT/package.json"
 cat > "$IVT/specs/INDEX.md" <<'IVREG'
 # Spec register
 ## Specs
-- [/] 003 — search — full track — fuzzy search
+- [/] 003 — search — light track — fuzzy search
 IVREG
 
 # Write N answers of a given marker ("**A:**" human or "**A (auto):**" auto) to interview.md

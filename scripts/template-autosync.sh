@@ -224,6 +224,7 @@ next-register-id.sh test-next-register-id.sh
 max-id-in-refs.sh test-max-id-in-refs.sh next-scenario-id.sh test-next-scenario-id.sh
 maintenance-due.sh test-maintenance-due.sh carve_audit.py maintenance_ledger.py test-maintenance-ledger.sh register_freeze.py finding_review.py
 workload-placement.sh workload-placement.tsv cloud-setup.sh cloud-maintenance.sh test-workload-placement.sh
+acceptance_cases.py acceptance-cases.sh test-acceptance-cases.sh
 validate-portability.sh portability_audit.py
 finding.sh test-finding.sh
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh test-tlc-cleanup.sh

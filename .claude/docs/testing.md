@@ -131,6 +131,15 @@ dotnet test --filter "Category=UI"
 dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"
 ```
 
+## Acceptance cases name their tests (full and hardened specs)
+
+A full or hardened spec's `acceptance.md` holds 3-5 cases the developer confirmed
+(`.claude/rules/spec-interview.md`). Write one test per case **before** production code, and put the
+case id in the test: `// 080-AC-2` in a comment, or the name (`Checkout_080_AC_2_...` does not match;
+keep the literal `080-AC-2` somewhere in the file). `spec-interview-guard-hook.sh` keeps production
+source locked until every case is named by a test file. `bash scripts/acceptance-cases.sh --coverage
+<spec-dir>` lists which cases still have no test.
+
 ## Functional coverage (MANDATORY — before destructive tests)
 
 Before writing any destructive tests, you MUST first ensure **every implemented function has at least one browser test**. This is the #1 failure mode: Claude writes tests for 3 out of 12 features and calls it done.

@@ -313,7 +313,7 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
     active = own_active or own_pending or free_active or free_pending
 
     if active is None:
-        result = {"id": None, "slug": "", "track": None, "status": None,
+        result = {"id": None, "slug": "", "track": None, "hardened": False, "status": None,
                   "kind": "none", "dir": None, "found": False,
                   "lane": lane, "duplicate_active": duplicate_active}
         # Spec 007q. "Every row ticked" is an ANSWER (exit 3), and the answer is
@@ -349,6 +349,8 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
         "id": ident,
         "slug": slug,
         "track": track,
+        # Spec 080: a "[hardened]" tag on any track owes acceptance cases, like a full track does.
+        "hardened": "[hardened]" in track_field.lower(),
         "status": status,
         "kind": kind,
         "dir": rel_dir,

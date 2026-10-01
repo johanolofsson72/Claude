@@ -76,7 +76,7 @@ One line per entry. Not pipeline input; SessionStart shows the last 5 lines whil
 - Track: <full|light|spec-only>[ +hardened]
 - Commits: <count> (last: <short-sha> — "<commit subject>")
 - Push: origin/main <short-sha>
-- Pipeline: spec → interview (<I> answers, <interview mode>) → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
+- Pipeline: spec → interview (<I> answers, <interview mode>) + <acceptance status> → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
 - Hardening: <hardening status>
 - Open findings: <count> (or "none")
 - Row proposals: <count from this spec, each with its review verdict> (or "none")
@@ -89,7 +89,7 @@ One line per entry. Not pipeline input; SessionStart shows the last 5 lines whil
 (Resume when ready.)
 ```
 
-Fields: `<I> answers, <interview mode>` — count in `interview.md` (≥15), mode `auto` / `auto +N overflow` / `manual`. `<clarify status>` — `clarify auto-picked N answers` / `clarify clean (no questions raised)` / `clarify deferred N questions to user`. `<allium status>` — `allium ok` / `allium skipped (spec-only track)` / `allium with N open questions surfaced`. `<tla status>` — `tla clean` / `tla skipped (spec-only or trivial state)` / `tla with N gaps surfaced`. `<hardening status>` — `n/a (not a hardened spec)` / `threat-model + stress + mutation-gate + adversarial-review all passed` / `hardened with N findings surfaced`; a checkpoint row reads `integration checkpoint: regression + security sweep + scenario reconciliation + mutation spot-check — <result>`. `Maintenance due` — from `bash scripts/maintenance-due.sh --brief`, never composed by hand. Non-zero open findings must already have been surfaced individually (`validation-followup.md`).
+Fields: `<I> answers, <interview mode>` — count in `interview.md` (≥15), mode `auto` / `auto +N overflow` / `manual`. `<acceptance status>` — `K acceptance cases confirmed, K named by tests` / `no acceptance cases (light/spec-only)`. `<clarify status>` — `clarify auto-picked N answers` / `clarify clean (no questions raised)` / `clarify deferred N questions to user`. `<allium status>` — `allium ok` / `allium skipped (spec-only track)` / `allium with N open questions surfaced`. `<tla status>` — `tla clean` / `tla skipped (spec-only or trivial state)` / `tla with N gaps surfaced`. `<hardening status>` — `n/a (not a hardened spec)` / `threat-model + stress + mutation-gate + adversarial-review all passed` / `hardened with N findings surfaced`; a checkpoint row reads `integration checkpoint: regression + security sweep + scenario reconciliation + mutation spot-check — <result>`. `Maintenance due` — from `bash scripts/maintenance-due.sh --brief`, never composed by hand. Non-zero open findings must already have been surfaced individually (`validation-followup.md`).
 
 After the summary, stop. No follow-up question — the stop **is** the question. One exception: when this spec recorded row proposals, put them in the same stop with one `AskUserQuestion`. Ask one question per proposal with **Approve** and **Decline** as the options, and state the proposal's need and its `finding.sh --review --proposals` verdict (duplicate, missing citation). Apply the answers with `finding.sh --approve / --decline`.
 

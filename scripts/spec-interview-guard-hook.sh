@@ -138,7 +138,7 @@ MIN_QUESTIONS="${SPEC_INTERVIEW_MIN:-15}"
 INTERVIEW_MODE="${SPEC_INTERVIEW_MODE:-auto}"
 HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-RESULT=$(PROJECT_ROOT_PATH="$PROJECT_ROOT" MIN_Q="$MIN_QUESTIONS" MODE="$INTERVIEW_MODE" HOOK_DIR="$HOOK_DIR" python3 <<'PY' 2>/dev/null
+RESULT=$(EDIT_FILE="$FILE" PROJECT_ROOT_PATH="$PROJECT_ROOT" MIN_Q="$MIN_QUESTIONS" MODE="$INTERVIEW_MODE" HOOK_DIR="$HOOK_DIR" python3 <<'PY' 2>/dev/null
 import glob
 import json
 import os
@@ -245,7 +245,25 @@ if interview and os.path.isfile(interview) and os.path.getsize(interview) > 0:
 answered = human if mode == "manual" else human + auto
 
 if answered >= min_q:
-    sys.exit(0)
+    # Spec 080 — the interview is done; a full or hardened spec also owes 3-5 acceptance cases the
+    # developer confirmed, each named by a test before production source. One parser, shared with
+    # scripts/acceptance-cases.sh. A gate that cannot load its parser denies (98), like the resolver.
+    try:
+        from acceptance_cases import gate
+    except Exception:
+        sys.exit(98)
+    try:
+        reason = gate(root, info, os.environ.get("EDIT_FILE", ""))
+    except Exception as exc:
+        # Every exit code the bash side does not know is an allow, so a crash here must not
+        # surface as one: a crafted acceptance.md or cache file would otherwise unlock code.
+        reason = ("BLOCKED — the acceptance-case check crashed (%s: %s), and a gate that cannot "
+                  "decide denies. Fix the input it names, or report the crash against "
+                  "scripts/acceptance_cases.py." % (type(exc).__name__, str(exc)[:300]))
+    if reason is None:
+        sys.exit(0)
+    print(json.dumps({"reason": reason}))
+    sys.exit(96)
 
 print(
     json.dumps(
@@ -266,6 +284,18 @@ sys.exit(99)
 PY
 )
 RC=$?
+
+# 96 — the interview is complete and the acceptance-case step (spec 080) denied. The reason text
+# comes from acceptance_cases.gate(), which names what is missing and how to fix it.
+if [ "$RC" -eq 96 ]; then
+  REASON=$(printf '%s' "$RESULT" | jq -r '.reason // empty')
+  [ -n "$REASON" ] || REASON="BLOCKED — acceptance cases for the active spec are not in order (no reason text came back)."
+  REASON="${REASON}
+
+Markdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so acceptance.md can be written now. This is not a permission stop: draft the cases and ask the developer to confirm them."
+  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+  exit 0
+fi
 
 # 97 — the register was READ, the active row was FOUND, and only its id token is
 # outside the grammar. Deny (same verdict as 98) but never the same text: 98's

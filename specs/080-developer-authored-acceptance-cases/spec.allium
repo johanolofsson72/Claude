@@ -1,0 +1,153 @@
+-- allium: 3
+--
+-- 080 — developer-authored acceptance cases.
+--
+-- A full or hardened spec owes 3-5 Given/When/Then cases that the developer confirmed, pinned by a
+-- digest, and each named by a test before production source may change. Rules cite R1..R10 (spec.md)
+-- and the developer's overflow answers O1..O6 (interview.md). The template keeps no scenario map.
+
+enum Track { full | light | spec_only | checkpoint }
+
+enum EditKind { production | test_file | exempt_path }
+
+enum Verdict { allow | deny }
+
+config {
+    min_cases: Integer = 3
+    max_cases: Integer = 5
+    digest_hex_chars: Integer = 12
+    max_file_bytes: Integer = 65536
+    grandfather_before: String = `2026-10-02`
+}
+
+value AcceptanceCase {
+    number: Integer
+    title: String
+    given: String
+    when_: String
+    then_: String
+}
+
+entity AcceptanceFile {
+    cases: List<AcceptanceCase>
+    problems: List<String>                     -- parse problems, each naming a line
+    confirmed_digest: String?                  -- null: no Confirmed line
+    current_digest: String
+
+    -- R1, O2: hard band both ways; numbering 1..N.
+    invariant WellFormed {
+        this.problems.count = 0 implies (
+            this.cases.count >= config.min_cases and this.cases.count <= config.max_cases
+        )
+    }
+}
+
+entity ActiveSpec {
+    id: String
+    track: Track
+    hardened: Boolean
+    interview_answered: Integer
+    ticked_tasks: Integer
+    interview_first_committed: String?         -- YYYY-MM-DD of the commit that added interview.md
+    acceptance: AcceptanceFile?
+    named_by_tests: Set<Integer>               -- case numbers some test file names as <id>-AC-<n>
+    switch_off: Boolean                        -- SPEC_ACCEPTANCE=off
+    check_failed: Boolean                      -- git error (not a timeout), crash in the gate,
+                                               -- or acceptance.md not a regular file (FIFO)
+    scan_timed_out: Boolean
+
+    -- R6: who owes cases.
+    owes_cases: not switch_off and (track = full or hardened)
+    -- R7, O5: already being implemented without a file, and begun before 080 landed. Without the
+    -- date a ticked setup task exempted a brand-new spec (code review; AC-4 re-confirmed).
+    grandfathered: acceptance = null and ticked_tasks > 0
+        and interview_first_committed != null and interview_first_committed < config.grandfather_before
+    -- R4, O3: parsed, and the digest on the Confirmed line is the digest of the cases as they are.
+    confirmed: acceptance != null and acceptance.problems.count = 0
+        and acceptance.confirmed_digest = acceptance.current_digest
+    -- Q16: only test files contribute to named_by_tests.
+    all_named: confirmed and acceptance.cases.count = named_by_tests.count
+}
+
+entity SourceEdit {
+    spec: ActiveSpec
+    kind: EditKind                             -- decided on the realpath: a symlink tests/link -> ../src
+                                               -- makes tests/link/app.ts production
+    verdict: Verdict?
+}
+
+rule AllowExempt {
+    -- Paths outside the guard's scope, tracks that owe nothing, and grandfathered specs.
+    when: EditRequested(edit)
+    requires: edit.kind = exempt_path or not edit.spec.owes_cases or edit.spec.grandfathered
+    ensures: edit.verdict = allow
+}
+
+rule DenyFailedCheck {
+    -- A gate that cannot decide denies. Only a scan timeout fails open (O6).
+    when: EditRequested(edit)
+    requires:
+        edit.kind != exempt_path
+        edit.spec.owes_cases
+        not edit.spec.grandfathered
+        edit.spec.check_failed
+    ensures: edit.verdict = deny
+}
+
+rule AllowScanTimeout {
+    when: EditRequested(edit)
+    requires:
+        edit.kind = production
+        edit.spec.owes_cases
+        edit.spec.confirmed
+        edit.spec.scan_timed_out
+    ensures: edit.verdict = allow
+}
+
+rule DenyUnconfirmed {
+    -- R4: missing, malformed, unconfirmed or a digest mismatch (O3) denies every source edit.
+    when: EditRequested(edit)
+    requires:
+        edit.kind != exempt_path
+        edit.spec.owes_cases
+        not edit.spec.grandfathered
+        not edit.spec.confirmed
+    ensures: edit.verdict = deny
+}
+
+rule AllowTestsFirst {
+    -- R5: with the cases confirmed, test files may be written before any production code.
+    when: EditRequested(edit)
+    requires:
+        edit.kind = test_file
+        edit.spec.owes_cases
+        edit.spec.confirmed
+    ensures: edit.verdict = allow
+}
+
+rule DenyUntestedProduction {
+    -- R5, O4: production source waits until every case is named by a test; the deny names the ids.
+    when: EditRequested(edit)
+    requires:
+        edit.kind = production
+        edit.spec.owes_cases
+        edit.spec.confirmed
+        not edit.spec.all_named
+        not edit.spec.scan_timed_out
+        not edit.spec.check_failed
+    ensures: edit.verdict = deny
+}
+
+rule AllowNamedProduction {
+    when: EditRequested(edit)
+    requires:
+        edit.kind = production
+        edit.spec.owes_cases
+        edit.spec.all_named
+    ensures: edit.verdict = allow
+}
+
+-- O6: once all_named holds, .claude/state/acceptance/<id> stores the digest and the test files that
+-- named the cases. A hit RE-READS those files; it never trusts a stored verdict. TLC (080) shows the
+-- skip-the-scan version allows production after a test is deleted. named_by_tests is therefore always
+-- what the test files say now, cached or scanned.
