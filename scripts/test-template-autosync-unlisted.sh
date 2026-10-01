@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests the [unlisted] predicate in scripts/template-autosync.sh — unlisted_core_shaped (row H7bk).
 #
 # WHY THIS EXISTS

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for scripts/project-freshness.sh — the deps walk and its filters (spec 007bj).
 #
 # Travels with the script into every project, for the same reason test-detect-verify-command.sh

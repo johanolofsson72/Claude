@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests refresh_local_template() in scripts/template-autosync.sh.
 #
 # The bug it guards: a local template clone was preferred over the tarball and

@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-scenario-map-fixtures.sh — throwaway project fixtures for the 007bl harnesses.
 #
 # WHY: the three harnesses added by spec 007bl (layout, reminder, canary) all need the same

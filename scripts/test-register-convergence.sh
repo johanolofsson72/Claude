@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-register-convergence.sh — the convergence check against synthetic registers.
 #
 # Two of these cases are regressions from the day the script was written:

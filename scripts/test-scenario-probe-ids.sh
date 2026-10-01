@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-scenario-probe-ids.sh — harness for scripts/scenario-probe-ids.sh.
 #
 # WHY THIS EXISTS. The helper is the single place "which ids are free" is decided, and three

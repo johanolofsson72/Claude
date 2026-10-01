@@ -24,6 +24,7 @@ DIR="$PWD"
 LANG_MARKER=""
 PROJECT_ROOT=""
 
+case "$DIR" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$DIR" 2>/dev/null && pwd -P) && DIR=$_walk_abs || DIR="$PWD/$DIR" ;; esac   # spec 084 (F015): relative never reaches /
 while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   if [ -z "$LANG_MARKER" ]; then
     for marker in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile build.gradle build.gradle.kts pom.xml pubspec.yaml; do
@@ -36,7 +37,7 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
     [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"
     break
   fi
-  DIR=$(dirname "$DIR")
+  _walk_up=$(dirname "$DIR"); [ "$_walk_up" = "$DIR" ] && break; DIR=$_walk_up
 done
 
 # No language marker → template/scratch repo → silent (matches the reactive hook's gate).

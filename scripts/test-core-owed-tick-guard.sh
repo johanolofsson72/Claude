@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-core-owed-tick-guard.sh — the gate that refuses a register tick while CORE work is owed,
 # and the [unlisted] detector underneath it.
 #

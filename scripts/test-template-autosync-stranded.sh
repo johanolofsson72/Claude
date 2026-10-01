@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests the stranded-writes detector in scripts/template-autosync.sh (spec 007bf).
 #
 # The bug it guards: four arms of the sync write to the working tree and do not commit

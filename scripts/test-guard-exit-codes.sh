@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-guard-exit-codes.sh — every PreToolUse guard exits 0 when it speaks (spec 083, R8, F029).
 #
 # The CLI reads a hook's stdout JSON only on exit 0. A guard that prints a perfect deny and exits 1

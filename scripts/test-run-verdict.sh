@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for scripts/run-verdict.sh (spec 031).
 #
 #   bash scripts/test-run-verdict.sh

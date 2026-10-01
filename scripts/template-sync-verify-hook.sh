@@ -32,11 +32,12 @@ set -u
 
 DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 PROJECT_ROOT=""
+case "$DIR" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$DIR" 2>/dev/null && pwd -P) && DIR=$_walk_abs || DIR="$PWD/$DIR" ;; esac   # spec 084 (F015): relative never reaches /
 while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   # A directory, not merely a path: a git worktree's .git is a FILE, and a marker
   # path built inside one would be a hook inventing news of a shape nobody tested.
   if [ -d "$DIR/.git" ]; then PROJECT_ROOT="$DIR"; break; fi
-  DIR=$(dirname "$DIR")
+  _walk_up=$(dirname "$DIR"); [ "$_walk_up" = "$DIR" ] && break; DIR=$_walk_up
 done
 [ -n "$PROJECT_ROOT" ] || exit 0
 

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-tlc-cleanup.sh — the TLC cleanup kills runaway runs, never live ones and never its own shell.
 #
 # ekofak 005 / hireflow 017 (spec 069): `pkill -f tla2tools` from the hooks killed the hook's own

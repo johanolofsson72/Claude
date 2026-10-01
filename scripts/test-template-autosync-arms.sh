@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Surgical arms for the mutants H1 found alive in scripts/template-autosync.sh (spec 078).
 #
 # H1 ran a sampled operator-mutation pass over the most-changed CORE script and every suite that

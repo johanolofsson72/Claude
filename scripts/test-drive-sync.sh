@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Harness for scripts/drive-sync.sh (spec 011, landed from consultpilot H7bo).
 #
 # The helper is the single path from every self-test to template-autosync.sh. That concentration is
@@ -378,6 +379,47 @@ else
   else
     ARMS_RED=$((ARMS_RED + 1)); ok "G:subshell — removing it leaks CLAUDE_PROJECT_DIR, so AC-07 bites"
   fi
+fi
+
+printf '\n%s\n' "-- drive_hook (spec 084, R5 F018)"
+# The hook is a second program that runs the sync, so it gets the same two halves and the same
+# refusals, plus one: the project must already be inside the sandbox, because the hook writes its
+# marker into the project whatever the sync decides.
+HP="$SBX/hp"; mkdir -p "$HP/.git"
+O=$( DRIVE_HOOK_SCRIPT="$STUB" CLAUDE_TEMPLATE_DIR=/tpl drive_hook "$HP" "$SBX" a 'b c' 2>&1 ); RC=$?
+same "drive_hook: runs DRIVE_HOOK_SCRIPT and returns its status"     "$RC" "0"
+has  "drive_hook: sets both halves and passes the arguments"         "$O" "PROJ=$HP SBX=$SBX TPL=/tpl CWD="
+has  "drive_hook: …argument boundaries intact"                       "$O" "ARGS=<a><b c>"
+O=$( DRIVE_HOOK_SCRIPT="$STUB" drive_hook "$P" "$SBX" 2>&1 ); RC=$?
+same "drive_hook: a project outside the sandbox is refused"           "$RC" "$EBADARG"
+has  "drive_hook: …saying why"                                       "$O" "is not inside sandbox"
+NOGIT="$HP/nogit"; mkdir -p "$NOGIT"   # inside hp, which has a .git: the hook would walk up to hp
+O=$( DRIVE_HOOK_SCRIPT="$STUB" drive_hook "$NOGIT" "$SBX" 2>&1 ); RC=$?
+same "drive_hook: a project with no .git of its own is refused"       "$RC" "$EBADARG"
+has  "drive_hook: …because the hook would walk up"                   "$O" "would walk up"
+O=$( DRIVE_HOOK_SCRIPT="$STUB" drive_hook "$HP" / 2>&1 ); RC=$?
+same "drive_hook: / as the sandbox is refused"                        "$RC" "$EBADARG"
+O=$( DRIVE_HOOK_SCRIPT="$STUB" drive_hook "$HP" "$(dirname "$PWD")" 2>&1 ); RC=$?
+same "drive_hook: a sandbox containing this repository is refused"    "$RC" "$EBADARG"
+O=$( unset DRIVE_HOOK_SCRIPT; DRIVE_SYNC_SCRIPT="$STUB" drive_hook "$HP" "$SBX" 2>&1 ); RC=$?
+same "drive_hook: DRIVE_SYNC_SCRIPT does not stand in for the hook"   "$RC" "$EBADARG"
+has  "drive_hook: …naming the variable it needs"                     "$O" "DRIVE_HOOK_SCRIPT is not set"
+O=$( DRIVE_HOOK_SCRIPT=stub.sh drive_hook "$HP" "$SBX" 2>&1 ); RC=$?
+same "drive_hook: a relative hook path is refused"                    "$RC" "$EBADARG"
+O=$( DRIVE_HOOK_SCRIPT="$STUB" drive_hook "$HP" 2>&1 ); RC=$?
+same "drive_hook: one argument is an arity error"                     "$RC" "$EBADARG"
+P0="${CLAUDE_PROJECT_DIR-<unset>}"; S0="${CLAUDE_TEMPLATE_SYNC_SANDBOX-<unset>}"
+DRIVE_HOOK_SCRIPT="$STUB" drive_hook "$HP" "$SBX" >/dev/null 2>&1
+same "drive_hook: leaks neither half into the caller" \
+  "${CLAUDE_PROJECT_DIR-<unset>}|${CLAUDE_TEMPLATE_SYNC_SANDBOX-<unset>}" "$P0|$S0"
+# DRIVE_SYNC_PATH: the script sees that PATH; the bound is still found on the caller's.
+PS="$TMP/pathstub.sh"; printf '#!/bin/bash
+printf "PATH=%%s" "$PATH"
+' > "$PS"
+O=$( DRIVE_SYNC_TIMEOUT=5 DRIVE_SYNC_PATH="$(dirname "$(command -v bash)")" DRIVE_HOOK_SCRIPT="$PS" drive_hook "$HP" "$SBX" 2>&1 ); RC=$?
+if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; then
+  same "DRIVE_SYNC_PATH: bounded run still starts"                    "$RC" "0"
+  same "DRIVE_SYNC_PATH: the script sees exactly that PATH"           "$O" "PATH=$(dirname "$(command -v bash)")"
 fi
 
 printf '\n%s\n' "----------------------------------------"

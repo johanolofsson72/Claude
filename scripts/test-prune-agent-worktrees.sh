@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for spec 082 R10 in scripts/prune-agent-worktrees.sh (F064).
 #
 #   bash scripts/test-prune-agent-worktrees.sh

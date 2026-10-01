@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 #
 # test-on-linux.sh — run the template's own shell tests on GNU/Linux, from a Mac.
 #

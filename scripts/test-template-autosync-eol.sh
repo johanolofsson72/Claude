@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests the [eol] byte-divergence detector in scripts/template-autosync.sh (spec 007bi).
 #
 # The bug it guards: `resolve_local_template` copies the template clone's WORKING TREE, takes
@@ -241,13 +242,10 @@ HOOK="${EOL_TEST_HOOK:-$PWD/scripts/template-autosync-hook.sh}"
 if [ -f "$HOOK" ]; then
   build i
   sync --quiet >/dev/null 2>&1          # first run copies; second is the 0/0 steady state
-  # The one hand-spelled declaration left in this file, and it belongs here: what is driven below is
-  # the HOOK, not the sync. drive_sync exists to be the single way to template-autosync.sh; the hook
-  # is a different program that runs the sync itself, and this declaration is what keeps that
-  # nested run inside $TMP. Routing a hook through a sync helper would be the helper growing a second
-  # job. test-validate-sync-sandbox-declarations.sh's census pins this at exactly one.
-  OUT=$(CLAUDE_PROJECT_DIR="$P" CLAUDE_TEMPLATE_DIR="$T" CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1 \
-        bash "$HOOK" 2>&1)
+  # The hook runs the sync itself, so it is driven through drive_hook, which declares the same two
+  # halves (spec 084, F018). This used to be the one hand-spelled declaration left in the drivers.
+  OUT=$(CLAUDE_TEMPLATE_DIR="$T" CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1 DRIVE_HOOK_SCRIPT="$HOOK" \
+        drive_hook "$P" "$TMP" 2>&1)
   has "AC-18a hook forwards the note at all"     "$OUT" "[eol]"
   has "AC-18b hook names the divergent path"     "$OUT" "$DEMO"
   has "AC-18c hook keeps the fix command"        "$OUT" "add --renormalize"

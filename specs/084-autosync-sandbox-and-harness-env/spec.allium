@@ -1,0 +1,150 @@
+-- allium: 3
+--
+-- 084 — autosync sandbox and harness environment.
+--
+-- Where a run's target comes from (R1, R4), what a run that declared a sandbox may write outside it
+-- (R2, R3), and which scripts the sandbox gate counts as running the sync (R5, R6). Rules cite
+-- R1..R8 (spec.md) and the developer's overflow answers O1..O3 (interview.md). The template keeps
+-- no scenario map.
+
+enum RemoteShape { local_path | file_url | host_url | unresolvable }
+
+enum PushOutcome { pushed | not_pushed_outside_sandbox | not_pushed_no_upstream | push_failed }
+
+enum CloneAction { refreshed | used_as_is }
+
+enum RunKind { declared | undeclared }
+
+entity RootWalk {
+    start: String                               -- ${CLAUDE_PROJECT_DIR:-$PWD} as given
+    start_is_absolute: Boolean
+    absolute_start: String                      -- start, or $PWD/start when relative
+    steps: Integer
+    path_depth: Integer                         -- segments in absolute_start
+    terminated: Boolean
+
+    -- R1 (F015): the walk visits each ancestor once, so it ends.
+    invariant WalkTerminates {
+        this.terminated and this.steps <= this.path_depth + 1
+    }
+}
+
+entity SyncRun {
+    kind: RunKind
+    sandbox: String?                            -- physical path of the declaration
+    project_root: String
+    committed: Boolean
+    has_upstream: Boolean
+    origin_shape: RemoteShape
+    origin_inside_sandbox: Boolean              -- judged physically, segment-wise (010's _within)
+    push: PushOutcome?
+    clone_inside_sandbox: Boolean
+    clone_action: CloneAction?
+}
+
+entity SelfTest {
+    file: String
+    has_prologue: Boolean                       -- unset CDPATH CLAUDE_PROJECT_DIR GIT_* (seven names)
+    prologue_before_first_cd: Boolean
+}
+
+entity ScannedRun {
+    target_is_sync: Boolean                     -- …template-autosync.sh or a handle ending -autosync.sh
+    target_is_hook: Boolean                     -- …template-autosync-hook.sh or a handle ending -autosync-hook.sh
+    through_helper: Boolean                     -- inside drive_sync / drive_sync_readonly / drive_hook
+    preceded_by_known_runner: Boolean           -- interpreter, all-transparent prefix, eval/watch/su -c/sh -c code,
+                                                -- or any listed wrapper anywhere earlier in the segment (no arity)
+    reported: Boolean
+}
+
+rule RelativeStartIsAnchored {
+    -- R1: a relative start is taken against $PWD: physically (CDPATH cleared) when it exists, so `..`
+    -- lands where it points; lexically when it does not. Modelled as the lexical case.
+    when: WalkStarted(walk)
+    requires: not walk.start_is_absolute
+    ensures: walk.absolute_start = "$PWD/" + walk.start
+}
+
+rule DeclaredRunPushesOnlyInside {
+    -- R2 (F013a): host URLs and unresolvable remotes are outside by definition.
+    when: SyncCommitted(run)
+    requires:
+        run.kind = declared
+        run.has_upstream
+        not run.origin_inside_sandbox
+    ensures: run.push = not_pushed_outside_sandbox
+}
+
+rule DeclaredRunPushesInside {
+    when: SyncCommitted(run)
+    requires:
+        run.kind = declared
+        run.has_upstream
+        run.origin_inside_sandbox
+    ensures: run.push = pushed
+}
+
+rule UndeclaredRunPushesAsBefore {
+    when: SyncCommitted(run)
+    requires:
+        run.kind = undeclared
+        run.has_upstream
+    ensures: run.push = pushed
+}
+
+rule DeclaredRunLeavesOutsideCloneAlone {
+    -- R3 (F013b), O3: read-only use, announced in one note.
+    when: TemplateCloneChosen(run)
+    requires:
+        run.kind = declared
+        not run.clone_inside_sandbox
+    ensures: run.clone_action = used_as_is
+}
+
+rule RefreshOtherwise {
+    when: TemplateCloneChosen(run)
+    requires: run.kind = undeclared or run.clone_inside_sandbox
+    ensures: run.clone_action = refreshed
+}
+
+rule PrologueIsChecked {
+    -- R4 (F016, F020): presence and order, per file.
+    when: PrologueCheckRan(test)
+    requires: not test.has_prologue or not test.prologue_before_first_cd
+    ensures: PrologueViolationReported(test)
+}
+
+rule HookRunOutsideHelperIsReported {
+    -- R5 (F018).
+    when: ScriptScanned(run)
+    requires:
+        run.target_is_hook
+        run.preceded_by_known_runner
+        not run.through_helper
+    ensures: run.reported = true
+}
+
+rule SyncRunOutsideHelperIsReported {
+    -- R6 (F019, O2): the wrapper list grew; an unknown wrapper is still a named residual.
+    when: ScriptScanned(run)
+    requires:
+        run.target_is_sync
+        run.preceded_by_known_runner
+        not run.through_helper
+    ensures: run.reported = true
+}
+
+invariant NoSandboxedPushOutside {
+    -- R2: the incident's second half (54 commits pushed) cannot recur from a declared run.
+    for run in SyncRuns where run.kind = declared and run.push = pushed:
+        run.origin_inside_sandbox
+}
+
+invariant NoSandboxedCloneMove {
+    -- R3.
+    for run in SyncRuns where run.kind = declared and run.clone_action = refreshed:
+        run.clone_inside_sandbox
+}
+
+-- O1 (F017): no rule. A sync refusing the repository it lives in would refuse the production hook,
+-- which runs <project>/scripts/template-autosync.sh against <project>. Declined; closed by R4 and R5.

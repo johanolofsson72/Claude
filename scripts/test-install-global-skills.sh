@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 #
 # test-install-global-skills.sh — install-global-skills.sh against a throwaway HOME.
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Harness for the two Bash enforcement layers (row H7b).
 #
 # WHY THIS EXISTS

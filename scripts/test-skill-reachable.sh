@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for scripts/skill-reachable.sh and the two places that call it (spec 006):
 # scripts/ui-design-hook.sh and section 3h of scripts/project-maintenance.sh.
 #

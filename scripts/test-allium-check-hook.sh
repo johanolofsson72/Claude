@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-allium-check-hook.sh — prove allium-check-hook.sh blocks on errors and ONLY on errors.
 #
 # Real-CLI arms need `allium` on PATH (skipped with a notice otherwise). Fake-CLI arms stub the

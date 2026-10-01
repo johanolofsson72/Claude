@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-next-scenario-id.sh — two specs in two lanes never take the same scenario ids (row 060).
 #
 # agentcrm 2026-09-21: 47 colliding ids, 26 of them specs 052 and 055 both taking SC-1625..1650.

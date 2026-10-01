@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests for scripts/lane-orientation-hook.sh and scripts/lane_status.py.
 #
 # Two cases carry more weight than the rest.

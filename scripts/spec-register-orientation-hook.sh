@@ -58,6 +58,7 @@ LANG_MARKER=""
 PROJECT_ROOT=""
 REPO_FOUND=0
 
+case "$DIR" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$DIR" 2>/dev/null && pwd -P) && DIR=$_walk_abs || DIR="$PWD/$DIR" ;; esac   # spec 084 (F015): relative never reaches /
 while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   if [ -z "$FOUND_REG" ] && [ -f "$DIR/specs/INDEX.md" ]; then
     FOUND_REG="$DIR/specs/INDEX.md"
@@ -79,7 +80,7 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
     [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"
     break
   fi
-  DIR=$(dirname "$DIR")
+  _walk_up=$(dirname "$DIR"); [ "$_walk_up" = "$DIR" ] && break; DIR=$_walk_up
 done
 
 # Case 1: register exists → status line

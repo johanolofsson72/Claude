@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for scripts/detect-verify-command.sh (spec 007ba).
 #
 # Travels with the detector into every project, for the same reason test-core-machinery-guard.sh

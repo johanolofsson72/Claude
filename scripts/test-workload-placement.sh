@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for row 075: where a heavy maintenance job runs, and how a cloud run's results come home.
 #
 #   bash scripts/test-workload-placement.sh

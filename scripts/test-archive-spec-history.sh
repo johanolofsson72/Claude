@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-archive-spec-history.sh — harness for scripts/archive-spec-history.sh.
 #
 # WHY THIS EXISTS: the archiver had ZERO tests. It shipped a positional split —

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests scripts/harness-gitignore.sh and the sync's use of it (spec 040).
 #
 # The defect: the harness writes files it knows are machine-local, and nothing carried that knowledge

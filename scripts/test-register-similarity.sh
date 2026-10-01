@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-register-similarity.sh — the duplicate-row detector against known answers.
 #
 # Two of these are regressions from the day it was written: paraphrase-multilingual

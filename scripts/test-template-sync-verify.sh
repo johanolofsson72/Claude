@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for scripts/template-sync-verify.sh — the abort gate (spec 031).
 #
 #   bash scripts/test-template-sync-verify.sh

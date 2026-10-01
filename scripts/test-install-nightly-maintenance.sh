@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-install-nightly-maintenance.sh — the line the installer writes must run under cron, not just
 # look right in a terminal.
 #

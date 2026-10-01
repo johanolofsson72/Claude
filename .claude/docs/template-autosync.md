@@ -199,6 +199,20 @@ Environment: `CLAUDE_TEMPLATE_AUTOSYNC=0` disables it for a project · `CLAUDE_T
 
 The sync commits only the paths it wrote, with `chore(sync): template <sha> — N updated, M added`, then pushes if an upstream exists. It refuses to commit during a rebase/merge/cherry-pick and leaves the files staged instead. It never runs `git add -A`, so unrelated work in the tree is not swept in.
 
+## Driving it from a test
+
+A script under `scripts/` never runs the sync or its hook directly. It sources `scripts/drive-sync.sh` and calls `drive_sync <project> <sandbox>` or `drive_hook <project> <sandbox>`. Both calls name the target and declare the one directory the run may write in, and `validate-sync-sandbox-declarations.sh` fails any other way in (specs 010, 011, 084).
+
+With a sandbox declared, the sync:
+
+- refuses to start when the project root is outside it;
+- commits but does not push unless every push URL of `origin` is a local directory inside it (a host URL, an outside path, a `%`-encoded or unresolvable one all count as outside). The report then says `not pushed — origin is outside the declared sandbox`;
+- reads a template clone outside it without fetching or fast-forwarding it, and prints one `[note]` saying so.
+
+Every `scripts/test-*.sh` starts by sourcing `scripts/self-test-env.sh`. That file clears what a test must not inherit: `CDPATH`, `CLAUDE_PROJECT_DIR`, the git location and command-line config variables, and the sync's own knobs. `test-self-test-prologue.sh` fails a test that skips it.
+
+What a sandbox still does not cover: temp directories under `$TMPDIR`, a fixture whose git config points outside (`core.hooksPath`, `core.worktree`), the developer's `~/.gitconfig`, and a hand-set `CLAUDE_TEMPLATE_SYNC_SANDBOX` that contains the real repository. `drive_sync` refuses the last one, but the sync on its own cannot tell.
+
 ## When you still need `/project-update`
 
 - The summary lists files that differ and are not recorded as intentional.

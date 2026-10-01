@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-core-gates.sh — core-gates.sh partitions the gate-shaped CORE scripts, and says so or refuses.
 #
 # core-gates.sh is the CORE half of a project's gate registry (row 014). Two ways it can lie, both

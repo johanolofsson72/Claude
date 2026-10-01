@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-guard-fail-closed.sh — the Edit-path guards under the conditions H1 broke them with (spec 083).
 #
 #   R2  fail-closed guards deny what they cannot read          083-AC-1

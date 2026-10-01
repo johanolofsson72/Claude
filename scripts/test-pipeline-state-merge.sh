@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-pipeline-state-merge.sh — the pipeline-state guard while a merge is in flight (row 059).
 #
 # From agentcrm F094. Ticking a row moves "the active spec" on, and the merge closing the previous

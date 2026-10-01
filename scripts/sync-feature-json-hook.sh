@@ -94,10 +94,11 @@ esac
 # repo than the one the tool call actually touched.
 ROOT=""
 DIR="$PWD"
+case "$DIR" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$DIR" 2>/dev/null && pwd -P) && DIR=$_walk_abs || DIR="$PWD/$DIR" ;; esac   # spec 084 (F015): relative never reaches /
 while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   if [ -f "$DIR/specs/INDEX.md" ]; then ROOT="$DIR"; break; fi
   if [ -d "$DIR/.git" ]; then break; fi
-  DIR=$(dirname "$DIR")
+  _walk_up=$(dirname "$DIR"); [ "$_walk_up" = "$DIR" ] && break; DIR=$_walk_up
 done
 if [ -z "$ROOT" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "${CLAUDE_PROJECT_DIR}/specs/INDEX.md" ]; then
   ROOT="$CLAUDE_PROJECT_DIR"

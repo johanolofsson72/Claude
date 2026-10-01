@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-runtime-markers-ignored.sh — every machine-local marker the hooks write is gitignored,
 # every record they mean to commit is not, and a marker nobody classified is a failure.
 #

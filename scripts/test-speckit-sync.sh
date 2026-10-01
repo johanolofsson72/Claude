@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 #
 # test-speckit-sync.sh — the spec-kit pin's own gate (spec 073).
 #

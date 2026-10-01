@@ -274,7 +274,8 @@ skill-reachable.sh test-skill-reachable.sh
 core-gates.sh test-core-gates.sh
 register-bytes.sh test-register-bytes.sh
 harness-gitignore.sh test-harness-gitignore.sh
-validate-rule-citations.sh test-validate-rule-citations.sh"
+validate-rule-citations.sh test-validate-rule-citations.sh
+self-test-env.sh test-self-test-prologue.sh test-root-walk-terminates.sh test-template-autosync-sandbox-writes.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the
@@ -734,9 +735,10 @@ fi
 # ---------------------------------------------------------------- project root
 DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 PROJECT_ROOT=""
+case "$DIR" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$DIR" 2>/dev/null && pwd -P) && DIR=$_walk_abs || DIR="$PWD/$DIR" ;; esac   # spec 084 (F015): relative never reaches /
 while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   if [ -d "$DIR/.git" ]; then PROJECT_ROOT="$DIR"; break; fi
-  DIR=$(dirname "$DIR")
+  _walk_up=$(dirname "$DIR"); [ "$_walk_up" = "$DIR" ] && break; DIR=$_walk_up
 done
 [ -n "$PROJECT_ROOT" ] || { say "[skip] not inside a git repository"; exit 0; }
 
@@ -821,7 +823,58 @@ if [ "${CLAUDE_TEMPLATE_SYNC_SANDBOX+set}" = set ]; then
   # run started from a pre-commit gate would stage and commit into the repository that fired the
   # hook, with the root check satisfied. A declared run has no business inheriting them.
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+  # Spec 084 (R3). `git status` refreshes the index it reads, and a declared run asks it of a
+  # template clone that may sit outside the sandbox. Optional locks off: read, never rewrite.
+  GIT_OPTIONAL_LOCKS=0; export GIT_OPTIONAL_LOCKS
 fi
+
+# Spec 084 (F013). Both answer "is this inside the sandbox the run declared?" and are only asked
+# when one was declared, so _sbx is set and usable. Anything that cannot be resolved is OUTSIDE:
+# the interlock fails closed, and these are part of it.
+_inside_sandbox() {  # <path> [<base for a relative path>]
+  case "$1" in /*) _is_p="$1" ;; *) _is_p="${2:-$PWD}/$1" ;; esac
+  _is_p=$(_phys "$_is_p")
+  [ -n "$_is_p" ] && _within "$_is_p" "$_sbx"
+}
+# R2. Every URL a push would use, after git applied pushurl, insteadOf and pushInsteadOf. Local
+# means a path or a hostless file:/// URL; a `%` (git decodes it, this does not), a `::` transport
+# and an scp-like host:path (a colon before the first slash) are outside without further thought.
+_push_inside_sandbox() {
+  _pis_urls=$(git -C "$PROJECT_ROOT" remote get-url --push --all origin 2>/dev/null </dev/null) || return 1
+  [ -n "$_pis_urls" ] || return 1
+  while IFS= read -r _pis_u; do
+    case "$_pis_u" in
+      *%*|*::*) return 1 ;;
+      file:///*) _pis_u="${_pis_u#file://}" ;;
+      file:*) return 1 ;;
+      /*) : ;;
+      *:*) case "${_pis_u%%:*}" in */*) : ;; *) return 1 ;; esac ;;
+    esac
+    _inside_sandbox "$_pis_u" "$PROJECT_ROOT" || return 1
+    # Where git LANDS, not what the URL says (adversarial review, 084): the local transport tries
+    # <path>/.git, <path>, <path>.git/.git and <path>.git, and follows a .git FILE. So the path must
+    # itself be the repository git enters first — its git dir is <path> or <path>/.git, physically —
+    # and the objects it writes (the common dir) must be inside too. An empty directory beside an
+    # outside `<path>.git`, or a gitfile pointing out, fails here.
+    case "$_pis_u" in /*) : ;; *) _pis_u="$PROJECT_ROOT/$_pis_u" ;; esac
+    _pis_p=$(_phys "$_pis_u")
+    _pis_g=$(git -C "$_pis_p" rev-parse --absolute-git-dir 2>/dev/null </dev/null) || return 1
+    _pis_g=$(_phys "$_pis_g")
+    [ "$_pis_g" = "$_pis_p" ] || [ "$_pis_g" = "$_pis_p/.git" ] || return 1
+    _pis_c=$(git -C "$_pis_p" rev-parse --git-common-dir 2>/dev/null </dev/null) || return 1
+    _inside_sandbox "$_pis_c" "$_pis_p" || return 1
+  done <<PUSHURLS
+$_pis_urls
+PUSHURLS
+  return 0
+}
+# R3. A fetch and a fast-forward write the clone's git common dir, which a worktree or a .git file
+# can put somewhere other than the clone, so both are judged.
+_clone_inside_sandbox() {  # <clone>
+  _inside_sandbox "$1" || return 1
+  _cis_g=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null </dev/null) || return 0   # not a repo: nothing to refresh
+  _inside_sandbox "$_cis_g" "$1"
+}
 
 [ -d "$PROJECT_ROOT/.claude" ] || { say "[skip] no .claude/ — not a Claude Code project"; exit 0; }
 
@@ -977,6 +1030,13 @@ refresh_local_template() {
     *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) ;;
     *) return 0 ;;   # a different repo parked at that path: not ours to fetch
   esac
+  # Spec 084 (R3, developer O3). A run that declared a sandbox uses a clone outside it read-only.
+  # Asked here, at the last step before the first write, so the note appears only when a fetch
+  # was actually withheld and a declared run is otherwise byte-identical to an undeclared one.
+  if [ "${CLAUDE_TEMPLATE_SYNC_SANDBOX+set}" = set ] && ! _clone_inside_sandbox "$_c"; then
+    warn "[note] template clone at $_c is outside the declared sandbox — used as-is, not fetched or fast-forwarded"
+    return 0
+  fi
 
   # Bounded, because this runs from SessionStart. A fetch that hangs on a dead
   # network must not become the session's startup cost.
@@ -3353,7 +3413,11 @@ Locally-modified files skipped: $N_SKIP. CLAUDE.md and project-specific settings
       SYNC_COMMIT="$SHORT"
       BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
       if git -C "$PROJECT_ROOT" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
-        if git -C "$PROJECT_ROOT" push -q origin "$BRANCH" 2>/dev/null; then
+        # Spec 084 (R2, F013a). A declared run keeps its commit at home unless every push URL of
+        # origin is inside the sandbox. No URL in the note: an https URL can carry a token.
+        if [ "${CLAUDE_TEMPLATE_SYNC_SANDBOX+set}" = set ] && ! _push_inside_sandbox; then
+          COMMIT_NOTE="$COMMIT_NOTE, not pushed — origin is outside the declared sandbox"
+        elif git -C "$PROJECT_ROOT" push -q origin "$BRANCH" 2>/dev/null; then
           COMMIT_NOTE="$COMMIT_NOTE, pushed to $BRANCH"
           SYNC_PUSHED=yes
         else

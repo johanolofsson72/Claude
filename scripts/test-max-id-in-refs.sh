@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-max-id-in-refs.sh — two lanes never mint the same finding id (row 054).
 #
 # The defect: finding.sh numbered by COUNTING local ledger rows. agentcrm 2026-09-17: origin/main

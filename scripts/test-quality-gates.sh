@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-quality-gates.sh — the quality-gate bench and nightly pass (spec 020).
 #
 # Fifteen local-LLM hooks that check code are measured on a labelled corpus

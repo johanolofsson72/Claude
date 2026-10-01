@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-sync-count-honesty.sh — the sync's headline must describe the commit it made.
 #
 # Spec 007an. `scripts/template-autosync.sh` used to count entries in its own

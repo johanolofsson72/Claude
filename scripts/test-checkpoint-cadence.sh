@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-checkpoint-cadence.sh — the every-5 checkpoint counts feature specs since the last checkpoint.
 #
 # fundit F211 (spec 068): the cadence counted H rows and carved rows, and fired "checkpoint due" at

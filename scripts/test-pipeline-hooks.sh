@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Test harness for the two new pipeline enforcement hooks:
 #   - scripts/pipeline-trigger-match.sh  (UserPromptSubmit anchor matcher)
 #   - scripts/pipeline-state-guard-hook.sh  (PreToolUse phase guard)
@@ -12,6 +13,7 @@
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/scripts/drive-sync.sh"   # the hook runs the sync, so it is driven like one (spec 084)
 cd "$ROOT"
 # Spec 029: a deny counts only if the CLI would read it (hookEventName present).
 . "$ROOT/scripts/hook-verdict.sh"
@@ -979,10 +981,12 @@ autosync_marker() {
   if [ -n "$k" ]; then echo "$k"; else echo empty; fi
 }
 
-# Run the hook in a sandbox. Extra args are VAR=value env assignments.
+# Run the hook in a sandbox. Extra args are VAR=value env assignments. The fixture is its own
+# sandbox: the hook writes its marker there and the stub sync it starts stays there (spec 084).
 autosync_hook() {
-  local d="$1"; shift
-  ( cd "$d" && env "$@" CLAUDE_PROJECT_DIR="$d" bash "$d/scripts/template-autosync-hook.sh" )
+  local d="$1" a; shift
+  ( for a in "$@"; do export "$a"; done
+    DRIVE_HOOK_SCRIPT="$d/scripts/template-autosync-hook.sh" drive_hook "$d" "$d" )
 }
 
 _expect() {   # name, expected, actual
@@ -1070,11 +1074,15 @@ rm -rf "$BD"
 # finished would still buy the next session's silence. This is the property the
 # whole retry story rests on.
 JD=$(autosync_sandbox "$SLOW_SYNC")
-( cd "$JD" && env TEMPLATE_AUTOSYNC_LIMIT=8 CLAUDE_PROJECT_DIR="$JD" \
-  bash "$JD/scripts/template-autosync-hook.sh" ) >/dev/null 2>&1 &
+# Its own process group (set -m), signalled as a group: drive_hook puts a subshell between this
+# script and the hook, and TERM to that subshell alone would orphan the hook rather than stop it.
+# A group signal is also what the harness's hook timeout delivers.
+set -m
+autosync_hook "$JD" TEMPLATE_AUTOSYNC_LIMIT=8 >/dev/null 2>&1 &
 JPID=$!
+set +m
 sleep 2
-kill -TERM "$JPID" 2>/dev/null
+kill -TERM -- "-$JPID" 2>/dev/null
 wait "$JPID" 2>/dev/null
 _expect "autosync: a hook killed from outside leaves no marker (SC-1306)" absent "$(autosync_marker "$JD")"
 _expect "autosync: a hook killed from outside had started the sync (SC-1306)" 1 "$(autosync_runs "$JD")"
@@ -1157,8 +1165,8 @@ if [ -n "$GUARD" ]; then
   for c in bash sh git dirname date stat sed tr sleep rm cat head wc mktemp kill; do
     p=$(command -v "$c" 2>/dev/null) && ln -sf "$p" "$NOBIN/$c"
   done
-  HOUT=$(cd "$HD" && "$GUARD" 20 env PATH="$NOBIN" TEMPLATE_AUTOSYNC_LIMIT=2 \
-         CLAUDE_PROJECT_DIR="$HD" bash "$HD/scripts/template-autosync-hook.sh"); HRC=$?
+  HOUT=$(DRIVE_SYNC_TIMEOUT=20 DRIVE_SYNC_PATH="$NOBIN" TEMPLATE_AUTOSYNC_LIMIT=2 \
+         DRIVE_HOOK_SCRIPT="$HD/scripts/template-autosync-hook.sh" drive_hook "$HD" "$HD"); HRC=$?
   _expect       "autosync: bounded even with no timeout binary (SC-1309)"   0           "$HRC"
   _expect_has   "autosync: reports the timeout without coreutils (SC-1309)" "timed out" "$HOUT"
   _expect       "autosync: marks the marker as a timeout too (SC-1309)"     timeout     "$(autosync_marker "$HD")"
@@ -1169,8 +1177,8 @@ if [ -n "$GUARD" ]; then
   # timeout" is true either way — it is the clock that discriminates.
   KD=$(autosync_sandbox "$STUBBORN_SYNC")
   KS=$(date +%s)
-  KOUT=$(cd "$KD" && "$GUARD" 40 env PATH="$NOBIN" TEMPLATE_AUTOSYNC_LIMIT=2 \
-         CLAUDE_PROJECT_DIR="$KD" bash "$KD/scripts/template-autosync-hook.sh")
+  KOUT=$(DRIVE_SYNC_TIMEOUT=40 DRIVE_SYNC_PATH="$NOBIN" TEMPLATE_AUTOSYNC_LIMIT=2 \
+         DRIVE_HOOK_SCRIPT="$KD/scripts/template-autosync-hook.sh" drive_hook "$KD" "$KD")
   KE=$(( $(date +%s) - KS ))
   _expect_under "autosync: watchdog — a sync ignoring TERM is stopped at the bound (SC-1311)" 15 "$KE"
   _expect_has   "autosync: watchdog — a sync ignoring TERM reports a timeout (SC-1311)" "timed out" "$KOUT"

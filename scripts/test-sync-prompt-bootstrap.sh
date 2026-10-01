@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests the Step -1 bootstrap block embedded in scripts/sync-prompt.md.
 #
 # That block is the reason /project-update alone is sufficient: it finds the

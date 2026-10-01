@@ -46,6 +46,7 @@
 #
 #   drive_sync           <project> <sandbox> [args…]   # the ordinary entry point
 #   drive_sync_readonly  <project>           [args…]   # query modes only; refuses otherwise
+#   drive_hook           <project> <sandbox> [args…]   # template-autosync-hook.sh (spec 084)
 #
 #   CLAUDE_TEMPLATE_DIR="$T" drive_sync "$P" "$TMP" --force      # extra env: prefix the call.
 #                                                               # Measured: bash exports it to the
@@ -55,7 +56,10 @@
 #                                                               # 19 hand-spelled sites had.
 #
 #   DRIVE_SYNC_SCRIPT=…    which sync to run   (REQUIRED, absolute; there is no default)
+#   DRIVE_HOOK_SCRIPT=…    which hook drive_hook runs (REQUIRED for it, absolute, no default)
 #   DRIVE_SYNC_CWD=…       where to run it     (default: <project>)
+#   DRIVE_SYNC_PATH=…      PATH for the script only, set after the timeout binary is found (spec 084:
+#                          a test that hides coreutils from the hook still gets its own bound)
 #   DRIVE_SYNC_TIMEOUT=…   seconds             (default: none. `timeout` has to sit between the
 #                                              environment and `bash`, which is why it cannot be a
 #                                              prefix assignment and is a variable instead.)
@@ -136,8 +140,8 @@ _drive_sync_check_sandbox() {  # <sandbox>
 # the REPO's sync where the caller meant a fixture copy, an era copy or a sabotaged copy; the sandbox
 # still holds, so nothing is damaged and the test measures the wrong binary, which is the quiet
 # direction. An arity error is the loud one.
-_drive_sync_check_script() {  # <script>
-  [ -n "$1" ] || { _drive_sync_bad "DRIVE_SYNC_SCRIPT is not set. Name the sync this call should run — the repo's own, a fixture's copy, or an era/sabotaged copy. There is deliberately no default."; return $?; }
+_drive_sync_check_script() {  # <script> [<variable name>]
+  [ -n "$1" ] || { _drive_sync_bad "${2:-DRIVE_SYNC_SCRIPT} is not set. Name the script this call should run — the repo's own, a fixture's copy, or an era/sabotaged copy. There is deliberately no default."; return $?; }
   # Absolute, because it is checked here in the caller's cwd and run later from DRIVE_SYNC_CWD: a
   # relative path could pass this check against one copy and execute another (review, 011).
   case "$1" in /*) : ;; *) _drive_sync_bad "sync script is relative: $1 — it is checked here and run from another directory"; return $? ;; esac
@@ -183,8 +187,10 @@ _drive_sync_run() {  # <project> <sandbox-or-empty> <script> [args…]
           "$DRIVE_SYNC_TIMEOUT" >&2
         exit 64
       }
+      [ -z "${DRIVE_SYNC_PATH:-}" ] || PATH="$DRIVE_SYNC_PATH"
       exec "$_ds_t" "$DRIVE_SYNC_TIMEOUT" bash "$_ds_x" "$@"
     fi
+    [ -z "${DRIVE_SYNC_PATH:-}" ] || PATH="$DRIVE_SYNC_PATH"
     exec bash "$_ds_x" "$@"
   )
 }
@@ -204,6 +210,39 @@ drive_sync() {  # drive_sync <project> <sandbox> [args…]
   _drive_sync_check_project "$_ds_project" || return $?
   _drive_sync_check_sandbox "$_ds_sandbox" || return $?
   _drive_sync_launch "$_ds_project" "$_ds_sandbox" "$@"
+}
+
+# Spec 084 (F018). template-autosync-hook.sh runs the sync itself, with CLAUDE_PROJECT_DIR as its
+# target, so a test that runs the hook is a sync driver one level removed, and needs the same two
+# halves. Same checks as drive_sync, same subshell, its own script variable: the hook and the sync
+# are different programs, and a test that drives both names each one.
+drive_hook() {  # drive_hook <project> <sandbox> [args…]
+  [ $# -ge 2 ] || { _drive_sync_bad "usage: drive_hook <project> <sandbox> [args…]"; return $?; }
+  _ds_project="$1"; _ds_sandbox="$2"; shift 2
+  _drive_sync_check_project "$_ds_project" || return $?
+  _drive_sync_check_sandbox "$_ds_sandbox" || return $?
+  # The hook writes .claude/.template-sync-check into the project after the sync returns, even when
+  # the sync's own interlock refused (threat-model review, 084). So the project must already be
+  # inside the sandbox here; the sync's check comes too late for the hook's writes.
+  _ds_pp=$(cd "${DRIVE_SYNC_CWD:-.}" 2>/dev/null && _drive_sync_phys "$_ds_project")
+  _ds_sp=$(_drive_sync_phys "$_ds_sandbox")
+  case "$_ds_pp/" in
+    "$_ds_sp"/*) : ;;
+    *) _drive_sync_bad "project ${_ds_pp:-$_ds_project} is not inside sandbox $_ds_sp — the hook writes into its project whatever the sync decides"; return $? ;;
+  esac
+  # …and it is the root the hook will resolve. Without its own .git the hook walks UP to the first
+  # repository above, which can be outside the sandbox (adversarial review, 084). No repository
+  # anywhere above is harmless: the hook stops at its walk and writes nothing.
+  if [ ! -e "$_ds_pp/.git" ]; then
+    _ds_up="$_ds_pp"
+    while [ "$_ds_up" != "/" ] && [ -n "$_ds_up" ]; do
+      _ds_up=$(dirname "$_ds_up")
+      [ -e "$_ds_up/.git" ] && { _drive_sync_bad "project $_ds_pp has no .git of its own — the hook would walk up to $_ds_up"; return $?; }
+    done
+  fi
+  _drive_sync_check_script "${DRIVE_HOOK_SCRIPT:-}" DRIVE_HOOK_SCRIPT || return $?
+  _drive_sync_check_timeout || return $?
+  _drive_sync_run "$_ds_project" "$_ds_sandbox" "$DRIVE_HOOK_SCRIPT" "$@"
 }
 
 # The write-free entry point. Four modes return above the project-root resolution inside

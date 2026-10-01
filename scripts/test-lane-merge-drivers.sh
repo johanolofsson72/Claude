@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-lane-merge-drivers.sh — prove the union driver actually resolves the merge
 # it was installed for, and that the backstop still catches what union hides.
 #

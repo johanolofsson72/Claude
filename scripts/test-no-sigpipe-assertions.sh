@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-no-sigpipe-assertions.sh — self-test for scripts/validate-no-sigpipe-assertions.sh (H7x, H7ax).
 #
 # WHY EVERY EXEMPTION GETS A GREEN ARM, NOT A CLAIM. The gate refuses one idiom and excuses four things:

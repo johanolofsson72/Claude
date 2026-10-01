@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-archive-completed-rows.sh — harness for scripts/archive-completed-rows.sh.
 #
 # EVERY case carries a NEGATIVE CONTROL: a variant constructed so the assertion

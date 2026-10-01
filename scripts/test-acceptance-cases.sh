@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-acceptance-cases.sh — the developer-confirmed acceptance-case gate (spec 080).
 #
 # A full or hardened spec owes 3-5 Given/When/Then cases in <spec-dir>/acceptance.md, confirmed by

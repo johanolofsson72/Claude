@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests the [owed] block in scripts/template-autosync.sh (spec 007bg).
 #
 # Two bugs it guards, and they are different in kind:

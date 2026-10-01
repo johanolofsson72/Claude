@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-stryker-guard.sh — the PreToolUse guard that refuses a Stryker run which would measure nothing
 # (row 047), and the helper it shares with section 5 of project-maintenance.sh.
 #

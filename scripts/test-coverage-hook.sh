@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # PostToolUse hook: deterministic enforcement of functional test coverage
 # Fires on Edit|Write of test files. Reminds when the inventory is missing or tests < inventory items.
 #

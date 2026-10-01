@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-fixture-map-ids.sh — harness for scripts/validate-fixture-map-ids.sh.
 #
 # WHY THIS EXISTS. The gate's job is to refuse something that looks completely ordinary — an id

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for scripts/project-maintenance.sh — the abandoned-agent-worktree section (spec 007bk).
 #
 # Travels with the script into every project, for the same reason test-project-freshness.sh and

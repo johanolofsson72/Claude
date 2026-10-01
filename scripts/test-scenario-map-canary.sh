@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-scenario-map-canary.sh — the context-cost canary, at both sites, under both map layouts.
 #
 # WHAT THE CANARY IS FOR: specs/INDEX.md and the scenario map are read on every spec, so every

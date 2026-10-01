@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for scripts/validate-register-ids.sh and the id grammar it gates (row H7b).
 #
 # WHY THIS EXISTS. A gate whose failing arm has never been observed is not known to work — spec 007f's

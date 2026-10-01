@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 #
 # test-sync-prompt-zsh.sh — Step 5c's CORE mirror must copy every script in bash AND zsh (row 037).
 #

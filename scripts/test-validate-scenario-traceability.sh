@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-validate-scenario-traceability.sh — harness for scripts/validate-scenario-traceability.sh.
 #
 # WHY THIS EXISTS: the gate it tests was, for months, a name in four comments and nothing else —

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for spec 082 R13-R15: the local model stays on this machine, its output is labelled as
 # untrusted when it reaches Claude, and the third-party downloads are pinned.
 #

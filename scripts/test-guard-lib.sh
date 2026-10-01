@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-guard-lib.sh — scripts/guard-lib.sh, the library every PreToolUse guard reads its payload,
 # writes its verdict and canonicalises its path through (spec 083, R1).
 #
@@ -96,7 +97,7 @@ V=$(canon "$WORK/p/a b/../c d.cs"); [ "$V" = "$WORK/p/c d.cs" ] && ok "spaces su
 
 printf '\n[R5] root-anchored exemptions\n'
 ex() { bash -c '. "$0"; guard_root_exempt "$1"' "$LIB" "$1"; }
-for r in scripts/x.sh specs/001/spec.md .specify/f .claude/rules/a.md; do
+for r in scripts/x.sh specs/001/spec.md .specify/f .claude/x/y; do
   ex "$r" && ok "exempt: $r" || bad "not exempt: $r"
 done
 for r in src/scripts/app.js app/specs/x.ts lib/.claude/x.js scriptsx/a.js; do

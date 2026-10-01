@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for spec 082 R5/R7 in scripts/project-maintenance.sh — what the unattended nightly may run.
 #
 #   bash scripts/test-maintenance-trust.sh

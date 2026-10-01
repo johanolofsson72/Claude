@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-spec-dir-absent.sh — an active row with no spec directory, and the files that slipped past.
 #
 # Spec 032, from fundit F001. fundit's 016a (a static holding page) shipped with no spec directory

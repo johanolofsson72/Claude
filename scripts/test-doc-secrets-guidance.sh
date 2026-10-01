@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for the template's own docs (spec 072): no doc may tell a project to keep production
 # secrets in environment variables, or any secret in appsettings.json. rules/security.md said
 # "use appsettings.json (local) or environment variables (production)" for months. teach spec 014

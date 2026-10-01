@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Tests scripts/validate-rule-citations.sh and the rule it was written for (spec 041).
 #
 # The defect: ten files cited .claude/rules/mutation-timeouts.md, most of them for its "trap 4", and

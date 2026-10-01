@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for the template's own docs (spec 071): no C# example may call a Playwright API that
 # exists only in the Node runner (@playwright/test). testing.md told .NET projects to write
 # `await Expect(Page).ToHaveScreenshotAsync(...)` for months; Microsoft.Playwright has no such

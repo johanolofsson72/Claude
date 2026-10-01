@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-scenario-map-reminder.sh — the scenario-map reminder hook, under both map layouts.
 #
 # WHAT IS AT STAKE: this hook is the only automatic check that a spec's user-cases reached the

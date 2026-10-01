@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-next-register-id.sh — the id allocator never hands out a taken id.
 #
 # Three colliding ids were picked by hand on 2026-09-03 (rocky 578-580 and H12,

@@ -28,16 +28,25 @@
 # array or `\`-continuation is still open) keeping a stack of frames — code, "…", '…', $'…', `…`,
 # $(…)/(…), and array literals — skips comments and heredoc bodies, and splits code into words and
 # separators. A word is a TARGET when it is the literal path (…template-autosync.sh) or a handle:
-# a variable whose assigned value ENDS in -autosync.sh. A target is RUN when, within its own
-# command segment:
+# a variable whose assigned value ENDS in -autosync.sh. Since spec 084 (F018) the hook is a target
+# too — …template-autosync-hook.sh, or a handle ending -autosync-hook.sh — because the hook runs the
+# sync with CLAUDE_PROJECT_DIR as its target; its way in is drive_hook, and it has no query mode.
+# A target is RUN when, within its own command segment:
 #
 #   (a) the nearest preceding non-option word is an interpreter — bash, sh, zsh, dash, ksh,
 #       source, `.`, exec, $BASH, $SHELL, find's -exec — whatever comes before that; or
 #   (b) every preceding word is transparent — an assignment, a redirection with its file,
 #       an option, a number, or env/timeout/nohup/time/command/nice/sudo/xargs/if/then/do/!/{ —
 #       i.e. the path itself is the command word (the sync carries a #! line); or
-#   (c) the segment's command is `eval`, or an interpreter with -c, and the target appears
-#       anywhere in the rest of the segment, quoted or not, because that text IS code.
+#   (c) the segment's command is `eval`, `watch`, `su -c` or an interpreter with -c, and the target
+#       appears anywhere in the rest of the segment, quoted or not, because that text IS code; or
+#   (d) a program whose job is to run its arguments precedes it anywhere in the segment — chronic,
+#       unbuffer, flock, runuser, taskset, chrt, numactl, strace, ltrace, valgrind, firejail,
+#       systemd-run, watch, su — whatever options it took (spec 084, F019: no arity table to keep
+#       right). Inverting the rule ("a run unless a known non-runner precedes") was measured and
+#       declined: 130 new hits on the tree, none of them a run.
+#
+# `bash -n "$S"` (and sh/zsh/… -n) parses without executing, so it is not a run (spec 084).
 #
 # A redirection's file (`> "$d/scripts/template-autosync.sh"`) and an array element are not runs:
 # a bare `>` is neither an interpreter nor transparent, and array elements are data.
@@ -66,7 +75,7 @@
 #
 # RESIDUALS, NAMED. A sync reached through a user function's positional parameter
 # (`run() { bash "$1"; }; run "$SYNC"`), through a copy under a name that does not end in
-# -autosync.sh, behind a wrapper command this lexer does not know (`sudo -u x "$SYNC"`), or under a
+# -autosync.sh, behind a wrapper command this lexer does not know (one not in (d) above), or under a
 # deliberately quote-spliced name (`template-auto""sync.sh`, which the grep narrowing never selects)
 # is not seen. The adversary here is the next honest author of a self-test, not someone obfuscating.
 # The six drivers are held to the helper by the harness's census instead, which is the stronger
@@ -131,7 +140,8 @@ is_excluded() { inlist "$EXCLUDED_KEYS" "$1"; }
 #   I <file> <line> <segment>   a run of the sync
 #   F <file> <line> <segment>   a run of the sync inside a function body
 #   Q <file> <line> <segment>   a run in a query mode
-#   D <file> <line> <name>      a definition of drive_sync or drive_sync_readonly
+#   J <file> <line> <segment>   a run of the hook (spec 084); G inside a function body
+#   D <file> <line> <name>      a definition of drive_sync, drive_sync_readonly or drive_hook
 #   T <file> <line> <word>      a definition of, or assignment to, one of the helper's internals
 #   E <file> <line> <why>       the file could not be lexed to its end — the gate cannot answer
 read -r -d '' LEXER <<'AWK'
@@ -167,11 +177,15 @@ function closesub(   h, nm) {
   # the value is what the substitution or the array holds, so the name becomes a handle here.
   if (h > 0 && TT[h] ~ /^[A-Za-z_][A-Za-z0-9_]*\+?="?$/) {
     nm = TT[h]; sub(/\+?="?$/, "", nm)
-    if ((ft[d] == 6 && bare(LW[fs[d]]) ~ /-autosync\.sh$/) || (ft[d] == 5 && AM[fs[d]])) addhandle(nm)
+    if ((ft[d] == 6 && bare(LW[fs[d]]) ~ /-autosync(-hook)?\.sh$/) || (ft[d] == 5 && AM[fs[d]])) addhandle(nm, (ft[d] == 6 ? LW[fs[d]] : ""))
   }
   gh = h; d--; glue = 1
 }
-function addhandle(n) { if (n != "" && index("|" handles "|", "|" n "|") == 0) handles = handles (handles == "" ? "" : "|") n }
+function addhandle(n, v) {
+  if (n != "" && index("|" handles "|", "|" n "|") == 0) handles = handles (handles == "" ? "" : "|") n
+  # Spec 084 (F018). A handle on the HOOK is remembered apart, so its run is never read as a query.
+  if (n != "" && v ~ /-autosync-hook\.sh/ && index("|" hhandles "|", "|" n "|") == 0) hhandles = hhandles (hhandles == "" ? "" : "|") n
+}
 # A resumable lexer. lex_start opens a logical line; lex_feed lexes one more physical line into it,
 # keeping the frame stack, so a line joined across 60 physical lines costs 60 lines of work, not
 # 60 x 60. Tokens: TT text, TK kind (w word, s separator), TF frame serial, TY frame type, TL physical
@@ -286,12 +300,22 @@ function takes_arg(w) { return (w ~ /^-(o|O|a|u|s|k|n|C|g|p|-signal|-kill-after|
 function is_target(w,   b) {
   if (is_assign(w)) return 0      # an assignment holds a path, it runs nothing
   b = bare(w)
-  if (b ~ /template-autosync\.sh$/) return 1
+  if (b ~ /template-autosync(-hook)?\.sh$/) return 1
   # A handle anywhere in the word: "$S", "${S:?}", "$PWD/scripts/$NAME", "${CMD[@]}".
   if (handles != "" && b ~ ("\\$(" handles ")([^A-Za-z0-9_]|$)")) return 1
   return 0
 }
-function mentions(w) { return (index(w, "template-autosync.sh") > 0 || (handles != "" && w ~ ("\\$\\{?(" handles ")([^A-Za-z0-9_]|$)"))) }
+function mentions(w) { return (index(w, "template-autosync.sh") > 0 || index(w, "template-autosync-hook.sh") > 0 || (handles != "" && w ~ ("\\$\\{?(" handles ")([^A-Za-z0-9_]|$)"))) }
+# Spec 084 (F018). Is this word the hook rather than the sync? Decides the message and denies the
+# query-mode exemption: the hook has no query mode, so `--is-core` after it excuses nothing.
+function is_hook(w,   b) {
+  b = bare(w)
+  if (b ~ /template-autosync-hook\.sh/) return 1
+  return (hhandles != "" && b ~ ("\\$(" hhandles ")([^A-Za-z0-9_]|$)"))
+}
+# Spec 084 (F019, developer O2). Programs whose job is to run their arguments. One anywhere before
+# the target in its segment makes it a run, whatever options it took: no arity table to keep right.
+function is_wrapper(w) { return (base(w) ~ /^(chronic|unbuffer|flock|runuser|taskset|chrt|numactl|strace|ltrace|valgrind|firejail|systemd-run|watch|su)$/) }
 function segment(i,   j, a, b, out) {                                 # the command segment holding token i
   a = i; while (a > 1 && !(TK[a-1] == "s" && TF[a-1] == TF[i])) a--
   b = i; while (b < NT && !(TK[b+1] == "s" && TF[b+1] == TF[i])) b++
@@ -316,8 +340,12 @@ function is_query(i, textual,   k, w, skip) {
   }
   return 0
 }
-function report(i, textual) { print (is_query(i, textual) ? "Q" : (FNB > 0 ? "F" : "I")) "\t" FILENAME "\t" TL[i] "\t" segment(i) }
-function scan_invoke(   i, j, w, near, allt, pre, k, found, np, P, m, cmdv) {
+# I/F: a run of the sync (top level / in a function). J/G: the same for the hook (spec 084).
+function report(i, textual, hk) {
+  if (!hk && is_query(i, textual)) { print "Q\t" FILENAME "\t" TL[i] "\t" segment(i); return }
+  print (hk ? (FNB > 0 ? "G" : "J") : (FNB > 0 ? "F" : "I")) "\t" FILENAME "\t" TL[i] "\t" segment(i)
+}
+function scan_invoke(   i, j, w, near, allt, pre, k, found, np, P, m, cmdv, wr, hk, nx) {
   for (i = 1; i <= NT; i++) {
     if (TK[i] != "w") continue
     w = TT[i]
@@ -325,14 +353,15 @@ function scan_invoke(   i, j, w, near, allt, pre, k, found, np, P, m, cmdv) {
     # run at its top level would fire at source time, in every driver (review, 011).
     if (FNP && w == "{") { FNB++; FNP = 0 } else if (FNB > 0 && w == "{") FNB++; else if (FNB > 0 && w == "}") FNB--
     # (c) eval, or an interpreter with -c: the rest of the segment is code whatever its quoting.
-    if ((base(w) == "eval" || (is_interp(w) && i < NT && TK[i+1] == "w" && TF[i+1] == TF[i] && bare(TT[i+1]) ~ /^-[a-z]*c[a-z]*$/)) && TY[i] != 5) {
+    # `watch` and `su -c` hand their text to a shell too (spec 084, F019).
+    if ((base(w) == "eval" || base(w) == "watch" || ((is_interp(w) || base(w) == "su") && i < NT && TK[i+1] == "w" && TF[i+1] == TF[i] && bare(TT[i+1]) ~ /^-[a-z]*c[a-z]*$/)) && TY[i] != 5) {
       pre = 1
       for (j = i - 1; j >= 1 && !(TK[j] == "s" && TF[j] == TF[i]); j--)
         if (TK[j] == "w" && TF[j] == TF[i] && !is_transparent(TT[j])) { pre = 0; break }
       if (pre) {
-        found = 0
-        for (k = i + 1; k <= NT && !(TK[k] == "s" && TF[k] == TF[i]); k++) if (TK[k] != "s" && mentions(TT[k])) { found = 1; break }
-        if (found) { report(i, 1); continue }
+        found = 0; hk = 0
+        for (k = i + 1; k <= NT && !(TK[k] == "s" && TF[k] == TF[i]); k++) if (TK[k] != "s" && mentions(TT[k])) { found = 1; hk = (index(TT[k], "autosync-hook.sh") > 0 || (hhandles != "" && TT[k] ~ ("\\$\\{?(" hhandles ")([^A-Za-z0-9_]|$)"))); break }
+        if (found) { report(i, 1, hk); continue }
       }
     }
     if (!is_target(w) || TY[i] == 5) continue
@@ -350,11 +379,15 @@ function scan_invoke(   i, j, w, near, allt, pre, k, found, np, P, m, cmdv) {
       break
     }
     if (m >= 1) near = P[m]
+    # `bash -n "$S"` parses and executes nothing (spec 084: test-pipeline-hooks.sh syntax-checks the
+    # hook). Only for a shell named as the interpreter; `-n` after anything else means nothing here.
+    if (m >= 1 && base(near) ~ /^(bash|sh|zsh|dash|ksh|mksh|ash)$/) { nx = 0; for (k = m + 1; k <= np; k++) if (P[k] ~ /^-[a-zA-Z]*n[a-zA-Z]*$/) nx = 1; if (nx) continue }
     for (m = 1; m <= np; m++) {
       if (m > 1 && takes_arg(P[m-1])) continue
       if (!is_transparent(P[m])) { allt = 0; break }
     }
-    if ((near != "" && is_interp(near)) || allt) report(i, 0)
+    wr = 0; for (m = 1; m <= np; m++) if (is_wrapper(P[m])) { wr = 1; break }
+    if ((near != "" && is_interp(near)) || allt || wr) report(i, 0, is_hook(w))
   }
 }
 # The helper's names are its contract. A second definition of drive_sync or of any _drive_sync_*
@@ -362,15 +395,15 @@ function scan_invoke(   i, j, w, near, allt, pre, k, found, np, P, m, cmdv) {
 # definition site enjoys: `_drive_sync_check_sandbox() { :; }` after sourcing it disables the check
 # for everything after (review, 011). Reported as D; the gate allows them in one file only.
 # D: a definition of an entry point. T: a definition of, or assignment to, one of its internals.
-function defn(i, b) { sub(/\(\)$/, "", b); print (b ~ /^drive_sync(_readonly)?$/ ? "D" : "T") "\t" FILENAME "\t" TL[i] "\t" b }
+function defn(i, b) { sub(/\(\)$/, "", b); print (b ~ /^drive_(sync(_readonly)?|hook)$/ ? "D" : "T") "\t" FILENAME "\t" TL[i] "\t" b }
 function scan_define(   i, b) {
   for (i = 1; i <= NT; i++) {
     if (TK[i] == "s" && TT[i] == "()") FNP = 1
     if (TK[i] != "w") continue
     b = bare(TT[i])
-    if (b ~ /^_?drive_sync[A-Za-z0-9_]*\(\)$/) { defn(i, b); continue }
-    if (b ~ /^_?drive_sync[A-Za-z0-9_]*$/ && i < NT && TT[i+1] == "()") { defn(i, b); continue }
-    if (b == "function" && i < NT && TK[i+1] == "w" && bare(TT[i+1]) ~ /^_?drive_sync[A-Za-z0-9_]*(\(\))?$/) { defn(i, bare(TT[i+1])); FNP = 1; continue }
+    if (b ~ /^_?drive_(sync|hook)[A-Za-z0-9_]*\(\)$/) { defn(i, b); continue }
+    if (b ~ /^_?drive_(sync|hook)[A-Za-z0-9_]*$/ && i < NT && TT[i+1] == "()") { defn(i, b); continue }
+    if (b == "function" && i < NT && TK[i+1] == "w" && bare(TT[i+1]) ~ /^_?drive_(sync|hook)[A-Za-z0-9_]*(\(\))?$/) { defn(i, bare(TT[i+1])); FNP = 1; continue }
     if (TT[i] ~ /^_drive_sync_[A-Za-z0-9_]*\+?=/) print "T\t" FILENAME "\t" TL[i] "\t" TT[i]
   }
 }
@@ -381,10 +414,10 @@ function derive_handles(   i, nm, v, k) {
     if (TK[i] != "w") continue
     if (is_assign(TT[i])) {
       nm = TT[i]; sub(/\+?=.*/, "", nm); v = TT[i]; sub(/^[^=]*=/, "", v)
-      if (bare(v) ~ /-autosync\.sh$/) addhandle(nm)
+      if (bare(v) ~ /-autosync(-hook)?\.sh$/) addhandle(nm, v)
     }
     if (TT[i] == "for" && i + 2 <= NT && TK[i+1] == "w" && TT[i+2] == "in")
-      for (k = i + 3; k <= NT && !(TK[k] == "s" && TF[k] == TF[i]); k++) if (TK[k] == "w" && bare(TT[k]) ~ /-autosync\.sh$/) addhandle(TT[i+1])
+      for (k = i + 3; k <= NT && !(TK[k] == "s" && TF[k] == TF[i]); k++) if (TK[k] == "w" && bare(TT[k]) ~ /-autosync(-hook)?\.sh$/) addhandle(TT[i+1], TT[k])
   }
 }
 function finish_line() { flush(); derive_handles(); scan_define(); scan_invoke(); open = 0; joins = 0 }
@@ -403,18 +436,18 @@ function end_file() {
 BEGIN {
   hp = 1; npd = 0
   for (a = 1; a < ARGC; a++) {
-    f = ARGV[a]; handles = ""
+    f = ARGV[a]; handles = ""; hhandles = ""
     while ((getline line < f) > 0) {
-      if (line !~ /^[ \t]*((export|declare|local|typeset|readonly)[ \t]+(-[a-zA-Z]+[ \t]+)*)?[A-Za-z_][A-Za-z0-9_]*=[^#;&|]*-autosync\.sh["'}]*[ \t]*([;#].*)?$/) continue
+      if (line !~ /^[ \t]*((export|declare|local|typeset|readonly)[ \t]+(-[a-zA-Z]+[ \t]+)*)?[A-Za-z_][A-Za-z0-9_]*=[^#;&|]*-autosync(-hook)?\.sh["'}]*[ \t]*([;#].*)?$/) continue
       sub(/^[ \t]*/, "", line); sub(/^(export|declare|local|typeset|readonly)[ \t]+/, "", line)
       while (line ~ /^-[a-zA-Z]+[ \t]+/) sub(/^-[a-zA-Z]+[ \t]+/, "", line)
       nm = substr(line, 1, index(line, "=") - 1)
-      addhandle(nm)
+      addhandle(nm, line)
     }
-    close(f); H[f] = handles
+    close(f); H[f] = handles; HH[f] = hhandles
   }
 }
-FNR == 1 { if (CURF != "") end_file(); CURF = FILENAME; handles = H[FILENAME] }
+FNR == 1 { if (CURF != "") end_file(); CURF = FILENAME; handles = H[FILENAME]; hhandles = HH[FILENAME] }
 {
   if (hp <= npd) {                                       # inside a heredoc body
     body = $0; if (PT[hp]) sub(/^\t+/, "", body)
@@ -462,11 +495,12 @@ while IFS="$TAB" read -r kind file num text; do
     E) CANNOT="${CANNOT}  $rel:$num: $text
 " ;;
     Q) inlist "$QUERY_FILES" "$rel" || QUERY_FILES="$QUERY_FILES$rel|" ;;
-    I|F) is_excluded "$rel" && continue
+    I|F|J|G) is_excluded "$rel" && continue
        # PROPERTY: the helper runs the sync inside its two functions, which is its job. A run at its
        # top level would fire at source time in every driver, so only function bodies are exempt.
-       [ "$rel" = "$HELPER_REL" ] && [ "$kind" = "F" ] && continue
-       RUNS="$RUNS$rel$TAB$num$TAB$text
+       [ "$rel" = "$HELPER_REL" ] && { [ "$kind" = "F" ] || [ "$kind" = "G" ]; } && continue
+       case "$kind" in J|G) what=hook ;; *) what=sync ;; esac
+       RUNS="$RUNS$rel$TAB$num$TAB$what$TAB$text
 "
        inlist "$RUN_FILES" "$rel" || { RUN_FILES="$RUN_FILES$rel|"; CHECKED=$((CHECKED + 1)); } ;;
   esac
@@ -517,10 +551,14 @@ while [ -n "$_q" ]; do
   inlist "$RUN_FILES" "$_f" || EXEMPT_QUERY=$((EXEMPT_QUERY + 1))
 done
 
-while IFS="$TAB" read -r rel num text; do
+while IFS="$TAB" read -r rel num what text; do
   [ -n "$rel" ] || continue
   VIOLATIONS=$((VIOLATIONS + 1))
-  say "  $rel:$num — runs template-autosync.sh directly instead of through drive_sync"
+  if [ "$what" = hook ]; then
+    say "  $rel:$num — runs template-autosync-hook.sh directly instead of through drive_hook"
+  else
+    say "  $rel:$num — runs template-autosync.sh directly instead of through drive_sync"
+  fi
   say "      $(printf '%s' "$text" | cut -c1-100)"
 done <<EOF
 $RUNS
@@ -541,6 +579,7 @@ if [ "$VIOLATIONS" -gt 0 ]; then
   say "      . \"\$(dirname \"\$0\")/drive-sync.sh\""
   say "      DRIVE_SYNC_SCRIPT=\"\$SYNC\" drive_sync \"\$P\" \"\$TMP\" --force      # names the target AND declares the sandbox"
   say "      DRIVE_SYNC_SCRIPT=\"\$SYNC\" drive_sync_readonly \"\$P\" --is-core \"\$f\"   # query modes only"
+  say "      DRIVE_HOOK_SCRIPT=\"\$HOOK\" drive_hook \"\$P\" \"\$TMP\"            # the hook runs the sync too"
   say ""
   say "  \`cd\` alone does not choose the target — the sync reads \${CLAUDE_PROJECT_DIR:-\$PWD}, and"
   say "  under a hook that variable is already set to the real repository. Specs 010, 011."

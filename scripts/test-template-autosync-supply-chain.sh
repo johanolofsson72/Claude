@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for spec 082 R1-R4 in scripts/template-autosync.sh (F037, F045).
 #
 # What the sync may ship into a project, and from where:

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-hook-channels.sh — the gate for spec 046.
 #
 #   bash scripts/test-hook-channels.sh

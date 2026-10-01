@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for spec 082 R9 in scripts/lane-catchup.sh (F063).
 #
 #   bash scripts/test-lane-catchup.sh

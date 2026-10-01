@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-scenario-map-rows.sh — the parser harness for scenario-map-rows.sh.
 #
 # WHY THIS EXISTS: scenario-map-rows.sh was the single implementation of cell splitting for the

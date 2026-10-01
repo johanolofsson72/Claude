@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-register-bytes.sh — pins scripts/register-bytes.sh (row 017).
 #
 # The helper decides what the context-cost canary tells a project to do about specs/INDEX.md. A

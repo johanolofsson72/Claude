@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 #
 # test-portability-audit.sh — the portability gate's own gate.
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-destructive-command-guard.sh — scripts/destructive-command-guard-hook.sh (spec 083, R9, F038).
 #
 # The deny list in .claude/settings.json matches by prefix, so `rm -r -f`, `/bin/rm -rf` and

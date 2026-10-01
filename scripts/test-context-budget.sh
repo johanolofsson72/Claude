@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-context-budget.sh — the always-loaded context budget (spec 081).
 #
 # context-budget.sh sums what every session loads before the first prompt: CLAUDE.md,

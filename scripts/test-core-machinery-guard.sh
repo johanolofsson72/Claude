@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-core-machinery-guard.sh — the guard that refuses an edit the sync would revert.
 #
 # Spec 007ao. `scripts/core-machinery-guard-hook.sh` denies Edit/Write/MultiEdit

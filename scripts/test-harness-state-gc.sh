@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-harness-state-gc.sh — the GC removes what the harness left, and nothing a file name can point at.
 #
 # H2 found the marker sweep read `find` output line by line. A marker named "x<newline>victim"

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for scripts/maintenance_ledger.py (row 074).
 #
 #   bash scripts/test-maintenance-ledger.sh

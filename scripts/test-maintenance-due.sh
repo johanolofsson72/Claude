@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-maintenance-due.sh — the due engine must be right about what is owed, and honest about what
 # it has never seen.
 #

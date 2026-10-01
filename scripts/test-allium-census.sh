@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-allium-census.sh — prove allium-census.sh counts errors, ignores warnings, and never
 # reports "clean" when it could not tell.
 #

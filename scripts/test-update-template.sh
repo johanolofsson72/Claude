@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Self-test for spec 082 R12 in scripts/update-template.sh: the template updater feeds web pages to a
 # model, so the model it starts gets no shell, the log is not at a path another user can pre-plant,
 # a dirty tree is refused, and the run ends on a diff for a human to read.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-sensitive-file-guard.sh — scripts/sensitive-file-guard-hook.sh and its retirement of the old
 # inline hook (spec 083, R10, F039).
 #

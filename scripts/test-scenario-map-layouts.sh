@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-scenario-map-layouts.sh — the predicate every 007bl consumer shares, under test.
 #
 # scenario_map_layout is three lines of shell, which is exactly why it is worth testing: it is

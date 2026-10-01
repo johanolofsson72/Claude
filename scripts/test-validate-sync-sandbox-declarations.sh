@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Harness for scripts/validate-sync-sandbox-declarations.sh and the interlock it protects
 # (spec 010 from consultpilot H7bm; spec 011 from consultpilot H7bo).
 #
@@ -473,13 +474,12 @@ for d in test-core-owed-tick-guard test-sync-count-honesty test-template-autosyn
   _n=$(grep -vE '^[[:space:]]*#' "$_f" | grep -c 'CLAUDE_TEMPLATE_SYNC_SANDBOX=')
   HANDSPELLED=$((HANDSPELLED + _n))
 done
-# One survives, and it is not a sync invocation: test-template-autosync-eol.sh drives the HOOK,
-# which is a different program that runs the sync itself. The declaration there is what keeps that
-# nested run inside its sandbox, and routing a hook through a sync helper would be the helper
-# growing a second job. So the honest figure is 17 -> 1, not 17 -> 0, and the 1 is named.
-same "the six drivers hold exactly one hand-spelled declaration (the hook call)" "$HANDSPELLED" "1"
-_eol=$(grep -vE '^[[:space:]]*#' "$PWD/scripts/test-template-autosync-eol.sh" | grep 'CLAUDE_TEMPLATE_SYNC_SANDBOX=')
-has  "…and it is the hook invocation, not a sync invocation" "$_eol" "CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1"
+# Spec 084 (F018). The last one was test-template-autosync-eol.sh driving the HOOK, which runs the
+# sync itself. The hook is now a target of the gate and has its own helper, drive_hook, so the
+# figure is 17 -> 0.
+same "the six drivers hold no hand-spelled declaration" "$HANDSPELLED" "0"
+_eol=$(grep -vE '^[[:space:]]*#' "$PWD/scripts/test-template-autosync-eol.sh")
+has  "…and the eol suite drives the hook through drive_hook" "$_eol" "drive_hook"
 
 echo "== AC-58 (H7bo AC-36): the six real drivers, one falsification arm each =="
 # Six arms, not one: an arm per file proves the rule bites in every file rather than in whichever
@@ -635,6 +635,24 @@ A=$(sync_undeclared "$IN" --check)
 B=$(run_sync "$SBX" "$IN" --check)
 same "declared and undeclared produce identical output" "$A" "$B"
 hasnt "…and the undeclared run says nothing new" "$A" "[refused]"
+
+echo "-- 084 GAP-1 (TLA UndeclaredUnchanged): an undeclared run still pushes to an outside origin"
+# The R2 refusal is bounded to declared runs. This harness is the one place allowed to run the sync
+# undeclared, so the production half of SandboxWrites.tla's UndeclaredUnchanged is proved here.
+for _k in undeclared declared; do
+  _bare="$ILOCK/gap1-$_k-origin.git"; _proj="$SBX/gap1-$_k"
+  git init -q --bare -b main "$_bare"; mkrepo "$_proj"
+  git -C "$_proj" remote add origin "$_bare"; git -C "$_proj" push -q -u origin main 2>/dev/null
+  if [ "$_k" = undeclared ]; then O=$(sync_undeclared "$_proj"); else O=$(run_sync "$SBX" "$_proj"); fi
+  _head=$(git -C "$_proj" rev-parse HEAD); _rem=$(git -C "$_bare" rev-parse main)
+  if [ "$_k" = undeclared ]; then
+    has  "undeclared: the sync committed and pushed"        "$O" "pushed to main"
+    same "undeclared: the outside origin holds the commit"  "$_rem" "$_head"
+  else
+    has  "declared: the same fixture is held back"          "$O" "not pushed — origin is outside the declared sandbox"
+    [ "$_rem" != "$_head" ] && ok "declared: the outside origin did not move" || bad "declared: the outside origin received the commit"
+  fi
+done
 
 echo "-- AC-24: --is-core costs nothing extra with a declaration set (FR-013b, behavioural)"
 sync_undeclared "$IN" --is-core scripts/x.sh >/dev/null 2>&1; C1=$?
@@ -966,6 +984,54 @@ R=$(fixture review011f)
 printf '#!/bin/bash\nS="$PWD/scripts/template-autosync.sh"\ncommand -v "$S" >/dev/null\n' > "$R/scripts/test-command-v.sh"
 OUT=$(gate "$R"); RC=$?
 same "command -v asks where the file is; it runs nothing"       "$RC" "0"
+
+echo "== 084-AC-5 (spec 084, R5 F018): the hook is a target, drive_hook is the way to it =="
+R=$(fixture h084a)
+printf '#!/bin/bash\nCLAUDE_PROJECT_DIR="$PWD" bash "$PWD/scripts/template-autosync-hook.sh"\n' > "$R/scripts/test-hook-direct.sh"
+OUT=$(gate "$R"); RC=$?
+same "084-AC-5 running the hook directly exits 1"               "$RC" "1"
+has  "…named, with the helper it should use"                    "$OUT" "test-hook-direct.sh:2 — runs template-autosync-hook.sh directly instead of through drive_hook"
+
+R=$(fixture h084b)
+printf '#!/bin/bash\nHOOK="$PWD/scripts/template-autosync-hook.sh"\n( cd /tmp && "$HOOK" )\n' > "$R/scripts/test-hook-handle.sh"
+OUT=$(gate "$R"); RC=$?
+same "a handle on the hook, run as the command word, exits 1"   "$RC" "1"
+has  "…named"                                                   "$OUT" "test-hook-handle.sh:3"
+
+R=$(fixture h084c)
+printf '#!/bin/bash\nH="$PWD/scripts/template-autosync-hook.sh"\nbash "$H" --is-core x\n' > "$R/scripts/test-hook-query.sh"
+OUT=$(gate "$R"); RC=$?
+same "the hook has no query mode: --is-core after it excuses nothing" "$RC" "1"
+
+R=$(fixture h084d)
+printf '#!/bin/bash\n. scripts/drive-sync.sh\nDRIVE_HOOK_SCRIPT="$PWD/scripts/template-autosync-hook.sh" drive_hook "$P" "$TMP"\nbash -n "$PWD/scripts/template-autosync-hook.sh"\n' > "$R/scripts/test-hook-helper.sh"
+OUT=$(gate "$R"); RC=$?
+same "084-AC-5 the same run through drive_hook passes, and bash -n is a parse, not a run" "$RC" "0"
+
+R=$(fixture h084e)
+printf '#!/bin/bash\ndrive_hook() { bash "$2/scripts/template-autosync-hook.sh"; }\n' > "$R/scripts/test-own-drive-hook.sh"
+OUT=$(gate "$R"); RC=$?
+same "a second definition of drive_hook exits 1"                "$RC" "1"
+has  "…as a second definition site"                             "$OUT" "test-own-drive-hook.sh"
+
+echo "== 084-AC-5 (spec 084, R6 F019): a sync behind a known wrapper is a run =="
+for w in 'chronic' 'unbuffer' 'flock /tmp/lk' 'flock -E 3 /tmp/lk' 'taskset -c 0-3' 'taskset 0x3' 'chrt -o 0' \
+         'numactl -N 0-1' 'runuser -u bob --' 'strace -f -o /tmp/tr' 'ltrace' 'valgrind -q' 'firejail --quiet' \
+         'systemd-run --unit x --user' 'watch -n 5'; do
+  R=$(fixture "w084-$(printf '%s' "$w" | tr -c 'a-z0-9' '_')")
+  printf '#!/bin/bash\nS="$PWD/scripts/template-autosync.sh"\n%s "$S" --force\n' "$w" > "$R/scripts/test-wrapped.sh"
+  gate_rc "$R"; same "084-AC-5 '$w \"\$S\"' is a run"                 "$?" "1"
+done
+R=$(fixture w084su)
+printf '#!/bin/bash\nsu -c "bash $PWD/scripts/template-autosync.sh --force" bob\n' > "$R/scripts/test-su.sh"
+gate_rc "$R"; same "su -c with the sync in its code is a run"   "$?" "1"
+R=$(fixture w084lit)
+printf '#!/bin/bash\nchronic scripts/template-autosync.sh --force\n' > "$R/scripts/test-lit.sh"
+gate_rc "$R"; same "a wrapper before the literal path is a run" "$?" "1"
+R=$(fixture w084unk)
+printf '#!/bin/bash\nS="$PWD/scripts/template-autosync.sh"\nsomewrapper "$S" --force\n' > "$R/scripts/test-unknown.sh"
+gate_rc "$R"; same "an unknown wrapper is still the named residual (not seen)" "$?" "0"
+grep -q 'behind a wrapper command this lexer does not know' "$GATE" && ok "…and the header names that residual" || bad "the header no longer names the unknown-wrapper residual"
 
 echo
 echo "passed: $PASS   failed: $FAIL"

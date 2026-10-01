@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-sync-prompt-core-parity.sh — /project-update must mirror the SAME set of
 # scripts the autosync calls CORE, and must not keep its own copy of the list.
 #

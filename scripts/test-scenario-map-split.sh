@@ -1,4 +1,5 @@
 #!/bin/sh
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # test-scenario-map-split.sh — the gate around scenario-map-rows.sh.
 #
 # WHY THIS EXISTS, AND WHY THAT IS EMBARRASSING. Two places cited this file by name as an instrument

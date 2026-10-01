@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Harness for spec 007m — proves which spec the enforcement guards think is active.
 #
 # WHY THIS EXISTS
