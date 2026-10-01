@@ -1309,3 +1309,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 082 — harness-supply-chain-and-unattended-exec
 
 - [x] 082 — harness-supply-chain-and-unattended-exec — full track [hardened] — autosync pulls main unpinned, the nightly runs repo-controlled strings, lane-catchup strips ~/.ssh denies, prune can destroy agent work. F037 F043 F045 F062–F067.
+
+## 083 — guard-bypass-and-fail-open
+
+- [x] 083 — guard-bypass-and-fail-open — full track [hardened] — PreToolUse guards fail open without jq, miss unnormalised paths, exempt any */scripts/*, miss a split tick; the deny list is bypassable. F029 F035 F038–F042 F044.
