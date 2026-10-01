@@ -21,6 +21,30 @@
 #   bash scripts/project-maintenance.sh --suite    # also run the whole test suite, stamp it on green
 #   bash scripts/project-maintenance.sh --full --suite --placed   # only the heavy jobs placed HERE
 #                                                  # (scripts/workload-placement.tsv, row 075)
+#   bash scripts/project-maintenance.sh --full --suite --unattended   # the nightly: runs a declared
+#                                                  # command only if you trusted it (spec 082)
+#   bash scripts/project-maintenance.sh --trust    # show the repository commands, ask, record them, exit
+#   bash scripts/project-maintenance.sh --trust --yes   # the same without the terminal prompt (scripted)
+#
+# UNATTENDED RUNS EXECUTE ONLY WHAT A HUMAN TRUSTED (spec 082, F062). .claude/.suite-command,
+# scripts/run-mutation-gate.sh, every scripts/check-*.sh ratchet and the package.json `test` script
+# behind a derived `npm test` are repository content, so a commit can change what the 02:30 cron job
+# executes with the developer's credentials and nobody watching. Under --unattended each runs only when
+# its SHA-256 matches the line `--trust` recorded in .git/claude-trusted-commands (labels `suite`,
+# `mutation`, `ratchet:<name>`; in .git/, so never committed or synced, and a fresh clone starts
+# untrusted). A new or changed one is a [SUITE]/[MUTATION]/[RATCHET] finding naming --trust, not run and
+# not stamped, so the job stays due. A trusted script runs from a private copy of the bytes that were
+# hashed (scripts/.trusted-*, removed on exit), so the file cannot change between check and run. NOT
+# pinned: `dotnet test` / `dotnet stryker` / `npx stryker run`, which run the project's own build and
+# test code — the same residual as the test code a trusted suite runs. Without --unattended nothing
+# here changes.
+#
+# `--trust` is a human step. It prints every item with `cat -v`, so an escape sequence or carriage
+# return shows instead of rewriting the screen, hashes exactly the bytes it printed, and asks for a
+# typed `yes` on the terminal. `--yes` skips the prompt; with no terminal and no --yes it refuses
+# (exit 2), and it refuses to combine with --unattended (exit 2). MAINTENANCE_TTY names the terminal
+# device (default /dev/tty) — a test seam, and no weaker than the store itself: any local process can
+# write .git/claude-trusted-commands, so the prompt stops an accident, not an attacker on this machine.
 #
 # The suite command is the first non-comment line of .claude/.suite-command when the project
 # declares one; otherwise a root `npm test` script, otherwise `dotnet test` (row 051). A detected
@@ -55,6 +79,9 @@ SUITE=0
 QUIET=0
 PLACED=0
 QG_BENCH=0
+UNATTENDED=0
+TRUST=0
+YES=0
 for arg in "$@"; do
   case "$arg" in
     --full)  FULL=1 ;;
@@ -63,6 +90,9 @@ for arg in "$@"; do
     --quiet) QUIET=1 ;;
     --placed) PLACED=1 ;;
     --bench-quality-gates) QG_BENCH=1 ;;
+    --unattended) UNATTENDED=1 ;;
+    --trust) TRUST=1 ;;
+    --yes) YES=1 ;;
     # Print the whole leading comment block, not a hardcoded line range: this header
     # has grown twice now, and a range silently truncates --help when it does.
     -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "$0"; exit 0 ;;
@@ -70,8 +100,150 @@ for arg in "$@"; do
   esac
 done
 
+# Spec 082: trusting is a human step by definition, so a run that says nobody is watching cannot do it.
+if [ "$TRUST" -eq 1 ] && [ "$UNATTENDED" -eq 1 ]; then
+  echo "project-maintenance: --trust and --unattended together make no sense — trusting a command is the" >&2
+  echo "  human step the unattended run relies on. Run --trust at a terminal, on its own." >&2
+  exit 2
+fi
+
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
 cd "$ROOT" || exit 2
+
+# ------------------------------------------------------------- trusted commands (spec 082)
+# First line neither blank nor a # comment; empty when unreadable. Shared by --trust and section 7,
+# so the line that is trusted is byte-for-byte the line that is run.
+declared_command() { # declared_command FILE
+  [ -r "$1" ] && grep -v '^[[:space:]]*#' "$1" 2>/dev/null | grep -v '^[[:space:]]*$' | sed -n 1p
+}
+sha256_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -d' ' -f1
+  else return 1; fi
+}
+# In the git dir, not under .claude/: never committed, never synced, and per worktree-aware clone.
+TRUST_STORE=""
+_gd=$(git rev-parse --git-dir 2>/dev/null) && TRUST_STORE="$_gd/claude-trusted-commands"
+SUITE_DECL=.claude/.suite-command
+MUTATION_RUNNER=scripts/run-mutation-gate.sh
+# suite_identity CMD — the bytes that decide what CMD executes. For `npm test` that is the package.json
+# `test` string, which is what npm runs (F2); for anything else the command line itself. Fails when the
+# string cannot be read, and an unreadable identity is never trusted.
+suite_identity() {
+  if [ "$1" = "npm test" ]; then
+    _t=$(python3 -c 'import json, sys
+v = json.load(open("package.json")).get("scripts", {}).get("test")
+sys.stdout.write(v if isinstance(v, str) else "")' 2>/dev/null) || return 1
+    [ -n "$_t" ] || return 1
+    printf 'npm test\n%s' "$_t"
+  else
+    printf '%s' "$1"
+  fi
+}
+# hash_text TEXT — the hash of exactly TEXT, empty when there is no hasher.
+hash_text() { printf '%s' "$1" | sha256_stdin; }
+# The command --suite would run, in its order (declared, then a package.json test script), for --trust.
+# `dotnet test` is not pinned, so it is not offered.
+trust_suite_cmd() {
+  _c=$(declared_command "$SUITE_DECL")
+  if [ -n "$_c" ]; then printf '%s' "$_c"
+  elif [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json 2>/dev/null; then printf 'npm test'; fi
+}
+# private_copy SRC — sets PRIVATE_COPY to a mode-700 copy of SRC beside it, so a script that finds its
+# siblings through $0 still does. The copy is what gets hashed and run (F17); every copy is removed on
+# exit. Called directly, never in $(...): the registry has to live in this shell, not a subshell.
+TRUSTED_COPIES=""
+trap 'for _f in $TRUSTED_COPIES; do rm -f "$_f"; done' EXIT
+private_copy() {
+  PRIVATE_COPY=$(mktemp "$(dirname "$1")/.trusted-XXXXXX" 2>/dev/null) || { PRIVATE_COPY=""; return 1; }
+  TRUSTED_COPIES="$TRUSTED_COPIES $PRIVATE_COPY"
+  cat "$1" > "$PRIVATE_COPY" && chmod 700 "$PRIVATE_COPY"
+}
+# trust_state LABEL HASH -> trusted | changed | untrusted. An empty hash (no hasher) is never trusted:
+# an unattended run that cannot check must not run.
+# A label is `suite`, `mutation` or `ratchet:<file name>`, and the file name is committed content. The
+# /security-review of spec 082 proved that a ratchet named `check-a<LF><a line already in the store><LF>.sh`
+# read as trusted: `grep -F` splits a pattern on newlines and accepts a match on ANY piece. So a label
+# outside [A-Za-z0-9._:-] is never trusted (and never recorded), and the store is compared whole-line
+# through ENVIRON, which awk -v would not leave alone (it expands backslash escapes).
+safe_label() { case "$1" in ''|*[!A-Za-z0-9._:-]*) return 1 ;; esac; }
+trust_state() {
+  if ! safe_label "$1"; then echo untrusted
+  elif [ -n "$2" ] && [ -n "$TRUST_STORE" ] && TS_LINE="$2  $1" \
+       awk 'BEGIN { l = ENVIRON["TS_LINE"] } $0 == l { f = 1 } END { exit !f }' "$TRUST_STORE" 2>/dev/null
+  then echo trusted
+  elif [ -n "$TRUST_STORE" ] && TS_LABEL="$1" \
+       awk 'BEGIN { l = ENVIRON["TS_LABEL"] } substr($0, 67) == l { f = 1 } END { exit !f }' "$TRUST_STORE" 2>/dev/null
+  then echo changed
+  else echo untrusted; fi
+}
+untrusted_why() { # untrusted_why STATE — the half-sentence a finding uses
+  if [ "$1" = changed ]; then echo "it CHANGED since it was trusted"; else echo "it has never been trusted"; fi
+}
+
+if [ "$TRUST" -eq 1 ]; then
+  [ -n "$TRUST_STORE" ] || { echo "project-maintenance: --trust needs a git repository (the store lives in .git/)." >&2; exit 2; }
+  printf '' | sha256_stdin >/dev/null 2>&1 || { echo "project-maintenance: --trust needs sha256sum or shasum." >&2; exit 2; }
+  # Every item is copied once, and the copy is both what is shown and what is hashed (F3).
+  TRUST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/maintenance-trust.XXXXXX") || exit 2
+  NEW=""; N=0
+  show() { # show LABEL DESCRIPTION COPY
+    N=$((N + 1))
+    echo "$1 — $2:"
+    cat -v "$3" | sed 's/^/  | /'
+    NEW="${NEW}$(sha256_stdin < "$3")  $1
+"
+  }
+  _sc=$(trust_suite_cmd)
+  if [ -n "$_sc" ]; then
+    if _id=$(suite_identity "$_sc"); then
+      printf '%s' "$_id" > "$TRUST_DIR/suite"
+      show suite "the suite command ($([ "$_sc" = "npm test" ] && echo "npm test and the package.json test script" || echo "$SUITE_DECL"))" "$TRUST_DIR/suite"
+    else
+      echo "project-maintenance: cannot read the package.json test script (python3 missing, or not a string) — the suite is not trusted." >&2
+    fi
+  fi
+  if [ -f "$MUTATION_RUNNER" ]; then
+    cat "$MUTATION_RUNNER" > "$TRUST_DIR/mutation"
+    show mutation "$MUTATION_RUNNER, every line of it" "$TRUST_DIR/mutation"
+  fi
+  for _r in scripts/check-*.sh; do
+    [ -f "$_r" ] || continue
+    _n=$(basename "$_r")
+    if ! safe_label "ratchet:$_n"; then
+      printf 'project-maintenance: NOT trusting a ratchet whose name has characters outside [A-Za-z0-9._-]: %s\n' \
+        "$(printf '%s' "$_r" | cat -v | tr '\n' '?')" >&2
+      continue
+    fi
+    cat "$_r" > "$TRUST_DIR/ratchet-$_n"
+    show "ratchet:$_n" "the ratchet $_r, every line of it" "$TRUST_DIR/ratchet-$_n"
+  done
+  rm -rf "$TRUST_DIR"
+  if [ -z "$NEW" ]; then
+    echo "project-maintenance: nothing to trust — no $SUITE_DECL command or package.json test script, no $MUTATION_RUNNER, no scripts/check-*.sh."
+    exit 0
+  fi
+  if [ "$YES" -ne 1 ]; then
+    TTY_DEV=${MAINTENANCE_TTY:-/dev/tty}
+    if ! { : < "$TTY_DEV"; } 2>/dev/null; then
+      echo "project-maintenance: --trust asks on a terminal, and there is none ($TTY_DEV). Read the $N item(s) above," >&2
+      echo "  then re-run at a terminal, or pass --yes if a person has read them. Nothing recorded." >&2
+      exit 2
+    fi
+    printf 'Type yes to trust these %s item(s): ' "$N" >&2
+    _ans=""; IFS= read -r _ans < "$TTY_DEV"
+    if [ "$_ans" != yes ]; then
+      echo "project-maintenance: not trusted (answer was not \`yes\`). Nothing recorded." >&2
+      exit 1
+    fi
+  fi
+  KEEP=$(grep -v -e '  suite$' -e '  mutation$' -e '  ratchet:' "$TRUST_STORE" 2>/dev/null)
+  _tmp="$TRUST_STORE.tmp.$$"
+  { [ -n "$KEEP" ] && printf '%s\n' "$KEEP"; printf '%s' "$NEW"; } > "$_tmp" && mv "$_tmp" "$TRUST_STORE" || {
+    rm -f "$_tmp"; echo "project-maintenance: could not write $TRUST_STORE" >&2; exit 2; }
+  echo "recorded in $TRUST_STORE — an --unattended run executes these, and only these, until they change."
+  exit 0
+fi
 
 # --if-due: the whole point of scripts/maintenance-due.sh. A scheduled run that has nothing to do
 # should cost nothing, so a cron entry stops being a bet that tonight is a night with work in it.
@@ -838,7 +1010,27 @@ for score, name, d, v in rows:
 # decides, when it cannot ask, whether there was anything to leave unchecked.
 HAVE_STRYKER_GUARD=0
 command -v python3 >/dev/null 2>&1 && [ -f scripts/stryker_guard.py ] && HAVE_STRYKER_GUARD=1
-if [ "$HAVE_STRYKER_GUARD" -eq 1 ] && MUT_PAT_OUT=$(python3 scripts/stryker_guard.py configs . 2>/dev/null); then
+
+# EVERY GUARD CALL IS BOUNDED (spec 082, F067). The helper reads committed configs and the runner, and
+# the nightly reads them with nobody watching: a pattern written to make a matcher crawl must cost this
+# pass a minute, not the night. A timeout is UNCHECKED, never clean. Without timeout/gtimeout the call
+# runs unbounded and the report says so.
+GUARD_LIMIT=${MAINTENANCE_GUARD_TIMEOUT:-60}
+case "$GUARD_LIMIT" in (''|*[!0-9]*|0) GUARD_LIMIT=60 ;; esac
+GUARD_TIMEOUT_BIN=""
+command -v timeout >/dev/null 2>&1 && GUARD_TIMEOUT_BIN=timeout
+[ -z "$GUARD_TIMEOUT_BIN" ] && command -v gtimeout >/dev/null 2>&1 && GUARD_TIMEOUT_BIN=gtimeout
+[ "$HAVE_STRYKER_GUARD" -eq 1 ] && [ -z "$GUARD_TIMEOUT_BIN" ] &&
+  note "[note] scripts/stryker_guard.py ran unbounded — neither timeout nor gtimeout is installed, so a hostile config can hang this pass."
+guard_bounded() { # guard_bounded ARGS... — python3 scripts/stryker_guard.py ARGS, time-bounded
+  if [ -n "$GUARD_TIMEOUT_BIN" ]; then "$GUARD_TIMEOUT_BIN" -k 5 "$GUARD_LIMIT" python3 scripts/stryker_guard.py "$@"
+  else python3 scripts/stryker_guard.py "$@"; fi
+}
+guard_timed_out() { [ -n "$GUARD_TIMEOUT_BIN" ] && { [ "$1" -eq 124 ] || [ "$1" -eq 137 ]; }; }
+
+MUT_PAT_RC=1
+if [ "$HAVE_STRYKER_GUARD" -eq 1 ]; then MUT_PAT_OUT=$(guard_bounded configs . 2>/dev/null); MUT_PAT_RC=$?; fi
+if [ "$MUT_PAT_RC" -eq 0 ]; then
   # `skipped` (a runtime-assembled `-m "$P"`) is said as a note: unchecked, and not a defect either.
   MUT_PAT_BAD=$(printf '%s\n' "$MUT_PAT_OUT" | grep -v '^skipped' | grep .)
   MUT_PAT_SKIP=$(printf '%s\n' "$MUT_PAT_OUT" | grep '^skipped')
@@ -847,6 +1039,10 @@ if [ "$HAVE_STRYKER_GUARD" -eq 1 ] && MUT_PAT_OUT=$(python3 scripts/stryker_guar
 $(printf '%s\n' "$MUT_PAT_BAD" | awk -F'\t' '$3 == "-" { printf "  %s %s\n", $2, $4; next } { printf "  %s: \047%s\047 %s\n", $2, $3, $4 }')"
   fi
   [ -n "$MUT_PAT_SKIP" ] && note "[note] mutate patterns: $(printf '%s' "$MUT_PAT_SKIP" | awk -F'\t' '{ printf "%s %s", $2, $4 }')"
+elif guard_timed_out "$MUT_PAT_RC"; then
+  add "[MUTATION] mutate patterns UNCHECKED — scripts/stryker_guard.py did not finish within ${GUARD_LIMIT}s
+  (MAINTENANCE_GUARD_TIMEOUT), so nothing was checked. A committed config or runner made it crawl; read
+  the stryker-config*.json files and scripts/run-mutation-gate.sh before trusting a score (spec 082)."
 elif [ -f scripts/run-mutation-gate.sh ] ||
      [ -n "$(find . -type d \( -name node_modules -o -name StrykerOutput -o -name bin -o -name obj -o -name .git -o -name .stryker-tmp \) -prune -o \
                -type f -iname 'stryker-config*.json' -print -quit 2>/dev/null)" ]; then
@@ -860,9 +1056,18 @@ fi
 # A process table it could not read is a note, not a refusal and not a silence: the run goes ahead and
 # the report says the run-alone check was blind (Git Bash's ps cannot list dotnet.exe at all).
 MUT_LIVE=""
+MUT_LIVE_UNCHECKED=0
 if [ -n "$MUTATION_CMD" ] && [ "$MUT_RUN" -eq 1 ]; then
   if [ "$HAVE_STRYKER_GUARD" -eq 1 ]; then
-    MUT_LIVE_OUT=$(python3 scripts/stryker_guard.py live . 2>/dev/null)
+    MUT_LIVE_OUT=$(guard_bounded live . 2>/dev/null); MUT_LIVE_RC=$?
+    # Any failure, not only a timeout, means the process table was not read (F10).
+    if guard_timed_out "$MUT_LIVE_RC"; then
+      MUT_LIVE_UNCHECKED=1
+      note "[note] Stryker run-alone check UNCHECKED — scripts/stryker_guard.py live did not finish within ${GUARD_LIMIT}s."
+    elif [ "$MUT_LIVE_RC" -ne 0 ]; then
+      MUT_LIVE_UNCHECKED=1
+      note "[note] Stryker run-alone check UNCHECKED — scripts/stryker_guard.py live failed (exit $MUT_LIVE_RC)."
+    fi
     MUT_LIVE=$(printf '%s\n' "$MUT_LIVE_OUT" | grep -E '^[0-9]')
     MUT_BLIND=$(printf '%s\n' "$MUT_LIVE_OUT" | awk -F'\t' '$1 == "unknown" { print $3 }' | paste -sd ';' -)
     [ -n "$MUT_BLIND" ] && note "[note] Stryker run-alone check was partly blind: $MUT_BLIND."
@@ -877,22 +1082,55 @@ fi
 # both are measurements and both leave the developer a result to act on).
 MUT_MEASURED=0
 
+# Spec 082: the project-owned runner is a repository file, so an unattended run executes it only when
+# it is the file a human trusted. The bare `dotnet stryker` / `npx stryker run` fallbacks are the
+# stack's own commands and need no trust.
+MUT_TRUST=trusted
+MUT_EXEC="$MUTATION_CMD"
+if [ "$UNATTENDED" -eq 1 ] && [ "$MUTATION_CMD" = "bash scripts/run-mutation-gate.sh" ] && [ "$MUT_RUN" -eq 1 ]; then
+  # The copy is hashed and the copy is run: the runner cannot change between the check and the run (F17).
+  if private_copy "$MUTATION_RUNNER"; then
+    MUT_TRUST=$(trust_state mutation "$(sha256_stdin < "$PRIVATE_COPY")")
+    MUT_EXEC="bash $PRIVATE_COPY"
+  else
+    MUT_TRUST=untrusted
+  fi
+  [ "$MUT_TRUST" != trusted ] && [ -n "$PRIVATE_COPY" ] && rm -f "$PRIVATE_COPY" && MUT_EXEC="$MUTATION_CMD"
+fi
+
 if [ -n "$MUTATION_CMD" ]; then
   MUT_SLNS=""
   [ "$MUTATION_CMD" = "dotnet stryker" ] && MUT_SLNS=$(dotnet_solutions)
-  if [ "$MUT_RUN" -eq 1 ] && [ "$(printf '%s' "$MUT_SLNS" | grep -c .)" -gt 1 ]; then
+  if [ "$MUT_RUN" -eq 1 ] && [ "$MUT_TRUST" != trusted ]; then
+    add "[MUTATION] NOT RUN — --unattended, and $MUTATION_RUNNER is not trusted ($(untrusted_why "$MUT_TRUST")).
+  Read it, then record it at a terminal: bash scripts/project-maintenance.sh --trust
+  Not stamped: the job stays due (spec 082)."
+  elif [ "$MUT_RUN" -eq 1 ] && [ "$(printf '%s' "$MUT_SLNS" | grep -c .)" -gt 1 ]; then
     # Row 052. Not stamped: nothing was measured, and the job stays due until the project says which.
     add "[MUTATION] NOT RUN — $(printf '%s\n' "$MUT_SLNS" | grep -c .) .NET solutions and no project-owned runner, so a bare \`dotnet stryker\` would
   mutate whichever one sits at the root, blind:
 $(solution_list "$MUT_SLNS")
   Declare the run as scripts/run-mutation-gate.sh (project-owned; it must print \`mutation score N%\`)."
+  elif [ "$MUT_RUN" -eq 1 ] && [ "$UNATTENDED" -eq 1 ] && [ "$MUT_LIVE_UNCHECKED" -eq 1 ]; then
+    # Attended, a blind run-alone check is a note and the developer is there to see a 0% score. At night
+    # nobody is, and a build beside Stryker scores about 0% with no warning (F10).
+    add "[MUTATION] NOT RUN — --unattended, and the Stryker run-alone check could not read the process table,
+  so whether a build is running beside it is UNCHECKED. Not stamped: the job stays due (spec 082)."
   elif [ "$MUT_RUN" -eq 1 ] && [ -n "$MUT_LIVE" ]; then
     add "[MUTATION] NOT RUN — Stryker must run alone, and this project already has one running:
 $(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2, $3 }')
   A build beside Stryker overwrites the mutated assembly and the run scores about 0% with no warning
   (ighweld F069). Not stamped: the job stays due. Re-run --full once it has finished."
   elif [ "$MUT_RUN" -eq 1 ] && [ "$HAVE_STRYKER_GUARD" -eq 1 ] &&
-       MUT_SWEEP=$(python3 scripts/stryker_guard.py sweep . 2>/dev/null) &&
+       { MUT_SWEEP=$(guard_bounded sweep . 2>/dev/null); MUT_SWEEP_RC=$?; [ "$MUT_SWEEP_RC" -ne 0 ]; }; then
+    # Spec 082: the sweep is what finds an in-place backup, so a sweep that did not finish cleanly cannot
+    # say there is none — and a run over a backup destroys the only copy of the original sources. Any
+    # non-zero exit counts, not only a timeout (F10).
+    if guard_timed_out "$MUT_SWEEP_RC"; then MUT_SWEEP_WHY="did not finish within ${GUARD_LIMIT}s"
+    else MUT_SWEEP_WHY="failed (exit $MUT_SWEEP_RC)"; fi
+    add "[MUTATION] NOT RUN — the pre-run sweep (scripts/stryker_guard.py sweep) $MUT_SWEEP_WHY,
+  so whether an interrupted run left a backup in the tree is UNCHECKED. Not stamped: the job stays due."
+  elif [ "$MUT_RUN" -eq 1 ] && [ "$HAVE_STRYKER_GUARD" -eq 1 ] && [ "${MUT_SWEEP_RC:-1}" -eq 0 ] &&
        grep -q '^backup' <<< "$MUT_SWEEP"; then
     # Row 053. The sweep below removes abandoned StrykerJS sandboxes before the run, but an in-place
     # backup can be the only copy of the original sources; a new run would back up the mutated ones.
@@ -916,8 +1154,10 @@ $(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '{ printf "  %s %s — %s\n", $1, $2, 
     MUT_SCOPE="1 of $MUT_CFG_TOTAL config(s) — a bare \`$MUTATION_CMD\` reads only $MUT_CFG"
 
     MUT_MARKER=$(mktemp "${TMPDIR:-/tmp}/mutation-marker.XXXXXX")
-    MUT_OUT=$(measured mutation bash -c "$MUTATION_CMD" 2>&1)
+    MUT_OUT=$(measured mutation bash -c "$MUT_EXEC" 2>&1)
     MUT_RC=$?
+    # Gone as soon as it has run: later sections scan scripts/, and a stray copy is not theirs to see.
+    [ "$MUT_EXEC" != "$MUTATION_CMD" ] && rm -f "${MUT_EXEC#bash }"
     SCORE=$(printf '%s' "$MUT_OUT" | grep -oE 'mutation score[^0-9]*[0-9]+(\.[0-9]+)?' | tail -1 | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1)
     INT_SCORE=${SCORE%%.*}
 
@@ -1202,12 +1442,28 @@ for ratchet in scripts/check-*.sh; do
     fi
     note "[note] $ratchet: skip marker has no reason — ignored, so it ran. Write \`# maintenance: skip <why>\`."
   fi
+  # Spec 082 (F1): a ratchet is a repository file, so the nightly runs it only when a human trusted
+  # these exact bytes — and runs the private copy it hashed, not the file.
+  ratchet_exec="$ratchet"
+  if [ "$UNATTENDED" -eq 1 ]; then
+    ratchet_state=untrusted
+    if private_copy "$ratchet"; then
+      ratchet_exec=$PRIVATE_COPY
+      ratchet_state=$(trust_state "ratchet:$(basename "$ratchet")" "$(sha256_stdin < "$ratchet_exec")")
+    fi
+    if [ "$ratchet_state" != trusted ]; then
+      [ "$ratchet_exec" != "$ratchet" ] && rm -f "$ratchet_exec"
+      add "[RATCHET] NOT RUN — --unattended, and $ratchet is not trusted ($(untrusted_why "$ratchet_state")).
+  Read it, then record it at a terminal: bash scripts/project-maintenance.sh --trust"
+      continue
+    fi
+  fi
   ratchet_out=$(mktemp "${TMPDIR:-/tmp}/ratchet.XXXXXX")
   if [ -n "$RATCHET_TIMEOUT" ]; then
-    "$RATCHET_TIMEOUT" "$RATCHET_LIMIT" bash "$ratchet" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
+    "$RATCHET_TIMEOUT" "$RATCHET_LIMIT" bash "$ratchet_exec" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
   else
     RATCHET_UNBOUNDED=1
-    bash "$ratchet" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
+    bash "$ratchet_exec" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
   fi
   if [ -n "$RATCHET_TIMEOUT" ] && [ "$ratchet_rc" -eq 124 ]; then
     add "[RATCHET] $ratchet timed out after ${RATCHET_LIMIT}s — it did not finish, so it neither passed nor failed.
@@ -1218,6 +1474,7 @@ $(tail -8 "$ratchet_out" | sed 's/^/  /')"
 $(tail -12 "$ratchet_out" | sed 's/^/  /')"
   fi
   rm -f "$ratchet_out"
+  [ "$ratchet_exec" != "$ratchet" ] && rm -f "$ratchet_exec"
 done
 [ -n "$RATCHET_SKIPS" ] && note "[note] ratchets skipped by their own marker:
 ${RATCHET_SKIPS%
@@ -1249,10 +1506,7 @@ if [ "$SUITE_RUN" -eq 1 ]; then
   # its whole suite is in .claude/.suite-command, first line that is neither blank nor a # comment.
   # Judged like a detected command (exit code + run-verdict.sh); a human chose it, so no evidence
   # gate, the same rule template-sync-verify.sh keeps.
-  declared_command() { # declared_command FILE — first line neither blank nor a # comment; empty when unreadable
-    [ -r "$1" ] && grep -v '^[[:space:]]*#' "$1" 2>/dev/null | grep -v '^[[:space:]]*$' | sed -n 1p
-  }
-  SUITE_DECL=.claude/.suite-command
+  # declared_command and SUITE_DECL are defined at the top, beside --trust (spec 082).
   SUITE_CMD=$(declared_command "$SUITE_DECL")
   [ -n "$SUITE_CMD" ] && SUITE_FROM="declared in $SUITE_DECL"
   # THE PROJECT'S OWN `test` SCRIPT WINS, and this order used to be reversed.
@@ -1303,6 +1557,16 @@ $(solution_list "$SUITE_SLNS")
     SUITE_SYNC=$(declared_command .claude/.template-sync-verify)
     note "[note] --suite: nothing declared in $SUITE_DECL, and no .NET solution or npm test script to detect — nothing to run. Not a pass.
   Put the command that runs the whole suite (unit + integration + E2E + visual regression) on one line in $SUITE_DECL.$([ -n "$SUITE_SYNC" ] && printf '\n  Candidate: .claude/.template-sync-verify declares `%s` — declare it here only if it is the whole suite, not a slice.' "$SUITE_SYNC")"
+  elif [ "$UNATTENDED" -eq 1 ] && ! { [ "$SUITE_CMD" = "dotnet test" ] && [ "$SUITE_FROM" = "detected, not declared" ]; } &&
+       SUITE_TRUST=$( { _id=$(suite_identity "$SUITE_CMD") && trust_state suite "$(hash_text "$_id")"; } || echo untrusted ) &&
+       [ "$SUITE_TRUST" != trusted ]; then
+    # Spec 082. A commit decides what this line executes, and an unattended run has nobody to notice.
+    # The hash is taken of $SUITE_CMD itself, the string executed below (F17); for `npm test` it covers
+    # the package.json test script, which is what npm runs (F2). A detected `dotnet test` is not pinned.
+    add "[SUITE] NOT RUN — --unattended, and the suite command is not trusted ($(untrusted_why "$SUITE_TRUST")):
+$(suite_identity "$SUITE_CMD" 2>/dev/null | cat -v | sed 's/^/  /')
+  Read it, then record it at a terminal: bash scripts/project-maintenance.sh --trust
+  Not stamped: the job stays due (spec 082)."
   else
     SUITE_OUT=$(measured suite bash -c "$SUITE_CMD" 2>&1); SUITE_RC=$?
     SUITE_TAIL=$(printf '%s' "$SUITE_OUT" | tail -12)

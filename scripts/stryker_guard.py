@@ -46,6 +46,8 @@ import os
 import re
 import shlex
 import shutil
+import signal
+import stat
 import subprocess
 import sys
 
@@ -75,6 +77,46 @@ JS_CORE = "@stryker-mutator/core"
 JS_RUNNERS = ("npx", "bunx", "pnpx")
 JS_PMS = ("npm", "pnpm", "yarn", "bun")
 CONFIG_LIMIT = 64 * 1024          # bytes of a Stryker config read for tempDirName / cleanTempDir
+PARSE_FILE_LIMIT = 1024 * 1024    # bytes of a config or runner parsed for patterns; more is UNCHECKED (spec 082)
+ITEM_LIMIT = 20                   # items one sentence names before "and N more" (spec 082)
+DEADLINE_DEFAULT = 50             # seconds a CLI mode may run before it gives up as a timeout (spec 082)
+
+
+def read_bounded(path, limit, truncate=False):
+    """The text of a regular file, or None (spec 082, F067 review finding 6).
+
+    Every config and runner this reads is a file in the working tree, so a commit picks what it is:
+    a symlink to /dev/zero or a FIFO would make a plain open().read() hang or grow without bound, and
+    the nightly with it. O_NOFOLLOW refuses a symlink, O_NONBLOCK keeps a FIFO from blocking the
+    open, fstat refuses anything that is not a regular file, and at most `limit` bytes are read. A
+    file over the limit is None unless `truncate`, which the sweep's tempDirName lookup uses, as
+    before: there a prefix is enough, and here a prefix would be a partial pattern list read as clean.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        chunks, size = [], 0
+        while size <= limit:
+            b = os.read(fd, min(65536, limit + 1 - size))
+            if not b:
+                break
+            chunks.append(b)
+            size += len(b)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if len(data) > limit:
+        if not truncate:
+            return None
+        data = data[:limit]
+    return data.decode("utf-8", errors="replace")
 
 MSG = {
     "badspan": "has a span Stryker cannot read (a span is {start..end}, two dots). Stryker treats the "
@@ -104,34 +146,100 @@ def scan(root):
     return cs, configs
 
 
-def glob_rx(g):
+def glob_tokens(g):
+    """The glob as matcher tokens, after the same normalisation the regex matcher applied.
+
+    Spec 082 (F067): the old matcher compiled a committed glob to a regex, and `a*a*a*...b` against a
+    long path backtracks in O(len^stars) -- one hostile stryker-config.json hung the nightly. Tokens
+    run through glob_match, which is O(len(glob) x len(path)) whatever the glob holds.
+    """
     g = g.replace("\\", "/")
     while g.startswith("./"):
         g = g[2:]
     g = g.lstrip("/")
-    g = re.sub(r"(?:\*\*/)+", "**/", g)       # `**/**/` is `**/`, and N of them is O(depth^N)
+    g = re.sub(r"(?:\*\*/)+", "**/", g)
     g = re.sub(r"\*{3,}", "**", g)
-    i, out = 0, ""
+    i, toks = 0, []
     while i < len(g):
         if g.startswith("**/", i):
-            out, i = out + "(?:.*/)?", i + 3
+            toks.append(("gs", None)); i += 3          # (?:.*/)?  -- zero or more whole segments
         elif g.startswith("**", i):
-            out, i = out + ".*", i + 2
+            toks.append(("any", None)); i += 2         # .*
         elif g[i] == "*":
-            out, i = out + "[^/]*", i + 1
+            toks.append(("star", None)); i += 1        # [^/]*
         elif g[i] == "?":
-            out, i = out + "[^/]", i + 1
+            toks.append(("one", None)); i += 1         # [^/]
         elif g[i] == "[" and (j := g.find("]", i + 2)) != -1:
             cls = g[i + 1:j]
             if cls.startswith("!"):
                 cls = "^" + cls[1:]
-            out, i = out + "[" + cls.replace("\\", "\\\\") + "]", j + 1
+            # One character class, compiled once, only ever matched against a single character. An
+            # invalid one (`[z-a]`) raises re.error on purpose: classify() reports it as unparseable,
+            # as the old regex did, instead of quietly reading it as literal text (spec 082).
+            toks.append(("cls", re.compile("[" + cls.replace("\\", "\\\\") + "]", re.I)))
+            i = j + 1
         else:
-            out, i = out + re.escape(g[i]), i + 1
-    # Anchored at the start or after any `/`, so it matches the full relative path or any trailing run
-    # of its segments. Case-insensitive because the claim is "nothing could match": leniency can only
-    # miss a finding, never invent one.
-    return re.compile(r"(?:.*/)?" + out + r"\Z", re.I)
+            toks.append(("lit", g[i].lower())); i += 1
+    return toks
+
+
+def _closure(toks, states):
+    # Epsilon moves: every wildcard may match nothing, so it can be stepped over from its entry.
+    out, stack = set(states), list(states)
+    while stack:
+        k = stack.pop()
+        if k >= 0 and k < len(toks) and toks[k][0] in ("gs", "any", "star") and k + 1 not in out:
+            out.add(k + 1); stack.append(k + 1)
+    return out
+
+
+def glob_match(toks, path):
+    """NFA simulation: the full path, or any trailing run of its segments, matches toks to the end.
+
+    State k (>= 0) means "toks[:k] consumed". `gs` (**/) is (?:.*/)?: from its entry k it is either
+    skipped, or it consumes characters in an inner state (encoded -(k+1)) that can only leave to k+1
+    on a `/` -- once `**/` has eaten anything it must end on a slash. Lenient anchoring (any trailing
+    run of segments) is a fresh start state at position 0 and after every `/`. Case-insensitive, like
+    the regex it replaced.
+    """
+    path = path.lower()
+    n = len(toks)
+    states = _closure(toks, {0})
+    for c in path:
+        nxt = set()
+        for k in states:
+            if k < 0:                      # inside a `**/`
+                g = -k - 1
+                nxt.add(k)
+                if c == "/":
+                    nxt.add(g + 1)
+                continue
+            if k >= n:
+                continue
+            kind, val = toks[k]
+            if kind == "lit":
+                if c == val:
+                    nxt.add(k + 1)
+            elif kind == "one":
+                if c != "/":
+                    nxt.add(k + 1)
+            elif kind == "cls":
+                if val.match(c):
+                    nxt.add(k + 1)
+            elif kind == "star":
+                if c != "/":
+                    nxt.add(k)
+            elif kind == "any":
+                nxt.add(k)
+            elif kind == "gs":
+                nxt.add(-k - 1)
+                if c == "/":
+                    nxt.add(k + 1)
+        if c == "/":
+            nxt.add(0)
+        # No early exit on an empty set: the next `/` starts a fresh attempt at state 0.
+        states = _closure(toks, nxt)
+    return n in states
 
 
 def matches_any(glob, files):
@@ -139,8 +247,8 @@ def matches_any(glob, files):
     # "matches nothing" is only ever claimed when no reading of the base directory could match.
     if not glob:
         return False
-    rx = glob_rx(glob)
-    return any(rx.match(f) for f in files)
+    toks = glob_tokens(glob)
+    return any(glob_match(toks, f) for f in files)
 
 
 def split_spans(body):
@@ -194,10 +302,10 @@ def mutate_values(toks):
 def runner_patterns(root):
     """Literal -m/--mutate values on the Stryker lines of the project runner, with line numbers."""
     found, skipped = [], 0
-    try:
-        raw = open(os.path.join(root, "scripts", RUNNER), encoding="utf-8", errors="replace").read().splitlines()
-    except OSError:
+    text = read_bounded(os.path.join(root, "scripts", RUNNER), PARSE_FILE_LIMIT)
+    if text is None:
         return found, skipped
+    raw = text.splitlines()
     i = 0
     while i < len(raw):
         n, line = i + 1, raw[i]
@@ -219,11 +327,54 @@ def runner_patterns(root):
     return found, skipped
 
 
+def strip_lenient(text):
+    """Drop // and /* */ comments and trailing commas outside strings, in one linear pass.
+
+    Spec 082 (review finding 6). This used to be one regex, and its string and block-comment
+    alternatives rescan to the end of the input from every start position that never closes: an
+    unterminated `"\"\"\"...` or `/*a/*a/*a...` was quadratic, from a file a commit chooses. Every
+    index here is visited a bounded number of times, whatever the input.
+    """
+    out, i, n = [], 0, len(text)
+    ws = " \t\r\n"
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif c == "/" and text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j == -1 else j
+        elif c == "/" and text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            if j == -1:         # unterminated: keep it, so the file stays invalid JSON, as before
+                out.append(text[i:])
+                break
+            i = j + 2
+        elif c == ",":
+            j = i + 1
+            while j < n and text[j] in ws:
+                j += 1
+            if j < n and text[j] in "}]":
+                i += 1          # a trailing comma: drop it, keep the whitespace
+            else:
+                out.append(c)
+                i += 1
+        else:
+            j = i + 1           # a run of plain characters in one slice
+            while j < n and text[j] not in '"/,':
+                j += 1
+            out.append(text[i:j])
+            i = j
+    return "".join(out)
+
+
 def loads_lenient(text):
     """JSON as the .NET config reader takes it: BOM, // and /* */ comments, trailing commas."""
-    text = text.lstrip("\ufeff")
-    tok = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/|,(?=\s*[}\]])', re.S)
-    return json.loads(tok.sub(lambda m: m.group(0) if m.group(0).startswith('"') else "", text))
+    return json.loads(strip_lenient(text.lstrip("\ufeff")))
 
 
 def ci_get(d, key):
@@ -237,10 +388,15 @@ def cmd_configs(root):
     files, configs = scan(root)
     items = []
     for rel in sorted(configs):
+        text = read_bounded(os.path.join(root, rel), PARSE_FILE_LIMIT)
+        if text is None:
+            print("unreadable\t%s\t-\tis not a regular file under %d bytes, so its mutate patterns were not "
+                  "checked." % (safe(rel), PARSE_FILE_LIMIT))
+            continue
         try:
-            d = loads_lenient(open(os.path.join(root, rel), encoding="utf-8", errors="replace").read())
+            d = loads_lenient(text)
         except Exception:
-            print("unreadable\t%s\t-\tis not JSON, so its mutate patterns were not checked." % rel)
+            print("unreadable\t%s\t-\tis not JSON, so its mutate patterns were not checked." % safe(rel))
             continue
         if not isinstance(d, dict):
             continue
@@ -259,7 +415,7 @@ def cmd_configs(root):
     for src, p in items:
         v = classify(p, files)
         if v != "ok":
-            print("%s\t%s\t%s\t%s" % (v, src, p.replace("\t", " "), MSG[v]))
+            print("%s\t%s\t%s\t%s" % (v, safe(src), safe(p), MSG[v]))
     return 0
 
 
@@ -394,11 +550,7 @@ def live(root, kinds=("stryker", "build")):
 # ----------------------------------------------------------------------------------- sweep (row 053)
 
 def read_config(path):
-    try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            return fh.read(CONFIG_LIMIT)
-    except OSError:
-        return ""
+    return read_bounded(path, CONFIG_LIMIT, truncate=True) or ""
 
 
 def temp_dirs(root):
@@ -473,7 +625,7 @@ def sweep(root):
             out.append(("backup", rel(c),
                         "%s/%s is left by an interrupted in-place Stryker run and may hold the only copy of "
                         "the original sources. Compare it with `git diff`, restore what the run mutated, then "
-                        "delete %s yourself (row 053)" % (rel(c), backups[0], rel(c))))
+                        "delete %s yourself (row 053)" % (safe(rel(c)), safe(backups[0]), safe(rel(c)))))
         elif odd:
             out.append(("kept", rel(c), "it holds %s, which is not a Stryker sandbox" % ", ".join(odd[:3])))
         elif cands[c]:
@@ -489,13 +641,36 @@ def sweep(root):
     return out
 
 
+# C0, DEL, C1, the line/paragraph separators, and the invisible ones a reader cannot see but a model
+# reads: zero-width and direction marks, bidi embeddings and isolates, word joiners, the BOM, and the
+# tag block (spec 082 review finding 14).
+_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff\U000e0000-\U000e007f]")
+
+
+def capped(items):
+    """At most ITEM_LIMIT items, then one "and N more", so a tree full of names cannot flood a sentence."""
+    items = list(items)
+    return items if len(items) <= ITEM_LIMIT else items[:ITEM_LIMIT] + ["and %d more" % (len(items) - ITEM_LIMIT)]
+
+
+def safe(text):
+    """A tree-controlled string made fit for a sentence the model reads (spec 082, F067).
+
+    Directory names and config values come from the working tree, so a name holding a newline and
+    "ignore previous instructions" would otherwise arrive in additionalContext as a line of its own.
+    Control characters become `?`, and each item is capped at ECHO_LIMIT characters.
+    """
+    text = _CONTROL.sub("?", str(text))
+    return text if len(text) <= ECHO_LIMIT else text[:ECHO_LIMIT] + "..."
+
+
 def sweep_note(results):
     """One sentence for the model, or '' when there is nothing to say."""
     parts = []
-    swept = ["%s (%s)" % (p, d) for k, p, d in results if k == "removed"]
+    swept = capped("%s (%s)" % (safe(p), safe(d)) for k, p, d in results if k == "removed")
     if swept:
         parts.append("swept abandoned StrykerJS temp dir(s) before this run: " + ", ".join(swept))
-    parts.extend("kept %s: %s" % (p, d) for k, p, d in results if k == "kept")
+    parts.extend(capped("kept %s: %s" % (safe(p), safe(d)) for k, p, d in results if k == "kept"))
     return ("Stryker sweep (row 053): " + "; ".join(parts) + ".") if parts else ""
 
 
@@ -601,7 +776,7 @@ def verdict_of(root, cmd):
         reasons.append("%s is running in this project (pid %s: %s). Stryker must run alone: a build beside "
                        "it overwrites the mutated assembly and the run scores about 0%% with no warning "
                        "(ighweld F069). Wait for it to finish, or stop it." %
-                       ("a Stryker run" if k == "stryker" else "a dotnet build/test", pid, args))
+                       ("a Stryker run" if k == "stryker" else "a dotnet build/test", pid, safe(args)))
     if pats:
         files, _ = scan(root)
         spans_ok = "STRYKER_SPANS_ARE_CHARACTERS=1" in cmd
@@ -609,10 +784,35 @@ def verdict_of(root, cmd):
             v = classify(p, files)
             if v in ("ok", "unreadable") or (v == "span" and spans_ok):
                 continue
-            shown = p if len(p) <= ECHO_LIMIT else p[:ECHO_LIMIT] + "..."
+            shown = safe(p)
             extra = " If you mean characters, prefix STRYKER_SPANS_ARE_CHARACTERS=1." if v == "span" else ""
             reasons.append("mutate pattern '%s' %s%s" % (shown, MSG[v], extra))
     return reasons, starts_stryker or js
+
+
+def arm_deadline():
+    """Give up as a timeout after STRYKER_GUARD_DEADLINE seconds (spec 082, review finding 6).
+
+    project-maintenance.sh bounds these modes with timeout/gtimeout, and stock macOS has neither, so
+    the bound would otherwise be a note. Exit 124 is what `timeout` returns, so the caller reads it as
+    UNCHECKED either way. A platform without SIGALRM (Windows) keeps only the outer bound.
+    """
+    if not hasattr(signal, "SIGALRM"):
+        return
+    try:
+        secs = int(os.environ.get("STRYKER_GUARD_DEADLINE", "") or DEADLINE_DEFAULT)
+    except ValueError:
+        secs = DEADLINE_DEFAULT
+    if secs <= 0:
+        return
+
+    def expired(_sig, _frame):
+        sys.stdout.flush()
+        sys.stderr.write("stryker_guard.py: gave up after %ds (STRYKER_GUARD_DEADLINE) — not checked\n" % secs)
+        os._exit(124)
+
+    signal.signal(signal.SIGALRM, expired)
+    signal.alarm(secs)
 
 
 def main(argv):
@@ -620,18 +820,20 @@ def main(argv):
         sys.stderr.write(__doc__)
         return 2
     root = argv[2]
+    if argv[1] in ("configs", "live", "sweep"):
+        arm_deadline()
     if argv[1] == "configs":
         return cmd_configs(root)
     if argv[1] == "live":
         found, blind = live(root)
         for pid, kind, args in found or []:
-            print("%s\t%s\t%s" % (pid, kind, args))
+            print("%s\t%s\t%s" % (pid, kind, safe(args)))
         for why in blind:
-            print("unknown\t-\t%s" % why)
+            print("unknown\t-\t%s" % safe(why))
         return 0
     if argv[1] == "sweep":
         for kind, path, detail in sweep(root):
-            print("%s\t%s\t%s" % (kind, path, detail))
+            print("%s\t%s\t%s" % (kind, safe(path), safe(detail)))
         return 0
     reasons, note = verdict(root, os.environ.get("STRYKER_GUARD_CMD", ""))
     if reasons:

@@ -103,7 +103,17 @@ fi
 case "$WINDOW" in ''|*[!0-9]*) echo "register-convergence.sh: --window wants an integer" >&2; exit 4 ;; esac
 [ "$WINDOW" -ge 1 ] || { echo "register-convergence.sh: --window must be >= 1" >&2; exit 4; }
 
-ROOT=$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null) || {
+# Spec 082 (review finding 9). maintenance_ledger.py `report --all` points this at sibling
+# repositories with --dir, so the repository read here is not necessarily ours, and git reads ITS
+# .git/config. core.fsmonitor and core.hooksPath name programs git runs, and log.showSignature with
+# gpg.program runs a program on every signed commit `log`/`show` touch. Every git call here is
+# read-only and goes through this, with those keys forced off and the system config skipped.
+safe_git() {
+  GIT_CONFIG_NOSYSTEM=1 git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+    -c log.showSignature=false -c gpg.program=false "$@"
+}
+
+ROOT=$(safe_git -C "$DIR" rev-parse --show-toplevel 2>/dev/null) || {
   echo "register-convergence.sh: not a git repository: $DIR" >&2; exit 4; }
 REG="$ROOT/specs/INDEX.md"
 [ -f "$REG" ] || { echo "register-convergence.sh: no specs/INDEX.md under $ROOT" >&2; exit 4; }
@@ -132,7 +142,7 @@ while IFS=' ' read -r sha date; do
   [ -n "$sha" ] || continue
   case " $seen " in *" $date "*) continue ;; esac
   seen="$seen $date"
-  body=$(git -C "$ROOT" show "${sha}:specs/INDEX.md" 2>/dev/null) || continue
+  body=$(safe_git -C "$ROOT" show --no-show-signature "${sha}:specs/INDEX.md" 2>/dev/null) || continue
   total=$(printf '%s\n' "$body" | grep -cE '^- \[[ x/!]\]' || true)
   done_n=$(printf '%s\n' "$body" | grep -cE '^- \[x\]' || true)
   : "${total:=0}" "${done_n:=0}"
@@ -145,7 +155,7 @@ while IFS=' ' read -r sha date; do
   BASE_DATE="$date"; BASE_TOTAL="$total"; BASE_DONE="$done_n"
   [ $((NOW_DONE - BASE_DONE)) -ge "$WINDOW" ] && break
 done <<SAMPLES
-$(git -C "$ROOT" log --format='%H %ad' --date=short -- specs/INDEX.md 2>/dev/null | head -400)
+$(safe_git -C "$ROOT" log --no-show-signature --format='%H %ad' --date=short -- specs/INDEX.md 2>/dev/null | head -400)
 SAMPLES
 
 [ "$samples" -ge 2 ] || { echo "register-convergence.sh: register has too little history"; exit 3; }

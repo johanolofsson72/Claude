@@ -83,6 +83,11 @@ def model_status():
     if os.environ.get("LOCAL_LLM_DISABLE", "") == "1":
         return False, "local model disabled (LOCAL_LLM_DISABLE=1)"
     url = os.environ.get("OLLAMA_HOST", "") or "http://127.0.0.1:11434"
+    # Review finding 11 (spec 082): whitespace or a control character anywhere is refused before
+    # parsing; urlsplit strips some of them silently, which is how a value can read as one host here
+    # and be another to the next client.
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url):
+        return False, "model host %r contains whitespace or control characters (refused)" % url[:80]
     if "://" not in url:
         url = "http://" + url
     try:
@@ -95,9 +100,14 @@ def model_status():
             loopback = ipaddress.ip_address(host).is_loopback
         except ValueError:
             loopback = False
-    if not loopback and os.environ.get("QUALITY_GATES_REMOTE_OK") != "1":
+    if loopback and "@" in urllib.parse.urlsplit(url).netloc:
+        loopback = False   # spec 082: userinfo is refused, not parsed (same rule as local-llm-detect.sh)
+    # Spec 082 (R13): LOCAL_LLM_ALLOW_REMOTE=1 is the one opt-in every local-model caller honours;
+    # QUALITY_GATES_REMOTE_OK=1 predates it and keeps working.
+    remote_ok = "1" in (os.environ.get("LOCAL_LLM_ALLOW_REMOTE"), os.environ.get("QUALITY_GATES_REMOTE_OK"))
+    if not loopback and not remote_ok:
         return False, "model host %s is not loopback; file contents would leave this machine " \
-                      "(set QUALITY_GATES_REMOTE_OK=1 to allow)" % host
+                      "(set LOCAL_LLM_ALLOW_REMOTE=1 to allow)" % host
     try:
         with urllib.request.urlopen(url.rstrip("/") + "/api/tags", timeout=3) as resp:
             models = json.loads(resp.read(1 << 20).decode("utf-8", "replace")).get("models") or []

@@ -73,8 +73,55 @@ LOCAL_LLM_KEEP_ALIVE="${LOCAL_LLM_KEEP_ALIVE:-15m}"
 OLLAMA_TAGS=""
 LOCAL_LLM_AVAILABLE=0
 
+# Spec 082 (F043). The hooks send staged diffs and PR text to this host, so an OLLAMA_HOST pointing
+# off the machine is an exfiltration channel that one env var opens. Loopback only, decided BEFORE
+# any request: http/https (no scheme reads as http), host 127.x.y.z, localhost, [::1] or ::1, any
+# port. Userinfo (`localhost@evil.com`) is refused outright rather than parsed, because the host is
+# what follows the @ and a reader skimming the value sees what precedes it. A remote Ollama is still
+# possible: LOCAL_LLM_ALLOW_REMOTE=1 is the developer saying so. Written with case and parameter
+# expansion only, because this file is sourced and must behave the same under zsh.
+local_llm_host_is_loopback() {
+  # Review finding 11: whitespace or a control character anywhere is refused before parsing. A
+  # newline let a line-wise match see `127.0.0.1` while curl was handed the whole value.
+  case "$1" in *[[:space:]]*|*[[:cntrl:]]*|'') return 1 ;; esac
+  _h=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$_h" in
+    http://*)  _h=${_h#http://} ;;
+    https://*) _h=${_h#https://} ;;
+    *://*)     return 1 ;;
+  esac
+  _h=${_h%%/*}
+  case "$_h" in *@*|'') return 1 ;; esac
+  # Exactly [::1], optionally :port. `[::1]evil.com` used to strip to ::1.
+  case "$_h" in
+    '[::1]') return 0 ;;
+    '[::1]:'*) _p=${_h#'[::1]:'}; case "$_p" in ''|*[!0-9]*) return 1 ;; esac; return 0 ;;
+    \[*) return 1 ;;
+    ::1) return 0 ;;
+    *:*:*) return 1 ;;
+  esac
+  case "$_h" in
+    *:*) _p=${_h#*:}; _h=${_h%%:*}; case "$_p" in ''|*[!0-9]*) return 1 ;; esac ;;
+  esac
+  [ "$_h" = localhost ] && return 0
+  # 127.a.b.c, each octet 1-3 digits, matched on the whole string with case alone (no grep, so the
+  # same answer under zsh, and no line-wise matching).
+  case "$_h" in 127.*.*.*) ;; *) return 1 ;; esac
+  _r=${_h#127.}
+  _a=${_r%%.*}; _r=${_r#*.}
+  _b=${_r%%.*}; _c=${_r#*.}
+  for _o in "$_a" "$_b" "$_c"; do
+    case "$_o" in ''|*[!0-9]*|????*) return 1 ;; esac
+  done
+  return 0
+}
+
 if [ "${LOCAL_LLM_DISABLE:-0}" = "1" ]; then
   LOCAL_LLM_AVAILABLE=0
+elif ! local_llm_host_is_loopback "$LOCAL_LLM_HOST" && [ "${LOCAL_LLM_ALLOW_REMOTE:-}" != "1" ]; then
+  LOCAL_LLM_AVAILABLE=0
+  # The value is printed with control characters made visible: it is the attacker-shaped input here.
+  echo "local-llm: OLLAMA_HOST=$(printf '%s' "$LOCAL_LLM_HOST" | tr '[:cntrl:]' '?') is not loopback; local-model offload is off so repository text stays on this machine (set LOCAL_LLM_ALLOW_REMOTE=1 to allow)" >&2
 elif command -v curl >/dev/null 2>&1; then
   OLLAMA_TAGS=$(curl -sf --max-time "$LOCAL_LLM_DETECT_TIMEOUT" \
                   "${LOCAL_LLM_HOST}/api/tags" 2>/dev/null) \

@@ -43,6 +43,14 @@ if ! command -v claude &>/dev/null; then
   exit 1
 fi
 
+# Spec 082 (F066): the review step is `git diff`, which only shows this run's work on a clean tree.
+# Repository config that can execute (core.fsmonitor, hooks) is switched off for every git call this
+# script makes: the tree is about to be edited by a model that read the open web (spec 082).
+if [ -n "$(git -C "$REPO_ROOT" -c core.fsmonitor=false -c core.hooksPath=/dev/null status --porcelain 2>/dev/null)" ]; then
+  echo "Error: $REPO_ROOT has uncommitted changes. Commit or stash them first, so the diff at the end is only this run's."
+  exit 1
+fi
+
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  Claude Code Template Updater                       ║"
 echo "║  Date: $DATE                                   ║"
@@ -63,7 +71,7 @@ MODE_INSTRUCTION=""
 if [ "$DRY_RUN" = true ]; then
   MODE_INSTRUCTION="IMPORTANT: This is a DRY RUN. Do NOT change any files. ONLY write a report with recommendations."
 else
-  MODE_INSTRUCTION="Apply all recommended changes directly to the files. Create a git commit afterwards with the message 'chore: Update template repo with latest Claude Code best practices ($DATE)'."
+  MODE_INSTRUCTION="Apply all recommended changes directly to the files. Do NOT commit: you have no shell, and the changes stay uncommitted so a human reviews them before anything ships to the projects."
 fi
 
 # Main prompt sent to Claude
@@ -143,6 +151,7 @@ $FOCUS_INSTRUCTION
 - NEVER change the fundamental structure without strong reasons
 - Priority: Security > Correctness > Simplicity
 - If unsure, report instead of changing
+- Do not edit scripts/, .git/ or .claude/settings*.json (those edits are denied). Put any change they need in the report as a recommendation, with the file and the exact change
 - Run the humanizer skill on ALL generated text aimed at humans
 PROMPT_EOF
 
@@ -154,22 +163,51 @@ PROMPT="${PROMPT//\$DATE/$DATE}"
 echo "Starting Claude Code analysis..."
 echo ""
 
-# Run Claude Code with the prompt
-cd "$REPO_ROOT"
-claude -p "$PROMPT" --allowedTools "WebSearch,WebFetch,Read,Glob,Grep,Edit,Write,Bash,Skill,Agent" 2>&1 | tee "/tmp/claude-template-update-${DATE}.log"
+# Spec 082 (F066). The prompt sends the model to the open web, so every page it reads is a chance to
+# inject instructions, and what it edits here syncs into every project. So the model gets no shell
+# and no sub-agents: `--disallowedTools` is a deny, and a deny holds even under a bypassPermissions
+# default, where `--allowedTools` alone restricts nothing. A dry run gets no write tools either.
+# Edit/Write stay in a live run (they are the job); the changes are left uncommitted and the run
+# ends on `git diff --stat`, so a human is the last step before anything reaches a project.
+#
+# Review finding 4: Edit/Write without limits still reached code that runs later -- .git/ (hooks,
+# core.fsmonitor, run by the closing `git diff`), settings.json (hook commands) and scripts/ (the
+# hooks themselves, run on the next tool call in this very session). So those paths are denied, and
+# script changes come back as recommendations in the report. Read is denied on the credential
+# stores, because Read plus WebFetch is an exfiltration channel. Space-separated: `claude --help`
+# documents the flag as a comma- or space-separated list.
+ALLOWED="WebSearch,WebFetch,Read,Glob,Grep,Skill"
+GUARDED="Edit(.git/**) Write(.git/**) Edit(.claude/settings*.json) Write(.claude/settings*.json)"
+GUARDED="$GUARDED Edit(scripts/**) Write(scripts/**)"
+GUARDED="$GUARDED Read(~/.ssh/**) Read(~/.aws/**) Read(~/.gnupg/**) Read(~/.config/gh/**) Read(~/.netrc) Read(~/.git-credentials)"
+DISALLOWED="Bash Agent $GUARDED"
+if [ "$DRY_RUN" = true ]; then
+  DISALLOWED="Bash Agent Edit Write $GUARDED"
+else
+  ALLOWED="$ALLOWED,Edit,Write"
+fi
 
+# A predictable /tmp name can be pre-created as a symlink by another local user; mktemp cannot.
+LOG=$(mktemp "${TMPDIR:-/tmp}/claude-template-update.XXXXXX")
+echo "Log: $LOG"
+
+cd "$REPO_ROOT"
+# set +e around the pipe: under -e with pipefail a failing claude would end the script here, before
+# the exit code is reported and before the diff a human needs to see.
+set +e
+claude -p "$PROMPT" --allowedTools "$ALLOWED" --disallowedTools "$DISALLOWED" 2>&1 | tee "$LOG"
 EXIT_CODE=${PIPESTATUS[0]}
+set -e
 
 echo ""
 echo "════════════════════════════════════════════════════════"
 if [ $EXIT_CODE -eq 0 ]; then
-  echo "Done! Log saved: /tmp/claude-template-update-${DATE}.log"
-  if [ "$DRY_RUN" = false ]; then
-    echo ""
-    echo "Review the changes:"
-    echo "  cd $REPO_ROOT && git diff"
-  fi
+  echo "Done! Log saved: $LOG"
 else
   echo "Error occurred (exit code: $EXIT_CODE)"
-  echo "See log: /tmp/claude-template-update-${DATE}.log"
+  echo "See log: $LOG"
 fi
+echo ""
+echo "Review before committing (git diff --stat):"
+git -C "$REPO_ROOT" -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager diff --no-ext-diff --no-textconv --stat
+exit $EXIT_CODE

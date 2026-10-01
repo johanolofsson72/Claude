@@ -13,9 +13,10 @@
 #      agents were run to produce.
 #
 # So this salvages first and deletes second, and it only deletes what is provably
-# safe: a worktree whose branch is fully merged into HEAD and which has no
-# modified TRACKED files. Anything else is reported and left alone — an agent may
-# still be working in it.
+# safe: a worktree whose HEAD commit (branch or detached) is reachable from the
+# main repo's HEAD, with no modified tracked files and no untracked files outside
+# .claude/agent-memory/. Anything else, including any question git cannot answer,
+# is reported and left alone — an agent may still be working in it (spec 082).
 #
 # Usage:
 #   prune-agent-worktrees.sh [--dry-run] [--repo <path>]
@@ -53,7 +54,16 @@ SALVAGED=0; REMOVED=0; KEPT=0
 # ------------------------------------------------------------------- salvage
 # Copy every memory file that exists ONLY inside a worktree into the main repo.
 # Never overwrite: the main copy, if present, is the authority.
-for f in $(find .claude/worktrees/*/.claude/agent-memory -type f 2>/dev/null); do
+# Adversarial review F8. NUL-delimited, never `for f in $(find …)`: that word-split a memory path
+# such as `x ../secret.txt` into `../secret.txt`, which cp then copied in from OUTSIDE the repo. And a
+# symlinked worktree entry is never walked, so its target's files are never salvaged as "memory".
+memory_files() { # memory_files -type f | -name MEMORY.md  -> NUL-delimited paths
+  for _w in .claude/worktrees/*; do
+    [ -d "$_w" ] && [ ! -L "$_w" ] && [ -d "$_w/.claude/agent-memory" ] || continue
+    find "$_w/.claude/agent-memory" "$@" -print0 2>/dev/null
+  done
+}
+while IFS= read -r -d '' f; do
   rel=${f#*/.claude/agent-memory/}
   case "$rel" in */MEMORY.md|MEMORY.md) continue ;; esac   # indexes merged below
   dest=".claude/agent-memory/$rel"
@@ -80,11 +90,11 @@ for f in $(find .claude/worktrees/*/.claude/agent-memory -type f 2>/dev/null); d
     SALVAGED=$((SALVAGED + 1))
     DIVERGED="${DIVERGED:-}$(printf '\n    %s (kept as %s)' "$rel" "$(basename "$side")")"
   fi
-done
+done < <(memory_files -type f)
 
 # Merge the per-worktree MEMORY.md index fragments into the main index, keeping
 # every unique bullet. Each worktree only ever wrote its own run's line.
-for idx in $(find .claude/worktrees/*/.claude/agent-memory -name MEMORY.md 2>/dev/null); do
+while IFS= read -r -d '' idx; do
   rel=${idx#*/.claude/agent-memory/}
   dest=".claude/agent-memory/$rel"
   [ "$DRY" -eq 1 ] && continue
@@ -98,27 +108,106 @@ for idx in $(find .claude/worktrees/*/.claude/agent-memory -name MEMORY.md 2>/de
     cat "$TMP.bullets"
   } > "$TMP" 2>/dev/null && mv "$TMP" "$dest"
   rm -f "$TMP" "$TMP.bullets" 2>/dev/null
-done
+done < <(memory_files -name MEMORY.md)
 
 # ------------------------------------------------------ remove what is safe
+# Spec 082 (F064). Every check below answers "is there anything here the main repo lacks?", and an
+# answer git cannot give is KEEP. The old loop asked by BRANCH NAME: on a detached HEAD that name is
+# the literal "HEAD", so `rev-list HEAD --not HEAD` ran in the main repo and counted zero, a failed
+# rev-list also read as zero, untracked files were filtered out — and then `worktree remove --force`
+# destroyed whatever an agent had not merged. Reachability is now asked of the worktree's HEAD
+# commit, and untracked files outside agent-memory keep it like modified ones always did.
+TAB=$(printf '\t')
+
+# Adversarial review F8. A worktree an agent was given a moment ago sits at main's HEAD with a clean
+# tree, so every check below calls it removable while the agent is still starting up. Anything active
+# within PRUNE_GRACE_HOURS (default 24, matching project-maintenance.sh's window; 0 turns it off) is
+# kept. Activity is the newest mtime of the worktree directory and its git dir's HEAD and index.
+GRACE_H=${PRUNE_GRACE_HOURS:-24}
+case "$GRACE_H" in ''|*[!0-9]*) GRACE_H=24 ;; esac
+mtime_of() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+newest_activity() { # newest_activity DIR -> epoch seconds (empty when nothing is readable)
+  _gd=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null)
+  _n=""
+  for _p in "$1" ${_gd:+"$_gd/HEAD"} ${_gd:+"$_gd/index"}; do
+    [ -e "$_p" ] || continue
+    _m=$(mtime_of "$_p"); case "$_m" in ''|*[!0-9]*) continue ;; esac
+    [ -z "$_n" ] || [ "$_m" -gt "$_n" ] && _n=$_m
+  done
+  printf '%s' "$_n"
+}
+# The status read, as a function: it runs once to decide and once more just before the removal,
+# so a file written between the two keeps the worktree.
+# GIT_OPTIONAL_LOCKS=0: status must not refresh (rewrite) the index, which would move the activity
+# timestamp the grace window reads and leave a lock file in an agent's worktree.
+wt_status() { (set -o pipefail; GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain -z --untracked-files=all 2>/dev/null | tr '\0' '\n'); }
+
 for d in .claude/worktrees/agent-*; do
   [ -d "$d" ] || continue
-  BR=$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)
-  UNIQ=$(git rev-list --count "$BR" --not HEAD 2>/dev/null || echo 0)
-  case "$UNIQ" in (''|*[!0-9]*) UNIQ=0 ;; esac
-
-  # Modified tracked files block removal — EXCEPT under .claude/agent-memory/,
-  # which the salvage above has already preserved (identical, copied, or kept
-  # side-by-side). Memory edits are the normal end state of an agent run; if they
-  # counted as "still working", these worktrees could never be reclaimed at all.
-  OTHER=$(git -C "$d" status --porcelain 2>/dev/null | grep -vE '^\?\?' \
-          | awk '{print $2}' | grep -v '^\.claude/agent-memory/' | sed -n 1,3p)
-  if [ -n "$OTHER" ]; then
-    echo "  KEEP $d — modified outside agent-memory: $(printf '%s' "$OTHER" | tr '\n' ' ')"
+  if [ -L "$d" ]; then
+    echo "  KEEP $d — a symlink, not a worktree this script made; never followed or removed"
     KEPT=$((KEPT + 1)); continue
   fi
-  if [ "$UNIQ" -gt 0 ]; then
-    echo "  KEEP $d — branch $BR has $UNIQ commit(s) not in HEAD"
+  # Measured first: nothing below may touch the index before its mtime is read.
+  if [ "$GRACE_H" -gt 0 ]; then
+    LAST=$(newest_activity "$d")
+    if [ -z "$LAST" ] || [ $(( $(date +%s) - LAST )) -lt $(( GRACE_H * 3600 )) ]; then
+      echo "  KEEP $d — active within ${GRACE_H}h (an agent may still be starting; PRUNE_GRACE_HOURS=0 to override)"
+      KEPT=$((KEPT + 1)); continue
+    fi
+  fi
+
+  BR=$(git -C "$d" symbolic-ref --quiet --short HEAD 2>/dev/null)
+  SHA=$(git -C "$d" rev-parse --verify --quiet HEAD 2>/dev/null)
+  if [ -z "$SHA" ]; then
+    echo "  KEEP $d — cannot tell what is unique (git cannot read its HEAD)"
+    KEPT=$((KEPT + 1)); continue
+  fi
+  STATE=${BR:+branch $BR}; STATE=${STATE:-detached HEAD at $(printf '%.12s' "$SHA")}
+
+  # Modified tracked files and untracked files both block removal — EXCEPT under
+  # .claude/agent-memory/, which the salvage above has already preserved (identical, copied, or
+  # kept side-by-side). Memory edits are the normal end state of an agent run; if they counted as
+  # "still working", these worktrees could never be reclaimed at all. Ignored files (bin/, obj/,
+  # node_modules/) never appear here, so build output does not keep a worktree.
+  # -z output: one NUL-terminated record per path, so a space or an arrow in a name survives. A
+  # rename carries its source as a second record with no status prefix; it is skipped, and if its
+  # name happens to look like a prefixed record it can only add a KEEP, never remove one. pipefail
+  # so a failed status is seen, not tr's exit 0. --untracked-files=all names each new file, not
+  # just a new directory (`?? .claude/` would hide an agent-memory-only worktree behind a KEEP).
+  if ! ST=$(wt_status "$d"); then
+    echo "  KEEP $d — cannot tell what is unique (git status failed)"
+    KEPT=$((KEPT + 1)); continue
+  fi
+  MODIFIED=""; UNTRACKED=""
+  while IFS= read -r rec; do
+    [ "${#rec}" -gt 3 ] && [ "${rec:2:1}" = " " ] || continue
+    p=${rec:3}
+    case "$p" in .claude/agent-memory/*) continue ;; esac
+    case "$rec" in
+      '?? '*) UNTRACKED="$UNTRACKED${UNTRACKED:+, }$p" ;;
+      *)      MODIFIED="$MODIFIED${MODIFIED:+, }$p" ;;
+    esac
+  done <<EOF
+$ST
+EOF
+  if [ -n "$MODIFIED" ]; then
+    echo "  KEEP $d — modified outside agent-memory: $MODIFIED"
+    KEPT=$((KEPT + 1)); continue
+  fi
+  if [ -n "$UNTRACKED" ]; then
+    echo "  KEEP $d — untracked files outside agent-memory: $UNTRACKED"
+    KEPT=$((KEPT + 1)); continue
+  fi
+
+  # 0 = reachable from main's HEAD, 1 = not, anything else (bad object, no HEAD) = cannot tell.
+  git merge-base --is-ancestor "$SHA" HEAD >/dev/null 2>&1; ANC=$?
+  if [ "$ANC" -eq 1 ]; then
+    UNIQ=$(git rev-list --count "$SHA" --not HEAD 2>/dev/null)
+    echo "  KEEP $d — $STATE has ${UNIQ:-some} commit(s) not in HEAD"
+    KEPT=$((KEPT + 1)); continue
+  elif [ "$ANC" -ne 0 ]; then
+    echo "  KEEP $d — cannot tell what is unique ($STATE; git merge-base exit $ANC)"
     KEPT=$((KEPT + 1)); continue
   fi
 
@@ -138,7 +227,24 @@ for d in .claude/worktrees/agent-*; do
   fi
 
   if [ "$DRY" -eq 0 ]; then
-    git worktree remove --force "$d" >/dev/null 2>&1 || { echo "  KEEP $d — worktree remove failed"; KEPT=$((KEPT+1)); continue; }
+    # Test seams (spec 082, GAP-3 and GAP-1): a command run just before the re-check, and one just
+    # before the removal, so a test can play the agent writing into each window. Unset in normal use.
+    [ -n "${PRUNE_TEST_BEFORE_RECHECK:-}" ] && eval "$PRUNE_TEST_BEFORE_RECHECK"
+    if ! ST2=$(wt_status "$d") || [ "$ST2" != "$ST" ]; then
+      echo "  KEEP $d — its files changed while this ran"
+      KEPT=$((KEPT + 1)); continue
+    fi
+    # No --force (spec 082, GAP-1). PruneRace.tla found the last window: an agent idle past the grace
+    # period writes between the re-check and the removal, and `remove --force` deletes it. Plain
+    # `git worktree remove` makes git check for modified and untracked files itself, at removal time.
+    # The one dirt this script accepts, .claude/agent-memory/, was salvaged above, so it is reset
+    # first, and nothing else needs forcing.
+    if [ -n "$ST2" ]; then
+      git -C "$d" checkout -q -- .claude/agent-memory 2>/dev/null
+      git -C "$d" clean -fdq -- .claude/agent-memory 2>/dev/null
+    fi
+    [ -n "${PRUNE_TEST_BEFORE_REMOVE:-}" ] && eval "$PRUNE_TEST_BEFORE_REMOVE"
+    git worktree remove "$d" >/dev/null 2>&1 || { echo "  KEEP $d — git refused the removal (files changed, or the tree is not clean)"; KEPT=$((KEPT+1)); continue; }
     [ -n "$BR" ] && git branch -d "$BR" >/dev/null 2>&1
   fi
   REMOVED=$((REMOVED + 1))

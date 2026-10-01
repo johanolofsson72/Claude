@@ -132,6 +132,65 @@ expect_eq "L12 two lines total" "2" "$(wc -l < "$L6" | tr -d ' ')"
 expect_eq "L12 non-numeric --skip-rc is a usage error" "2" "$RC"
 expect_eq "L12 usage error writes no line" "2" "$(wc -l < "$L6" | tr -d ' ')"
 
+# L13 (spec 082 R11, F065): report --all reads siblings as data. A planted sibling clone ships its own
+# scripts/register-convergence.sh; running it would be code execution from a directory nobody vetted.
+PAR="$TMP/par"; mkdir -p "$PAR"
+OWN=$(cd "$PAR" && mkdir own && cd own && git init -q . && mkdir -p specs scripts && : > specs/INDEX.md && pwd)
+cp "$DIR/register-convergence.sh" "$DIR/maintenance_ledger.py" "$OWN/scripts/"
+[ -f "$DIR/carve_audit.py" ] && cp "$DIR/carve_audit.py" "$OWN/scripts/"
+EVIL="$PAR/evil"; mkdir -p "$EVIL/scripts" "$EVIL/specs" "$EVIL/.claude/state"; ( cd "$EVIL" && git init -q . )
+: > "$EVIL/specs/INDEX.md"
+printf '2026-10-01T00:00:00+00:00\tlocal-x\tsuite\t1.0\t0\t\t8\t0.1\t0\n' > "$EVIL/.claude/state/maintenance-runs.tsv"
+MARK="$TMP/evil-ran"
+printf '#!/bin/sh\ntouch %s\necho "planted script ran"\n' "$MARK" > "$EVIL/scripts/register-convergence.sh"
+chmod +x "$EVIL/scripts/register-convergence.sh"
+OUT=$(cd "$OWN" && python3 scripts/maintenance_ledger.py report --all 2>&1)
+expect_contains "L13 --all still reports the sibling's ledger" "== evil" "$OUT"
+if [ -e "$MARK" ]; then bad "L13 a sibling's own register-convergence.sh never runs" "no marker" "marker created"
+else ok "L13 a sibling's own register-convergence.sh never runs"; fi
+expect_absent "L13 the planted script's output never appears" "planted script ran" "$OUT"
+
+# L14 (spec 082 R11): the append refuses a symlinked ledger, and the job's result is unaffected.
+R7=$(mkrepo link 0); mkdir -p "$R7/.claude/state"
+OUTSIDE="$TMP/outside.txt"; printf 'precious\n' > "$OUTSIDE"
+ln -s "$OUTSIDE" "$R7/.claude/state/maintenance-runs.tsv"
+OUT=$(cd "$R7" && python3 "$LEDGER_PY" run demo -- sh -c 'exit 3' 2>&1); RC=$?
+expect_eq       "L14 job exit code survives a refused ledger" "3" "$RC"
+expect_eq       "L14 the symlink target is untouched" "precious" "$(cat "$OUTSIDE")"
+expect_contains "L14 the refusal is said" "not recorded" "$OUT"
+
+# L15 (spec 082 R11): a symlinked .claude/state directory resolves outside the repo — refused.
+R8=$(mkrepo dirlink 0); OUTDIR="$TMP/outdir"; mkdir -p "$OUTDIR" "$R8/.claude"
+ln -s "$OUTDIR" "$R8/.claude/state"
+OUT=$(cd "$R8" && python3 "$LEDGER_PY" run demo -- true 2>&1); RC=$?
+expect_eq "L15 job exit code survives" "0" "$RC"
+expect_eq "L15 nothing written outside the repo" "0" "$(ls "$OUTDIR" | wc -l | tr -d ' ')"
+expect_contains "L15 the refusal is said" "not recorded" "$OUT"
+
+# L16 (spec 082 review finding 13): .claude/state symlinked to a directory that does not exist yet.
+# makedirs used to run before the containment check, so it created that directory outside the repo
+# and only then refused the write.
+R9=$(mkrepo dangling 0); GHOST="$TMP/ghost"; mkdir -p "$GHOST"
+ln -s "$GHOST" "$R9/.claude"     # .claude itself points outside, and state/ does not exist there yet
+OUT=$(cd "$R9" && python3 "$LEDGER_PY" run demo -- true 2>&1); RC=$?
+expect_eq "L16 job exit code survives" "0" "$RC"
+if [ -e "$GHOST/state" ]; then bad "L16 no directory is created outside the repo" "absent: $GHOST/state" "created"
+else ok "L16 no directory is created outside the repo"; fi
+expect_contains "L16 the refusal is said" "not recorded" "$OUT"
+
+# L17: a sibling ledger is data. Escapes and bidi controls in its fields never reach the terminal, and a
+# sibling ledger symlinked to /dev/zero is skipped instead of read forever.
+PARENT17="$TMP/p17"; mkdir -p "$PARENT17"
+A17=$(cd "$PARENT17" && mkdir -p home && cd home && git init -q . && pwd)
+E17="$PARENT17/evil"; mkdir -p "$E17/.claude/state"; ( cd "$E17" && git init -q . )
+printf '2026-10-01T00:00:00+00:00\tlocal-x\tjob\033]0;pwned\007\xe2\x80\xae\t1.0\t0\t\t8\t0.1\t3\n' > "$E17/.claude/state/maintenance-runs.tsv"
+Z17="$PARENT17/zero"; mkdir -p "$Z17/.claude/state"; ( cd "$Z17" && git init -q . ); ln -s /dev/zero "$Z17/.claude/state/maintenance-runs.tsv"
+OUT=$(cd "$A17" && timeout 30 python3 "$LEDGER_PY" report --all 2>&1); RC=$?
+expect_eq "L17 report --all finishes despite a /dev/zero sibling ledger" "0" "$RC"
+case "$OUT" in *$'\033'*|*$'\007'*|*$'\xe2\x80\xae'*) bad "L17 sibling fields are sanitised" "no ESC/BEL/U+202E" "$(printf '%s' "$OUT" | od -c | head -3)" ;;
+  *) ok "L17 sibling fields are sanitised (no ESC, BEL or U+202E in the report)" ;; esac
+expect_contains "L17 the evil sibling's row is still reported" "== evil" "$OUT"
+
 echo
 echo "maintenance_ledger: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

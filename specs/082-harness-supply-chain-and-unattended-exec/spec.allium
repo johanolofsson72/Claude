@@ -1,0 +1,286 @@
+-- allium: 3
+--
+-- 082 — harness supply chain and unattended execution.
+--
+-- Four decisions this spec makes formal: what bytes the template sync may ship (R1-R4), what the
+-- unattended nightly may execute (R5-R7), what a home-directory settings rewrite may remove (R9),
+-- and what a worktree prune may destroy (R10). Rules cite R1..R16 (spec.md) and the developer's
+-- overflow answers O1..O4 (interview.md). The template keeps no scenario map.
+
+enum SyncSource { local_clone | remote_tarball | none }
+
+enum SyncOutcome { synced | refused | up_to_date | failed_open }
+
+enum JobOutcome { ran | skipped_untrusted | not_requested }
+
+enum PruneVerdict { remove | keep }
+
+config {
+    sha_hex_chars: Integer = 40
+    guard_timeout_seconds: Integer = 60
+}
+
+entity TemplateClone {
+    head_sha: String
+    dirty: Boolean                              -- uncommitted content (git status --porcelain)
+    has_symlink: Boolean                        -- any symlink under .claude/ or scripts/ (D1), agent
+                                                -- checkouts under .claude/worktrees excluded
+}
+
+entity SyncRun {
+    pin: String?                                -- CLAUDE_TEMPLATE_PIN
+    pin_valid: Boolean                          -- exactly 40 hex characters
+    allow_dirty: Boolean                        -- --force or CLAUDE_TEMPLATE_ALLOW_DIRTY=1
+    clone: TemplateClone?
+    resolved_sha: String?                       -- ls-remote answer, or the pin
+    fetched_sha: String?                        -- the SHA the downloaded tarball was named by
+    embedded_sha: String?                       -- git get-tar-commit-id of the downloaded tarball (D5)
+    source: SyncSource
+    outcome: SyncOutcome?
+    wrote_files: Boolean
+    pushed: Boolean
+
+    -- R1: the bytes shipped are the bytes of the SHA that is stamped.
+    invariant FetchedIsResolved {
+        this.source = remote_tarball implies this.fetched_sha = this.resolved_sha
+    }
+
+    -- D5 (review finding 16): the URL is not proof; the archive's own commit id must agree.
+    invariant ShippedIsEmbedded {
+        (this.source = remote_tarball and this.wrote_files) implies this.embedded_sha = this.resolved_sha
+    }
+
+    -- R3, O2: a refused run leaves the project untouched.
+    invariant RefusedWritesNothing {
+        this.outcome = refused implies (not this.wrote_files and not this.pushed)
+    }
+}
+
+rule RefuseSymlinkedTree {
+    -- D1 (review finding 7): a symlinked directory defeats the per-file skip, so the tree is refused.
+    when: SyncRequested(run)
+    requires: run.clone != null and run.clone.has_symlink
+    ensures: run.outcome = refused
+}
+
+rule RefuseUnembeddedTarball {
+    -- D5: a tarball whose embedded commit id is missing or differs syncs nothing.
+    when: SyncRequested(run)
+    requires: run.source = remote_tarball and run.embedded_sha != run.resolved_sha
+    ensures: run.outcome = failed_open
+}
+
+rule RefuseInvalidPin {
+    -- R2: a tag or short SHA can move or collide.
+    when: SyncRequested(run)
+    requires: run.pin != null and not run.pin_valid
+    ensures: run.outcome = refused
+}
+
+rule RefuseDirtyClone {
+    -- R3, O2.
+    when: SyncRequested(run)
+    requires:
+        run.clone != null
+        run.clone.dirty
+        not run.allow_dirty
+        run.pin = null
+    ensures: run.outcome = refused
+}
+
+rule PinnedUsesMatchingCleanClone {
+    -- R2: a local clone serves a pin only when it is exactly that commit and clean.
+    when: SyncRequested(run)
+    requires:
+        run.pin != null
+        run.pin_valid
+        run.clone != null
+        run.clone.head_sha = run.pin
+        not run.clone.dirty
+    ensures: run.source = local_clone
+}
+
+rule PinnedFallsBackToRemote {
+    -- R2: any other clone state fetches the pinned SHA from the remote.
+    when: SyncRequested(run)
+    requires:
+        run.pin != null
+        run.pin_valid
+        run.clone = null or run.clone.head_sha != run.pin or run.clone.dirty
+    ensures:
+        run.source = remote_tarball
+        run.fetched_sha = run.pin
+}
+
+rule RemoteFetchesExactSha {
+    -- R1, O1: track main, but download the commit ls-remote named, never refs/heads/main.
+    when: SyncRequested(run)
+    requires:
+        run.pin = null
+        run.clone = null
+        run.resolved_sha != null
+    ensures:
+        run.source = remote_tarball
+        run.fetched_sha = run.resolved_sha
+}
+
+entity TemplateFile {
+    is_symlink: Boolean
+    copied: Boolean
+
+    -- R4: a symlink in the template is never followed into a project.
+    invariant NoSymlinkCopied {
+        this.is_symlink implies not this.copied
+    }
+}
+
+entity DeclaredCommand {
+    label: String                               -- suite | mutation | ratchet:<name> (D3)
+    current_hash: String                        -- of the bytes that will run (a private copy)
+    trusted_hash: String?                       -- from .git/claude-trusted-commands
+    unpinned_runner: Boolean                    -- dotnet test / dotnet stryker only (D2): the project's
+                                                -- own build, the test-code residual. npm test is pinned
+                                                -- with its package.json scripts.test string.
+    trusted: unpinned_runner or trusted_hash = current_hash
+}
+
+entity MaintenancePass {
+    unattended: Boolean
+    trust_requested: Boolean
+    confirmed: Boolean                          -- typed `yes` on /dev/tty, or --yes (D6)
+    trust_recorded: Boolean
+}
+
+rule TrustNeedsConfirmation {
+    -- D6 (review finding 3): the items are shown with cat -v and recorded only after a yes.
+    when: TrustRequested(pass)
+    requires: not pass.unattended and not pass.confirmed
+    ensures: pass.trust_recorded = false
+}
+
+entity JobRun {
+    pass: MaintenancePass
+    command: DeclaredCommand
+    outcome: JobOutcome?
+    stamped: Boolean
+
+    -- R5: a skipped job stays due.
+    invariant SkippedNotStamped {
+        this.outcome = skipped_untrusted implies not this.stamped
+    }
+}
+
+rule UnattendedSkipsUntrusted {
+    -- R5, O3.
+    when: JobRequested(job)
+    requires:
+        job.pass.unattended
+        not job.command.trusted
+    ensures: job.outcome = skipped_untrusted
+}
+
+rule UnattendedRunsTrusted {
+    when: JobRequested(job)
+    requires:
+        job.pass.unattended
+        job.command.trusted
+    ensures: job.outcome = ran
+}
+
+rule AttendedRuns {
+    -- R5: without --unattended nothing changes.
+    when: JobRequested(job)
+    requires: not job.pass.unattended
+    ensures: job.outcome = ran
+}
+
+rule TrustIsHumanOnly {
+    -- Clarification: --trust with --unattended is a usage error.
+    when: TrustRequested(pass)
+    requires: pass.unattended
+    ensures: pass.trust_requested = false
+}
+
+entity DenyRule {
+    names_credential_store: Boolean             -- .ssh .aws .gnupg .kube .docker .azure ...
+    home_relative: Boolean                      -- Read(~/...) or Edit(~/...)
+    kept: Boolean
+}
+
+rule KeepCredentialDenies {
+    -- R9, O4.
+    when: CatchupApplied(rule_)
+    requires: rule_.names_credential_store
+    ensures: rule_.kept = true
+}
+
+rule DropOtherHomeDenies {
+    when: CatchupApplied(rule_)
+    requires:
+        rule_.home_relative
+        not rule_.names_credential_store
+    ensures: rule_.kept = false
+}
+
+entity AgentWorktree {
+    is_symlink: Boolean                         -- D4: a symlinked agent-* entry
+    active_within_grace: Boolean                -- D4: newest activity within PRUNE_GRACE_HOURS (24)
+    changed_since_check: Boolean                -- D4: status re-read before removal differs
+    dirty_at_removal: Boolean                   -- GAP-1: git's own check inside plain `worktree remove`
+    head_reachable_from_main: Boolean?          -- null: rev-parse or rev-list failed
+    modified_outside_memory: Boolean
+    untracked_outside_memory: Boolean
+    locked_by_live_agent: Boolean
+    verdict: PruneVerdict?
+}
+
+rule KeepWhenUnsure {
+    -- R10: an unanswerable question keeps the worktree.
+    when: PruneConsidered(wt)
+    requires: wt.head_reachable_from_main = null
+    ensures: wt.verdict = keep
+}
+
+rule KeepUnmergedOrUntracked {
+    -- R10, AC-4.
+    when: PruneConsidered(wt)
+    requires:
+        wt.head_reachable_from_main = false
+            or wt.modified_outside_memory
+            or wt.untracked_outside_memory
+            or wt.locked_by_live_agent
+            or wt.is_symlink
+            or wt.active_within_grace
+            or wt.changed_since_check
+            or wt.dirty_at_removal
+    ensures: wt.verdict = keep
+}
+
+rule RemoveOnlyProvablySafe {
+    when: PruneConsidered(wt)
+    requires:
+        wt.head_reachable_from_main = true
+        not wt.modified_outside_memory
+        not wt.untracked_outside_memory
+        not wt.locked_by_live_agent
+        not wt.is_symlink
+        not wt.active_within_grace
+        not wt.changed_since_check
+        not wt.dirty_at_removal
+    ensures: wt.verdict = remove
+}
+
+entity LlmHost {
+    loopback: Boolean
+    allow_remote: Boolean                       -- LOCAL_LLM_ALLOW_REMOTE=1
+    available: Boolean
+}
+
+rule RemoteHostDisablesOffload {
+    -- R13, AC-5.
+    when: LlmDetect(host)
+    requires:
+        not host.loopback
+        not host.allow_remote
+    ensures: host.available = false
+}

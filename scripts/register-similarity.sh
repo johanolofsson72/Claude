@@ -81,6 +81,36 @@ if [ -z "$THRESHOLD" ]; then
   if [ -n "$QUERY" ]; then THRESHOLD="$QUERY_THRESHOLD"; else THRESHOLD="$CORPUS_THRESHOLD"; fi
 fi
 
+# Spec 082 (F043): the register's rows go to this host, so it must be this machine unless the
+# developer opted in. The same predicate as local-llm-detect.sh, kept inline because this script is
+# CORE and that one is not guaranteed to exist in a project.
+host_is_loopback() {
+  local h p a b c r o
+  # Review finding 11: refuse whitespace/control characters outright, match the whole string.
+  case "$1" in *[[:space:]]*|*[[:cntrl:]]*|'') return 1 ;; esac
+  h=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$h" in http://*) h=${h#http://} ;; https://*) h=${h#https://} ;; *://*) return 1 ;; esac
+  h=${h%%/*}
+  case "$h" in *@*|'') return 1 ;; esac
+  case "$h" in
+    '[::1]') return 0 ;;
+    '[::1]:'*) p=${h#'[::1]:'}; case "$p" in ''|*[!0-9]*) return 1 ;; esac; return 0 ;;
+    \[*) return 1 ;;
+    ::1) return 0 ;;
+    *:*:*) return 1 ;;
+  esac
+  case "$h" in *:*) p=${h#*:}; h=${h%%:*}; case "$p" in ''|*[!0-9]*) return 1 ;; esac ;; esac
+  [ "$h" = localhost ] && return 0
+  case "$h" in 127.*.*.*) ;; *) return 1 ;; esac
+  r=${h#127.}; a=${r%%.*}; r=${r#*.}; b=${r%%.*}; c=${r#*.}
+  for o in "$a" "$b" "$c"; do case "$o" in ''|*[!0-9]*|????*) return 1 ;; esac; done
+  return 0
+}
+if ! host_is_loopback "$HOST" && [ "${LOCAL_LLM_ALLOW_REMOTE:-}" != "1" ]; then
+  echo "register-similarity: OLLAMA_HOST=$(printf '%s' "$HOST" | tr '[:cntrl:]' '?') is not loopback; the register would leave this machine. Set LOCAL_LLM_ALLOW_REMOTE=1 to allow." >&2
+  exit 2
+fi
+
 if ! curl -s -o /dev/null -m 3 "$HOST/api/tags"; then
   echo "register-similarity: no Ollama at $HOST — start it, or set OLLAMA_HOST." >&2
   exit 2

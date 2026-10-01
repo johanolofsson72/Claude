@@ -32,6 +32,12 @@
 # lines, so a run that fired can always be told from one that did not (F086). It
 # is syntax-checked with /bin/sh -n before crontab is touched.
 # NIGHTLY_PARSE_SHELL overrides that shell -- a test seam, nothing else.
+#
+# The line passes --unattended (spec 082, F062): the nightly then runs the project's
+# declared suite command and scripts/run-mutation-gate.sh only if a human recorded
+# them with `bash scripts/project-maintenance.sh --trust`, because both are files a
+# commit can change and nobody is watching at 02:30. --list flags an installed line
+# without it as STALE. Run --trust once after installing.
 
 set -uo pipefail
 export LC_ALL=C
@@ -43,7 +49,7 @@ while [ $# -gt 0 ]; do
     --list) MODE="list"; shift ;;
     --remove) MODE="remove"; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "install-nightly-maintenance.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -76,10 +82,10 @@ install-nightly-maintenance.sh: no crontab on this machine.
 On Windows (Git Bash / PowerShell) use Task Scheduler instead:
 
   schtasks /Create /SC DAILY /ST $AT /TN "claude-nightly-$PROJECT" ^
-    /TR "C:\\Program Files\\Git\\bin\\bash.exe -lc \"cd '$ROOT' && bash scripts/project-maintenance.sh --full --suite --if-due\""
+    /TR "C:\\Program Files\\Git\\bin\\bash.exe -lc \"cd '$ROOT' && bash scripts/project-maintenance.sh --full --suite --if-due --unattended\""
 
 Or, on any platform, from a Claude Code session in this project:
-  /loop 1d  bash scripts/project-maintenance.sh --full --suite --if-due
+  /loop 1d  bash scripts/project-maintenance.sh --full --suite --if-due --unattended
 MSG
   exit 3
 fi
@@ -102,9 +108,16 @@ if [ "$MODE" = "list" ]; then
   ours=$(printf '%s\n' "$current" | grep -F "claude-nightly-maintenance:")
   [ -n "$ours" ] || { echo "(no claude nightly jobs installed)"; exit 0; }
   # A line from before row 065 runs under cron's bare PATH and fails every night.
+  # --unattended counts only as an argument of project-maintenance.sh: the words between it and the
+  # next `;`. Matching it anywhere let a project directory named after the flag read as current (F18).
   printf '%s\n' "$ours" | while IFS= read -r l; do
+    args=""
+    case "$l" in *project-maintenance.sh*) args=${l#*project-maintenance.sh}; args=${args%%;*} ;; esac
     case "$l" in
-      *"PATH="*) echo "$l" ;;
+      *"PATH="*) case " $args " in
+                   *" --unattended "*) echo "$l" ;;
+                   *) echo "STALE (no --unattended -- runs the repository's declared commands untrusted, spec 082; reinstall from that project): $l" ;;
+                 esac ;;
       *) echo "STALE (no PATH= -- runs under cron's bare PATH; reinstall from that project): $l" ;;
     esac
   done
@@ -156,7 +169,7 @@ q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # exec comes first so the log opens before anything that can fail; the start and
 # end lines make "fired and failed" visible and distinct from "never fired".
 # A missing PATH file stops the run with cat's error in the log, not a blind run.
-CMD="exec >$(q "$LOG") 2>&1; echo \"claude-nightly: start \$(date)\"; cd $(q "$ROOT") && PATH=\$(cat $(q "$PATHFILE")) && export PATH && /bin/bash scripts/project-maintenance.sh --full --suite --if-due; echo \"claude-nightly: end exit=\$?\""
+CMD="exec >$(q "$LOG") 2>&1; echo \"claude-nightly: start \$(date)\"; cd $(q "$ROOT") && PATH=\$(cat $(q "$PATHFILE")) && export PATH && /bin/bash scripts/project-maintenance.sh --full --suite --if-due --unattended; echo \"claude-nightly: end exit=\$?\""
 LINE="$MM $HH * * * $CMD $MARKER"
 
 # BSD cron (macOS, FreeBSD) reads at most MAX_COMMAND-1 = 999 characters of the
@@ -189,10 +202,12 @@ printf '%s\n%s\n' "$cleaned" "$LINE" | sed '/^$/d' | crontab - || {
 cat <<MSG
 installed: $PROJECT — nightly maintenance at $(printf '%02d:%02d' "$HH" "$MM")
 
-  runs:  scripts/project-maintenance.sh --full --suite --if-due   (secrets + CVEs, register drift,
+  runs:  scripts/project-maintenance.sh --full --suite --if-due --unattended   (secrets + CVEs, register drift,
          convergence, context-cost canary, hardening cadence, mutation kill rate)
   log:   $LOG
   PATH:  $PATHFILE (captured from this shell)
+  trust: bash scripts/project-maintenance.sh --trust   (the nightly runs .claude/.suite-command and
+         scripts/run-mutation-gate.sh only once you have trusted them, and again after each change)
   check: bash scripts/install-nightly-maintenance.sh --list
   undo:  bash scripts/install-nightly-maintenance.sh --remove
 

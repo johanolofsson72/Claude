@@ -708,67 +708,92 @@ if [ -f .claude/.sync-stack ]; then
 fi
 echo "[STACK] skill install gating: $STACK_DESC (dotnet=$WANT_DOTNET react=$WANT_REACT browser=$WANT_BROWSER)"
 
+# Spec 082 (F045): each third-party skill is checked out at a recorded commit, not whatever its
+# default branch holds today. These repos land in ~/.claude/skills, where every session on this
+# machine loads them as instructions, so a compromised upstream would otherwise reach every project
+# at the next install. Bumping a pin is a deliberate edit here. A pin that cannot be checked out
+# removes the clone again: a skill left at the default branch is the state this exists to prevent.
+clone_pinned() {
+  if git clone --quiet "$1" "$2" && git -C "$2" checkout --quiet "$3"; then
+    return 0
+  fi
+  rm -rf "$2"
+  echo "[FAILED] $1 — could not check out pinned commit $3; removed the clone"
+  return 1
+}
+# Review finding 12 (spec 082): an install made before the pins existed sits on whatever its default
+# branch held then. The skip arm says so and names the move; it changes nothing on its own, because
+# the developer may have local edits in that clone.
+skip_pinned() {
+  _at=$(git -C "$2" rev-parse HEAD 2>/dev/null || echo "unknown")
+  if [ "$_at" = "$3" ]; then
+    echo "[SKIPPED] $1 — already installed at its pinned commit"
+  else
+    echo "[WARN] $1 is at $_at, pinned $3 — git -C $2 fetch && git -C $2 checkout $3"
+  fi
+}
+
 # anthropics/skills — Official Anthropic collection (includes frontend-design, PDF, PPTX, XLSX)
 # CRITICAL: frontend-design is a BLOCKING REQUIREMENT in CLAUDE.md
 if [ ! -d "$HOME/.claude/skills/anthropics-skills" ]; then
-  git clone https://github.com/anthropics/skills.git "$HOME/.claude/skills/anthropics-skills"
-  echo "[INSTALLED] anthropics/skills — official collection (frontend-design, PDF, PPTX, XLSX)"
+  clone_pinned https://github.com/anthropics/skills.git "$HOME/.claude/skills/anthropics-skills" 8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4 \
+    && echo "[INSTALLED] anthropics/skills — official collection (frontend-design, PDF, PPTX, XLSX)"
 else
-  echo "[SKIPPED] anthropics/skills — already installed"
+  skip_pinned anthropics/skills "$HOME/.claude/skills/anthropics-skills" 8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4
 fi
 
 # obra/superpowers — Planning, TDD, code review
 if [ ! -d "$HOME/.claude/skills/superpowers" ]; then
-  git clone https://github.com/obra/superpowers.git "$HOME/.claude/skills/superpowers"
-  echo "[INSTALLED] obra/superpowers — planning, TDD, code review"
+  clone_pinned https://github.com/obra/superpowers.git "$HOME/.claude/skills/superpowers" 8ca22dba9a94f28898bbce59f2537ff4d87c747d \
+    && echo "[INSTALLED] obra/superpowers — planning, TDD, code review"
 else
-  echo "[SKIPPED] obra/superpowers — already installed"
+  skip_pinned obra/superpowers "$HOME/.claude/skills/superpowers" 8ca22dba9a94f28898bbce59f2537ff4d87c747d
 fi
 
 # trailofbits/skills — Security research skills from Trail of Bits (universal)
 if [ ! -d "$HOME/.claude/skills/trailofbits-skills" ]; then
-  git clone https://github.com/trailofbits/skills.git "$HOME/.claude/skills/trailofbits-skills"
-  echo "[INSTALLED] trailofbits/skills — security research"
+  clone_pinned https://github.com/trailofbits/skills.git "$HOME/.claude/skills/trailofbits-skills" 82fe8226252622fa807643bdca1710901198553a \
+    && echo "[INSTALLED] trailofbits/skills — security research"
 else
-  echo "[SKIPPED] trailofbits/skills — already installed"
+  skip_pinned trailofbits/skills "$HOME/.claude/skills/trailofbits-skills" 82fe8226252622fa807643bdca1710901198553a
 fi
 
 # adampaulwalker/qa-test — Destructive/adversarial BROWSER testing (stack-gated: skip on mobile-only)
 if [ -d "$HOME/.claude/skills/qa-test" ]; then
-  echo "[SKIPPED] qa-test — already installed"
+  skip_pinned qa-test "$HOME/.claude/skills/qa-test" 9e00d2152adab15e3d718cf1a78ef110e6522580
 elif [ "$WANT_BROWSER" = 1 ]; then
-  git clone https://github.com/adampaulwalker/qa-test.git "$HOME/.claude/skills/qa-test"
-  echo "[INSTALLED] qa-test — destructive browser testing (Jinx persona)"
+  clone_pinned https://github.com/adampaulwalker/qa-test.git "$HOME/.claude/skills/qa-test" 9e00d2152adab15e3d718cf1a78ef110e6522580 \
+    && echo "[INSTALLED] qa-test — destructive browser testing (Jinx persona)"
 else
   echo "[SKIPPED] qa-test — not relevant to detected stack ($STACK_DESC): no browser"
 fi
 
 # dotnet/skills — Official Microsoft .NET skills (stack-gated: skip when no .csproj/.sln)
 if [ -d "$HOME/.claude/skills/dotnet-skills" ]; then
-  echo "[SKIPPED] dotnet/skills — already installed"
+  skip_pinned dotnet/skills "$HOME/.claude/skills/dotnet-skills" 4be92ceb4e2d20e6b1fe9662a59b2fff0f4c5b4f
 elif [ "$WANT_DOTNET" = 1 ]; then
-  git clone https://github.com/dotnet/skills.git "$HOME/.claude/skills/dotnet-skills"
-  echo "[INSTALLED] dotnet/skills — official .NET patterns and best practices"
+  clone_pinned https://github.com/dotnet/skills.git "$HOME/.claude/skills/dotnet-skills" 4be92ceb4e2d20e6b1fe9662a59b2fff0f4c5b4f \
+    && echo "[INSTALLED] dotnet/skills — official .NET patterns and best practices"
 else
   echo "[SKIPPED] dotnet/skills — not relevant to detected stack ($STACK_DESC): no .NET project"
 fi
 
 # vercel-labs/skills — React WEB performance rules (stack-gated: skip on non-web/mobile-only)
 if [ -d "$HOME/.claude/skills/vercel-skills" ]; then
-  echo "[SKIPPED] vercel-labs/skills — already installed"
+  skip_pinned vercel-labs/skills "$HOME/.claude/skills/vercel-skills" 3694740352eeef5cdd689af694c485f1ff62eec3
 elif [ "$WANT_REACT" = 1 ]; then
-  git clone https://github.com/vercel-labs/skills.git "$HOME/.claude/skills/vercel-skills"
-  echo "[INSTALLED] vercel-labs/skills — React performance (45 rules), web design"
+  clone_pinned https://github.com/vercel-labs/skills.git "$HOME/.claude/skills/vercel-skills" 3694740352eeef5cdd689af694c485f1ff62eec3 \
+    && echo "[INSTALLED] vercel-labs/skills — React performance (45 rules), web design"
 else
   echo "[SKIPPED] vercel-labs/skills — not relevant to detected stack ($STACK_DESC): React web-perf"
 fi
 
 # lackeyjb/playwright-skill — Deep Playwright/BROWSER knowledge (stack-gated: skip on mobile-only)
 if [ -d "$HOME/.claude/skills/playwright-skill" ]; then
-  echo "[SKIPPED] playwright-skill — already installed"
+  skip_pinned playwright-skill "$HOME/.claude/skills/playwright-skill" dd47a6a023e249eb1b36e9e943eab89d0900865d
 elif [ "$WANT_BROWSER" = 1 ]; then
-  git clone https://github.com/lackeyjb/playwright-skill.git "$HOME/.claude/skills/playwright-skill"
-  echo "[INSTALLED] playwright-skill — Playwright patterns, POM, test generation"
+  clone_pinned https://github.com/lackeyjb/playwright-skill.git "$HOME/.claude/skills/playwright-skill" dd47a6a023e249eb1b36e9e943eab89d0900865d \
+    && echo "[INSTALLED] playwright-skill — Playwright patterns, POM, test generation"
 else
   echo "[SKIPPED] playwright-skill — not relevant to detected stack ($STACK_DESC): no browser"
 fi
@@ -822,17 +847,30 @@ JAR="${TLA2TOOLS_JAR:-$HOME/.local/lib/tla2tools.jar}"
 if command -v tlc >/dev/null 2>&1; then
   echo "[SKIPPED] TLC model checker — already installed ($(command -v tlc))"
 elif [ -s "$JAR" ]; then
-  echo "[SKIPPED] TLC model checker — JAR present at $JAR"
+  # Review finding 12 (spec 082): a jar from before the pin is re-hashed rather than trusted on sight.
+  # A mismatch warns and leaves it in place -- it may be a deliberate newer TLC.
+  TLA_SHA=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+  if [ "$( (sha256sum "$JAR" 2>/dev/null || shasum -a 256 "$JAR" 2>/dev/null) | cut -d' ' -f1)" = "$TLA_SHA" ]; then
+    echo "[SKIPPED] TLC model checker — JAR present at $JAR (SHA-256 matches v1.7.4)"
+  else
+    echo "[WARN] TLC JAR at $JAR is not the pinned v1.7.4 (expected SHA-256 $TLA_SHA)."
+    echo "       Re-download: rm \"$JAR\" and re-run this step."
+  fi
 else
   echo "[INSTALLING] TLC model checker via JAR download..."
   mkdir -p "$(dirname "$JAR")"
   # Download to a temp name first: a half-written JAR must not look installed on the next run.
-  if curl -fsSL -o "$JAR.part" https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar \
+  # Spec 082 (F045): a fixed release, checked against its SHA-256 before it is moved into place.
+  # `releases/latest` was whatever the upstream published last, run later as a JVM on this machine.
+  # Bumping the version means editing the URL and the hash together.
+  TLA_SHA=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+  if curl -fsSL -o "$JAR.part" https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar \
+     && [ "$( (sha256sum "$JAR.part" 2>/dev/null || shasum -a 256 "$JAR.part" 2>/dev/null) | cut -d' ' -f1)" = "$TLA_SHA" ] \
      && mv "$JAR.part" "$JAR"; then
     echo "[INSTALLED] TLC model checker (JAR at $JAR)"
   else
     rm -f "$JAR.part"
-    echo "[FAILED] TLC JAR download failed — /tla falls back to reasoning-only verification."
+    echo "[FAILED] TLC JAR download failed or its SHA-256 did not match v1.7.4 — /tla falls back to reasoning-only verification."
     echo "         Distro packages: Debian/Ubuntu 'apt install tlaplus' · Fedora 'dnf install tlaplus' · Arch AUR 'tla-plus-toolbox'"
   fi
 fi

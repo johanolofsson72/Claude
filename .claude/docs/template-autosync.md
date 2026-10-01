@@ -111,7 +111,7 @@ It now fetches and then decides by the clone's relationship to `origin/main`:
 |---|---|
 | equal | nothing |
 | behind, clean tree | fast-forwarded to `origin/main`, and it says so |
-| behind, uncommitted changes | left alone (your work wins) with a warning that the source is stale |
+| uncommitted changes (any state) | **not synced** (spec 082): a `[warn]` names the clone and both overrides. `--force` or `CLAUDE_TEMPLATE_ALLOW_DIRTY=1` syncs the working tree as before, under a `-dirty-` SHA |
 | ahead | left alone — the template author's unpushed commits are exactly what their projects should receive |
 | diverged | left alone, warned; reconcile by hand |
 
@@ -126,6 +126,25 @@ A clone of some *other* repo parked at that path is never fetched, and no networ
 > Developers with **no** local clone were never affected: the tarball path always fetched.
 
 Covered by `scripts/test-template-clone-refresh.sh` (16 assertions across all six cases).
+
+### What the sync will fetch (spec 082)
+
+Whoever can push to the template's `main` gets code into every project at its next session start. That is the design: the
+projects update themselves. Spec 082 narrows what can go wrong between the push and the project:
+
+- The commit it names is the commit it downloads. The tarball path asks `git ls-remote` for main's SHA and downloads that
+  exact commit (`codeload…/tar.gz/<40-hex>`), never `refs/heads/main`. Reading a moving ref twice could stamp one commit and
+  ship another.
+- You can pin it. `CLAUDE_TEMPLATE_PIN=<40-hex sha>` in the project's settings `env` holds it on a commit you
+  reviewed. A local clone serves the pin only when its `HEAD` is that commit and its tree is clean. Otherwise the run downloads
+  the pinned commit. A tag or a short SHA is refused, because either one can be moved or collide. Unset, the project tracks main.
+- Uncommitted edits stay home. A clone with uncommitted changes is not synced (table above). Half-edited files under a SHA that
+  does not describe them used to be committed and pushed into every project.
+- Symlinks are skipped, with a `[skip]` line. Following one would copy a file from the syncing
+  machine, such as a private key, into a project that is then pushed.
+
+There is no signature check. GitHub tarballs are unsigned and the template has no signing key, so the threat model in
+`specs/082-harness-supply-chain-and-unattended-exec/spec.md` records that gap as a residual risk.
 
 ## Cost
 

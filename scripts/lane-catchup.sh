@@ -17,8 +17,8 @@
 # So: one command, ordered so each step clears the way for the next, and its
 # findings are WRITTEN to specs/INDEX.pending.md rather than relayed by hand.
 #
-# Reports by default and changes nothing. --apply makes the two machine-local
-# changes (permission denies, nightly cron); everything else is read-only.
+# Reports by default and changes nothing. --apply makes the one machine-local
+# change (permission denies, credential-store denies always kept — spec 082); everything else is read-only.
 #
 # Usage:
 #   bash scripts/lane-catchup.sh              # report only
@@ -56,35 +56,102 @@ GS="$HOME/.claude/settings.json"
 if [ ! -f "$GS" ]; then
   say "  no global settings at $GS — nothing to change"
 else
-  DENIES=$(python3 - "$GS" <<'PY' 2>/dev/null
-import json, sys
+  # Spec 082 (F063). This used to drop EVERY Read(~/…)/Edit(~/…) deny, and the ~/.ssh and ~/.aws
+  # denies went with them: the step meant to stop permission prompts also opened the credential
+  # stores to the agent. Credential-store denies are now kept whatever else goes. The write is
+  # backup-first and atomic, because a crash halfway through rewriting ~/.claude/settings.json
+  # used to leave a half-written file and no copy of the original.
+  #
+  # The helper prints `drop<TAB>rule` and `keep<TAB>rule` lines, or `malformed<TAB>why`. With
+  # `apply` and something to drop it also makes the change and prints `backup<TAB>path`.
+  PLAN=$(python3 - "$GS" "$([ "$APPLY" -eq 1 ] && echo apply)" <<'PY'
+import fnmatch, json, os, re, shutil, sys, tempfile, time
+# realpath: a dotfile manager keeps ~/.claude/settings.json as a symlink, and os.replace on the link
+# would swap it for a regular file. Rewrite (and back up) the real file instead.
+p, mode = os.path.realpath(sys.argv[1]), sys.argv[2]
+CRED = (".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", ".config/gh", ".config/gcloud",
+        ".netrc", ".npmrc", ".pypirc", ".git-credentials", ".password-store", ".pgpass",
+        ".vault-token", ".cargo/credentials", ".cargo/credentials.toml", ".config/op",
+        ".claude/.credentials.json", "Library/Keychains")
+# Adversarial review F5: a name list alone drops a broad rule. Read(~/**) or Read(~/.s*) names no
+# store, yet guards all of them. So a rule is also kept when its glob could match one of these
+# probes. fnmatch's * crosses "/", which only ever keeps more: the safe direction for a deny.
+PROBES = ("~/.ssh/id_ed25519", "~/.aws/credentials", "~/.gnupg/x", "~/.kube/config",
+          "~/.docker/config.json", "~/.azure/x", "~/.config/gh/hosts.yml", "~/.config/gcloud/x",
+          "~/.netrc", "~/.npmrc", "~/.pypirc", "~/.git-credentials", "~/.password-store/x",
+          "~/.pgpass", "~/.vault-token", "~/.cargo/credentials.toml", "~/.config/op/x",
+          "~/.claude/.credentials.json", "~/Library/Keychains/x")
+
+def is_cred(rule):
+    m = re.match(r"^[A-Za-z]+\((.*)\)$", rule)
+    path = (m.group(1) if m else rule).replace("\\", "/")
+    # Whole path segments, so ~/.sshfoo or ~/notes/.aws-ideas.md is not mistaken for a store.
+    segs = [x for x in path.split("/") if x]
+    for store in CRED:
+        parts = store.split("/")
+        if any(segs[i:i + len(parts)] == parts for i in range(len(segs) - len(parts) + 1)):
+            return True
+    glob = path.replace("**", "*")
+    return any(fnmatch.fnmatchcase(probe, glob) for probe in PROBES)
+
 try:
-    d = json.load(open(sys.argv[1]))
-except Exception:
+    with open(p, encoding="utf-8") as f:
+        d = json.load(f)
+    deny = d.get("permissions", {}).get("deny", [])
+    if not isinstance(deny, list):
+        raise ValueError("permissions.deny is not a list")
+except Exception as e:
+    print("malformed\t%s" % str(e).replace("\n", " "))
     sys.exit(0)
-bad = [r for r in d.get("permissions", {}).get("deny", [])
-       if r.startswith(("Read(~/", "Edit(~/"))]
-print("\n".join(bad))
+home = [r for r in deny if isinstance(r, str) and r.startswith(("Read(~/", "Edit(~/"))]
+drop = [r for r in home if not is_cred(r)]
+for r in home:
+    print("%s\t%s" % ("keep" if is_cred(r) else "drop", r))
+if mode != "apply" or not drop:
+    sys.exit(0)
+st = os.stat(p)
+backup = "%s.bak-%s" % (p, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+shutil.copy2(p, backup)
+d["permissions"]["deny"] = [r for r in deny if r not in drop]
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(p)), prefix=".settings.", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
+    os.chmod(tmp, st.st_mode & 0o7777)
+    os.replace(tmp, p)
+except BaseException:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    raise
+print("backup\t%s" % backup)
 PY
 )
-  if [ -z "$DENIES" ]; then
-    say "  no Read(~/…) deny rules — prompts are not coming from here"
-  elif [ "$APPLY" -eq 1 ]; then
-    python3 - "$GS" <<'PY'
-import json, sys
-p = sys.argv[1]; d = json.load(open(p))
-perm = d.setdefault("permissions", {})
-before = perm.get("deny", [])
-perm["deny"] = [r for r in before if not r.startswith(("Read(~/", "Edit(~/"))]
-open(p, "w").write(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
-print(f"  removed {len(before) - len(perm['deny'])} Read/Edit home-dir deny rule(s); "
-      f"{len(perm['deny'])} deny rule(s) kept")
-PY
+  TAB=$(printf '\t')
+  DROP=$(printf '%s\n' "$PLAN" | sed -n "s/^drop$TAB//p")
+  KEEP=$(printf '%s\n' "$PLAN" | sed -n "s/^keep$TAB//p")
+  BAD=$(printf '%s\n' "$PLAN" | sed -n "s/^malformed$TAB//p")
+  BACKUP=$(printf '%s\n' "$PLAN" | sed -n "s/^backup$TAB//p")
+  if [ -n "$BAD" ]; then
+    say "  $GS could not be read ($BAD) — nothing changed"
+    todo "fix $GS by hand, then re-run"
+  elif [ -z "$DROP" ]; then
+    say "  no removable Read(~/…) deny rules — prompts are not coming from here"
+  elif [ "$APPLY" -eq 1 ] && [ -n "$BACKUP" ]; then
+    say "  removed $(printf '%s\n' "$DROP" | grep -c .) Read/Edit home-dir deny rule(s):"
+    printf '%s\n' "$DROP" | sed 's/^/    /'
+    say "  backup of the original: $BACKUP"
     say "  every Bash deny is kept — rm -rf, sudo, force-push, hard reset"
+  elif [ "$APPLY" -eq 1 ]; then
+    say "  could not rewrite $GS — nothing changed"
+    todo "check that $GS and its directory are writable, then re-run"
   else
     say "  these deny rules are why ordinary commands prompt:"
-    printf '    %s\n' $DENIES
-    todo "run with --apply to remove them (Bash denies are kept)"
+    printf '%s\n' "$DROP" | sed 's/^/    /'
+    todo "run with --apply to remove them (Bash denies and credential-store denies are kept)"
+  fi
+  if [ -n "$KEEP" ] && [ -z "$BAD" ]; then
+    say "  kept, because they guard a credential store (spec 082):"
+    printf '%s\n' "$KEEP" | sed 's/^/    /'
   fi
 fi
 

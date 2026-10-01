@@ -92,7 +92,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] H2 — integration-hardening — checkpoint — full-system regression + security sweep + mutation spot-check over the ~30 rows ticked since H1 (043–079).
 - [x] 080 — developer-authored-acceptance-cases — full track [hardened] — the developer confirms 3-5 Given/When/Then cases before code on full/hardened specs; guard blocks until then; each AC-n gets a test written first — approved F075
 - [x] 081 — always-loaded-context-budget — spec-only — CLAUDE.md + unscoped rules are ~69 KB every session; context-budget.sh caps it at 40 KB with a ratchet test; rationale moves to on-demand docs — approved F076
-- [ ] 082 — harness-supply-chain-and-unattended-exec — full track [hardened] — autosync pulls main unpinned, the nightly runs repo-controlled strings, lane-catchup strips ~/.ssh denies, prune can destroy agent work. F037 F043 F045 F062–F067.
+- [x] 082 — harness-supply-chain-and-unattended-exec — full track [hardened] — autosync pulls main unpinned, the nightly runs repo-controlled strings, lane-catchup strips ~/.ssh denies, prune can destroy agent work. F037 F043 F045 F062–F067.
 - [ ] 083 — guard-bypass-and-fail-open — full track [hardened] — PreToolUse guards fail open without jq, miss unnormalised paths, exempt any */scripts/*, miss a split tick; the deny list is bypassable. F029 F035 F038–F042 F044.
 - [ ] 084 — autosync-sandbox-and-harness-env — full track — the root walk loops on a relative dir, sandboxed runs still push, self-tests inherit CLAUDE_PROJECT_DIR and CDPATH. F013 F015–F020.
 - [ ] H3 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 080–084.

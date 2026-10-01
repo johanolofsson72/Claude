@@ -168,5 +168,40 @@ cv "none attributed, young"    0 "too young to measure" "clean" "$(cvrows 9 5)"
 cv "only unresolved, 10+ ticked" 3 "1 cite a row this register does not hold" "clean" "$(cvrows 10 0)
 - [ ] 011 — a — carved by 999"
 
+# --- Spec 082 review finding 9: a hostile repository's git config runs nothing -----------------------
+# maintenance_ledger.py `report --all` points THIS script at sibling directories with --dir, so the
+# repository it reads is not ours. Its .git/config is: core.fsmonitor and core.hooksPath name programs
+# git runs, and log.showSignature + gpg.program makes `git log`/`git show` run gpg.program on any
+# commit carrying a gpgsig header. The commit below carries one, so the arm is live.
+H="$TMP/hostile"; mk "$H" "10 0" "20 10" "25 20" "30 30"
+MARK="$TMP/hostile-ran"; rm -f "$MARK"
+printf '#!/bin/sh\necho "$0 $*" >> "%s"\nexit 1\n' "$MARK" > "$TMP/evil.sh"; chmod +x "$TMP/evil.sh"
+mkdir -p "$TMP/evilhooks"; for hk in post-checkout pre-commit reference-transaction; do cp "$TMP/evil.sh" "$TMP/evilhooks/$hk"; done
+echo "- [x] 030 — signed — spec-only — goal" >> "$H/specs/INDEX.md"; git -C "$H" add -A
+tree=$(git -C "$H" write-tree); parent=$(git -C "$H" rev-parse HEAD)   # the signed commit changes the register
+signed=$(printf 'tree %s\nparent %s\nauthor t <t@t> 1788000000 +0000\ncommitter t <t@t> 1788000000 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n iQEz\n -----END PGP SIGNATURE-----\n\nsigned day\n' "$tree" "$parent" \
+  | git -C "$H" hash-object -t commit -w --stdin)
+git -C "$H" update-ref refs/heads/"$(git -C "$H" symbolic-ref --short HEAD)" "$signed"; git -C "$H" reset -q
+# A tree change after the signed commit, so specs/INDEX.md's history includes commits around it.
+echo "- [x] 031 — s31 — spec-only — goal" >> "$H/specs/INDEX.md"; git -C "$H" add -A; git -C "$H" commit -qm "after signed"
+git -C "$H" config core.fsmonitor "$TMP/evil.sh"
+git -C "$H" config core.hooksPath "$TMP/evilhooks"
+git -C "$H" config log.showSignature true
+git -C "$H" config gpg.program "$TMP/evil.sh"
+# Control: plain git with this config does run the program, or the case below proves nothing.
+git -C "$H" log -1 --format=%H "$signed" >/dev/null 2>&1
+if [ -s "$MARK" ]; then echo "  PASS  F9 control: plain git log runs gpg.program on the signed commit"; PASS=$((PASS+1))
+else echo "  FAIL  F9 control did not fire — the hostile config is not live"; FAIL=$((FAIL+1)); fi
+rm -f "$MARK"
+bash "$SUT" --dir "$H" --json >/dev/null 2>&1
+bash "$SUT" --dir "$H" --quiet >/dev/null 2>&1
+REG="$H/specs/INDEX.md" FINDINGS="$H/specs/FINDINGS.md" python3 - "$SCRIPT_DIR" <<'FRZ' >/dev/null 2>&1
+import sys; sys.path.insert(0, sys.argv[1])
+import register_freeze as rf
+rf.baseline_ids(sys.argv[1] and __import__("os").environ["REG"], "2026-08-01")
+FRZ
+if [ -s "$MARK" ]; then echo "  FAIL  F9 register-convergence/register_freeze ran a program from the repo's git config: $(cat "$MARK")"; FAIL=$((FAIL+1))
+else echo "  PASS  F9 a hostile .git/config (fsmonitor, hooksPath, showSignature + gpg.program) runs nothing"; PASS=$((PASS+1)); fi
+
 echo "register-convergence: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

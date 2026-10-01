@@ -157,6 +157,10 @@ PASS_RC=0
 if [ "$SETUP_FAILED" -eq 1 ]; then
   PASS_RC=2
 else
+  # Deliberately NOT --unattended (spec 082, adversarial finding 15, dismissed): the trust pin guards
+  # the developer's machine, where a 02:30 cron runs repository strings with their credentials. A cloud
+  # pass runs in a disposable VM a human launched, without those credentials, and a fresh clone has no
+  # trust store, so --unattended would skip every declared command and void the cloud placement (075).
   CLAUDE_CODE_REMOTE=true bash scripts/project-maintenance.sh --full --suite --placed; PASS_RC=$?
 fi
 

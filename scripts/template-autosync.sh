@@ -72,7 +72,8 @@
 #   template-autosync.sh --template-dir   (print the local template clone this sync would use)
 #     --check         report drift and exit 0 without writing anything
 #     --dry-run       same as --check but also prints the file list it would write
-#     --force         sync even when the template SHA matches the stamp
+#     --force         sync even when the template SHA matches the stamp; also syncs from a
+#                     template clone with uncommitted changes (spec 082 R3)
 #     --no-commit     write files but leave them unstaged
 #     --ignore-in-progress
 #                     sync even while a rebase, merge or cherry-pick is in
@@ -103,6 +104,13 @@
 #   CLAUDE_PROJECT_DIR  the project to act on. Beats $PWD — a `cd` alone does NOT
 #                       choose the target, which is how a self-test came to sync
 #                       the real repository (spec 010, consultpilot H7bm).
+#   CLAUDE_TEMPLATE_PIN
+#                       optional, spec 082. A 40-hex template commit this project is held on.
+#                       A clean local clone at exactly that commit is used; anything else
+#                       fetches that commit's tarball. Not 40 hex: refused, nothing written.
+#   CLAUDE_TEMPLATE_ALLOW_DIRTY
+#                       optional, spec 082. 1 = sync from a template clone with uncommitted
+#                       changes (stamped -dirty-), as --force does. Unset: such a clone is refused.
 #   CLAUDE_TEMPLATE_SYNC_SANDBOX
 #                       optional. Declares the ONLY directory this run may write
 #                       inside. When set, the resolved project root is verified
@@ -122,7 +130,10 @@
 set -u
 
 TEMPLATE_REPO_URL="https://github.com/johanolofsson72/Claude.git"
-TEMPLATE_TARBALL="https://codeload.github.com/johanolofsson72/Claude/tar.gz/refs/heads/main"
+# Spec 082 (F037). A BASE, completed with the exact 40-hex SHA the run resolved. It used to end in
+# refs/heads/main, which made the download a second read of a moving ref: ls-remote could name one
+# commit, the tarball carry another, and the stamp vouch for bytes it never described.
+TEMPLATE_TARBALL_BASE="https://codeload.github.com/johanolofsson72/Claude/tar.gz"
 
 MODE_CHECK=0; MODE_DRYRUN=0; FORCE=0; DO_COMMIT=1; QUIET=0; MODE_ACCEPT=0; ACCEPT_PATHS=""
 MODE_IS_CORE=0; IS_CORE_PATH=""
@@ -246,7 +257,8 @@ sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-path
 template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
-test-template-autosync-unlisted.sh test-template-autosync-arms.sh
+test-template-autosync-unlisted.sh test-template-autosync-arms.sh test-template-autosync-supply-chain.sh
+test-maintenance-trust.sh test-lane-catchup.sh test-prune-agent-worktrees.sh test-local-llm-host.sh
 validate-sync-sandbox-declarations.sh test-validate-sync-sandbox-declarations.sh
 drive-sync.sh test-drive-sync.sh
 test-sync-prompt-bootstrap.sh
@@ -302,7 +314,7 @@ validate-rule-citations.sh test-validate-rule-citations.sh"
 TEMPLATE_ONLY_SCRIPTS="after-specify-hook.sh allium-hook.sh tla-hook.sh ui-design-hook.sh
 sqlite-nfs-safety-hook.sh test-coverage-hook.sh
 run-mutation-gate.sh
-update-template.sh verify-local-llm-hooks.sh
+update-template.sh test-update-template.sh verify-local-llm-hooks.sh
 bench-hooks.sh install-global-skills.sh test-install-global-skills.sh test-on-linux.sh
 test-doc-dotnet-playwright-apis.sh test-doc-secrets-guidance.sh"
 
@@ -902,6 +914,26 @@ operation_in_progress() {
 # ------------------------------------------------------------- template source
 # Preference: explicit env var → local clone → GitHub tarball (David's path).
 TEMPLATE_DIR=""
+
+# Spec 082. A full commit id, and only that: a tag or a branch can be moved by whoever can push,
+# and a short SHA can collide. Lower case is the caller's job (git prints lower case).
+is_full_sha() {
+  case "$1" in ''|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#1}" -eq 40 ]
+}
+
+# Spec 082 R2 (F037). Read once here and validated in front of the resolution below: an unreadable
+# pin must not quietly mean "track main", the one thing a project that set it asked not to do.
+TEMPLATE_PIN=""
+if [ -n "${CLAUDE_TEMPLATE_PIN:-}" ]; then
+  TEMPLATE_PIN=$(printf '%s' "$CLAUDE_TEMPLATE_PIN" | tr 'A-F' 'a-f')
+fi
+
+# Spec 082 R3. --force already meant "the author asked for this sync"; it carries the dirty override
+# too, so there is one flag to remember rather than two.
+ALLOW_DIRTY=0
+{ [ "$FORCE" -eq 1 ] || [ "${CLAUDE_TEMPLATE_ALLOW_DIRTY:-}" = "1" ]; } && ALLOW_DIRTY=1
+DIRTY_REFUSED=""
 TEMPLATE_SHA=""
 TEMPLATE_TMP=""
 
@@ -1136,6 +1168,31 @@ resolve_local_template() {
   while IFS= read -r cand; do
     [ -n "$cand" ] || continue
     if [ -f "$cand/scripts/sync-prompt.md" ] && [ -d "$cand/.claude/rules" ]; then
+      # Spec 082 R2. A pinned project takes the clone only when it IS the pinned commit and clean;
+      # it is never fetched or fast-forwarded on the pin's behalf. Anything else goes to the remote
+      # tarball of the pin, so "pinned bytes" has one source to audit.
+      if [ -n "$TEMPLATE_PIN" ]; then
+        if [ "$(git -C "$cand" rev-parse HEAD 2>/dev/null </dev/null)" = "$TEMPLATE_PIN" ] \
+           && [ -z "$(git -C "$cand" status --porcelain 2>/dev/null </dev/null)" ]; then
+          TEMPLATE_DIR="$cand"
+          TEMPLATE_SHA=$(printf '%s' "$TEMPLATE_PIN" | cut -c1-12)
+          EOL_DIVERGED=$(eol_divergent_paths "$cand" "")
+          if [ -n "$EOL_DIVERGED" ]; then
+            stage_committed_bytes "$cand" "$EOL_DIVERGED"
+            report_eol_divergence "$cand" "$EOL_DIVERGED"
+          fi
+          return 0
+        fi
+        warn "[pin] template clone at $cand is not a clean checkout of CLAUDE_TEMPLATE_PIN — fetching the pinned commit instead"
+        return 1
+      fi
+      # Spec 082 R3 (F037). Uncommitted content has no SHA that describes it, and this run would
+      # commit it and push it into the project. Asked BEFORE the refresh, so a refused run neither
+      # fetches nor prints the refresh's "syncing from the working tree as-is".
+      if [ "$ALLOW_DIRTY" -eq 0 ] && [ -n "$(git -C "$cand" status --porcelain 2>/dev/null </dev/null | head -1)" ]; then
+        DIRTY_REFUSED="$cand"
+        return 3
+      fi
       refresh_local_template "$cand" </dev/null   # stdin is the candidate list; keep git off it
       TEMPLATE_DIR="$cand"
       TEMPLATE_SHA=$(git -C "$cand" rev-parse --short=12 HEAD 2>/dev/null || echo "local-unknown")
@@ -1168,16 +1225,41 @@ CANDIDATES
 
 resolve_remote_template() {
   command -v curl >/dev/null 2>&1 || return 1
-  TEMPLATE_SHA=$(git ls-remote "$TEMPLATE_REPO_URL" main 2>/dev/null | cut -c1-12)
-  [ -n "$TEMPLATE_SHA" ] || return 1
+  # Spec 082 R1/R2. The full SHA is what the download is named by; the 12-char prefix stays the
+  # stamp's spelling, as it always was.
+  if [ -n "$TEMPLATE_PIN" ]; then
+    _full="$TEMPLATE_PIN"
+  else
+    _full=$(git ls-remote "$TEMPLATE_REPO_URL" main 2>/dev/null </dev/null | cut -f1 | head -1 | tr 'A-F' 'a-f')
+    [ -n "$_full" ] || return 1
+    if ! is_full_sha "$_full"; then
+      warn "[warn] ls-remote answered '$(printf '%s' "$_full" | cut -c1-48)' for main — not a 40-hex SHA, nothing downloaded"
+      return 1
+    fi
+  fi
+  TEMPLATE_SHA=$(printf '%s' "$_full" | cut -c1-12)
   # Only pay for the download when the SHA actually moved.
   STAMP_SHA=$(sed -n 's/^sha=//p' "$PROJECT_ROOT/.claude/.template-sync" 2>/dev/null | head -1)
   if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
     return 2   # up to date, no download needed
   fi
   TEMPLATE_TMP=$(mktemp -d 2>/dev/null || mktemp -d -t claude-template)
-  curl -fsSL --max-time 60 "$TEMPLATE_TARBALL" 2>/dev/null | tar -xz -C "$TEMPLATE_TMP" 2>/dev/null || return 1
-  TEMPLATE_DIR=$(find "$TEMPLATE_TMP" -maxdepth 1 -type d -name 'Claude-*' | head -1)
+  # Spec 082 (H2 adversarial finding 16). To a file first, never piped into tar: the bytes are checked
+  # before anything is extracted. --proto keeps a redirect from downgrading to http.
+  _tgz="$TEMPLATE_TMP/template.tar.gz"
+  curl --proto =https --proto-redir =https -fsSL --max-time 60 -o "$_tgz" \
+    "$TEMPLATE_TARBALL_BASE/$_full" 2>/dev/null || return 1
+  # A GitHub archive carries its commit in the pax global header, and `git get-tar-commit-id` reads it.
+  # The URL already names the SHA; this proves the bytes are that commit, not whatever answered the URL.
+  _got=$(gzip -dc "$_tgz" 2>/dev/null | git get-tar-commit-id 2>/dev/null)
+  if [ "$_got" != "$_full" ]; then
+    warn "[warn] the template tarball says it is commit '${_got:-none}', not $_full — nothing synced"
+    return 1
+  fi
+  mkdir -p "$TEMPLATE_TMP/x" || return 1
+  tar -xzf "$_tgz" --no-same-owner -C "$TEMPLATE_TMP/x" 2>/dev/null || return 1
+  rm -f "$_tgz"
+  TEMPLATE_DIR=$(find "$TEMPLATE_TMP/x" -maxdepth 1 -type d -name 'Claude-*' | sed -n 1p)
   [ -n "$TEMPLATE_DIR" ] && [ -d "$TEMPLATE_DIR/.claude/rules" ]
 }
 
@@ -1609,7 +1691,25 @@ report_speckit_pin() {
   return 0
 }
 
-if ! resolve_local_template; then
+# Spec 082 R2. Refused before any resolution: a pin nobody can read must not fall through to main.
+if [ -n "$TEMPLATE_PIN" ] && ! is_full_sha "$TEMPLATE_PIN"; then
+  warn "[warn] CLAUDE_TEMPLATE_PIN='$(printf '%s' "$CLAUDE_TEMPLATE_PIN" | cut -c1-48)' is not a 40-hex commit SHA — not synced."
+  warn "       A tag, branch or short SHA can move or collide. Set the full SHA, or unset it to track main."
+  [ "$MODE_ACCEPT" -eq 1 ] && exit 1
+  exit 0
+fi
+
+resolve_local_template; LOCAL_RC=$?
+if [ "$LOCAL_RC" -eq 3 ]; then
+  # Spec 082 R3 (F037). Fails open like every other non-sync — exit 0, nothing written — because
+  # this runs at SessionStart; it is a refusal, not an error.
+  warn "[warn] template clone at $DIRTY_REFUSED has uncommitted changes — not synced."
+  warn "       Commit or stash them, or sync the work in progress on purpose with --force"
+  warn "       or CLAUDE_TEMPLATE_ALLOW_DIRTY=1 (stamped -dirty-)."
+  [ "$MODE_ACCEPT" -eq 1 ] && exit 1
+  exit 0
+fi
+if [ "$LOCAL_RC" -ne 0 ]; then
   resolve_remote_template
   RC=$?
   if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; report_speckit_pin; report_tracked; exit 0; fi
@@ -1627,6 +1727,32 @@ if ! resolve_local_template; then
     fi
     say "[skip] template unreachable (offline?) — nothing changed"; exit 0
   fi
+fi
+
+# Spec 082 (H2 adversarial finding 7). copy_file's per-file `[ -L ]` skip only sees the leaf: a
+# symlinked DIRECTORY under .claude/skills (or a symlinked .claude itself) is walked by the copy loops'
+# `cd … && find . -type f`, and every file behind it, ~/.ssh or /proc/self included, arrives as an
+# ordinary file. The template tracks no symlinks at all (verified 2026-10-01), so any symlink in the
+# synced roots is either an accident or an attack, and neither should reach six projects. Refused
+# whole, before the stamp comparison, so no path past this point needs to reason about links. The
+# per-file skip in copy_file stays as defence in depth.
+template_tree_symlinks() {
+  for _root in "$TEMPLATE_DIR/.claude" "$TEMPLATE_DIR/scripts"; do
+    if [ -L "$_root" ]; then printf '%s\n' "${_root#"$TEMPLATE_DIR"/}"; continue; fi
+    [ -d "$_root" ] || continue
+    # .claude/worktrees holds agent checkouts (node_modules/.bin links and all) that no copy loop
+    # reads; scanning them would refuse every sync on the author's machine for a link nobody ships.
+    find "$_root" \( -name .git -o -path "$TEMPLATE_DIR/.claude/worktrees" \) -prune -o -type l -print 2>/dev/null \
+      | sed "s#^$TEMPLATE_DIR/##"
+  done
+}
+TREE_LINKS=$(template_tree_symlinks | sed -n 1,5p)
+if [ -n "$TREE_LINKS" ]; then
+  warn "[warn] the template at $TEMPLATE_DIR has symlinks in the synced tree — not synced:"
+  printf '%s\n' "$TREE_LINKS" | while IFS= read -r _l; do warn "       $_l"; done
+  warn "       A link would copy whatever it points at into this project. Remove it from the template."
+  [ "$MODE_ACCEPT" -eq 1 ] && exit 1
+  exit 0
 fi
 
 STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | head -1)
@@ -1966,6 +2092,15 @@ $EOL_DIVERGED
 $SRCREL
 "*) [ -n "$EOL_STAGE" ] && [ -f "$EOL_STAGE/$SRCREL" ] && SRC="$EOL_STAGE/$SRCREL" ;;
   esac
+
+  # Spec 082 R4 (F045). `[ -f ]` in every copy loop follows a symlink, and so would cp: a link in
+  # the template tree to ~/.ssh/id_ed25519 would land its target in the project and be pushed.
+  # Skipped outright, inside the tree or not — the template ships no symlinks, and one rule with
+  # no resolution logic is cheaper to trust than a containment check.
+  if [ -L "$SRC" ]; then
+    warn "[skip] $SRCREL is a symlink in the template — not followed (spec 082)"
+    return 0
+  fi
 
   SRC_HASH=$(sha_of "$SRC")
 

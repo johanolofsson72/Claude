@@ -239,15 +239,25 @@ else
            "/Applications/TLA+ Toolbox.app/Contents/Eclipse/tla2tools.jar"; do
     if [ -n "$j" ] && [ -f "$j" ]; then TLA_JAR="$j"; break; fi
   done
+  # Spec 082: a jar found on disk is re-hashed, not trusted on sight. A mismatch is reported and the
+  # jar is still used (it may be a deliberate newer TLC); say so in the report.
+  if [ -n "$TLA_JAR" ] && [ "$( (sha256sum "$TLA_JAR" 2>/dev/null || shasum -a 256 "$TLA_JAR" 2>/dev/null) | cut -d' ' -f1)" != "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88" ]; then
+    echo "WARN: $TLA_JAR SHA-256 does not match the pinned v1.7.4 (936a2620...). Report it; re-download by deleting it and re-running."
+  fi
   if [ -z "$TLA_JAR" ]; then
     echo "TLC not found — downloading the release jar to ~/.local/lib"
     mkdir -p "$HOME/.local/lib"
     # .part + mv: an interrupted download must not leave a truncated jar that
     # step 3 would then find and trust on every later run.
-    curl -fsSL -o "$HOME/.local/lib/tla2tools.jar.part" \
-         https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar \
-      && mv "$HOME/.local/lib/tla2tools.jar.part" "$HOME/.local/lib/tla2tools.jar" \
+    # Spec 082: a fixed release whose SHA-256 is checked before the jar is trusted. A mismatch
+    # deletes the download; the step then reports TLC as not installed.
+    TLA_SHA=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+    P="$HOME/.local/lib/tla2tools.jar.part"
+    curl -fsSL -o "$P" https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar \
+      && [ "$( (sha256sum "$P" 2>/dev/null || shasum -a 256 "$P" 2>/dev/null) | cut -d' ' -f1)" = "$TLA_SHA" ] \
+      && mv "$P" "$HOME/.local/lib/tla2tools.jar" \
       && TLA_JAR="$HOME/.local/lib/tla2tools.jar"
+    rm -f "$P"
   fi
   if [ -z "$TLA_JAR" ]; then
     echo "ERROR: no TLC and the download failed — report 'TLC installed: no'"

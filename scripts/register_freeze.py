@@ -53,18 +53,23 @@ def baseline_ids(reg, since):
     Searched on the date, never on the whole line: editing the target (40 -> 35) or `last row` must
     not move the baseline forward and silently legitimise every row added in between."""
     d = os.path.dirname(os.path.abspath(reg)) or "."
+    # Spec 082 (review finding 9): the register may belong to a repository that is not ours, and git
+    # reads its .git/config. These keys name programs git would run; force them off for every call.
+    git = ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+           "-c", "log.showSignature=false", "-c", "gpg.program=false"]
+    env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1")
     try:
-        top = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"],
-                             capture_output=True, text=True, timeout=10).stdout.strip()
+        top = subprocess.run(git + ["-C", d, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=10, env=env).stdout.strip()
         if not top:
             return None
         rel = os.path.relpath(os.path.abspath(reg), top)
-        shas = subprocess.run(["git", "-C", top, "log", "--format=%H", "-G", "^Freeze: since %s " % re.escape(since), "--", rel],
-                              capture_output=True, text=True, timeout=30).stdout.split()
+        shas = subprocess.run(git + ["-C", top, "log", "--no-show-signature", "--format=%H", "-G", "^Freeze: since %s " % re.escape(since), "--", rel],
+                              capture_output=True, text=True, timeout=30, env=env).stdout.split()
         if not shas:
             return None
-        blob = subprocess.run(["git", "-C", top, "show", "%s:%s" % (shas[-1], rel)],
-                              capture_output=True, timeout=10)
+        blob = subprocess.run(git + ["-C", top, "show", "--no-show-signature", "%s:%s" % (shas[-1], rel)],
+                              capture_output=True, timeout=10, env=env)
         if blob.returncode != 0:
             return None
         return set(ids(blob.stdout.decode("utf-8", "replace").split("\n")))

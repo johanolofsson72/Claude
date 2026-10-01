@@ -110,7 +110,7 @@ build() {
 # that named neither drove the real repository from the Stop hook and pushed 54 commits to
 # origin/main. Spec 011 made the declaration one call instead of a prefix to remember.
 # $EOL_TEST_SCRIPT still selects which sync is under test; it rides through as DRIVE_SYNC_SCRIPT.
-sync() { CLAUDE_TEMPLATE_DIR="$T" DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync "$P" "$TMP" "$@" 2>&1; }
+sync() { CLAUDE_TEMPLATE_ALLOW_DIRTY=1 CLAUDE_TEMPLATE_DIR="$T" DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync "$P" "$TMP" "$@" 2>&1; }
 
 # Just the [eol] block. The negative assertions below are about what the NOTE names, and a whole-run
 # capture also contains the `[changed] add ...` listing — which names every file the sync wrote,

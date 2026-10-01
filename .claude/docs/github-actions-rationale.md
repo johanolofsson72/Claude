@@ -73,6 +73,14 @@ it from there. Re-run the installer after you add a toolchain. Every run writes 
 failed can't be mistaken for one that never happened. Lines installed before row 065 have no PATH
 and fail every night; `--list` marks them `STALE`.
 
+The installed line passes `--unattended` (spec 082). In that mode the pass runs `.claude/.suite-command` and
+`scripts/run-mutation-gate.sh` only if their SHA-256 matches what you recorded with
+`bash scripts/project-maintenance.sh --trust`. Both are files in the repository. Without the pin, a commit that changed one
+of them would run at 02:30 with your credentials and nobody watching. An untrusted or changed command is skipped and reported,
+and the job stays due. The hashes live in `.git/claude-trusted-commands`, so they are never committed and never synced, and a
+fresh clone starts untrusted. `--trust` prints every command it records. Read them before you run it. Lines installed before
+082 have no `--unattended`, and `--list` marks them `STALE`.
+
 When a spec says "add a CI gate", the correct implementation is a local script, a Claude Code hook, or a step inside the existing deploy workflow's validation gate. Not a new workflow file. If a spec explicitly demands a new workflow, that is a register-rewrite conversation per `.claude/rules/spec-register.md`, not a silent `mkdir .github/workflows`.
 
 Dependabot config (`.github/dependabot.yml`) is allowed — Dependabot PRs consume no Actions minutes by themselves. But remember: every Dependabot PR triggers any push/PR-triggered workflows that exist. One more reason the allowed set excludes them.

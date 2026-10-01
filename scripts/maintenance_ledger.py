@@ -29,6 +29,8 @@ peak_rss_mb is the larger of (a) the process tree's summed RSS, sampled once a s
 """
 import datetime
 import os
+import re
+import stat
 import statistics
 import subprocess
 import sys
@@ -171,15 +173,49 @@ def append(root, job, seconds, rc, rss, load1):
     ]
     path = os.path.join(root, LEDGER_REL)
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Spec 082 (F065): the ledger path is repository content, so a committed symlink at
+        # .claude/state or at the file itself would turn this append into a write anywhere the
+        # developer can write. The directory must resolve inside the repository, and the file is
+        # opened without following a final symlink. The check runs BEFORE makedirs as well as after
+        # (review finding 13): makedirs through a symlinked .claude/state would otherwise create
+        # directories outside the repository before the check refused the write.
+        ledger_dir = os.path.dirname(path)
+        existing = ledger_dir
+        while not os.path.lexists(existing) and os.path.dirname(existing) != existing:
+            existing = os.path.dirname(existing)
+        inside_repo(root, existing)
+        os.makedirs(ledger_dir, exist_ok=True)
+        inside_repo(root, ledger_dir)
         # One write of one short line in append mode: two passes at once never interleave.
-        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o644)
         try:
             os.write(fd, ("\t".join(row) + "\n").encode())
         finally:
             os.close(fd)
     except OSError as e:
         print("maintenance_ledger.py: not recorded (%s) — the job's result is unaffected" % e, file=sys.stderr)
+
+
+def inside_repo(root, path):
+    """Raise OSError unless `path` resolves inside `root`. commonpath raises ValueError across
+    Windows drives, which would crash after the child finished and lose its exit code."""
+    real_root, real = os.path.realpath(root), os.path.realpath(path)
+    try:
+        ok = os.path.commonpath([real_root, real]) == real_root
+    except ValueError:
+        ok = False
+    if not ok:
+        raise OSError("ledger directory resolves outside the repository: %s" % real)
+
+
+_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]")
+
+
+def clean(text):
+    """A field from a ledger or a directory name, fit to print (spec 082, review finding 13).
+    `report --all` reads sibling repositories' ledgers, so their fields are not ours: a terminal
+    escape in a job name would otherwise reach the terminal, or the model reading the output."""
+    return _CONTROL.sub("?", str(text))
 
 
 def cmd_record(argv):
@@ -192,16 +228,31 @@ def cmd_record(argv):
     return 0
 
 
+LEDGER_READ_LIMIT = 16 * 1024 * 1024   # bytes of one ledger read by report; years of nightly lines fit
+
+
 def read_ledger(path):
+    # Spec 082 (review finding 13): `report --all` reads other repositories' ledgers, so the path may
+    # be a symlink to /dev/zero or a FIFO. Regular files only, never through a final symlink, never
+    # blocking on open, and at most LEDGER_READ_LIMIT bytes.
     rows = []
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) == len(FIELDS):
-                    rows.append(dict(zip(FIELDS, parts)))
+        fd = os.open(path, flags)
     except OSError:
-        pass
+        return rows
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return rows
+        data = os.read(fd, LEDGER_READ_LIMIT)
+    except OSError:
+        return rows
+    finally:
+        os.close(fd)
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        parts = line.split("\t")
+        if len(parts) == len(FIELDS):
+            rows.append(dict(zip(FIELDS, (clean(x) for x in parts))))
     return rows
 
 
@@ -213,7 +264,7 @@ def num(s):
 
 
 def report_one(label, root, rows):
-    print("== %s" % label)
+    print("== %s" % clean(label))
     if not rows:
         print("   no runs recorded — nothing measured yet, which is not the same as nothing heavy")
         return
@@ -242,10 +293,14 @@ def report_one(label, root, rows):
         print("   %-12s %-14s %5d %9.1f %9.1f %10s %6d  %s"
               % (job, plc, len(rs), statistics.median(secs) if secs else 0.0, max(secs) if secs else 0.0,
                  "%d" % max_rss if max_rss is not None else "-", fails, fit))
-    conv = os.path.join(root, "scripts", "register-convergence.sh")
+    # Spec 082 (F065): THIS repository's own script, pointed at the other repo with --dir. Running
+    # root/scripts/register-convergence.sh meant `report --all` executed whatever any sibling
+    # directory shipped under that name -- a planted clone got code execution.
+    conv = os.path.join(os.path.dirname(os.path.abspath(__file__)), "register-convergence.sh")
     if os.path.isfile(conv):
-        out = subprocess.run(["bash", conv, "--quiet"], cwd=root, capture_output=True, text=True).stdout.strip()
-        print("   carving: %s" % (out.splitlines()[0] if out else "register-convergence.sh printed nothing"))
+        out = subprocess.run(["bash", conv, "--dir", root, "--quiet"], cwd=os.path.dirname(conv),
+                             capture_output=True, text=True).stdout.strip()
+        print("   carving: %s" % (clean(out.splitlines()[0]) if out else "register-convergence.sh printed nothing"))
 
 
 def cmd_report(argv):

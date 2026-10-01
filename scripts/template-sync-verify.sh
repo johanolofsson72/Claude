@@ -7,10 +7,13 @@
 # real regression suite is tens of seconds even warm. So it writes what it did not check
 # to .git/template-sync-unverified, and this is the thing that checks it.
 #
-# This is the ONLY place the project's declared command is ever executed, and it runs
-# only when a human types it. The sync and both SessionStart hooks read the marker and
-# never run anything — the declaration is a command string in a repository file, and
-# unattended machinery has no business executing one.
+# This is the ONLY place the project's declared verify command is ever executed, and it
+# runs only when a human types it. The sync and both SessionStart hooks read the marker
+# and never run anything — the declaration is a command string in a repository file, and
+# unattended machinery has no business executing one it was not told to trust. The one
+# unattended runner of a declared string, the nightly `project-maintenance.sh
+# --unattended`, runs .claude/.suite-command and scripts/run-mutation-gate.sh only when
+# their SHA-256 matches what a human recorded with `--trust` (spec 082, F062).
 #
 #   scripts/template-sync-verify.sh
 #

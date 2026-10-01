@@ -240,8 +240,10 @@ EOF
   # worked examples would have to be silenced, and a silenced gate is not one.
   # --exclude the managed list too (spec 040): it holds PATTERNS, not writes, and its
   # `.claude/.local-llm-*` would otherwise be read as a marker called `.claude/.local-llm-`.
+  # --exclude lane-catchup.sh and its test as well (spec 082): the credential-store list names paths under the
+  # developer's HOME (`~/.claude/.credentials.json`), deny rules it keeps, never a project write.
   found=$(grep -rhoE '\.claude/\.[A-Za-z0-9_-]+' \
-            --exclude="$(basename "$0")" --exclude="$(basename "$HELPER_REL")" \
+            --exclude="$(basename "$0")" --exclude="$(basename "$HELPER_REL")" --exclude=lane-catchup.sh --exclude=test-lane-catchup.sh \
             "$root"/scripts/*.sh 2>/dev/null | sort -u)
   while IFS= read -r p; do
     [ -n "$p" ] || continue

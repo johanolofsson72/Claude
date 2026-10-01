@@ -132,6 +132,33 @@ grep -Fx "$(ourline "$P")" <<< "$OUT" >/dev/null && ok "AC9 a fresh line is list
 grep -qiF "stale (no PATH= -- runs under cron's bare PATH; reinstall from that project): $(ourline "$P")" <<< "$OUT" && bad "AC9 a fresh line is flagged stale" \
   || ok "AC9 a fresh line is not flagged"
 
+# R6 (spec 082) — the nightly is unattended: the installed line passes --unattended, and --list flags
+# a PATH= line from before 082 (no --unattended) as STALE, because it runs declared commands untrusted.
+inst "$P" >/dev/null
+grep -q -- '--if-due --unattended;' <<< "$(ourline "$P")" && ok "R6 the cron line passes --unattended" \
+  || bad "R6 the cron line lacks --unattended: $(ourline "$P")"
+grep -q 'project-maintenance.sh --trust' <<< "$(inst "$P")" && ok "R6 the install message names --trust" \
+  || bad "R6 the install message does not say to run --trust"
+printf '%s\n' "30 2 * * * cd /pre && PATH=\$(cat /x.path) && export PATH && /bin/bash scripts/project-maintenance.sh --full --suite --if-due # claude-nightly-maintenance:/pre" > "$CRONTAB_FILE"
+inst "$P" >/dev/null
+OUT=$(inst "$P" --list)
+grep -Eq "STALE \(no --unattended.*maintenance:/pre\$" <<< "$OUT" && ok "R6 a PATH= line without --unattended is flagged stale" \
+  || bad "R6 the pre-082 line is not flagged: $(printf '%s' "$OUT" | tr '\n' '|')"
+grep -Fx "$(ourline "$P")" <<< "$OUT" >/dev/null && ok "R6 a fresh line is still listed as is" || bad "R6 a fresh line was flagged"
+# F18 (spec 082): --unattended counts only as an argument of project-maintenance.sh. A project directory
+# whose name contains the word must not make a pre-082 line read as current.
+printf '%s\n' "30 2 * * * cd /pre--unattended && PATH=\$(cat /x.path) && export PATH && /bin/bash scripts/project-maintenance.sh --full --suite --if-due; echo end # claude-nightly-maintenance:/pre--unattended" > "$CRONTAB_FILE"
+OUT=$(inst "$P" --list)
+grep -Eq "STALE \(no --unattended.*maintenance:/pre--unattended\$" <<< "$OUT" && ok "R6 --unattended in a path, not the command, is still stale" \
+  || bad "R6 --unattended in the path made the line read current: $(printf '%s' "$OUT" | tr '\n' '|')"
+# No crontab (Windows): the schtasks and /loop lines it prints pass --unattended too.
+NOCRON="$WORK/nocron"; mkdir -p "$NOCRON"
+for t in git basename; do ln -sf "$(command -v "$t")" "$NOCRON/$t"; done
+OUT=$( cd "$P" && HOME="$WORK/home" PATH="$NOCRON:/bin" /bin/bash scripts/install-nightly-maintenance.sh 2>&1 ); rc=$?
+[ "$rc" = 3 ] && ok "R6 no crontab exits 3" || bad "R6 no crontab gave exit $rc: $OUT"
+[ "$(grep -c -- '--if-due --unattended' <<< "$OUT")" = 2 ] && ok "R6 schtasks and /loop lines pass --unattended" \
+  || bad "R6 the no-crontab lines lack --unattended: $(printf '%s' "$OUT" | tr '\n' '|')"
+
 # AC10 — re-install replaces, keeps others. AC11 — remove takes only ours.
 echo "07 07 * * * /usr/bin/true # mine" > "$CRONTAB_FILE"
 inst "$P" >/dev/null; inst "$P" >/dev/null

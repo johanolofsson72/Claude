@@ -62,6 +62,7 @@ HARNESS_IGNORES='.claude/state/%repeat-failure guard attempt counters, TTL-prune
 .claude/worktrees/%agent worktrees; tracked, each is a gitlink that shows modified whenever its HEAD moves
 .specify/feature.json%spec-kit active-spec marker, rewritten at every session start by sync-feature-json-hook.sh
 __pycache__/%python bytecode; the guards import scripts/spec_active.py on every run
+scripts/.trusted-*%private copies of trusted nightly commands (spec 082), deleted after each run; a killed pass can leave one
 CLAUDE.local.md%personal project instructions, never shared'
 
 patterns() { printf '%s\n' "$HARNESS_IGNORES" | cut -d'%' -f1; }

@@ -41,6 +41,7 @@ validate-scenario-traceability.sh|a coverage report whose uncovered direction is
 test-coverage-hook.sh|template-only. A PostToolUse hook that reads hook JSON on stdin; run with no input it waits forever (F004)
 verify-local-llm-hooks.sh|template-only. Needs the template settings.json as an argument and exits 2 without one
 test-install-global-skills.sh|template-only. Tests install-global-skills.sh, which ships to no project
+test-update-template.sh|template-only. Tests update-template.sh (spec 082), which drives the template refresh and ships to no project
 test-on-linux.sh|template-only. Runs the template suite in a Linux container; needs Docker and the template tree
 test-doc-dotnet-playwright-apis.sh|template-only. Scans the template docs for Node-only Playwright APIs in C# fences (spec 071); projects receive the fixed docs through sync
 test-doc-secrets-guidance.sh|template-only. Scans the template docs for env-var or appsettings secret guidance (spec 072); projects receive the fixed docs through sync'

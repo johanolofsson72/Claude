@@ -34,5 +34,6 @@ appsettings.Development.json
 .claude/worktrees/
 .specify/feature.json
 __pycache__/
+scripts/.trusted-*
 CLAUDE.local.md
 # <<< claude-code harness <<<
