@@ -91,9 +91,12 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 079 — traceability-loses-the-second-id-in-a-chain — spec-only — `grep -o` is non-overlapping, so `SCNNN_SCNNN_Name` in a C# method read as one id and the second row was reported uncovered. 8 of agentcrm's 58 "uncovered" rows were this, each with a passing test. Pattern takes `(...)+`, `tr` splits; case46 asserts both forms. Found as agentcrm H6 / F391. — approved F061
 - [x] 078 — autosync-tests-miss-ten-of-twelve-mutants — spec-only — H1 sampled 12 operator mutants in template-autosync.sh; the 16 suites that run it killed 2. Add a surgical arm per survivor (list in specs/H1-integration-hardening/checkpoint.md). — carved by H1 — approved F050
 - [x] H2 — integration-hardening — checkpoint — full-system regression + security sweep + mutation spot-check over the ~30 rows ticked since H1 (043–079).
+- [ ] 080 — developer-authored-acceptance-cases — full track [hardened] — the developer confirms 3-5 Given/When/Then cases before code on full/hardened specs; guard blocks until then; each AC-n gets a test written first — approved F075
+- [ ] 081 — always-loaded-context-budget — spec-only — CLAUDE.md + unscoped rules are ~69 KB every session; context-budget.sh caps it at 40 KB with a ratchet test; rationale moves to on-demand docs — approved F076
 
 ## Register history (newest first)
 
+- 2026-10-01 — rows 080 and 081 added from approved proposals F075/F076 (tech-lead review: developer-owned acceptance cases, context budget).
 - 2026-09-30 — 050 ticked: the hint lint works from allium 3.3.0; the hook flags an older CLI once, the skill teaches `-- see:` and names the F089 trigger.
 - 2026-09-30 — 049 ticked: --spec takes a register id at any status, so a held or ticked row's run log is writable again. Implicit failures name the flag.
 - 2026-09-30 — 048 ticked: SC ids grow past 999 without re-padding; the width discriminator measures the narrowest id and now has a test.
