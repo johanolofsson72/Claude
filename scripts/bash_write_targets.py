@@ -377,12 +377,19 @@ def extract(cmd: str) -> list[tuple[str, int]]:
     text = blank_heredoc_bodies(cmd)
     targets: list[tuple[str, int]] = []
 
-    # (a) redirection. The negative lookbehind keeps file-descriptor work out:
-    #     2>&1, 1>&2 and &> are not writes to a file called "1".
-    for m in re.finditer(r"(?<![0-9&])>{1,2}\s*" + QUOTED, text):
+    # (a) redirection, every spelling bash accepts: an optional fd or `&` before
+    #     the operator (`1>`, `&>`, `exec 3>`), `>|` and `>&` after it, and the
+    #     read-write `<>`. Only fd DUPLICATION is not a write: `2>&1`, `>&2` and
+    #     `3>&-` name a descriptor, not a file called "1" (H3: the old lookbehind
+    #     dropped `1>`, `&>`, `>&`, `>|` and `exec 3>` along with `2>&1`).
+    for m in re.finditer(r"(?<![0-9&<>])(?:[0-9]+|&)?(?:<>|>{1,2}[|&]?)\s*" + QUOTED, text):
         t = _pick(m, 1)
-        if t and not t.startswith("&"):
-            targets.append((t, m.start()))
+        if not t or t.startswith("&"):
+            continue
+        op = text[m.start():m.end() - len(t)].rstrip().rstrip("\"'")
+        if op.endswith("&") and re.fullmatch(r"[0-9]+-?|-", t):
+            continue
+        targets.append((t, m.start()))
 
     segments = [(m.group(0), m.start()) for m in re.finditer(r"[^;&|\n]+", text)]
 

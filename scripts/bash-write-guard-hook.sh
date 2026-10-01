@@ -359,7 +359,9 @@ Two ways on, and neither is a bypass:
   * If you are only READING it — use cat, sed -n, grep or the Read tool. None of those is an
     interpreter carrying a program, so none of them reaches this arm.
 
-The guard's own reason follows.
+The guard's own reason follows.${OVER:+
+
+Not every candidate was checked:${OVER}}
 
 ────────────────────────────────────────────────────────────
 ${INNER}"
@@ -511,4 +513,6 @@ ask_list "$OALLP" $BASENAME_GUARDS
 # shellcheck disable=SC2086
 ask_list "$OREPS" $PATH_GUARDS
 
+# Nothing checked was refused, but a cap was hit: the remainder is allowed, and that is said (H3).
+[ -n "$OVER" ] && guard_announce bash-write-guard "the opaque-pass cap was hit${OVER}"
 exit 0

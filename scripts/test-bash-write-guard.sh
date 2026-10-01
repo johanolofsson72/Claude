@@ -207,6 +207,25 @@ if want forms; then
   esac
 fi
 
+# --------------------------------------------------------------- FD FORMS (H3)
+# The redirect regex refused anything after a digit or `&`, to keep `2>&1` from reading as a write to a
+# file called "1". That also dropped every fd-prefixed write: `1>`, `&>`, `>&`, `>|`, `exec 3>`, `<>`.
+# Each one wrote the file with the pre-layer silent; only the post-layer saw it, after the fact (H3).
+if want fdforms; then
+  echo "FIXTURE fdforms — redirect spellings with an fd, a clobber bar or a read-write open"
+  ROOT=$(make_fixture fdforms)
+  expect_deny "explicit fd 1>"      "$(run_pre "$ROOT" "echo x 1> src/App.cs")"     "App.cs"
+  expect_deny "both streams &>"     "$(run_pre "$ROOT" "echo x &> src/App.cs")"     "App.cs"
+  expect_deny "both streams &>>"    "$(run_pre "$ROOT" "echo x &>> src/App.cs")"    "App.cs"
+  expect_deny "both streams >&"     "$(run_pre "$ROOT" "echo x >& src/App.cs")"     "App.cs"
+  expect_deny "noclobber bypass >|" "$(run_pre "$ROOT" "echo x >| src/App.cs")"     "App.cs"
+  expect_deny "exec 3>"             "$(run_pre "$ROOT" "exec 3> src/App.cs")"       "App.cs"
+  expect_deny "read-write 3<>"      "$(run_pre "$ROOT" "exec 3<> src/App.cs")"      "App.cs"
+  expect_allow "fd dup >&2"         "$(run_pre "$ROOT" "echo e >&2")"
+  expect_allow "fd close 3>&-"      "$(run_pre "$ROOT" "exec 3>&-")"
+  expect_allow "fd dup 2>&1"        "$(run_pre "$ROOT" "make 2>&1 | tail -3")"
+fi
+
 # --------------------------------------------------------------- QUIET (SC-1439)
 if want quiet; then
   echo "FIXTURE quiet — a read-only command, an allowlisted path, a non-source extension: no output"
@@ -522,6 +541,25 @@ PY")" "src/App.cs"
   # depends on it would be pinning luck.
   expect_allow "declared bound: a path assembled at runtime is still not seen" \
     "$(run_pre "$ROOT" "python3 -c \"open('src/App' + '.cs','a')\"")"
+fi
+
+# --------------------------------------------------------------- OPAQUE CAP (H3)
+# The cap note promises "nothing is reported as cleared that was never checked", and the hook built
+# that sentence into $OVER and never printed it: past 8 groups the rest were allowed in silence.
+if want opaquecap; then
+  echo "FIXTURE opaquecap — past the opaque-pass cap, the unchecked remainder is said out loud"
+  ROOT=$(make_fixture opaquecap)
+  PROG="python3 - <<'PY'"
+  for i in 1 2 3 4 5 6 7 8 9; do PROG="$PROG
+open('/tmp/d$i/x.e$i')"; done
+  PROG="$PROG
+open('src/App.cs','a')
+PY"
+  RAW=$(run_pre_raw "$ROOT" "$PROG")
+  case "$RAW" in
+    *UNCHECKED*) ok "a capped opaque pass names what it did not check" ;;
+    *)           bad "a capped opaque pass allowed the remainder silently" ;;
+  esac
 fi
 
 # --------------------------------------------------------------- CWD (row 058)
