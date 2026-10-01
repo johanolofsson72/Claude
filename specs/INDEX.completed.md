@@ -1317,3 +1317,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 084 — autosync-sandbox-and-harness-env
 
 - [x] 084 — autosync-sandbox-and-harness-env — full track — the root walk loops on a relative dir, sandboxed runs still push, self-tests inherit CLAUDE_PROJECT_DIR and CDPATH. F013 F015–F020.
+
+## H3 — integration-hardening
+
+- [x] H3 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 080–084.
