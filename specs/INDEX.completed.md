@@ -1321,3 +1321,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## H3 — integration-hardening
 
 - [x] H3 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 080–084.
+
+## 088 — guard-trust-anchors
+
+- [x] 088 — guard-trust-anchors — full track [hardened] — the gates trust state Claude can write: a planted .git ends the root walk, self-granted nightly trust, forged acceptance grandfathering and self-confirm. F090 F091 F093 F094 — approved F098
