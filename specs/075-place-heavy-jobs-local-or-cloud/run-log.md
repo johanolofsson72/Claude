@@ -11,3 +11,4 @@ Append-only, deduped, capped. NOT pipeline input — read the tail, never the wh
 - 2026-10-01T05:46Z · agentcrm Stryker local: >1h40m, 4 parallel testhosts ~4.4 GB each (~17 GB tree) — over the 12 GB VM ceiling at Mac concurrency
 - 2026-10-01T06:09Z · decided: every job local (Stryker over the 12 GB ceiling at Mac concurrency); batch stopped at its 2 h limit with no mutation ledger line; tla skipped (light track, linear state); allium 2 open questions surfaced at stop
 - 2026-10-01T06:22Z · developer 2026-10-01: Q20-Q23 confirmed; allium open questions -> fix now (cloud proof run + setup-script test, both started by the developer in claude.ai)
+- 2026-10-01T06:25Z · proof-run prep stopped: agentcrm main is 26 behind origin and ff-pull collides with uncommitted specs/SCENARIOS*.md; agentcrm stryker-config.json has concurrency 4 (= the 4 testhosts, ~17 GB) — set 2 for the proof
