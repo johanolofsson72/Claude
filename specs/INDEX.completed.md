@@ -1293,3 +1293,11 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 075 — place-heavy-jobs-local-or-cloud
 
 - [x] 075 — place-heavy-jobs-local-or-cloud — light track [hardened] — needs 074 + five ordinary specs ticked under its ledger. Per job (Stryker, suite, freshness, similarity, findings/carve review): local or Claude cloud, decided from the numbers. Developer request 2026-09-29.
+
+## 080 — developer-authored-acceptance-cases
+
+- [x] 080 — developer-authored-acceptance-cases — full track [hardened] — the developer confirms 3-5 Given/When/Then cases before code on full/hardened specs; guard blocks until then; each AC-n gets a test written first — approved F075
+
+## 081 — always-loaded-context-budget
+
+- [x] 081 — always-loaded-context-budget — spec-only — CLAUDE.md + unscoped rules are ~69 KB every session; context-budget.sh caps it at 40 KB with a ratchet test; rationale moves to on-demand docs — approved F076
