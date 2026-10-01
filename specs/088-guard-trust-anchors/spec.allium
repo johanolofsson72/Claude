@@ -1,0 +1,137 @@
+-- allium: 3
+--
+-- 088 — guard trust anchors.
+--
+-- Four gates decided on state the gated agent can write. Each rule below names which state now
+-- carries the decision and which writes of it are refused. Rules cite R1..R8 (spec.md) and the
+-- developer's overflow answers O1..O4 (interview.md). The template keeps no scenario map.
+
+enum Verdict { allow | deny }
+
+enum TrustOutcome { recorded | refused }
+
+enum ConfirmOutcome { written | refused_no_binding | refused_malformed }
+
+enum Grandfather { exempt | owes_cases }
+
+enum ToolKind { edit | write | multi_edit | notebook_edit | bash | ask_user_question | delegated_shell_write }
+
+entity RootWalk {
+    file: String                                -- canonical path of the edited file
+    anchor: String?                             -- physical CLAUDE_PROJECT_DIR when usable
+    file_inside_anchor: Boolean
+    planted_git_below_anchor: Boolean           -- some .git strictly between file and anchor
+    resolved_root: String
+    anchor_root: String                         -- the root the walk finds with no planted .git
+
+    -- R1 (F090, O1): below the anchor, a .git is never a boundary.
+    invariant PlantedGitIsInert {
+        not this.file_inside_anchor or this.resolved_root = this.anchor_root
+    }
+}
+
+entity TrustAttempt {
+    claude_shell: Boolean                       -- CLAUDECODE set
+    yes_flag: Boolean
+    prompt_input_is_terminal: Boolean           -- isatty on the opened MAINTENANCE_TTY
+    typed_yes: Boolean
+    outcome: TrustOutcome?
+}
+
+entity ToolCall {
+    kind: ToolKind
+    names_store: Boolean                        -- claude-trusted-commands or claude-developer-words
+    changes_confirmed_line: Boolean             -- adds, removes or alters **Confirmed:** in acceptance.md
+    names_acceptance_without_bytes: Boolean     -- a delegated shell write to an acceptance.md
+    runs_trust: Boolean                         -- command text: project-maintenance and --trust
+    sets_tty_override: Boolean                  -- command text: MAINTENANCE_TTY
+    supplies_own_answers: Boolean               -- AskUserQuestion with a non-empty tool_input.answers
+    verdict: Verdict?
+}
+
+entity AnswerRecord {
+    answer_hash: String                         -- sha256 of the whitespace-collapsed answer
+    digests: Set<String>                        -- 12-hex tokens in the question text
+}
+
+entity ConfirmAttempt {
+    quote_hash: String
+    cases_digest: String
+    cases_parse: Boolean
+    outcome: ConfirmOutcome?
+}
+
+entity SpecHistory {
+    has_acceptance_file: Boolean
+    has_ticked_task: Boolean
+    interview_add_commit: String?
+    arrival_commit: String?                     -- first commit adding scripts/acceptance_cases.py
+    interview_strictly_before_arrival: Boolean  -- git merge-base --is-ancestor, and not equal
+    status: Grandfather?
+}
+
+rule WalkIgnoresGitBelowAnchor {
+    -- R1: the five guards ask guard_git_boundary, which says no below the anchor.
+    when: GuardWalked(walk)
+    requires: walk.file_inside_anchor
+    ensures: walk.resolved_root = walk.anchor_root
+}
+
+rule TrustNeedsATerminalPerson {
+    -- R2 (F091, O2): --yes is refused inside Claude Code; the prompt reads only a terminal.
+    when: TrustRequested(attempt)
+    requires: (attempt.claude_shell and attempt.yes_flag) or (not attempt.yes_flag and not attempt.prompt_input_is_terminal)
+    ensures: attempt.outcome = refused
+}
+
+rule TrustRecordedByPerson {
+    when: TrustRequested(attempt)
+    requires: not attempt.yes_flag and attempt.prompt_input_is_terminal and attempt.typed_yes
+    ensures: attempt.outcome = recorded
+}
+
+rule HumanOnlyStateIsDenied {
+    -- R3 (F091, F094): one guard, every tool that can write or answer.
+    when: ToolCallProposed(call)
+    requires: call.names_store or call.changes_confirmed_line or call.names_acceptance_without_bytes or call.runs_trust or call.sets_tty_override or call.supplies_own_answers
+    ensures: call.verdict = deny
+}
+
+rule AnswerIsRecorded {
+    -- R4 (O3): hashes only; the digests are the ones the developer was shown.
+    when: QuestionAnswered(record)
+    ensures: AnswerStored(record)
+}
+
+rule ConfirmNeedsBinding {
+    -- R5 (F094, O3).
+    when: ConfirmRequested(attempt)
+    requires: attempt.cases_parse
+    ensures:
+        if exists r in AnswerRecords where r.answer_hash = attempt.quote_hash and attempt.cases_digest in r.digests:
+            attempt.outcome = written
+        else:
+            attempt.outcome = refused_no_binding
+}
+
+rule GrandfatherByAncestry {
+    -- R6 (F093, O4): dates no longer count; missing history fails closed.
+    when: GateAsked(history)
+    ensures:
+        if not history.has_acceptance_file and history.has_ticked_task and history.interview_strictly_before_arrival:
+            history.status = exempt
+        else:
+            history.status = owes_cases
+}
+
+invariant NoSelfConfirmation {
+    -- The 080 promise, now enforced: a written Confirmed line has a recorded developer answer
+    -- bound to the digest it pins.
+    for attempt in ConfirmAttempts where attempt.outcome = written:
+        exists r in AnswerRecords where r.answer_hash = attempt.quote_hash and attempt.cases_digest in r.digests
+}
+
+invariant NoSelfGrantedTrust {
+    for attempt in TrustAttempts where attempt.outcome = recorded:
+        not attempt.yes_flag or not attempt.claude_shell
+}

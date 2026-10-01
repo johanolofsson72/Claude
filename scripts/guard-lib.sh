@@ -236,6 +236,82 @@ _guard_canon_walk() {
   )
 }
 
+# ------------------------------------------------------------------ the root walk's anchor
+# guard_anchor_for <canonical-file>, then guard_git_boundary <dir> in the walk (spec 088 R1, F090).
+#
+# The five Edit-path guards find "the project" by walking up from the edited file to the first .git.
+# A .git is a plain file write with no source extension, so nothing stopped the gated agent from
+# planting one: an empty src/app/.git made src/app the root, with no register and no language marker,
+# and src/app/main.py was allowed. scripts/.git made a CORE script non-CORE the same way.
+#
+# The harness hands every hook CLAUDE_PROJECT_DIR, and the agent cannot change a hook's environment.
+# So when the edited file lies inside that directory, no .git strictly below it is a boundary: the
+# walk passes through and stops at the anchor or above it, where the project's real .git is. A nested
+# repo or a submodule below the anchor is gated by the project's register (developer, 088 O1).
+# A file outside the anchor, and a run with no usable CLAUDE_PROJECT_DIR (a self-test, an older
+# harness), walk exactly as before. Residual: a session started in a subdirectory, where a .git
+# planted in that start directory is AT the anchor and still ends the walk.
+#
+# Two exceptions, both from the 088 adversarial review:
+#   * a LINKED WORKTREE below the anchor is still a root. `git worktree add .claude/worktrees/w` makes a
+#     full checkout with its own register; ignoring its .git made every file in it a <root>/.claude/**
+#     path, which guard_root_exempt lets through. It is recognised by the link git keeps both ways: the
+#     .git file says `gitdir: <common>/worktrees/<n>`, and that directory's `gitdir` file names this
+#     .git back. A planted file has no such back-link (writing one means writing inside .git/, which
+#     trust-anchor-guard denies).
+#   * on a case-insensitive file system (macOS, Windows) /users/x/proj/src/main.py is the anchor's file,
+#     so the comparison folds case there. Unicode normalisation differences remain a named residual.
+GUARD_ANCHOR=""
+GUARD_ANCHOR_FOLD=0
+case "${OSTYPE:-}" in darwin*|msys*|cygwin*|win*) GUARD_ANCHOR_FOLD=1 ;; esac
+
+_guard_realdir() { (CDPATH='' cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+# _guard_under <path> <dir>: 0 when path lies strictly below dir, case-folded where the file system
+# folds. Builtins only: this runs on every Edit.
+_guard_under() {
+  local rc=1 was=0
+  shopt -q nocasematch && was=1
+  [ "$GUARD_ANCHOR_FOLD" -eq 1 ] && shopt -s nocasematch
+  case "$1" in "$2"/*) rc=0 ;; esac
+  [ "$was" -eq 1 ] || shopt -u nocasematch
+  return $rc
+}
+
+guard_anchor_for() {
+  GUARD_ANCHOR=""
+  local a="${CLAUDE_PROJECT_DIR:-}"
+  [ -n "$a" ] || return 0
+  a=$(_guard_realdir "$a") || return 0
+  [ "$a" = "/" ] && return 0
+  _guard_under "$1" "$a" && GUARD_ANCHOR="$a"
+  return 0
+}
+
+_guard_linked_worktree() {   # $1 = dir whose .git is a file
+  local line target back common
+  [ -f "$1/.git" ] || return 1
+  IFS= read -r line < "$1/.git" 2>/dev/null || return 1
+  case "$line" in "gitdir: "*) target="${line#gitdir: }" ;; *) return 1 ;; esac
+  case "$target" in /*) ;; *) target="$1/$target" ;; esac
+  # The link must point into THIS project's own git dir, at <common>/worktrees/<one name>: a back-link
+  # placed anywhere else (`git init --separate-git-dir=/tmp/worktrees/x`) is no worktree of ours
+  # (/security-review, spec 088).
+  common=$(git -C "$GUARD_ANCHOR" rev-parse --git-common-dir 2>/dev/null) || return 1
+  case "$common" in /*) ;; *) common="$GUARD_ANCHOR/$common" ;; esac
+  common=$(_guard_realdir "$common") || return 1
+  target=$(_guard_realdir "$target") || return 1
+  case "$target" in "$common"/worktrees/*/*) return 1 ;; "$common"/worktrees/*) ;; *) return 1 ;; esac
+  IFS= read -r back < "$target/gitdir" 2>/dev/null || return 1
+  [ "$(_guard_realdir "${back%/.git}")" = "$(_guard_realdir "$1")" ]
+}
+
+guard_git_boundary() {
+  [ -e "$1/.git" ] || return 1          # a worktree's .git is a file (spec 083)
+  [ -n "$GUARD_ANCHOR" ] || return 0
+  if _guard_under "$1" "$GUARD_ANCHOR"; then _guard_linked_worktree "$1"; else return 0; fi
+}
+
 # ------------------------------------------------------------------ root-anchored exemptions
 # guard_root_exempt <relative-path>: 0 when the path is under one of the four tooling directories AT
 # THE ROOT it is relative to (spec 083 R5, F041). The pipeline guards never block their own repair

@@ -120,6 +120,7 @@ EXT_LC=$(printf '%s' "$EXT" | tr '[:upper:]' '[:lower:]')
 # matched anything. The walk below visits every directory from the file up to the git root, and an
 # `ls` plus a `dirname` per level was most of this hook's own cost — processes, not work.
 has_match() { local f; for f in "$@"; do { [ -e "$f" ] || [ -L "$f" ]; } && return 0; done; return 1; }
+guard_anchor_for "$FILE"          # spec 088 R1 (F090): a .git planted below the project is no root
 DIR=$(dirname "$FILE")
 LANG_MARKER=""
 GIT_ROOT=""
@@ -140,7 +141,7 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
   if [ -f "$DIR/specs/INDEX.md" ]; then
     REGISTER="$DIR/specs/INDEX.md"; PROJECT_ROOT="$DIR"
   fi
-  if [ -e "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi   # a worktree's .git is a file (spec 083)
+  if guard_git_boundary "$DIR"; then GIT_ROOT="$DIR"; break; fi   # spec 088 R1: not below CLAUDE_PROJECT_DIR
   # `dirname` without the process: "/a/b" -> "/a", "/a" -> "/", "a" -> ".".
   case "$DIR" in */*) DIR="${DIR%/*}"; [ -n "$DIR" ] || DIR="/" ;; *) DIR="." ;; esac
 done

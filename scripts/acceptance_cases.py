@@ -24,7 +24,9 @@ Python 3 stdlib only.
 """
 
 import datetime
+import glob
 import hashlib
+import json
 import os
 import re
 import stat
@@ -320,23 +322,45 @@ def _owes(info):
     return info.get("track") == "full" or bool(info.get("hardened"))
 
 
-# The day 080 landed. A spec counts as begun before it when its interview.md was first committed
-# before this date. Without the date, ticking one setup task (spec-kit's Setup phase ticks
-# "T001 Initialize package.json" before any source edit) would exempt a brand-new spec (080 O5:
-# "every spec started after the sync needs cases").
-GRANDFATHER_BEFORE = "2026-10-02"
+# Which specs were begun before 080 reached this repository (spec 088 R6, F093). It used to be "the
+# interview was first committed before 2026-10-02" by %ci, and GIT_COMMITTER_DATE sets %ci to anything.
+# Now it is ancestry, which no date variable moves: the commit that first added the interview is a
+# strict ancestor of the commit that first added scripts/acceptance_cases.py here (the template's 080
+# commit, or a project's sync commit). Without the date, ticking one setup task would still exempt a
+# brand-new spec (080 O5), so the ancestry condition replaces the date rather than dropping it.
+# Anything git cannot answer is "not grandfathered": the spec owes cases, and writing them is cheap.
+ARRIVAL_PATH = "scripts/acceptance_cases.py"
 
 
-def _first_committed(root, path):
+def _git(where, *args):
+    """One git call for the 088 checks: (returncode, stdout, stderr). Raises subprocess.TimeoutExpired
+    and OSError for the caller to map. Replace refs and a grafts file rewrite ancestry locally, without
+    any push, so every call ignores both (088 adversarial #7)."""
+    env = dict(os.environ, GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull)
+    proc = subprocess.run(["git", "-C", where] + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          timeout=_scan_timeout(), env=env)
+    return proc.returncode, proc.stdout.decode("utf-8", "replace"), proc.stderr.decode("utf-8", "replace")
+
+
+def _git_out(where, *args):
+    """stdout of a git call that succeeded, else None (timeouts and errors included)."""
     try:
-        proc = subprocess.run(
-            ["git", "-C", root, "log", "--diff-filter=A", "--format=%ci", "--", path],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=_scan_timeout(),
-        )
+        rc, out, _ = _git(where, *args)
     except (subprocess.TimeoutExpired, OSError):
         return None
-    dates = proc.stdout.decode("utf-8", "replace").split()
-    return dates[-3][:10] if len(dates) >= 3 else None
+    return out if rc == 0 else None
+
+
+def _add_commit(root, path, oldest):
+    """The oldest (or newest) commit that added `path`, or None. The interview takes the NEWEST add:
+    a spec directory deleted and re-created at the same path is a new spec (088 adversarial #7)."""
+    args = ["log", "--diff-filter=A", "--format=%H"] + ([] if oldest else ["-1"]) + ["--", path]
+    shas = (_git_out(root, *args) or "").split()
+    return shas[-1] if shas else None
+
+
+def _strictly_before(root, older, newer):
+    return older != newer and _git_out(root, "merge-base", "--is-ancestor", older, newer) is not None
 
 
 def _grandfathered(root, spec_dir):
@@ -350,8 +374,9 @@ def _grandfathered(root, spec_dir):
         return False
     if not ticked:
         return False
-    first = _first_committed(root, os.path.join(spec_dir, "interview.md"))
-    return first is not None and first < GRANDFATHER_BEFORE
+    interview = _add_commit(root, os.path.relpath(os.path.join(spec_dir, "interview.md"), root), oldest=False)
+    arrival = _add_commit(root, ARRIVAL_PATH, oldest=True)
+    return bool(interview and arrival and _strictly_before(root, interview, arrival))
 
 
 HOW_TO_CONFIRM = """How to get it confirmed:
@@ -362,14 +387,46 @@ HOW_TO_CONFIRM = """How to get it confirmed:
        **When** <the action>
        **Then** <the observable outcome>
 
-  2. Show them to the developer with ONE AskUserQuestion and ask them to confirm or correct
-     them. Never confirm them yourself: the point is that a requirement the developer stated
-     becomes a test.
-  3. Record their answer, quoted:
-       bash scripts/acceptance-cases.sh --confirm {spec_dir} --quote "<their words>"
+  2. Show them to the developer with ONE AskUserQuestion whose question text carries the
+     digest (bash scripts/acceptance-cases.sh --digest {spec_dir}), and ask them to confirm or
+     correct them. Never confirm them yourself: the point is that a requirement the developer
+     stated becomes a test.
+  3. Record their answer, quoted exactly as they gave it:
+       bash scripts/acceptance-cases.sh --confirm {spec_dir} --quote "<their exact answer>"
+     --confirm writes only when that answer was recorded for a question showing the digest
+     (spec 088: scripts/developer-answers-hook.sh records answers, hashed, in the git dir).
   4. Write one test per case that names it ({spec_id}-AC-<n>) before any production code.
 
 A project that does not want this sets SPEC_ACCEPTANCE=off in .claude/settings.json env."""
+
+
+def _confirmed_line(text):
+    for l in (text or "").lstrip("﻿").splitlines():
+        if l.startswith(CONFIRMED_PREFIX):
+            return l.rstrip()
+    return None
+
+
+def _committed_unchanged(spec_dir):
+    """True when HEAD's acceptance.md carries the same Confirmed line the working tree does."""
+    try:
+        got = read_file(os.path.join(spec_dir, "acceptance.md"))
+    except Unreadable:
+        return False
+    line = _confirmed_line(got if isinstance(got, str) else None)
+    if line is None:
+        return False
+    # The gate's own failure rules (080 O6): a timeout fails open, any other git failure denies.
+    try:
+        rc, _, err = _git(spec_dir, "rev-parse", "--git-dir")
+        if rc != 0:
+            raise ScanError("git rev-parse exited %d: %s" % (rc, err.strip()[:200]))
+        rc, head, _ = _git(spec_dir, "show", "HEAD:./acceptance.md")
+    except subprocess.TimeoutExpired as exc:
+        raise ScanFailed(str(exc))
+    except OSError as exc:
+        raise ScanError("git could not run: %s" % exc)
+    return rc == 0 and _confirmed_line(head) == line   # rc != 0: no HEAD yet, or never committed
 
 
 def gate(root, info, file_path):
@@ -409,6 +466,25 @@ def gate(root, info, file_path):
             "confirm again (step 2-3 below); never rewrite a case to match the code.\n\n%s" % (
                 conf["digest"], parsed["digest"], how)
 
+    # Spec 088 (adversarial #3): a Confirmed line nobody has committed yet must be one --confirm could
+    # have written, i.e. its quote is a recorded answer for this digest. trust-anchor-guard stops the
+    # shell spellings it can see; this catches the ones it cannot (a printf that splits the prefix, a
+    # glob for the file name). A committed line is trusted: the store is per clone, and the commit is in
+    # the history the developer reads.
+    try:
+        backed = _committed_unchanged(spec_dir) or answer_bound(spec_dir, conf["quote"], parsed["digest"])
+    except ScanFailed:
+        backed = True     # fail open on a timeout, like the coverage scan (O6)
+    except ScanError as exc:
+        return head + "could not be checked against the recorded answers.\n\n%s\n\nOnly a timeout " \
+            "lets an edit through; fix git here (safe.directory, a broken .git) and try again." % exc
+    if not backed:
+        return head + "carry a Confirmed line that no recorded developer answer backs.\n\nThe line " \
+            "quotes \"%s\" for digest %s, and no AskUserQuestion answer with those words was " \
+            "recorded for a question showing that digest. Only scripts/acceptance-cases.sh --confirm " \
+            "writes the line, after the developer answers (spec 088).\n\n%s" % (
+                conf["quote"], parsed["digest"], how)
+
     # Resolved first: `ln -s ../src tests/link` must not turn tests/link/app.ts into a test file.
     real_root = os.path.realpath(root)
     real_file = os.path.realpath(file_path if os.path.isabs(file_path) else os.path.join(root, file_path))
@@ -438,6 +514,137 @@ def gate(root, info, file_path):
 
 # ----------------------------------------------------------------------------------- CLI
 
+# ------------------------------------------------------------------- the developer's answers
+# Spec 088 R4/R5 (F094). --confirm used to write whatever it was given as "the developer's words".
+# Now the words must be an answer the developer gave in an AskUserQuestion, to a question that showed
+# the cases' digest. scripts/developer-answers-hook.sh (PostToolUse, AskUserQuestion) records one line per
+# answered question in <git-common-dir>/claude-developer-words:
+#
+#     <epoch> <sha256 of the whitespace-collapsed answer> [<12-hex digest shown in the question> ...]
+#
+# Hashes only: an answer never lands on disk as text. The file is in the git dir (never committed or
+# synced) and scripts/trust-anchor-guard-hook.sh keeps the agent's tools out of it. It keeps the last
+# WORDS_KEEP lines; a lost line costs one re-ask.
+WORDS_FILE = "claude-developer-words"
+WORDS_KEEP = 500
+_DIGEST_TOKEN = re.compile(r"(?<![0-9a-f])[0-9a-f]{%d}(?![0-9a-f])" % DIGEST_CHARS)
+
+
+def _words_path(start):
+    """<git-common-dir>/claude-developer-words for the repository holding `start`, or None."""
+    gd = (_git_out(start, "rev-parse", "--git-common-dir") or "").strip()
+    if not gd:
+        return None
+    if not os.path.isabs(gd):
+        gd = os.path.join(start, gd)
+    return os.path.join(os.path.realpath(gd), WORDS_FILE)
+
+
+def answer_hash(text):
+    return hashlib.sha256(_collapse(text).encode("utf-8")).hexdigest()
+
+
+def _answers_of(payload):
+    """[(question, answer)] from a PostToolUse AskUserQuestion payload. Measured 2026-10-01:
+    tool_response is {questions, answers} with answers keyed by the question text; tool_input.answers
+    holds the same map after the fact."""
+    if not isinstance(payload, dict):
+        return []
+    for holder in (payload.get("tool_response"), payload.get("tool_input")):
+        a = holder.get("answers") if isinstance(holder, dict) else None
+        if isinstance(a, dict) and a:
+            out = []
+            for q, v in a.items():
+                if isinstance(v, list):
+                    v = ", ".join(str(x) for x in v)
+                if isinstance(q, str) and isinstance(v, str) and _collapse(v):
+                    out.append((q, v))
+            return out
+    return []
+
+
+def _disk_digests(start):
+    """Digests of every specs/*/acceptance.md on disk now (the repository root, .specify/, and one
+    package level down for a monorepo). A digest the question shows counts only if it is one of these
+    (/tla GAP-1, spec 088): otherwise the agent could show a digest it precomputed for case text that
+    is not on disk yet, get a yes for what is, then write the other text and confirm it."""
+    top = (_git_out(start, "rev-parse", "--show-toplevel") or "").strip()
+    found = set()
+    for f in acceptance_files(top) if top else ():
+        try:
+            parsed = load(os.path.dirname(f))
+        except Exception:
+            continue
+        if parsed and parsed.get("digest"):
+            found.add(parsed["digest"])
+    return found
+
+
+# Where an acceptance.md can live under a project root. One list for the digest filter above and for
+# trust-anchor-guard-hook.sh, which imports it.
+ACCEPTANCE_GLOBS = ("specs/*/acceptance.md", ".specify/specs/*/acceptance.md", "*/specs/*/acceptance.md")
+
+
+def acceptance_files(root):
+    return [f for pattern in ACCEPTANCE_GLOBS for f in glob.glob(os.path.join(root, pattern))]
+
+
+def record_answers(payload, start):
+    """Append one line per answered question. Returns the number recorded."""
+    pairs = _answers_of(payload)
+    path = _words_path(start) if pairs else None
+    if not path:
+        return 0
+    on_disk = _disk_digests(start)
+    now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    lines = "".join("%d %s%s\n" % (now, answer_hash(v),
+                                   "".join(" " + d for d in _DIGEST_TOKEN.findall(q) if d in on_disk))
+                    for q, v in pairs)
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, lines.encode("ascii"))
+    finally:
+        os.close(fd)
+    try:
+        with open(path, "r", encoding="ascii", errors="replace") as fh:
+            kept = fh.readlines()
+        if len(kept) > WORDS_KEEP:
+            tmp = "%s.tmp.%d" % (path, os.getpid())
+            with open(tmp, "w", encoding="ascii") as fh:
+                fh.writelines(kept[-WORDS_KEEP:])
+            os.replace(tmp, path)
+    except OSError:
+        pass
+    return len(pairs)
+
+
+def answer_bound(start, quote, digest):
+    """True when the store holds an answer equal to `quote` given to a question showing `digest`."""
+    path = _words_path(start)
+    if not path or not os.path.isfile(path):
+        return False
+    want = answer_hash(quote)
+    try:
+        with open(path, "r", encoding="ascii", errors="replace") as fh:
+            for line in fh:
+                f = line.split()
+                if len(f) >= 3 and f[1] == want and digest in f[2:]:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+NOT_BOUND = """acceptance-cases: not confirmed — no AskUserQuestion answer matches this quote for digest {digest}.
+
+--confirm records the developer's answer, so the answer has to be one they gave (spec 088):
+  1. Ask ONE AskUserQuestion whose question text shows the cases and the digest {digest}.
+  2. Quote their answer exactly (the option label they picked, or the text they typed):
+       bash scripts/acceptance-cases.sh --confirm {spec_dir} --quote "<their exact answer>"
+Answers are recorded by scripts/developer-answers-hook.sh. If it is not wired in this project, run the
+template sync first. Nothing was written."""
+
+
 def _confirm(spec_dir, quote):
     quote = _collapse(quote or "")
     if not quote:
@@ -453,6 +660,9 @@ def _confirm(spec_dir, quote):
         print("acceptance-cases: cannot confirm, the cases do not parse:\n" +
               "\n".join("  - " + p for p in problems), file=sys.stderr)
         return 1
+    if not answer_bound(spec_dir, quote, parsed["digest"]):
+        print(NOT_BOUND.format(digest=parsed["digest"], spec_dir=spec_dir), file=sys.stderr)
+        return 3
     today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
     line = '%s %s · %s — "%s"' % (CONFIRMED_PREFIX, today, parsed["digest"], quote)
     try:
@@ -488,12 +698,23 @@ def _confirm(spec_dir, quote):
 
 def main(argv):
     if len(argv) < 2:
-        print("usage: acceptance_cases.py check|digest|confirm|coverage|is-test ...", file=sys.stderr)
+        print("usage: acceptance_cases.py check|digest|confirm|coverage|is-test|record-answers ...", file=sys.stderr)
         return 2
     cmd = argv[1]
     try:
         if cmd == "is-test":
             return 0 if is_test_path(argv[2]) else 1
+        if cmd == "record-answers":
+            # The PostToolUse hook. Never fails the tool call: a payload it cannot read records nothing.
+            # The repository is the given directory (CLAUDE_PROJECT_DIR), else the payload's cwd.
+            try:
+                payload = json.loads(sys.stdin.read())
+                start = argv[2] if len(argv) > 2 and os.path.isdir(argv[2]) else payload.get("cwd") or ""
+                if os.path.isdir(start):
+                    record_answers(payload, start)
+            except Exception:
+                pass
+            return 0
         spec_dir = argv[2]
         if cmd == "confirm":
             return _confirm(spec_dir, argv[3] if len(argv) > 3 else "")

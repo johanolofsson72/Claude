@@ -84,7 +84,23 @@ with_artifacts() {
 ' > "$d/tasks.md"
 }
 
-confirm() { bash "$HELPER" --confirm "$1/specs/$2-demo" --quote "${3:-Confirmed as written}" >/dev/null 2>&1; }
+# answer <root> <id> <answer> [digest] — the developer answers an AskUserQuestion that showed <digest>
+# (default: the cases' current digest), recorded by the real PostToolUse hook (spec 088 R4).
+answer() {
+  local d="${4:-$(bash "$HELPER" --digest "$1/specs/$2-demo" 2>/dev/null)}"
+  jq -cn --arg q "Cases for $2 (digest $d): confirm?" --arg a "$3" \
+    '{tool_name:"AskUserQuestion",tool_input:{questions:[{question:$q}]},tool_response:{questions:[{question:$q}],answers:{($q):$a}}}' \
+    | CLAUDE_PROJECT_DIR="$1" bash "$SELF_DIR/developer-answers-hook.sh" >/dev/null 2>&1
+}
+confirm() {
+  answer "$1" "$2" "${3:-Confirmed as written}"
+  bash "$HELPER" --confirm "$1/specs/$2-demo" --quote "${3:-Confirmed as written}" >/dev/null 2>&1
+}
+# arrive <root> — commit scripts/acceptance_cases.py, as the 080 sync commit does (spec 088 R6).
+arrive() {
+  mkdir -p "$1/scripts" && cp "$SELF_DIR/acceptance_cases.py" "$1/scripts/" \
+    && ( cd "$1" && git add scripts/acceptance_cases.py && git -c user.name=t -c user.email=t@t commit -qm "sync 080" ) >/dev/null 2>&1
+}
 
 # guard_out <file> [env assignments...] -> raw hook output for a Write of <file>
 guard_out() {
@@ -153,19 +169,67 @@ expect "080-AC-4 light row, no acceptance.md" "$P/src/app.ts" allow
 P=$(mk_project ac4b 080 "full track")
 printf '# tasks\n- [x] T1 done\n- [ ] T2 open\n' > "$P/specs/080-demo/tasks.md"
 commit_spec "$P" 080 2026-09-15
-expect "080-AC-4 full row begun before 080 landed (ticked task, interview committed 2026-09-15)" "$P/src/app.ts" allow
+expect "080-AC-4 committed, but acceptance_cases.py never arrived: not exempt (088 R6 fails closed)" "$P/src/app.ts" deny "acceptance.md"
+arrive "$P"
+expect "080-AC-4 088-AC-5 full row begun before 080 arrived (interview commit is an ancestor of the arrival)" "$P/src/app.ts" allow
 printf '# tasks\n- [ ] T1 open\n' > "$P/specs/080-demo/tasks.md"
 expect "080-AC-4 full row with no ticked task is not exempt" "$P/src/app.ts" deny "acceptance.md"
 P=$(mk_project ac4c 080 "full track")
 printf '# tasks\n- [x] T001 Initialize package.json\n' > "$P/specs/080-demo/tasks.md"
+arrive "$P"
 expect "080-AC-4 a new spec with a ticked setup task (uncommitted) is not exempt" "$P/src/app.ts" deny "acceptance.md"
-commit_spec "$P" 080 2026-10-02
-expect "080-AC-4 a new spec committed on/after the cutoff is not exempt" "$P/src/app.ts" deny "acceptance.md"
+commit_spec "$P" 080 2026-09-01
+expect "088-AC-5 committed after the arrival with GIT_COMMITTER_DATE=2026-09-01: not exempt" "$P/src/app.ts" deny "acceptance.md"
+P=$(mk_project ac4e 080 "full track")
+printf '# tasks\n- [x] T1 done\n' > "$P/specs/080-demo/tasks.md"
+mkdir -p "$P/scripts" && cp "$SELF_DIR/acceptance_cases.py" "$P/scripts/"
+( cd "$P" && git add scripts specs && git -c user.name=t -c user.email=t@t commit -qm "both at once" ) >/dev/null 2>&1
+expect "088 R6 interview added in the arrival commit itself: not exempt (strictly before)" "$P/src/app.ts" deny "acceptance.md"
 P=$(mk_project ac4d 080 "full track")
 write_cases "$P" 080 3
 printf '# tasks\n- [x] T1 done\n' > "$P/specs/080-demo/tasks.md"
 commit_spec "$P" 080 2026-09-15
+arrive "$P"
 expect "080-AC-4 an old spec that has an acceptance.md is held to it" "$P/src/app.ts" deny "not confirmed"
+
+echo "088 — a Confirmed line must be backed (adversarial review #3) and ancestry cannot be grafted (#7)"
+P=$(mk_project fgd 080 "full track")
+write_cases "$P" 080 3
+printf '// 080-AC-1 080-AC-2 080-AC-3\n' > "$P/tests/app.test.ts"
+D088=$(bash "$HELPER" --digest "$P/specs/080-demo")
+python3 - "$P/specs/080-demo/acceptance.md" "$D088" <<'PY'
+import sys
+p, d = sys.argv[1], sys.argv[2]
+s = open(p).read().replace("\n\n", "\n\n**Confirmed:** 2026-10-01 · %s — \"I never said this\"\n\n" % d, 1)
+open(p, "w").write(s)
+PY
+expect "088 a hand-written, uncommitted Confirmed line with the right digest is denied" "$P/src/app.ts" deny "no recorded developer answer"
+( cd "$P" && git add -A && git -c user.name=t -c user.email=t@t commit -qm "cases" ) >/dev/null 2>&1
+expect "088 the same line once committed is trusted (the store is per clone)" "$P/src/app.ts" allow
+P=$(mk_project bkd 080 "full track")
+write_cases "$P" 080 3
+printf '// 080-AC-1 080-AC-2 080-AC-3\n' > "$P/tests/app.test.ts"
+confirm "$P" 080
+expect "088 an uncommitted line --confirm wrote from a recorded answer passes" "$P/src/app.ts" allow
+P=$(mk_project rea 080 "full track")
+printf '# tasks\n- [x] T1 done\n' > "$P/specs/080-demo/tasks.md"
+commit_spec "$P" 080 2026-09-15
+( cd "$P" && git rm -rq specs/080-demo && git -c user.name=t -c user.email=t@t commit -qm "drop" ) >/dev/null 2>&1
+arrive "$P"
+git -C "$P" checkout -q HEAD~2 -- specs/080-demo 2>/dev/null     # the same files, added again
+commit_spec "$P" 080 2026-09-15
+expect "088 a spec re-created at an old path after the arrival is not exempt (newest add counts)" "$P/src/app.ts" deny "acceptance.md"
+P=$(mk_project grf 080 "full track")
+printf '# tasks\n- [x] T1 done\n' > "$P/specs/080-demo/tasks.md"
+( cd "$P" && git -c user.name=t -c user.email=t@t commit -qm root --allow-empty ) >/dev/null 2>&1
+arrive "$P"; ARR=$(git -C "$P" rev-parse HEAD); ROOT0=$(git -C "$P" rev-parse HEAD~1)
+commit_spec "$P" 080 2026-09-15; INT=$(git -C "$P" rev-parse HEAD)
+git -C "$P" replace --graft "$ARR" "$INT" >/dev/null 2>&1
+if git -C "$P" merge-base --is-ancestor "$INT" "$ARR" 2>/dev/null; then
+  expect "088 a git replace --graft that makes the interview an ancestor is ignored" "$P/src/app.ts" deny "acceptance.md"
+else
+  fail "088 graft fixture: git did not honour the replace ref, so the arm proves nothing"
+fi
 
 echo "080-AC-5 — band enforced"
 P=$(mk_project ac5 080 "full track")

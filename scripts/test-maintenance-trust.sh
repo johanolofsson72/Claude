@@ -47,7 +47,8 @@ mkfix() {
   printf '#!/bin/sh\necho "20 passed, 0 failed"\necho ran >> "%s/ran"\nexit 0\n' "$d" > "$d/tests/run.sh"
   printf '%s' "$d"
 }
-maint() { ( cd "$1" && shift; chmod +x scripts/*.sh 2>/dev/null; PATH="$PWD/bin:$PATH" bash "$MAINT" "$@" 2>&1 ); }
+# CLAUDECODE is cleared: the harness sets it, and spec 088 refuses --trust --yes under it (arms T19-T21).
+maint() { ( unset CLAUDECODE; cd "$1" && shift; chmod +x scripts/*.sh 2>/dev/null; PATH="$PWD/bin:$PATH" bash "$MAINT" "$@" 2>&1 ); }
 # `cat | grep -c`: grep -c prints 0 AND exits 1 on no match, so `grep -c f || echo 0` prints "0\n0".
 ran()     { cat "$1/ran" 2>/dev/null | grep -c ran; }
 stamped() { cat "$1/stamped" 2>/dev/null | grep -cx "$2"; }
@@ -232,17 +233,56 @@ expect_eq       "T13 a hash recorded under another ratchet's label does not coun
 D=$(mkfix t14); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
 OUT=$( cd "$D" && MAINTENANCE_TTY=/nonexistent/tty bash "$MAINT" --trust 2>&1 ); RC=$?
 expect_eq       "T14 no terminal and no --yes exits 2" "2" "$RC"
-expect_contains "T14 says why" "--yes" "$OUT"
+expect_contains "T14 says why" "terminal of your own" "$OUT"
 expect_eq       "T14 nothing recorded" "no" "$([ -f "$D/.git/claude-trusted-commands" ] && echo yes || echo no)"
-printf 'no\n' > "$TMP/answer-no"
-OUT=$( cd "$D" && MAINTENANCE_TTY="$TMP/answer-no" bash "$MAINT" --trust 2>&1 ); RC=$?
-expect_eq       "T14 answering anything but yes exits 1" "1" "$RC"
-expect_eq       "T14 and records nothing" "no" "$([ -f "$D/.git/claude-trusted-commands" ] && echo yes || echo no)"
-expect_contains "T14 the prompt asks for yes" "Type yes to trust these" "$OUT"
+# --- T19 (088-AC-2, R2): a file holding `yes` is not a terminal, and neither is /dev/null -------------
 printf 'yes\n' > "$TMP/answer-yes"
 OUT=$( cd "$D" && MAINTENANCE_TTY="$TMP/answer-yes" bash "$MAINT" --trust 2>&1 ); RC=$?
-expect_eq       "T14 answering yes exits 0" "0" "$RC"
-expect_contains "T14 and records the suite" "  suite" "$(cat "$D/.git/claude-trusted-commands" 2>/dev/null)"
+expect_eq       "T19 088-AC-2 MAINTENANCE_TTY=<file holding yes> exits 2" "2" "$RC"
+expect_contains "T19 088-AC-2 names the developer's own terminal" "terminal of your own" "$OUT"
+expect_eq       "T19 088-AC-2 the store is not created" "no" "$([ -f "$D/.git/claude-trusted-commands" ] && echo yes || echo no)"
+OUT=$( cd "$D" && MAINTENANCE_TTY=/dev/null bash "$MAINT" --trust 2>&1 ); RC=$?
+expect_eq       "T19 MAINTENANCE_TTY=/dev/null exits 2" "2" "$RC"
+OUT=$( cd "$D" && printf 'yes\n' | MAINTENANCE_TTY=/dev/stdin bash "$MAINT" --trust 2>&1 ); RC=$?
+expect_eq       "T19 MAINTENANCE_TTY=/dev/stdin fed by a pipe exits 2" "2" "$RC"
+expect_eq       "T19 nothing recorded by any of them" "no" "$([ -f "$D/.git/claude-trusted-commands" ] && echo yes || echo no)"
+# --- T20 (088-AC-2, R2): --yes inside Claude Code is refused before anything is shown ----------------
+OUT=$( cd "$D" && CLAUDECODE=1 bash "$MAINT" --trust --yes 2>&1 ); RC=$?
+expect_eq       "T20 088-AC-2 CLAUDECODE=1 --trust --yes exits 2" "2" "$RC"
+expect_contains "T20 088-AC-2 names the developer's own terminal" "terminal of your own" "$OUT"
+expect_eq       "T20 088-AC-2 the store is not created" "no" "$([ -f "$D/.git/claude-trusted-commands" ] && echo yes || echo no)"
+OUT=$( cd "$D" && CLAUDECODE= bash "$MAINT" --trust --yes 2>&1 ); RC=$?
+expect_eq       "T20 an empty CLAUDECODE is not set: --yes records" "0" "$RC"
+rm -f "$D/.git/claude-trusted-commands"
+# --- T21 (R2): a real terminal still works — a pty from script(1), where the platform has one ---------
+PTY_RUN=""
+if script -q /dev/null true </dev/null >/dev/null 2>&1; then PTY_RUN=bsd
+elif script -qec true /dev/null </dev/null >/dev/null 2>&1; then PTY_RUN=util-linux; fi
+pty() { # pty <answer> -> --trust in $D on a pseudo-terminal; the pauses let the prompt open before the
+       # answer arrives and before script(1) turns end of input into a ^D on the line
+  if [ "$PTY_RUN" = bsd ]; then
+    { sleep 1; printf '%s\n' "$1"; sleep 1; } | ( cd "$D" && unset CLAUDECODE MAINTENANCE_TTY; script -q /dev/null bash "$MAINT" --trust ) 2>&1
+  else
+    { sleep 1; printf '%s\n' "$1"; sleep 1; } | ( cd "$D" && unset CLAUDECODE MAINTENANCE_TTY; script -qec "bash '$MAINT' --trust" /dev/null ) 2>&1
+  fi
+}
+if [ -n "$PTY_RUN" ]; then
+  OUT=$(pty no)
+  expect_contains "T21 a terminal answering no records nothing" "not trusted" "$OUT"
+  expect_eq       "T21 and the store stays absent" "no" "$([ -f "$D/.git/claude-trusted-commands" ] && echo yes || echo no)"
+  OUT=$(pty yes)
+  expect_contains "T21 a terminal answering yes records the suite" "  suite" "$(cat "$D/.git/claude-trusted-commands" 2>/dev/null)"
+else
+  echo "  skip  T21: no script(1) that allocates a pty here"
+fi
+# --- T22 (R2): sabotage — without the isatty check the file answer would be accepted -------------------
+MUTM="$TMP/mut-maint.sh"
+sed 's/ || ! \[ -t 3 \]; then/; then/' "$MAINT" > "$MUTM"
+if cmp -s "$MAINT" "$MUTM"; then bad "T22 sabotage target not found in project-maintenance.sh"; else
+  D=$(mkfix t22); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+  ( cd "$D" && MAINTENANCE_TTY="$TMP/answer-yes" bash "$MUTM" --trust >/dev/null 2>&1 )
+  expect_eq     "T22 sabotage: the mutant records from a file" "yes" "$([ -f "$D/.git/claude-trusted-commands" ] && echo yes || echo no)"
+fi
 # A control sequence in the command cannot hide from the human: it is printed visibly (cat -v).
 # The escape hides in a shell comment, so the command still runs; on a raw terminal the \r would have
 # drawn `sh tests/run.sh` over it and the comment would be invisible.

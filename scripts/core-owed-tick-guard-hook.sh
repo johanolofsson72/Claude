@@ -194,10 +194,11 @@ if [ "${ALLOW_TICK_WITH_CORE_OWED:-0}" = "1" ]; then
 fi
 
 # ------------------------------------------------------------------- project root
+guard_anchor_for "$FILE"          # spec 088 R1 (F090): a .git planted below the project is no root
 DIR=$(dirname "$FILE")
 ROOT=""
 while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
-  if [ -e "$DIR/.git" ]; then ROOT="$DIR"; break; fi   # a worktree's .git is a file (spec 083)
+  if guard_git_boundary "$DIR"; then ROOT="$DIR"; break; fi   # spec 088 R1: not below CLAUDE_PROJECT_DIR
   DIR=$(dirname "$DIR")
 done
 [ -n "$ROOT" ] || exit 0

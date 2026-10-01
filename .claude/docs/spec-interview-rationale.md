@@ -174,10 +174,28 @@ re-wrapping a line does not either. Changing a word does. The digest is not a si
 recompute it, but doing so is a deliberate act that sits in the same diff as the changed case. It
 cannot happen by accident while the code is being made to pass.
 
-**Who confirms.** Claude drafts, then shows the cases in one `AskUserQuestion` and records the answer
-with `scripts/acceptance-cases.sh --confirm <spec-dir> --quote "<their words>"`. The guard cannot tell
-who typed the line, and nothing here pretends it can. The record is the quote, and the developer can
-read `acceptance.md` in the commit.
+**Who confirms.** Claude drafts, then shows the cases in one `AskUserQuestion` whose question text
+includes the digest (`--digest`), and records the answer with
+`scripts/acceptance-cases.sh --confirm <spec-dir> --quote "<their exact answer>"`.
+
+Under 080 that was the whole mechanism, and the quote could be anything (F094). Since spec 088 the
+answer is bound to the developer:
+
+- `scripts/developer-answers-hook.sh` runs on PostToolUse for `AskUserQuestion`. For each answered
+  question it appends the time, the SHA-256 of the whitespace-collapsed answer, and every 12-hex
+  token in the question text to `<git-common-dir>/claude-developer-words`. No answer text is stored,
+  so a pasted secret never reaches the disk. The file keeps its last 500 lines.
+- `--confirm` writes the Confirmed line only when that file holds the hash of the quote together with
+  the cases' current digest. Otherwise it exits 3 and says how to ask. An answer from another spec,
+  or one given before a case changed, carries another digest and does not count.
+- `scripts/trust-anchor-guard-hook.sh` denies the agent's tools the rest of the way round: a
+  Write/Edit/MultiEdit that adds, removes or changes the Confirmed line, a shell write to an
+  `acceptance.md`, any tool call naming the answer store, and an `AskUserQuestion` that arrives with
+  its own `answers` (an honest one never does at PreToolUse).
+
+What remains: a script file the agent writes and then runs, which no command-text guard sees, and a
+question that misdescribes the cases. The developer reads the question, which is why the digest and
+the file path go in it.
 
 **Tests first.** Once the cases are confirmed, test files are editable and production source is not.
 A test file is recognised by path (`test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`,
@@ -199,12 +217,19 @@ What the gate does not prove: that the test was red before the code, or that it 
 says. Review and the mutation gate judge that.
 
 **Exempt.** Light, spec-only and checkpoint rows, unless tagged `[hardened]`. A spec that was
-already being implemented when 080 landed is also exempt: its `tasks.md` has a ticked task, it has
-no `acceptance.md`, and its `interview.md` was first committed before 2026-10-02. That is the rollout
-clause for projects that sync this mid-spec (080 O5). The date matters. spec-kit's Setup phase ticks
-tasks such as "T001 Initialize package.json" before any source edit, so without the date a brand-new
-spec would exempt itself. `SPEC_ACCEPTANCE=off` in `.claude/settings.json` `env`
-turns the whole step off; the interview count still applies.
+already being implemented when 080 reached the repository is also exempt: its `tasks.md` has a
+ticked task, it has no `acceptance.md`, and the commit that first added its `interview.md` is a
+strict ancestor of the commit that first added `scripts/acceptance_cases.py` (the template's 080
+commit, or a project's sync commit). That is the rollout clause for projects that sync this mid-spec
+(080 O5). The second condition matters. spec-kit's Setup phase ticks tasks such as "T001 Initialize
+package.json" before any source edit, so without it a brand-new spec would exempt itself.
+
+Until spec 088 the second condition was a date: `interview.md` first committed before 2026-10-02,
+read from `%ci`. `GIT_COMMITTER_DATE` sets that to anything (F093). Ancestry cannot be moved by an
+environment variable; forging it means rewriting history before a pushed commit. When git cannot
+answer (no arrival commit, a shallow clone, an error), the spec is not exempt. Writing three cases is
+cheaper than a hole. `SPEC_ACCEPTANCE=off` in `.claude/settings.json` `env` turns the whole step off;
+the interview count still applies.
 
 **Status summary.** The pipeline line reports `K acceptance cases confirmed, K named by tests`
 (`bash scripts/acceptance-cases.sh --coverage <spec-dir>`).

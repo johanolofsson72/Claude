@@ -24,7 +24,7 @@
 #   bash scripts/project-maintenance.sh --full --suite --unattended   # the nightly: runs a declared
 #                                                  # command only if you trusted it (spec 082)
 #   bash scripts/project-maintenance.sh --trust    # show the repository commands, ask, record them, exit
-#   bash scripts/project-maintenance.sh --trust --yes   # the same without the terminal prompt (scripted)
+#   bash scripts/project-maintenance.sh --trust --yes   # the same without the prompt (scripted; refused in Claude Code)
 #
 # UNATTENDED RUNS EXECUTE ONLY WHAT A HUMAN TRUSTED (spec 082, F062). .claude/.suite-command,
 # scripts/run-mutation-gate.sh, every scripts/check-*.sh ratchet and the package.json `test` script
@@ -43,8 +43,11 @@
 # return shows instead of rewriting the screen, hashes exactly the bytes it printed, and asks for a
 # typed `yes` on the terminal. `--yes` skips the prompt; with no terminal and no --yes it refuses
 # (exit 2), and it refuses to combine with --unattended (exit 2). MAINTENANCE_TTY names the terminal
-# device (default /dev/tty) — a test seam, and no weaker than the store itself: any local process can
-# write .git/claude-trusted-commands, so the prompt stops an accident, not an attacker on this machine.
+# device (default /dev/tty), and whatever it names must be a terminal (isatty), not a file holding `yes`.
+# Spec 088 (F091): `--yes` is refused when CLAUDECODE is set, because Claude Code sets it in every shell
+# it runs, and scripts/trust-anchor-guard-hook.sh denies the agent's tools any command that runs
+# --trust, sets MAINTENANCE_TTY or names the store, and any Write/Edit of the store. Any local process
+# can still write the store; what is closed is the gated agent granting itself the nightly.
 #
 # The suite command is the first non-comment line of .claude/.suite-command when the project
 # declares one; otherwise a root `npm test` script, otherwise `dotnet test` (row 051). A detected
@@ -104,6 +107,15 @@ done
 if [ "$TRUST" -eq 1 ] && [ "$UNATTENDED" -eq 1 ]; then
   echo "project-maintenance: --trust and --unattended together make no sense — trusting a command is the" >&2
   echo "  human step the unattended run relies on. Run --trust at a terminal, on its own." >&2
+  exit 2
+fi
+
+# Spec 088 (F091): `--yes` says "a person read these". Inside Claude Code nobody typed it: the harness
+# sets CLAUDECODE in every shell it runs, the agent's included, so there it is refused. The developer
+# runs --trust in a terminal of their own (not the `!` prefix, which is Claude Code's shell too).
+if [ "$TRUST" -eq 1 ] && [ "$YES" -eq 1 ] && [ -n "${CLAUDECODE:-}" ]; then
+  echo "project-maintenance: --trust --yes is refused inside Claude Code (CLAUDECODE is set). Trusting a command" >&2
+  echo "  is a person's step: run  bash scripts/project-maintenance.sh --trust  in a terminal of your own. Nothing recorded." >&2
   exit 2
 fi
 
@@ -225,13 +237,17 @@ if [ "$TRUST" -eq 1 ]; then
   fi
   if [ "$YES" -ne 1 ]; then
     TTY_DEV=${MAINTENANCE_TTY:-/dev/tty}
-    if ! { : < "$TTY_DEV"; } 2>/dev/null; then
-      echo "project-maintenance: --trust asks on a terminal, and there is none ($TTY_DEV). Read the $N item(s) above," >&2
-      echo "  then re-run at a terminal, or pass --yes if a person has read them. Nothing recorded." >&2
+    # Spec 088 (F091): opened once and required to BE a terminal. Before, any readable path passed, so
+    # MAINTENANCE_TTY=<a file holding yes> answered the prompt with nobody there. A file, a pipe and
+    # /dev/null are not terminals; the answer is read from the descriptor that was checked.
+    if ! { command exec 3< "$TTY_DEV"; } 2>/dev/null || ! [ -t 3 ]; then
+      exec 3<&-
+      echo "project-maintenance: --trust asks on a terminal, and there is none ($TTY_DEV is not one). Read the $N item(s) above," >&2
+      echo "  then re-run in a terminal of your own. Nothing recorded." >&2
       exit 2
     fi
     printf 'Type yes to trust these %s item(s): ' "$N" >&2
-    _ans=""; IFS= read -r _ans < "$TTY_DEV"
+    _ans=""; IFS= read -r _ans <&3; exec 3<&-
     if [ "$_ans" != yes ]; then
       echo "project-maintenance: not trusted (answer was not \`yes\`). Nothing recorded." >&2
       exit 1
