@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+api.Dockerfile	bad	latest
+worker.Dockerfile	bad	SECRET
+web.Dockerfile	clean	
+jobs.Dockerfile	clean	

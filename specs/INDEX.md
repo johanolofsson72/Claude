@@ -33,7 +33,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 075 — place-heavy-jobs-local-or-cloud — light track [hardened] — placement table + `--placed` + cloud half (`cloud-maintenance.sh`, results on `claude/maintenance-results`). All jobs local: Stryker ~17 GB at Mac concurrency. Detalj: specs/INDEX.completed.md
 - [x] 018 — core-owed-tick-gate-goes-silent — full track — the gate was never broken: the TEST used GNU `sed -i` on a BSD sed, so the tick never happened and the detector correctly said nothing. Portable `inplace()` helper; 89/89. Detalj: specs/INDEX.completed.md
 - [x] 019 — are-we-writing-this-row-twice — full track — nothing measured the question that opened the review: are we rebuilding what we already have. Local embedding pass over every register; found ighweld-2026 119/138, one job planned twice. Detalj: specs/INDEX.completed.md
-- [!] 020 — quality-gate-hooks-unwired-for-latency-we-no-longer-pay — full track — 15 local-LLM hooks (test-realism, test-assertion, test-gap, secret-scan…) are unwired because they cost in-session latency. The nightly pass makes that free. Re-measure them at 02:30.
+- [x] 020 — quality-gate-hooks-unwired-for-latency-we-no-longer-pay — full track — 15 local-LLM hooks (test-realism, test-assertion, test-gap, secret-scan…) are unwired because they cost in-session latency. The nightly pass makes that free. Re-measure them at 02:30.
 - [x] 021 — core-set-excludes-docs-and-skills — spec-only — `--owed` is CORE-only on purpose: `[manual]` already names local doc/skill edits (4 in 45 projects, 0 purely owed). Both headers now say so; AC-13 pins the boundary.
 - [x] 022 — sync-version-marker-abandoned — spec-only — only `sync-prompt.md` and `project-wizard` write `.claude/.sync-version`; autosync maintains `.claude/.template-sync`. Step 0 reads the stale one and reports "sync needed" on a current project. Diagnos: `specs/INDEX.pending.md`.
 - [x] 023 — secret-scan-misses-signing-material — full track [hardened] — two repos commit an ASP.NET Data Protection key and `project-freshness.sh` reports "no verified secrets" on both. trufflehog matches verifiable credentials; a signing key is none. Needs a file-shape arm.
@@ -96,8 +96,8 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 
 ## Register history (newest first)
 
+- 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.
 - 2026-10-01 — rows 080 and 081 added from approved proposals F075/F076 (tech-lead review: developer-owned acceptance cases, context budget).
 - 2026-09-30 — 050 ticked: the hint lint works from allium 3.3.0; the hook flags an older CLI once, the skill teaches `-- see:` and names the F089 trigger.
 - 2026-09-30 — 049 ticked: --spec takes a register id at any status, so a held or ticked row's run log is writable again. Implicit failures name the flag.
 - 2026-09-30 — 048 ticked: SC ids grow past 999 without re-padding; the width discriminator measures the narrowest id and now has a test.
-- 2026-09-30 — 047 ticked: mutate patterns that match nothing or count characters are findings; Stryker beside a build is refused.

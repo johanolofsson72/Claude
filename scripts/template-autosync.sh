@@ -226,6 +226,7 @@ maintenance-due.sh test-maintenance-due.sh carve_audit.py maintenance_ledger.py 
 workload-placement.sh workload-placement.tsv cloud-setup.sh cloud-maintenance.sh test-workload-placement.sh
 acceptance_cases.py acceptance-cases.sh test-acceptance-cases.sh
 context-budget.sh test-context-budget.sh
+quality_gates.py quality-gate-bench.sh quality-gate-pass.sh quality-gates.tsv test-quality-gates.sh
 validate-portability.sh portability_audit.py
 finding.sh test-finding.sh
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh test-tlc-cleanup.sh

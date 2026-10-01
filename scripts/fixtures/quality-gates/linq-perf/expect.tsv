@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+SalesReport.cs	bad	Where
+CategoryTree.cs	bad	ToList
+TopProducts.cs	clean	
+VatSummary.cs	clean	

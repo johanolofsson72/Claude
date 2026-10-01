@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+PaymentRefundTests.cs	bad	Refund_PartialAmount
+CartMergeTests.cs	bad	Merge_GuestCart
+CouponCodeTests.cs	clean	
+StockReservationTests.cs	clean	

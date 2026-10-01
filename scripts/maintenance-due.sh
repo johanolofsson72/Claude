@@ -224,6 +224,12 @@ if [ "$MODE" = any ]; then
   [ "$DUE_COUNT" -gt 0 ] && exit 0 || exit 1
 fi
 
+# Spec 020: last night's quality-gate pass. A count and a path, never the model's text (020 O3):
+# a file can carry instructions aimed at the model, and this line reaches every session start.
+QG_LINE=""
+[ -f "$ROOT/scripts/quality_gates.py" ] && QG_LINE=$(python3 "$ROOT/scripts/quality_gates.py" banner --root "$ROOT" 2>/dev/null)
+[ -n "$QG_LINE" ] && echo "$QG_LINE"
+
 if [ "$DUE_COUNT" -eq 0 ]; then
   [ "$MODE" = brief ] || echo "maintenance: nothing due — $DONE spec(s) done, $ROWS row(s) in the register."
   exit 1

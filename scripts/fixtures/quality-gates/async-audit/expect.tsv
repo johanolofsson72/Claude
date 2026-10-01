@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+OrderExportService.cs	bad	Result
+NewsletterSender.cs	bad	async void
+PriceLookupService.cs	clean	
+ReceiptRenderer.cs	clean	

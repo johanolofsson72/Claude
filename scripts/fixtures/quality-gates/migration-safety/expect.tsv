@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+0042_add_customer_tier.sql	bad	NOT NULL
+0043_drop_legacy_phone.sql	bad	DROP
+0044_add_order_note.sql	clean	
+0045_add_currency.sql	clean	

@@ -1,0 +1,112 @@
+-- allium: 3
+--
+-- 020 — quality-gate hooks, measured on a labelled corpus and run at night.
+-- Rules cite R1..R8 (spec.md) and the developer's answers O1..O4 (interview.md).
+
+enum Verdict { nightly | off }
+enum Expectation { bad | clean }
+
+config {
+    max_median_seconds: Integer = 60
+    max_false_flags: Integer = 1
+    max_files: Integer = 50
+    max_file_bytes: Integer = 30000
+    call_timeout_seconds: Integer = 120
+    runs_per_fixture: Integer = 3
+    pass_deadline_seconds: Integer = 7200
+}
+
+value CorpusFile {
+    path: String
+    expect: Expectation
+    marker: String?                            -- a word a true flag on a bad file names
+}
+
+value Score {
+    caught: Integer
+    bad: Integer
+    false_flags: Integer
+    clean: Integer
+    median_seconds: Decimal
+}
+
+entity Gate {
+    hook: String
+    corpus: List<CorpusFile>
+    score: Score?                              -- null: never measured
+    verdict: Verdict
+
+    -- R3, O2: all seeded defects caught, at most one false flag, fast enough. Unmeasured is off.
+    invariant VerdictFollowsScore {
+        this.verdict = nightly implies (
+            this.score != null
+            and this.score.caught = this.score.bad
+            and this.score.false_flags <= config.max_false_flags
+            and this.score.median_seconds <= config.max_median_seconds
+        )
+    }
+}
+
+entity Pass {
+    last_sha: String?
+    model_up: Boolean
+    flags: Integer
+    skipped: Integer
+    running_elsewhere: Boolean                 -- another pass holds the OS lock: this one exits
+    report_path: String
+}
+
+rule BenchScores {
+    -- R2, AC-1. Each fixture runs runs_per_fixture times, each call with its own empty cache, and
+    -- counts by majority (temperature 0.2; D1, developer 2026-10-01).
+    when: BenchRequested(gate)
+    requires: gate.corpus.count > 0
+    ensures: gate.score != null
+}
+
+rule RefuseUnfiredFixture {
+    -- D1: a seeded defect the hook's own trigger rejects never reached the model. That is a corpus
+    -- defect; the bench stops (exit 2) and the table is untouched. It is never scored as a miss.
+    when: BenchRequested(gate)
+    requires: gate.corpus.count > 0
+    ensures: Output.created(text: `never reached the model`)
+}
+
+rule NoModelChangesNothing {
+    -- R6, AC-4: the table keeps its numbers and `last` does not move.
+    when: PassRequested(pass)
+    requires: not pass.model_up
+    ensures: Output.created(text: `model unreachable`)
+}
+
+rule PassRunsNightlyGatesOnly {
+    -- R4, AC-2: an `off` gate never sees a file.
+    when: PassRequested(pass)
+    requires: pass.model_up
+    ensures: pass.flags >= 0
+}
+
+rule BannerCountsOnly {
+    -- R5, AC-3, O3: counts and path, never model text. Skipped files count too (D2).
+    when: BannerPrinted(pass)
+    requires: pass.flags > 0 or pass.skipped > 0
+    ensures: Output.created(text: pass.report_path)
+}
+
+-- D2 (developer 2026-10-01), as built and tested:
+--   * the changed set skips symlinks and anything resolving outside the project;
+--   * state files are written with O_NOFOLLOW; a state dir resolving outside the project is refused;
+--   * a pass stops at pass_deadline_seconds and lists the rest as skipped;
+--   * credential-shaped values in any flag line are cut to 4 characters; LEAK/SECRET lines keep only
+--     `line N | reason`;
+--   * last_sha does not move when every call timed out or the model is down at the end;
+--   * `--full --if-due` runs the pass even when nothing else is due.
+-- GAP-1 (TLC, PassLock.tla): the pid-file lock let two passes take over one stale lock. Replaced by
+-- an OS lock (flock / msvcrt.locking); PassLockOS.tla holds Mutex and HolderRuns.
+invariant OnePassAtATime {
+    for p in Pass: p.running_elsewhere = false or p.flags = 0
+}
+
+external entity Output {
+    text: String
+}

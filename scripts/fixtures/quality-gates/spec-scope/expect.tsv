@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+specs/201-wishlist/spec.md	bad	email
+specs/202-reviews/spec.md	bad	moderation
+specs/203-addresses/spec.md	clean	
+specs/204-newsletter/spec.md	clean	

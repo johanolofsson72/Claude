@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+specs/101-search/spec.md	bad	fast
+specs/102-checkout/spec.md	bad	gracefully
+specs/103-returns/spec.md	clean	
+specs/104-stock/spec.md	clean	

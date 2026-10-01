@@ -54,6 +54,7 @@ IF_DUE=0
 SUITE=0
 QUIET=0
 PLACED=0
+QG_BENCH=0
 for arg in "$@"; do
   case "$arg" in
     --full)  FULL=1 ;;
@@ -61,6 +62,7 @@ for arg in "$@"; do
     --suite) SUITE=1 ;;
     --quiet) QUIET=1 ;;
     --placed) PLACED=1 ;;
+    --bench-quality-gates) QG_BENCH=1 ;;
     # Print the whole leading comment block, not a hardcoded line range: this header
     # has grown twice now, and a range silently truncates --help when it does.
     -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "$0"; exit 0 ;;
@@ -83,6 +85,13 @@ if [ "$IF_DUE" -eq 1 ]; then
     if bash scripts/maintenance-due.sh --any >/dev/null 2>&1; then
       : # something is due -- fall through and do the work
     elif [ "$?" -eq 1 ]; then
+      # Spec 020: the quality-gate pass has no due threshold — it reads whatever was committed
+      # since its last run — so a night with nothing due still runs it. Without this, every
+      # `--full --if-due` cron entry skipped it on exactly the nights it had nothing else to do.
+      if [ "$FULL" -eq 1 ] && [ "${QUALITY_GATES:-on}" != off ] && [ -f scripts/quality_gates.py ] && [ -f scripts/quality-gates.tsv ]; then
+        QGP_LINE=$(bash scripts/quality-gate-pass.sh 2>&1 | tail -1)
+        [ "$QUIET" -eq 1 ] || echo "project-maintenance: $QGP_LINE"
+      fi
       [ "$QUIET" -eq 1 ] || echo "project-maintenance: nothing due — skipped (bash scripts/maintenance-due.sh to see why)."
       exit 0
     fi
@@ -468,6 +477,34 @@ if [ "$SIM_RUN" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-simila
 only check here that needs one; everything else above ran. \`ollama pull paraphrase-multilingual\`
 to enable it, or ignore this line: a machine without Ollama is a supported configuration." ;;
   esac
+fi
+
+# ------------------------------------------------- 3c2. local-LLM quality gates
+# Spec 020. The nightly pass feeds the files changed since its last run to every hook that
+# scripts/quality-gates.tsv marks `nightly` (measured on a labelled corpus) and writes
+# .claude/state/quality-gates/latest.md; maintenance-due.sh puts the count in the morning banner.
+# Like the similarity check it needs Ollama, so it runs only in --full, and a machine without a
+# model gets one note. --bench-quality-gates re-measures the table first (minutes, opt-in).
+# QUALITY_GATES=off skips both.
+if [ "${QUALITY_GATES:-on}" != off ] && [ -f scripts/quality_gates.py ]; then
+  if [ "$QG_BENCH" -eq 1 ]; then
+    QGB_OUT=$(bash scripts/quality-gate-bench.sh 2>&1); QGB_RC=$?
+    case "$QGB_RC" in
+      0) note "[ok] quality-gate bench: $(printf '%s\n' "$QGB_OUT" | grep -c ' nightly ') nightly — scripts/quality-gates.tsv" ;;
+      3) note "[note] quality-gate bench skipped — $(printf '%s\n' "$QGB_OUT" | tail -1)" ;;
+      2) case "$QGB_OUT" in *"no corpus directory"*) note "[note] quality-gate bench: no corpus in this project; benching is a template job (the table arrives by sync)" ;;
+           *) add "[QUALITY-GATE BENCH] $(printf '%s' "$QGB_OUT" | head -10)" ;; esac ;;
+      *) add "[QUALITY-GATE BENCH] $(printf '%s' "$QGB_OUT" | head -10)" ;;
+    esac
+  fi
+  if [ "$FULL" -eq 1 ] && [ -f scripts/quality-gates.tsv ]; then
+    QGP_OUT=$(bash scripts/quality-gate-pass.sh 2>&1); QGP_RC=$?
+    case "$QGP_RC" in
+      0) note "[ok] $(printf '%s\n' "$QGP_OUT" | tail -1)" ;;
+      3) note "[note] quality-gate pass skipped — $(printf '%s\n' "$QGP_OUT" | tail -1)" ;;
+      *) add "[QUALITY-GATE PASS] $(printf '%s' "$QGP_OUT" | head -10)" ;;
+    esac
+  fi
 fi
 
 # ------------------------------------------------------- 3b. spec-kit installation

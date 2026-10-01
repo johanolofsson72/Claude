@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+DiscountRulesTests.cs	bad	Test1
+TaxCalculatorTests.cs	bad	Works
+ReturnWindowTests.cs	clean	
+CurrencyFormatTests.cs	clean	

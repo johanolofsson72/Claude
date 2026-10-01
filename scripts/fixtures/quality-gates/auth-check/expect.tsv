@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+RefundsController.cs	bad	IssueRefund
+CustomersController.cs	bad	Delete
+ProductsController.cs	clean	
+HealthController.cs	clean	

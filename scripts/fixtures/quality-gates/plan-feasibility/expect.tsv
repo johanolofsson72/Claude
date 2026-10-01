@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+specs/301-loyalty/plan.md	bad	test
+specs/302-export/plan.md	bad	MongoDB
+specs/303-coupons/plan.md	clean	
+specs/304-ratings/plan.md	clean	

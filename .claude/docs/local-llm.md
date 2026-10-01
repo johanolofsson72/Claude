@@ -241,3 +241,34 @@ If latency on the prompt path bothers you, set `LOCAL_LLM_CLASSIFY_TIMEOUT=2` or
 Every hook is built to fail open: any error (offline, timeout, missing model, malformed JSON) results in an empty stdout and exit 0/1, which Claude Code treats as no additional context. The hooks never block tool execution and never produce errors that surface to the user.
 
 If you want to confirm a hook is firing, run with `CLAUDE_LOG_HOOKS=1` (Claude Code's own debug flag) or invoke the script directly with synthetic input.
+
+## Quality gates at night (spec 020)
+
+The fifteen hooks that check code (secret-scan, test-realism, test-assertion, test-gap, test-name,
+async-audit, auth-check, linq-perf, n1-query, react-deps, migration-safety, dockerfile-review,
+spec-criteria, spec-scope, plan-feasibility) stay out of `settings.json`. They run at night instead,
+and only the ones whose numbers say a flag is worth reading.
+
+- **Measured, not assumed.** `scripts/fixtures/quality-gates/<hook>/` holds two files with a seeded
+  defect and two clean files per hook. `bash scripts/quality-gate-bench.sh` runs every hook on its
+  corpus through the real local-llm path (a throwaway cache, so every call reaches the model) and
+  writes `scripts/quality-gates.tsv`: caught/bad, false flags/clean, median seconds, and a verdict.
+  A hook is `nightly` only when it catches every seeded defect, falsely flags at most one clean
+  file, and answers within a 60 s median. Everything else is `off`.
+- **The nightly pass.** `project-maintenance.sh --full` runs `scripts/quality-gate-pass.sh`. It reads
+  the files changed in commits since its last run (the first run reads the last 24 h), capped at 50
+  files of 30,000 bytes each, with a 120 s limit per call. Skips are listed, not dropped. It feeds each
+  file to the `nightly` hooks and writes `.claude/state/quality-gates/latest.md`. Only flag lines are
+  kept, and secret-scan's values are cut to four characters.
+- **The morning.** `maintenance-due.sh` (and so the SessionStart banner) prints
+  `quality gates: N flags from <date> — .claude/state/quality-gates/latest.md`. It never quotes the
+  model: a file can carry instructions aimed at the model, and that output must not reach every
+  session's context.
+- **No model, no noise.** With Ollama down, `LOCAL_LLM_DISABLE=1`, or a non-loopback `OLLAMA_HOST`
+  (refused unless `QUALITY_GATES_REMOTE_OK=1`), both scripts print one line and change nothing.
+  `QUALITY_GATES=off` skips the step.
+- **Re-bench** after a model change or a prompt change, in the template:
+  `bash scripts/project-maintenance.sh --bench-quality-gates`, or the bench script with
+  `--only hook,hook`. Commit the table. Projects inherit it through autosync.
+
+The table measured on 2026-10-01 (qwen3-coder:30b, this machine) is in `scripts/quality-gates.tsv`.

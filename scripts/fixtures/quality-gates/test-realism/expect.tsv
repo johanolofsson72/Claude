@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+CustomerSignupTests.cs	bad	Email
+OrderTotalsTests.cs	bad	Quantity
+InvoiceNumberTests.cs	clean	
+ShippingAddressTests.cs	clean	

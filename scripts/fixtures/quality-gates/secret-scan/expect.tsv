@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+payment-gateway.config.json	bad	secretKey
+mailer.py	bad	password
+settings.py	clean	
+appsettings.Development.json	clean	

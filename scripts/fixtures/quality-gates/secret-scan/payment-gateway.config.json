@@ -1,0 +1,7 @@
+{
+  "gateway": "stripe",
+  "merchantId": "shop-se-0142",
+  "secretKey": "q8ZfR2mK9vLx4Tn7Wb3Yc6Hd1Gs5Pj0A",
+  "webhookTimeoutSeconds": 30,
+  "retryPolicy": { "maxAttempts": 3, "backoffMs": 500 }
+}

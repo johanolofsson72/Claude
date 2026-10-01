@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+QgGapInvoiceService.cs	bad	Void
+QgGapLoyaltyService.cs	bad	Redeem
+QgGapPostcodeParser.cs	clean	
+QgGapSkuFormatter.cs	clean	

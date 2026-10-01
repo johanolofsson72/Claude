@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+OrderSummaryService.cs	bad	foreach
+ShipmentTracker.cs	bad	FirstOrDefaultAsync
+CustomerDirectory.cs	clean	
+InvoiceBatch.cs	clean	

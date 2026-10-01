@@ -1,0 +1,5 @@
+# file	bad|clean	marker a true flag names
+OrderStatus.tsx	bad	orderId
+SearchBox.tsx	bad	query
+CartBadge.tsx	clean	
+PriceTag.tsx	clean	
