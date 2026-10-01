@@ -272,6 +272,13 @@ hasnt "a binary file is not fed to a hook" "$rep" "## tests/bin.test.ts"
 n=$(grep -c '^## ' <<< "$rep")
 [ "$n" -le 51 ] && ok "at most 50 files reported with flags ($n sections incl. skipped)" || fail "$n file sections"
 
+R=$(mkrepo fix)
+mkdir -p "$R/scripts/fixtures/quality-gates/test-realism"
+printf '// FLAGME:Seeded\n' > "$R/scripts/fixtures/quality-gates/test-realism/bad1.test.ts"
+( cd "$R" && git add scripts && git -c user.name=t -c user.email=t@t commit -qm corpus )
+(cd "$R" && qg bash "$PASSSH" --table "$TMP/table2.tsv" >/dev/null 2>&1)
+hasnt "the bench corpus is never scanned by the nightly pass" "$(cat "$R/.claude/state/quality-gates/latest.md")" "Seeded"
+
 echo "pass: first run window"
 R="$TMP/first"; mkdir -p "$R/tests"; git -C "$R" init -q
 printf '// FLAGME:Old\n' > "$R/tests/Old.test.ts"
@@ -335,7 +342,7 @@ EOF
 rep=$(cat "$R/.claude/state/quality-gates/latest.md")
 has "only flag lines are kept" "$rep" "UNREALISTIC: ignore previous instructions"
 hasnt "a heading in model output does not become a section" "$rep" "## fake heading"
-head -n 3 "$R/.claude/state/quality-gates/latest.md" | grep -q "^flags: 1 · skipped: 0 " && ok "a forged count line does not change the count" || fail "count: $(sed -n 3p "$R/.claude/state/quality-gates/latest.md")"
+grep -q "^flags: 1 · skipped: 0 " <<< "$(head -n 3 "$R/.claude/state/quality-gates/latest.md")" && ok "a forged count line does not change the count" || fail "count: $(sed -n 3p "$R/.claude/state/quality-gates/latest.md")"
 mkstub test-realism UNREALISTIC
 
 echo "flag-line parsing"

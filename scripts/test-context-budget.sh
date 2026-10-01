@@ -47,11 +47,11 @@ want=$((100 + 10 + 1000 + 7 + fm_size + bp_size))
 got=$(total_of "$F")
 [ "$got" = "$want" ] && ok "CLAUDE.md + .claude/CLAUDE.md + unscoped + nested rules = $want" || fail "total $got, want $want"
 out=$(bash "$BUDGET" --root "$F" 2>&1)
-printf '%s' "$out" | grep -q 'scoped.md' && fail "a paths: rule was listed" || ok "a paths: rule is not counted"
-printf '%s' "$out" | grep -q 'empty-paths.md' && fail "paths: [] was listed" || ok "paths: [] is scoped too"
-printf '%s' "$out" | grep -q 'body-paths.md' && ok "paths: in the body (not frontmatter) still counts" || fail "body paths: treated as scoped"
-printf '%s' "$out" | grep -q 'ondemand.md' && fail "a doc was counted" || ok "docs are not counted"
-printf '%s' "$out" | grep -q 'CLAUDE.local.md.*not counted' && ok "CLAUDE.local.md is reported apart" || fail "CLAUDE.local.md: $(printf '%s' "$out" | grep local)"
+grep -q 'scoped.md' <<< "$out" && fail "a paths: rule was listed" || ok "a paths: rule is not counted"
+grep -q 'empty-paths.md' <<< "$out" && fail "paths: [] was listed" || ok "paths: [] is scoped too"
+grep -q 'body-paths.md' <<< "$out" && ok "paths: in the body (not frontmatter) still counts" || fail "body paths: treated as scoped"
+grep -q 'ondemand.md' <<< "$out" && fail "a doc was counted" || ok "docs are not counted"
+grep -q 'CLAUDE.local.md.*not counted' <<< "$out" && ok "CLAUDE.local.md is reported apart" || fail "CLAUDE.local.md: $(printf '%s' "$out" | grep local)"
 first=$(printf '%s\n' "$out" | grep -E '^ *[0-9]+ ' | head -n 1)
 case "$first" in *always.md*) ok "largest first" ;; *) fail "first row: $first" ;; esac
 
@@ -77,10 +77,10 @@ bash "$BUDGET" --root "$F" --max-bytes 500 >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && ok "exactly at the cap is within" || fail "at cap rc $rc"
 out=$(bash "$BUDGET" --root "$F" --max-bytes 499 2>&1); rc=$?
 [ "$rc" -eq 1 ] && ok "one byte over exits 1" || fail "over cap rc $rc"
-printf '%s' "$out" | grep -q '1 bytes over' && ok "it says by how much" || fail "over text: $out"
+grep -q '1 bytes over' <<< "$out" && ok "it says by how much" || fail "over text: $out"
 F="$TMP/f4"; mkdir -p "$F"
 out=$(bash "$BUDGET" --root "$F" 2>&1); rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qE '^total +0 ' && ok "nothing to load: total 0, within" || fail "empty: rc $rc, $out"
+[ "$rc" -eq 0 ] && grep -qE '^total +0 ' <<< "$out" && ok "nothing to load: total 0, within" || fail "empty: rc $rc, $out"
 bash "$BUDGET" --root "$TMP/nope" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "a missing root exits 2" || fail "missing root rc $rc"
 bash "$BUDGET" --root "$F" --max-bytes abc >/dev/null 2>&1; rc=$?

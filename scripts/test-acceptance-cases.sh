@@ -386,7 +386,7 @@ bash_out() {
     | (cd "$P" && CLAUDE_PROJECT_DIR="$P" env "${@:2}" bash "$BASH_GUARD" 2>/dev/null)
 }
 out=$(bash_out "$P/src/app.ts")
-if [ "$(hook_verdict "$out")" = deny ] && printf '%s' "$out" | grep -q "not confirmed"; then
+if [ "$(hook_verdict "$out")" = deny ] && grep -q "not confirmed" <<< "$out"; then
   ok "a Bash write to production source is denied by the acceptance step"
 else fail "Bash route: expected the acceptance deny, got $(hook_verdict "$out"): ${out:0:160}"; fi
 out=$(bash_out "$P/src/app.ts" SPEC_ACCEPTANCE=off)
@@ -454,7 +454,7 @@ cp "$GUARD" "$SELF_DIR/spec_active.py" "$G/"
 printf 'def gate(root, info, file_path):\n    raise RuntimeError("boom")\n' > "$G/acceptance_cases.py"
 P=$(mk_project crs 080 "full track")
 out=$(jq -n --arg p "$P/src/app.ts" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"}}' | bash "$G/spec-interview-guard-hook.sh" 2>/dev/null)
-if [ "$(hook_verdict "$out")" = deny ] && printf '%s' "$out" | grep -q "crashed (RuntimeError: boom)"; then ok "a crash inside gate() denies and names it"
+if [ "$(hook_verdict "$out")" = deny ] && grep -q "crashed (RuntimeError: boom)" <<< "$out"; then ok "a crash inside gate() denies and names it"
 else fail "a crash inside gate() → $(hook_verdict "$out"): ${out:0:120}"; fi
 
 echo "parser: other spellings"
@@ -471,7 +471,7 @@ write_cases "$P" 080 3
 sed -i.bak '1d' "$P/specs/080-demo/acceptance.md"
 printf '```\na\n\n\n\nb\n```\n' >> "$P/specs/080-demo/acceptance.md"
 confirm "$P" 080
-head -n 1 "$P/specs/080-demo/acceptance.md" | grep -q '^\*\*Confirmed:\*\*' && ok "no H1: the Confirmed line goes first" || fail "no H1: $(head -n 1 "$P/specs/080-demo/acceptance.md")"
+grep -q '^\*\*Confirmed:\*\*' <<< "$(head -n 1 "$P/specs/080-demo/acceptance.md")" && ok "no H1: the Confirmed line goes first" || fail "no H1: $(head -n 1 "$P/specs/080-demo/acceptance.md")"
 [ "$(grep -c '^$' "$P/specs/080-demo/acceptance.md")" -ge 6 ] && ok "confirm leaves blank lines elsewhere alone" || fail "confirm collapsed blank lines"
 bash "$HELPER" --check "$P/specs/080-demo" >/dev/null 2>&1 && ok "and it checks confirmed" || fail "no-H1 confirm does not check"
 for p in 'C:\proj\tests\x.ts' 'App.Tests\Foo.cs'; do

@@ -467,6 +467,9 @@ def _run_pass(root, table, state):
     run, skipped = [], []
     real_root = os.path.realpath(root)
     for rel in files:
+        # The bench corpus is defective on purpose; scanning it would flag every seeded defect.
+        if rel.replace("\\", "/").startswith("scripts/fixtures/quality-gates/"):
+            continue
         full = os.path.join(root, rel)
         # A committed symlink (x.test.ts -> ~/.ssh/id_rsa) would be read and sent to the model.
         if os.path.islink(full) or not os.path.realpath(full).startswith(real_root + os.sep):
