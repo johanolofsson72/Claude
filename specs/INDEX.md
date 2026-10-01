@@ -99,9 +99,11 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] 085 — template-mutation-runner-and-core-coverage — full track — the template has no mutation runner, so the job is due forever; kill the surviving mutants in autosync, maintenance and freshness. F047 F048 F049 F058 F071–F073.
 - [ ] 086 — maintenance-and-gate-blind-spots — spec-only — maintenance and gates pass silently on what they cannot see (NOT SCANNED, missing CORE scripts, project hooks, wrong suite). F001 F003 F005 F010 F023 F025 F027 F032 F033 F051 F052 F059 F060 F068–F070.
 - [ ] 087 — docs-and-skill-reference-fixes — spec-only — spec-kit SC numbering collides with the scenario map, agent memory strands in worktrees, agent reviews can read a stale tree, two reference docs teach wrong examples. F006–F009 F054.
+- [ ] 088 — guard-trust-anchors — full track [hardened] — the gates trust state Claude can write: a planted .git ends the root walk, self-granted nightly trust, forged acceptance grandfathering and self-confirm. F090 F091 F093 F094 — approved F098
 
 ## Register history (newest first)
 
+- 2026-10-01 — added 088 guard-trust-anchors from the H3 checkpoint (approved F098).
 - 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).
 - 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.
 - 2026-10-01 — rows 080 and 081 added from approved proposals F075/F076 (tech-lead review: developer-owned acceptance cases, context budget).
