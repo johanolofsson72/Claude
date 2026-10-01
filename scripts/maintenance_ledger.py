@@ -13,6 +13,7 @@ rules a job in or out: agentcrm's integration suite reached 11.5 GB on 2026-09-0
 
 Usage:
   python3 scripts/maintenance_ledger.py run JOB -- CMD [ARGS...]   # run CMD, record one line, exit with its rc
+  python3 scripts/maintenance_ledger.py run JOB --skip-rc N -- CMD  # same, but exit N means "never started": no line
   python3 scripts/maintenance_ledger.py record JOB SECONDS RC               # a span timed by the caller (the whole pass)
   python3 scripts/maintenance_ledger.py report [--all] [--ledger PATH]
 
@@ -112,8 +113,17 @@ def tree_rss_kb(root_pid):
 
 
 def cmd_run(argv):
+    # --skip-rc N: the child's own "never started" code (register-similarity.sh exits 2 when Ollama is
+    # off). Such a run is not a measurement: a 0.0 s line would read as a job that is free (F074).
+    skip_rc = None
+    if len(argv) >= 3 and argv[1] == "--skip-rc":
+        skip_rc = num(argv[2])
+        if skip_rc is None:
+            argv = []  # a non-numeric code is a usage error, not "skip nothing"
+        else:
+            argv = [argv[0]] + argv[3:]
     if len(argv) < 3 or argv[1] != "--":
-        print("maintenance_ledger.py: usage: run JOB -- CMD [ARGS...]", file=sys.stderr)
+        print("maintenance_ledger.py: usage: run JOB [--skip-rc N] -- CMD [ARGS...]", file=sys.stderr)
         return 2
     job, cmd = argv[0], argv[2:]
     root = repo_root()
@@ -147,6 +157,8 @@ def cmd_run(argv):
     sampler.join(timeout=5)
     candidates = [m for m in (largest_child_mb(), peak_kb[0] / 1024 if peak_kb[0] else None) if m is not None]
     rss = str(int(round(max(candidates)))) if candidates else ""
+    if skip_rc is not None and rc == int(skip_rc):
+        return rc
     append(root, job, time.monotonic() - start, rc, rss, load1)
     return rc
 

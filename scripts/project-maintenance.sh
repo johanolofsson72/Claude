@@ -410,7 +410,12 @@ fi
 # not a finding -- a maintenance pass that fails because a service is off gets
 # switched off.
 if [ "$FULL" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-similarity.sh ]; then
-  SIM_OUT=$(measured similarity bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
+  # Exit 2 is "never started" (no Ollama, model not pulled): not a run, so no ledger line (F074).
+  if [ "$LEDGER_OK" -eq 1 ]; then
+    SIM_OUT=$(python3 scripts/maintenance_ledger.py run similarity --skip-rc 2 -- bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
+  else
+    SIM_OUT=$(bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
+  fi
   case "$SIM_RC" in
     1) add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | head -20)" ;;
     2) note "[note] duplicate-row check skipped — no local embedding model reachable. It is the

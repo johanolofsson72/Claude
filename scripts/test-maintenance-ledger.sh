@@ -116,6 +116,22 @@ TREE_MB=$(tail -1 "$R5/.claude/state/maintenance-runs.tsv" | cut -f6)
 if [ -n "$TREE_MB" ] && [ "$TREE_MB" -ge 350 ]; then ok "L11 tree RSS sums the children ($TREE_MB MB)"
 else bad "L11 tree RSS sums the children" ">= 350" "${TREE_MB:-empty}"; fi
 
+# L12: --skip-rc N — a child that exits N never started, so no line; any other code is recorded (F074).
+R6=$(mkrepo skip 0); L6="$R6/.claude/state/maintenance-runs.tsv"
+OUT=$(cd "$R6" && python3 "$LEDGER_PY" run similarity --skip-rc 2 -- sh -c 'echo "no Ollama" >&2; exit 2' 2>&1); RC=$?
+expect_eq       "L12 skipped code still passes through" "2" "$RC"
+expect_contains "L12 child stderr still passes through" "no Ollama" "$OUT"
+expect_eq       "L12 skipped code writes no line" "0" "$( [ -f "$L6" ] && wc -l < "$L6" | tr -d ' ' || echo 0)"
+( cd "$R6" && python3 "$LEDGER_PY" run similarity --skip-rc 2 -- sh -c 'exit 1' ); RC=$?
+expect_eq "L12 other code passes through" "1" "$RC"
+expect_eq "L12 other code is recorded" "1" "$(tail -1 "$L6" | cut -f5)"
+( cd "$R6" && python3 "$LEDGER_PY" run similarity --skip-rc 2 -- true ); RC=$?
+expect_eq "L12 success is recorded" "0" "$(tail -1 "$L6" | cut -f5)"
+expect_eq "L12 two lines total" "2" "$(wc -l < "$L6" | tr -d ' ')"
+( cd "$R6" && python3 "$LEDGER_PY" run similarity --skip-rc two -- true 2>/dev/null ); RC=$?
+expect_eq "L12 non-numeric --skip-rc is a usage error" "2" "$RC"
+expect_eq "L12 usage error writes no line" "2" "$(wc -l < "$L6" | tr -d ' ')"
+
 echo
 echo "maintenance_ledger: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
