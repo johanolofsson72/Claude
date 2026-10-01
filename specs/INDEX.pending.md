@@ -159,3 +159,39 @@ add up. The reader is told a fraction of the map was lost and given no way to fi
 Same class as the row's own subject — a catastrophic-sounding report with a trivial cause and no
 handle — so it wants fixing in the same pass: name the file and the line number of every row the
 parser refused, and say how many were dropped. "See above" must not be printed unless something was.
+
+## 082 — harness-supply-chain-and-unattended-exec
+
+_2026-10-01: from the finding review._ Findings: F037 F043 F045 F062 F063 F064 F065 F066 F067.
+
+H1/H2 adversarial security findings. Each F-number keeps its diagnosis verbatim in specs/FINDINGS.md (decided 2026-10-01). Hardened: threat model first; F037/F062 (unpinned autosync + nightly executing repo strings) and F063/F064 (destructive local actions) are the priority.
+
+## 083 — guard-bypass-and-fail-open
+
+_2026-10-01: from the finding review._ Findings: F029 F035 F038 F039 F040 F041 F042 F044.
+
+Guard correctness: fail-open without jq, unnormalised paths, over-broad exemptions, split-string tick, deny-list bypass, exit-code-blind tests. Diagnosis per F-number in specs/FINDINGS.md.
+
+## 084 — autosync-sandbox-and-harness-env
+
+_2026-10-01: from the finding review._ Findings: F013 F015 F016 F017 F018 F019 F020.
+
+template-autosync.sh sandbox and harness environment leaks. F017 is an open design question (refuse syncing the repo the script lives in?) for the interview.
+
+## 085 — template-mutation-runner-and-core-coverage
+
+_2026-10-01: from the finding review._ Findings: F047 F048 F049 F058 F071 F072 F073.
+
+The suite half of F047 is done (d8cbd3f, .claude/.suite-command). Left: a scripts/run-mutation-gate.sh for the template that prints `mutation score N%`, then the survivors named in F048/F049/F071/F072, and F073 (a test that hangs on a wrong exit code).
+
+## 086 — maintenance-and-gate-blind-spots
+
+_2026-10-01: from the finding review._ Findings: F001 F003 F005 F010 F023 F025 F027 F032 F033 F051 F052 F059 F060 F068 F069 F070.
+
+Silent passes and blind spots in project-maintenance.sh, the gates, orientation and helper scripts. Small independent fixes; diagnosis per F-number in specs/FINDINGS.md.
+
+## 087 — docs-and-skill-reference-fixes
+
+_2026-10-01: from the finding review._ Findings: F006 F007 F008 F009 F054.
+
+Reference and skill content: contrast-check trap (F006), agent reviews must verify HEAD (F007), spec-kit SC prefix collision (F008), agent memory stranded in worktrees (F009), allium reference example warnings (F054).

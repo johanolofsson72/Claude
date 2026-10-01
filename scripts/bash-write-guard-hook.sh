@@ -76,7 +76,7 @@
 # SECRETS (FR-015)
 # ----------------
 # The command string is NEVER echoed — not in the deny reason, not in a log, not in an error. A shell
-# command can carry a credential (`op read`, `--password`, a heredoc holding a key) and CLAUDE.md §Secrets
+# command can carry a credential (`op read`, `--password`, a heredoc holding a key) and .claude/docs/security.md
 # forbids values reaching logs or error output. Only DERIVED file paths appear in output.
 #
 # Exit: always 0. A deny is expressed as permissionDecision JSON on stdout, per the hook contract.

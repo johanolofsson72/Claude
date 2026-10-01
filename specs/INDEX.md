@@ -8,7 +8,6 @@ the fix.
 
 Order of execution. Tick when done. Append new rows to the end.
 
-Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only as approved proposals (`scripts/finding.sh --review`)
 
 ## Specs
 
@@ -48,7 +47,7 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] 033 — portability-check-fails-open-and-says-nothing — spec-only — section 6c now reports a missing portability script as [SETUP] and a run that could not run as a finding, never clean. Long form: `specs/INDEX.completed.md`
 - [x] 034 — freshness-reports-seven-bogus-lockfile-skips — spec-only — already fixed by 774a909: a workspaces member is reported as covered by its root's audit. fundit now shows 0 SKIPs over 15 members. Verbatim in `INDEX.completed.md`.
 - [x] 035 — a11y-suite-runs-at-one-viewport-only — spec-only — maintenance §6d reports a Playwright config with no narrow viewport as [VIEWPORT]; testing.md puts the width in the shared config. Verbatim in `INDEX.completed.md`.
-- [x] 036 — index-tally-cannot-express-a-decorated-status — spec-only — the split index's tally regex knew `✓ *` but not `✓ int`, so a map documenting its own integration-layer status could not be indexed at all: every index it could be given claimed `✓` where the file held `✓ int`. Found by ighweld-2026 spec 180.
+- [x] 036 — index-tally-cannot-express-a-decorated-status — spec-only — the split index's tally regex knew `✓ *` but not `✓ int`. Found by ighweld-2026 spec 180; long form in INDEX.completed.md.
 - [x] 037 — sync-copies-nothing-under-zsh — spec-only — Step 5c iterates `for s in $CORE_SCRIPTS_LIST`; zsh does not word-split, so 105 names became one filename, 0 scripts were copied, and it reported `[OK] 0 core enforcement script(s) mirrored`. Diagnos: `specs/INDEX.pending.md`
 - [x] 038 — freshness-calls-a-scan-error-a-verified-secret — spec-only — trufflehog exit 1 (could not scan) read as a verified secret. Now 0/183/other branch: other is `[WARN]` + NOT SCANNED. Verbatim in `INDEX.completed.md`.
 - [x] 039 — core-guard-blocks-its-own-first-install — spec-only — the guard denies on the path alone, so the sync that places a CORE script for the first time is refused by the guard that exists to protect it. Byte-identical copy, override burned. Diagnos: `specs/INDEX.pending.md`
@@ -93,11 +92,18 @@ Freeze: since 2026-09-29 · last row 077 · lifts below 40 open · new rows only
 - [x] H2 — integration-hardening — checkpoint — full-system regression + security sweep + mutation spot-check over the ~30 rows ticked since H1 (043–079).
 - [x] 080 — developer-authored-acceptance-cases — full track [hardened] — the developer confirms 3-5 Given/When/Then cases before code on full/hardened specs; guard blocks until then; each AC-n gets a test written first — approved F075
 - [x] 081 — always-loaded-context-budget — spec-only — CLAUDE.md + unscoped rules are ~69 KB every session; context-budget.sh caps it at 40 KB with a ratchet test; rationale moves to on-demand docs — approved F076
+- [ ] 082 — harness-supply-chain-and-unattended-exec — full track [hardened] — autosync pulls main unpinned, the nightly runs repo-controlled strings, lane-catchup strips ~/.ssh denies, prune can destroy agent work. F037 F043 F045 F062–F067.
+- [ ] 083 — guard-bypass-and-fail-open — full track [hardened] — PreToolUse guards fail open without jq, miss unnormalised paths, exempt any */scripts/*, miss a split tick; the deny list is bypassable. F029 F035 F038–F042 F044.
+- [ ] 084 — autosync-sandbox-and-harness-env — full track — the root walk loops on a relative dir, sandboxed runs still push, self-tests inherit CLAUDE_PROJECT_DIR and CDPATH. F013 F015–F020.
+- [ ] H3 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 080–084.
+- [ ] 085 — template-mutation-runner-and-core-coverage — full track — the template has no mutation runner, so the job is due forever; kill the surviving mutants in autosync, maintenance and freshness. F047 F048 F049 F058 F071–F073.
+- [ ] 086 — maintenance-and-gate-blind-spots — spec-only — maintenance and gates pass silently on what they cannot see (NOT SCANNED, missing CORE scripts, project hooks, wrong suite). F001 F003 F005 F010 F023 F025 F027 F032 F033 F051 F052 F059 F060 F068–F070.
+- [ ] 087 — docs-and-skill-reference-fixes — spec-only — spec-kit SC numbering collides with the scenario map, agent memory strands in worktrees, agent reviews can read a stale tree, two reference docs teach wrong examples. F006–F009 F054.
 
 ## Register history (newest first)
 
+- 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).
 - 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.
 - 2026-10-01 — rows 080 and 081 added from approved proposals F075/F076 (tech-lead review: developer-owned acceptance cases, context budget).
 - 2026-09-30 — 050 ticked: the hint lint works from allium 3.3.0; the hook flags an older CLI once, the skill teaches `-- see:` and names the F089 trigger.
 - 2026-09-30 — 049 ticked: --spec takes a register id at any status, so a held or ticked row's run log is writable again. Implicit failures name the flag.
-- 2026-09-30 — 048 ticked: SC ids grow past 999 without re-padding; the width discriminator measures the narrowest id and now has a test.
