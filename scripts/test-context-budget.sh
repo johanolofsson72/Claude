@@ -62,7 +62,7 @@ bytes 2000 > "$F/.claude/docs/imported.md"
 c=$(wc -c < "$F/CLAUDE.md" | tr -d ' ')
 got=$(total_of "$F")
 [ "$got" = "$((c + 2000))" ] && ok "an @-import is followed" || fail "with import: $got, want $((c + 2000))"
-printf '%s\n@.claude/docs/missing.md\n' "$(cat "$F/CLAUDE.md")" > "$F/CLAUDE.md"
+printf '%s\n@.claude/docs/%s\n' "$(cat "$F/CLAUDE.md")" missing.md > "$F/CLAUDE.md"
 bash "$BUDGET" --root "$F" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "a missing @-import exits 2" || fail "missing import rc $rc"
 F="$TMP/f2b"; mkdir -p "$F"

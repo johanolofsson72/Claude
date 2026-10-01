@@ -1,0 +1,2 @@
+# Template self-test suite: every scripts/test-*.sh, each judged by its exit code (F047).
+f=0; for t in scripts/test-*.sh; do if timeout 900 bash "$t" >/dev/null 2>&1; then echo "ok   $t"; else echo "FAIL $t"; f=1; fi; done; echo "suite: $(ls scripts/test-*.sh | wc -l | tr -d ' ') scripts"; exit $f
