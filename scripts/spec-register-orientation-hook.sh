@@ -186,6 +186,19 @@ if [ -n "$FOUND_REG" ]; then
       NEXT_LINE="(register complete — all ${TOTAL} specs done)"
     fi
   fi
+  # Spec 086 (F025): what the Next row's `needs …` clause holds. The row is still Next — the guards
+  # resolve the same one — but a dependency that is not ticked, or a condition no script can check,
+  # is said before work starts instead of discovered halfway through it.
+  NEEDS_WARN=""
+  case "$NEXT_LINE" in
+    "("*) ;;
+    *) if [ "$_has_py" = 1 ] && [ -f "$_ORIENT_SCRIPT_DIR/lane_status.py" ]; then
+         _needs_id=${NEXT_LINE%% *}
+         _needs_out=$(python3 "$_ORIENT_SCRIPT_DIR/lane_status.py" --root "${PROJECT_ROOT:-$PWD}" --needs-note "$_needs_id" 2>/dev/null)
+         [ -n "$_needs_out" ] && NEEDS_WARN="
+$_needs_out"
+       fi ;;
+  esac
   LANE_NOTE=""
   [ -n "$LANE" ] && LANE_NOTE="
 Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from this
@@ -463,7 +476,7 @@ ${CONV_LINE:+· ${CONV_LINE}
     fi
   fi
 
-  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${MAINT_DUE}"
+  ACTIONABLE="${NEEDS_WARN}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${MAINT_DUE}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
     MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)${SIZE_NOTE}"
     orient_emit "$MSG"
@@ -472,7 +485,7 @@ ${CONV_LINE:+· ${CONV_LINE}
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${SIZE_NOTE}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${NEEDS_WARN}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${SIZE_NOTE}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   orient_emit "$MSG"

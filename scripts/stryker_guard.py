@@ -5,6 +5,7 @@
     python3 scripts/stryker_guard.py live <root>      # Stryker or a dotnet build running in <root>
     STRYKER_GUARD_CMD='<bash command>' python3 scripts/stryker_guard.py command <root>
     python3 scripts/stryker_guard.py sweep <root>     # remove abandoned StrykerJS temp dirs (row 053)
+    python3 scripts/stryker_guard.py break <config>   # the config's thresholds.break, or nothing (F051)
 
 1. THE PATTERN SAYS ONE THING AND STRYKER DOES ANOTHER. ighweld-2026 measured three shapes:
    `'**/X.cs{845-1080}'` (F184) has a hyphen where Stryker wants `..`, so the braces become part of
@@ -50,6 +51,8 @@ import signal
 import stat
 import subprocess
 import sys
+
+from bash_write_targets import blank_heredoc_bodies  # one heredoc reader (F052)
 
 PRUNE = {"bin", "obj", "node_modules", ".git", "StrykerOutput", ".stryker-tmp"}
 GOOD_SPAN = re.compile(r"\{(\d{1,12})\.\.(\d{1,12})\}")
@@ -681,19 +684,6 @@ KEYWORDS = {"if", "then", "elif", "else", "do", "while", "until", "!", "{", "}"}
 OPT_WITH_VALUE = {"-n", "-k", "-s", "-u", "--signal", "--kill-after", "--adjustment", "--unset"}
 
 
-def strip_heredocs(cmd):
-    """Drop heredoc bodies: a line of prose inside `cat > f <<EOF` is data, not a command."""
-    out, ends = [], []
-    for line in cmd.split("\n"):
-        if ends:
-            if line.strip() == ends[0]:
-                ends.pop(0)
-            continue
-        out.append(line)
-        ends.extend(m.group(2) for m in re.finditer(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", line))
-    return "\n".join(out)
-
-
 def simple_commands(cmd):
     lex = shlex.shlex(cmd.replace("\n", " ; "), posix=True, punctuation_chars=True)
     lex.whitespace_split = True
@@ -743,7 +733,9 @@ def verdict_of(root, cmd):
     """(the reasons to deny, whether the command starts a Stryker run of either kind)."""
     if not cmd or "STRYKER_GUARD=off" in cmd:
         return [], False
-    body = strip_heredocs(cmd)
+    # Blanked by the shared reader, then the blank lines dropped: a long heredoc body must not push
+    # a short command past PARSE_LIMIT into the coarse reading.
+    body = "\n".join(ln for ln in blank_heredoc_bodies(cmd).split("\n") if ln.strip())
     kinds, pats, js = set(), [], False
     if len(body) > PARSE_LIMIT:
         # A command this size after its heredocs are gone is not a dotnet call worth tokenizing, so it
@@ -790,6 +782,32 @@ def verdict_of(root, cmd):
     return reasons, starts_stryker or js
 
 
+def config_break(path):
+    """thresholds.break of a Stryker config, read the way Stryker.NET reads it, or None (F051).
+
+    project-maintenance.sh read this with a bare json.load and case-sensitive keys, so a config with a
+    comment, a BOM, a trailing comma or `"Thresholds"` kept its patterns checked by `configs` and lost
+    its break. One reader for both: bounded, lenient, keys matched without case.
+    """
+    text = read_bounded(path, PARSE_FILE_LIMIT)
+    if text is None:
+        return None
+    try:
+        d = loads_lenient(text)
+    except ValueError:
+        return None
+    if not isinstance(d, dict):
+        return None
+    inner = ci_get(d, "stryker-config")
+    if isinstance(inner, dict):
+        d = inner
+    th = ci_get(d, "thresholds")
+    b = ci_get(th, "break") if isinstance(th, dict) else None
+    if isinstance(b, bool) or not isinstance(b, (int, float)):
+        return None
+    return int(b)
+
+
 def arm_deadline():
     """Give up as a timeout after STRYKER_GUARD_DEADLINE seconds (spec 082, review finding 6).
 
@@ -816,10 +834,15 @@ def arm_deadline():
 
 
 def main(argv):
-    if len(argv) != 3 or argv[1] not in ("configs", "live", "command", "sweep"):
+    if len(argv) != 3 or argv[1] not in ("configs", "live", "command", "sweep", "break"):
         sys.stderr.write(__doc__)
         return 2
     root = argv[2]
+    if argv[1] == "break":
+        b = config_break(root)
+        if b is not None:
+            print(b)
+        return 0
     if argv[1] in ("configs", "live", "sweep"):
         arm_deadline()
     if argv[1] == "configs":

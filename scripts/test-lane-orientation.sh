@@ -162,6 +162,38 @@ fixture "$(for i in 01 02 03 04 05 06; do printf -- '- [ ] 1%s — r%s — full 
 OUT=$(run sam)
 check "8e exactly six: no brief tail" "$OUT" "more)" absent
 
+# 9. The SessionStart banner says what the Next row's needs clause holds (spec 086, F025).
+#    075 was offered with "needs 074 + five ordinary specs ticked under its ledger" at 0 of 5.
+ORIENT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/spec-register-orientation-hook.sh"
+orient() { (cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" bash "$ORIENT") 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // .systemMessage // ""'; }
+fixture '- [x] 073 — a — spec-only — x
+- [ ] 075 — place — light track — needs 074 + five ordinary specs ticked under its ledger. Per job: local.
+- [ ] 074 — measure — spec-only — x'
+OUT=$(orient)
+check "9a Next is still the row the guards resolve" "$OUT" "Next: 075 — place" present
+check "9b an open dependency is a blocked line"     "$OUT" "⚠ blocked: this row needs 074, not ticked" present
+check "9c the prose half is quoted to check"        "$OUT" "needs 074 + five ordinary specs ticked under its ledger — no script checks that" present
+fixture '- [x] 073 — a — spec-only — x
+- [ ] 076 — d — spec-only — needs 073'
+OUT=$(orient)
+check "9d a ticked dependency is not called blocked" "$OUT" "⚠ blocked" absent
+check "9e and has no prose to check"                "$OUT" "no script checks that" absent
+fixture '- [ ] 077 — e — spec-only — the freeze needs teeth: a line'
+OUT=$(orient)
+check "9f 'needs' as a verb in the goal is not a clause" "$OUT" "no script checks that" absent
+fixture '- [x] 073 — a — spec-only — x
+- [ ] 078 — f — spec-only — needs 099, 073'
+OUT=$(orient)
+check "9g an id naming no row is named"             "$OUT" "⚠ needs names no row: 099" present
+check "9h and the ticked one is not called blocked" "$OUT" "blocked" absent
+fixture '- [x] 073 — a — spec-only — x
+- [ ] 079 — g — spec-only — needs 073'
+printf -- '- [x] 072 — old — spec-only — x\n' > "$ROOT/specs/INDEX.completed.md"
+sed -i.bak 's/needs 073/needs 072/' "$ROOT/specs/INDEX.md"
+OUT=$(orient)
+check "9i a row ticked only in the archive counts as ticked" "$OUT" "⚠ blocked" absent
+check "9j and as a row that exists"                 "$OUT" "names no row" absent
+
 # 6. No register at all → silent, exit 0.
 ROOT=$(mktemp -d); mkdir -p "$ROOT/.git"
 OUT=$(CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER=alex bash "$HOOK" 2>/dev/null); RC=$?

@@ -82,10 +82,29 @@ rel() {
   esac
 }
 
+# Quoted for POSIX sh only when it has to be (spec 086, F069). template-sync-verify.sh runs line 1
+# with `sh -c`, and a path is whatever `find` returned: a directory named `a;b` or `$(x)` would be
+# run, not read. Single quotes, because printf %q can emit bash-only $'…' that sh does not parse.
+# A plain path prints unchanged, so the line a person reads stays the line they would type.
+shq() {
+  case "$1" in
+    ''|*[!A-Za-z0-9._/+-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# A test project with no .cs file under it runs zero tests and proves nothing (F060: matchgrid's
+# Tests.Unit had none, and was chosen because its name said unit). Same pruning as the rest.
+has_sources() {
+  [ -n "$(find "$(dirname "$1")" \( -name bin -o -name obj -o -name node_modules -o -name TestResults \) -prune \
+            -o -name '*.cs' -type f -print 2>/dev/null | awk 'NR == 1 { print; exit }')" ]
+}
+
 # ----------------------------------------------------------------- .NET candidates
 # Matched on the FILENAME, never the path: ~/repos/testing/App.csproj is not a test project, and
 # a rule that reads the directory would decide it was.
-TEST_PROJECTS=$(_find 4 '*.csproj' | awk -F/ 'tolower($NF) ~ /test/' | LC_ALL=C sort)
+TEST_PROJECTS=$(_find 4 '*.csproj' | awk -F/ 'tolower($NF) ~ /test/' | LC_ALL=C sort |
+  while IFS= read -r p; do has_sources "$p" && printf '%s\n' "$p"; done)
 N_TESTS=$(printf '%s\n' "$TEST_PROJECTS" | grep -c .)
 
 UNIT_PROJECTS=$(printf '%s\n' "$TEST_PROJECTS" | awk -F/ 'NF && tolower($NF) ~ /unit/')
@@ -95,7 +114,7 @@ N_UNIT=$(printf '%s\n' "$UNIT_PROJECTS" | grep -c .)
 DOTNET_EVIDENCE='(Passed!|Failed!|Total tests|Passed:[[:space:]]*[0-9])'
 
 emit_dotnet() {
-  printf 'dotnet test %s --nologo\n' "$(rel "$1")"
+  printf 'dotnet test %s --nologo\n' "$(shq "$(rel "$1")")"
   printf '%s: %s\n' "$2" "$(rel "$1")"
   printf '%s\n' "$DOTNET_EVIDENCE"
   exit 0
@@ -187,6 +206,31 @@ fi
 # integration and E2E suites, which want a server, a browser and a database — so it would fail
 # environmentally and report a healthy project as known-bad.
 
+# The project's own words first (F060). noisycricket-rmk's CLAUDE.md runs `dotnet test
+# club/Tests/Tests.csproj`, and the name rule below picked nUnitTest/ (a 2023 Playwright recording
+# that needs the app on :5001) because "nUnit" contains "unit". Exactly one distinct `dotnet test
+# <path>` without --filter, naming a test project that exists and has sources and is not an E2E or UI
+# suite, is the command. Two or more is the ambiguity this detector declines everywhere else.
+claude_md_project() {
+  [ -f "$ROOT/CLAUDE.md" ] || return 0
+  grep -oE 'dotnet test [^`"|;&)]+' "$ROOT/CLAUDE.md" 2>/dev/null | grep -v -- '--filter' |
+    awk '{ for (i = 3; i <= NF; i++) if ($i !~ /^-/) { print $i; break } }' | sed 's/[.,:]*$//' | LC_ALL=C sort -u |
+    while IFS= read -r arg; do
+      case "$arg" in /*|*..*) continue ;; esac
+      if [ -f "$ROOT/$arg" ]; then
+        case "$arg" in *.csproj) printf '%s\n' "$ROOT/$arg" ;; esac
+      elif [ -d "$ROOT/$arg" ]; then
+        set -- "$ROOT/${arg%/}"/*.csproj
+        [ "$#" -eq 1 ] && [ -f "$1" ] && printf '%s\n' "$1"
+      fi
+    done | awk -F/ 'tolower($NF) !~ /(e2e|ui|playwright|browser)/' |
+    while IFS= read -r p; do has_sources "$p" && printf '%s\n' "$p"; done | LC_ALL=C sort -u
+}
+NAMED=$(claude_md_project)
+if [ -n "$NAMED" ] && [ "$(printf '%s\n' "$NAMED" | grep -c .)" -eq 1 ]; then
+  emit_dotnet "$NAMED" "named in CLAUDE.md"
+fi
+
 if [ "$N_UNIT" -eq 1 ]; then
   emit_dotnet "$UNIT_PROJECTS" "unit test project"
 fi
@@ -196,7 +240,7 @@ if [ "$N_TESTS" -eq 1 ]; then
 fi
 
 if [ "$N_NODE" -eq 1 ]; then
-  printf 'npm --prefix %s test\n' "$(rel "$NODE_DIR")"
+  printf 'npm --prefix %s test\n' "$(shq "$(rel "$NODE_DIR")")"
   printf 'package.json scripts.test: %s\n' "$NODE_SCRIPT"
   printf '\n'   # empty evidence pattern — a human wrote this command, FR-008 does not apply
   exit 0

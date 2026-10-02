@@ -67,7 +67,7 @@ or a desktop that stays awake. It is **opt-in and not the default**, and if you 
 `--if-due` so a night with no work costs a second instead of a full pass.
 
 Install it from a shell where dotnet, node and docker already work. Cron's own PATH has none of
-them, so the installer saves the current PATH to `~/.claude/nightly/<project>.path` and the job reads
+them, so the installer saves the current PATH to `~/.claude/nightly/<project>-<cksum of the root>.path` and the job reads
 it from there. Re-run the installer after you add a toolchain. Every run writes a
 `claude-nightly: start` line and a `claude-nightly: end exit=N` line to the log, so a run that
 failed can't be mistaken for one that never happened. Lines installed before row 065 have no PATH

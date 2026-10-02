@@ -24,7 +24,7 @@
 # The line runs under the PATH this installer runs under, because cron's own PATH
 # (/usr/bin:/bin:/usr/sbin:/sbin) has no dotnet, node, npm, docker or timeout
 # (fundit F084). Install from the shell your tools work in; re-run after adding a
-# toolchain. The PATH lives in ~/.claude/nightly/<project>.path, not in the line:
+# toolchain. The PATH lives in ~/.claude/nightly/<project>-<cksum>.path, not in the line:
 # BSD/macOS cron truncates a command at 999 characters without a word, and a
 # developer PATH alone is longer than that. A line over the limit is refused.
 #
@@ -69,8 +69,19 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   echo "install-nightly-maintenance.sh: not inside a git repository" >&2; exit 2; }
 PROJECT=$(basename "$ROOT")
 LOGDIR="$HOME/.claude/nightly"
-LOG="$LOGDIR/$PROJECT.log"
-PATHFILE="$LOGDIR/$PROJECT.path"
+# Keyed by the whole root, not its basename (F068): two clones named `app` shared one log and one PATH
+# file, and --remove of one deleted the PATH file the other's nightly reads. The basename stays in the
+# name so a person can still tell the files apart; cksum is POSIX and in Git Bash.
+ROOT_SUM=$(printf '%s' "$ROOT" | cksum | awk '{ print $1 }')
+KEY="$PROJECT-$ROOT_SUM"
+LOG="$LOGDIR/$KEY.log"
+PATHFILE="$LOGDIR/$KEY.path"
+# Lines installed before 086 read <basename>.path. It goes only when no remaining line still names it.
+LEGACY_PATHFILE="$LOGDIR/$PROJECT.path"
+drop_legacy_pathfile() { # drop_legacy_pathfile <the crontab now installed>
+  [ -f "$LEGACY_PATHFILE" ] || return 0
+  grep -qF "$LEGACY_PATHFILE" <<< "$1" || rm -f "$LEGACY_PATHFILE"
+}
 # The marker is what makes this idempotent and removable: it identifies OUR line
 # in a crontab the developer also uses for their own things.
 MARKER="# claude-nightly-maintenance:$ROOT"
@@ -135,6 +146,7 @@ if [ "$MODE" = "remove" ]; then
   if [ "$DRY" -eq 1 ]; then echo "(dry-run) would remove the nightly job for $PROJECT"; exit 0; fi
   printf '%s\n' "$cleaned" | crontab -
   rm -f "$PATHFILE"
+  drop_legacy_pathfile "$cleaned"
   echo "removed: nightly maintenance for $PROJECT"
   exit 0
 fi
@@ -198,6 +210,7 @@ printf '%s\n' "$CAPTURED" > "$PATHFILE" || {
   echo "install-nightly-maintenance.sh: cannot write $PATHFILE" >&2; exit 1; }
 printf '%s\n%s\n' "$cleaned" "$LINE" | sed '/^$/d' | crontab - || {
   echo "install-nightly-maintenance.sh: crontab refused the update" >&2; exit 1; }
+drop_legacy_pathfile "$cleaned"
 
 cat <<MSG
 installed: $PROJECT — nightly maintenance at $(printf '%02d:%02d' "$HH" "$MM")

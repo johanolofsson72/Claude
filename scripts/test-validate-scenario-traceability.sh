@@ -669,6 +669,50 @@ else
   bad "case38-empty-declaration-refuses" "expected exit 4 for an empty declaration, got $RC: $OUT"
 fi
 
+# case51 — A GLOB ROOT CREDITS A SCRIPT SELF-TEST AND NOTHING ELSE IN ITS DIRECTORY (spec 086, F005).
+# ighweld F047: a scenario proven by scripts/test-x.sh could not be credited without listing scripts/,
+# which admits every source comment there as proof (row 012). `scripts/test-*.sh` reads the self-tests
+# only. This runs from the template's own tree, where scripts/test-*.sh matches ninety files: a
+# declaration the shell globbed would hand the gate those paths instead of the pattern.
+proj=$(new_project)
+mkdir -p "$proj/scripts"
+{ map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf '#!/bin/bash\n'; printf '# proves %s\n' "$(id 901)"; } > "$proj/scripts/test-thing.sh"
+{ printf '#!/bin/bash\n'; printf '# implements %s\n' "$(id 902)"; } > "$proj/scripts/thing.sh"
+printf 'tests\nscripts/test-*.sh\n' > "$proj/specs/traceability-roots"
+OUT=$(cd "$REPO_ROOT" && bash "$SCRIPT" --dir "$proj/specs" 2>&1); RC=$?
+if [ "$RC" -eq 1 ] && grep -q "$(id 902)" <<< "$OUT" && ! grep -q "$(id 901)" <<< "$OUT"; then
+  ok "case51-glob-root-reads-the-self-test-not-the-source"
+else
+  bad "case51-glob-root-reads-the-self-test-not-the-source" "expected exit 1 with 902 uncovered and 901 credited, got $RC: $OUT"
+fi
+
+# case52 — a glob root that matches nothing refuses, like a missing root (zero files read is not clean).
+proj=$(new_project)
+mkdir -p "$proj/scripts"
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf 'spec\n'; printf 'it covers %s\n' "$(id 901)"; } > "$proj/tests/a.spec.ts"
+printf 'tests\nscripts/nope-*.sh\n' > "$proj/specs/traceability-roots"
+run_gate "$proj"
+if [ "$RC" -eq 4 ] && grep -q 'matches no file: scripts/nope-\*.sh' <<< "$OUT"; then
+  ok "case52-glob-root-matching-nothing-refuses"
+else
+  bad "case52-glob-root-matching-nothing-refuses" "expected exit 4 naming the pattern, got $RC: $OUT"
+fi
+
+# case53 — the same root through --roots, and only files directly in the directory count.
+proj=$(new_project)
+mkdir -p "$proj/scripts/deeper"
+{ map_header; row 901 "$V"; row 903 "$V"; } > "$proj/specs/SCENARIOS.md"
+{ printf '#!/bin/bash\n'; printf '# proves %s\n' "$(id 901)"; } > "$proj/scripts/test-thing.sh"
+{ printf '#!/bin/bash\n'; printf '# proves %s\n' "$(id 903)"; } > "$proj/scripts/deeper/test-other.sh"
+run_gate "$proj" --roots 'scripts/test-*.sh'
+if [ "$RC" -eq 1 ] && grep -q "$(id 903)" <<< "$OUT" && ! grep -q "$(id 901)" <<< "$OUT"; then
+  ok "case53-glob-root-via-flag-is-one-directory-deep"
+else
+  bad "case53-glob-root-via-flag-is-one-directory-deep" "expected exit 1 with only 903 uncovered, got $RC: $OUT"
+fi
+
 # case39 — NO DECLARATION MEANS NOTHING CHANGED. The additive property, asserted rather than
 # assumed: every project in the fleet that does not carry the file must behave exactly as it did
 # before this feature existed.

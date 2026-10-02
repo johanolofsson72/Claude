@@ -85,6 +85,12 @@ mkfix() {
   # a passing pair; C40-C45 take them away or change their exit on purpose.
   printf '#!/bin/bash\nexit 0\n' > "$d/scripts/validate-portability.sh"
   : > "$d/scripts/portability_audit.py"
+  # Spec 086: these sections now say when their CORE script is missing ([SETUP]), so every fixture
+  # carries a passing stub; C120-C134 take them away or change them on purpose.
+  printf '#!/bin/bash\nexit 0\n' > "$d/scripts/validate-no-sigpipe-assertions.sh"
+  printf '#!/bin/bash\nexit 0\n' > "$d/scripts/register-convergence.sh"
+  : > "$d/scripts/carve_audit.py"
+  printf '#!/bin/bash\nexit 0\n' > "$d/scripts/validate-hooks.sh"
   printf '%s' "$d"
 }
 
@@ -287,7 +293,7 @@ mkfix_mut() { # mkfix_mut <name> <break or "none">
   # helper that does it and one .cs file for `**/*.cs` to match. Without them every arm here would
   # carry a pattern finding for a reason its name does not state.
   printf 'class App {}\n' > "$d/proj/App.cs"
-  cp "$DIR/stryker_guard.py" "$d/scripts/stryker_guard.py"
+  cp "$DIR/stryker_guard.py" "$DIR/bash_write_targets.py" "$d/scripts/"
   if [ "$2" = "none" ]; then
     printf '%s\n' '{ "stryker-config": { "project": "App.csproj", "mutate": ["**/*.cs"] } }' > "$d/stryker-config.json"
   else
@@ -1292,6 +1298,98 @@ printf 'import sys\nsys.exit(1)\n' > "$D/scripts/e2e-gate-census.py"
 OUT=$(run "$D"); RC=$?
 expect_rc       "C109 085-AC-3 findings fixture exits 1"             1 "$RC"
 expect_rc       "C109 085-AC-3 red pass recorded with rc 1"          1 "$(pass_rc "$D")"
+
+# ================================================ C120-C134 — what a pass did not look at (spec 086)
+fresh_stub() { # fresh_stub <dir> <RESULT line> — a freshness that exits 0 with that RESULT
+  printf '#!/bin/bash\necho " SUMMARY  Secrets: NOT RUN — trufflehog missing"\necho "          Keys:    ok"\necho "%s"\nexit 0\n' "$2" \
+    > "$1/scripts/project-freshness.sh"
+}
+# --- C120/C121: freshness exit 0 over NOT SCANNED is not clean (F033) -------------------------------
+D=$(mkfix c120); fresh_stub "$D" " RESULT: no findings, but NOT SCANNED: trufflehog — see above. That is not clean."
+OUT=$(run "$D"); RC=$?
+expect_contains "C120 a secret pass NOT SCANNED is a finding"        "[SECRETS/DEPS] NOT SCANNED" "$OUT"
+expect_contains "C120 it quotes the secrets status"                  "Secrets: NOT RUN — trufflehog missing" "$OUT"
+expect_rc       "C120 the run is red"                                1 "$RC"
+D=$(mkfix c121); fresh_stub "$D" " RESULT: no findings, but NOT SCANNED: deps(Gemfile.lock) — see above. That is not clean."
+OUT=$(run "$D"); RC=$?
+expect_contains "C121 unchecked manifests alone are a note"          "dependency manifests not scanned — deps(Gemfile.lock)" "$OUT"
+expect_absent   "C121 and not a finding"                             "[SECRETS/DEPS]" "$OUT"
+expect_rc       "C121 the run stays clean"                           0 "$RC"
+D=$(mkfix c121b); fresh_stub "$D" " RESULT: clean (no verified credentials, no committed key material, no reported advisories)."
+OUT=$(run "$D"); RC=$?
+expect_absent   "C121b a clean RESULT says nothing"                  "NOT SCANNED" "$OUT"
+
+# --- C122/C123: a missing CORE script in 2c or 6b is a SETUP finding (F032) -------------------------
+D=$(mkfix c122); rm -f "$D/scripts/validate-no-sigpipe-assertions.sh"
+OUT=$(run "$D"); RC=$?
+expect_contains "C122 no SIGPIPE gate — SETUP"                       "[SETUP] SIGPIPE check did not run — scripts/validate-no-sigpipe-assertions.sh missing" "$OUT"
+expect_rc       "C122 the run is red"                                1 "$RC"
+D=$(mkfix c123); mkdir -p "$D/specs"; printf '# Spec register\n\n## Specs\n\n- [ ] 001 — a — spec-only — x\n' > "$D/specs/INDEX.md"
+rm -f "$D/scripts/carve_audit.py"
+OUT=$(run "$D")
+expect_contains "C123 no carve audit with a register — SETUP naming it" "[SETUP] carve shape check did not run — scripts/carve_audit.py missing" "$OUT"
+D=$(mkfix c123b); rm -f "$D/scripts/carve_audit.py" "$D/scripts/register-convergence.sh"
+OUT=$(run "$D")
+expect_absent   "C123b no register, nothing to audit — no carve SETUP" "carve shape check" "$OUT"
+
+# --- C124: a commented config keeps its break (F051) ------------------------------------------------
+D=$(mkfix_mut c124 79); mk_dotnet "$D" 79.50 0
+printf '%s\n' '// thresholds per H2' '{ "stryker-config": { "project": "App.csproj", "mutate": ["**/*.cs"], /* local */ "Thresholds": { "Break": 79, }, } }' > "$D/stryker-config.json"
+OUT=$(run_full "$D")
+expect_absent   "C124 a commented config's break (79) is read, so 79.50 passes its own gate" "[MUTATION]" "$OUT"
+
+# --- C125-C128: the hook check runs every pass (F001/F003) ------------------------------------------
+D=$(mkfix c125); rm -f "$D/scripts/validate-hooks.sh"
+OUT=$(run "$D"); RC=$?
+expect_contains "C125 no hook check — SETUP"                         "[SETUP] hook check did not run — scripts/validate-hooks.sh missing" "$OUT"
+expect_rc       "C125 the run is red"                                1 "$RC"
+D=$(mkfix c126); printf '#!/bin/bash\necho "UNRESOLVED user SessionStart: unexpanded variable in the script path x"\necho "hooks: 3 command hook(s) from 1 file(s), 1 finding(s)"\nexit 1\n' > "$D/scripts/validate-hooks.sh"
+OUT=$(run "$D"); RC=$?
+expect_contains "C126 an unresolved hook is a HOOKS finding"         "[HOOKS] hook command(s) that will fail" "$OUT"
+expect_contains "C126 the finding line is carried"                   "UNRESOLVED user SessionStart" "$OUT"
+expect_absent   "C126 the summary line is not"                       "hooks: 3 command hook(s)" "$OUT"
+expect_rc       "C126 the run is red"                                1 "$RC"
+D=$(mkfix c127); printf '#!/bin/bash\necho "validate-hooks: python3 not found"\nexit 2\n' > "$D/scripts/validate-hooks.sh"
+OUT=$(run "$D")
+expect_contains "C127 a hook check that cannot run says so"          "[HOOKS] scripts/validate-hooks.sh could not run (exit 2)" "$OUT"
+D=$(mkfix c128); cp "$DIR/validate-hooks.sh" "$DIR/hook_audit.py" "$D/scripts/"
+printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"bash \\"$CLAUDE_PROJECT_DIR/scripts/gone.sh\\""}]}]}}\n' > "$D/.claude/settings.json"
+mkdir -p "$D/home"; OUT=$(run "$D" HOOK_AUDIT_HOME="$D/home")
+expect_contains "C128 the real check names a missing project hook"   "script not found" "$OUT"
+
+# --- C129-C134: CORE self-tests under --full (F023) -------------------------------------------------
+core_fix() { # core_fix <name> <rc of test-a> — a synced fixture whose core-gates.sh lists two tests
+  local d; d=$(mkfix "$1"); : > "$d/.claude/.template-sync"
+  printf '#!/bin/bash\nprintf "test-a.sh\\ntest-b.sh\\n"\n' > "$d/scripts/core-gates.sh"
+  printf '#!/bin/bash\necho "a: tail line"\nexit %s\n' "$2" > "$d/scripts/test-a.sh"
+  printf '#!/bin/bash\nexit 0\n' > "$d/scripts/test-b.sh"
+  printf '%s' "$d"
+}
+D=$(core_fix c129 0)
+OUT=$(run "$D"); expect_absent "C129 a plain pass does not run CORE self-tests" "CORE self-test" "$OUT"
+OUT=$(run_full "$D"); RC=$?
+expect_contains "C130 --full runs them and counts the green"         "CORE self-tests: 2 of 2 green" "$OUT"
+D=$(core_fix c131 3)
+OUT=$(run_full "$D"); RC=$?
+expect_contains "C131 a red CORE self-test is a finding"             "[CORE SELF-TEST] 1 of 2 CORE self-test(s) not green" "$OUT"
+expect_contains "C131 it names the test and its exit"                "scripts/test-a.sh exit 3" "$OUT"
+expect_contains "C131 with its tail"                                 "a: tail line" "$OUT"
+expect_contains "C131 and points at the template register"           "template's register" "$OUT"
+D=$(core_fix c132 0); rm -f "$D/scripts/test-b.sh"
+OUT=$(run_full "$D")
+expect_contains "C132 a listed test that is missing is SETUP"        "[SETUP] CORE self-test(s) core-gates.sh lists are missing — scripts/test-b.sh" "$OUT"
+D=$(core_fix c133 0); printf '#!/bin/bash\necho "core-gates.sh: cannot list"\nexit 2\n' > "$D/scripts/core-gates.sh"
+OUT=$(run_full "$D")
+expect_contains "C133 a core-gates.sh that cannot answer is SETUP"   "[SETUP] CORE self-tests did not run — scripts/core-gates.sh exit 2" "$OUT"
+D=$(core_fix c134 3); rm -f "$D/.claude/.template-sync"
+OUT=$(run_full "$D")
+expect_contains "C134 the template (no sync stamp) does not run them" "CORE self-tests: not run — no .claude/.template-sync" "$OUT"
+expect_absent   "C134 so its red test is not reported here"          "[CORE SELF-TEST]" "$OUT"
+if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; then
+  D=$(core_fix c135 0); printf '#!/bin/bash\nsleep 30\n' > "$D/scripts/test-a.sh"
+  OUT=$( cd "$D" && chmod +x scripts/*.sh; MAINTENANCE_CORE_TEST_TIMEOUT=1 PATH="$D/bin:$PATH" bash "$MAINT" --full 2>&1 )
+  expect_contains "C135 a CORE self-test past its bound is a finding, not a pass" "scripts/test-a.sh timed out after 1s" "$OUT"
+fi
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

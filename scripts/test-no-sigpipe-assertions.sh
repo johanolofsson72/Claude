@@ -557,6 +557,50 @@ else
       "piped stderr=[$PIPED_ERR] here-string stderr=[$HERE_ERR]"
 fi
 
+# --- ARM 22 — a pipe inside a command substitution is a counted leak, never silence (spec 086, F027) ----
+# --strict printed clean over ~79 `X=$(… | head -1)` sites, because an assignment reads as a diagnostic and
+# a quoted substitution hides its pipe from the quote walk. Both shapes, plus a nested one, must be counted
+# on the clean line; --leaks must name and fail on them; a here-string or a reading consumer must not be.
+D="$SANDBOX_ROOT/arm22"; build_tree "$D" template
+printf '#!/usr/bin/env bash\nset -uo pipefail\n' > "$D/scripts/test-clean.sh"
+cat > "$D/scripts/tool.sh" <<'EOF'
+#!/usr/bin/env bash
+A=$(printf '%s\n' "$X" | head -1)
+B="$(printf '%s\n' "$X" | grep -m1 y)"
+echo "first: $(printf '%s\n' "$(cat f)" | head -1)"
+C=$(head -1 <<< "$X")
+D=$(printf '%s\n' "$X" | sed -n 1p)
+E="literal | head -1"
+# F=$(printf x | head -1)
+EOF
+ALL_OUT="$(SCAN_ROOT="$D" AUTOSYNC="$D/scripts/template-autosync.sh" bash "$GATE" --all 2>&1)"; ALL_RC=$?
+LEAK_OUT="$(SCAN_ROOT="$D" AUTOSYNC="$D/scripts/template-autosync.sh" bash "$GATE" --leaks 2>&1)"; LEAK_RC=$?
+STRICT_OUT="$(SCAN_ROOT="$D" AUTOSYNC="$D/scripts/template-autosync.sh" bash "$GATE" --all --strict 2>&1)"; STRICT_RC=$?
+if [ "$ALL_RC" -eq 0 ] && grep -q '^leaks: 3 early-exit' <<< "$ALL_OUT"; then
+  ok "--all counts unquoted, quoted and nested substitution leaks on its clean line (3, not 0)"
+else
+  bad "--all counts unquoted, quoted and nested substitution leaks on its clean line (3, not 0)" \
+      "rc=$ALL_RC — $(grep '^leaks' <<< "$ALL_OUT")"
+fi
+if [ "$LEAK_RC" -eq 1 ] && grep -q 'scripts/tool.sh:2 ' <<< "$LEAK_OUT" && grep -q 'scripts/tool.sh:3 ' <<< "$LEAK_OUT" \
+   && grep -q 'scripts/tool.sh:4 ' <<< "$LEAK_OUT" && ! grep -qE 'scripts/tool.sh:(5|6|7|8) ' <<< "$LEAK_OUT"; then
+  ok "--leaks names each leak by file and line and fails; here-strings, reading consumers, prose and comments are not leaks"
+else
+  bad "--leaks names each leak by file and line and fails; here-strings, reading consumers, prose and comments are not leaks" \
+      "rc=$LEAK_RC — $(grep 'tool.sh:' <<< "$LEAK_OUT" | tr '\n' ' ')"
+fi
+if [ "$STRICT_RC" -eq 0 ]; then
+  ok "--strict keeps its meaning: leaks alone do not fail it"
+else
+  bad "--strict keeps its meaning: leaks alone do not fail it" "rc=$STRICT_RC"
+fi
+DEF_OUT="$(SCAN_ROOT="$D" AUTOSYNC="$D/scripts/template-autosync.sh" bash "$GATE" 2>&1)"
+if ! grep -q '^leaks' <<< "$DEF_OUT"; then
+  ok "the default self-test scan says nothing about production leaks"
+else
+  bad "the default self-test scan says nothing about production leaks" "$(grep '^leaks' <<< "$DEF_OUT")"
+fi
+
 # --- ARM 21 — in the template, every script passes --strict (SC-1755) ----------------------------------
 # Row 024 cleared the template's 66-line backlog. The template owns every scripts/*.sh, so a new one is
 # fixable where it lands. Downstream the population includes the project's own scripts, which are not

@@ -131,6 +131,31 @@ def _pick(match: re.Match, base: int) -> str | None:
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
+def heredocs(lines: list[str]) -> list[tuple[int, int, list[int]]]:
+    """Every heredoc in *lines*: (opening line index, match start, body line indices).
+
+    A line can open more than one (``cat <<A >a <<B``, or two commands joined by ``;``), and
+    bash reads their bodies one after the other, each up to its own terminator. Taking only
+    the first left the second body to be read as commands (F052). The body indices include
+    the terminator line; an unterminated body runs to the end, as bash reads it.
+    """
+    found: list[tuple[int, int, list[int]]] = []
+    i = 0
+    while i < len(lines):
+        opening = i
+        i += 1
+        for m in HEREDOC.finditer(lines[opening]):
+            body: list[int] = []
+            while i < len(lines) and lines[i].strip() != m.group(2):
+                body.append(i)
+                i += 1
+            if i < len(lines):  # the terminator line
+                body.append(i)
+                i += 1
+            found.append((opening, m.start(), body))
+    return found
+
+
 def blank_heredoc_bodies(cmd: str) -> str:
     """Blank heredoc BODIES, keeping the opening line.
 
@@ -141,25 +166,14 @@ def blank_heredoc_bodies(cmd: str) -> str:
 
     BLANKED, NOT REMOVED (row 058): every target carries its offset in the
     command so it can be resolved against the ``cd`` in force at that point, and
-    dropping lines would shift every offset after them.
+    dropping lines would shift every offset after them. stryker_guard.py imports
+    this too, so there is one heredoc reader (F052).
     """
     lines = cmd.split("\n")
-    out: list[str] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        out.append(line)
-        m = HEREDOC.search(line)
-        i += 1
-        if m:
-            term = m.group(2)
-            while i < len(lines) and lines[i].strip() != term:
-                out.append(" " * len(lines[i]))
-                i += 1
-            if i < len(lines):  # the terminator line too
-                out.append(" " * len(lines[i]))
-                i += 1
-    return "\n".join(out)
+    for _, _, body in heredocs(lines):
+        for j in body:
+            lines[j] = " " * len(lines[j])
+    return "\n".join(lines)
 
 
 def _split_unquoted(text: str) -> list[tuple[str, int]]:
@@ -297,22 +311,12 @@ def opaque_regions(cmd: str) -> list[tuple[str, int]]:
     starts = [0]
     for ln in lines[:-1]:
         starts.append(starts[-1] + len(ln) + 1)
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        line_at = starts[i]
-        m = HEREDOC.search(line)
-        i += 1
-        if not m:
-            continue
-        term = m.group(2)
-        body: list[str] = []
-        while i < len(lines) and lines[i].strip() != term:
-            body.append(lines[i])
-            i += 1
-        i += 1  # the terminator line
-        if _names_interpreter(line):
-            regions.append(("\n".join(body), line_at + m.start()))
+    for opening, at, body in heredocs(lines):
+        if _names_interpreter(lines[opening]):
+            text = [lines[j] for j in body]
+            if body and lines[body[-1]].strip() == HEREDOC.match(lines[opening], at).group(2):
+                text = text[:-1]  # the terminator is not program text
+            regions.append(("\n".join(text), starts[opening] + at))
 
     for seg, start in _split_unquoted(blank_heredoc_bodies(cmd)):
         words = re.findall(r"[^\s]+", seg)

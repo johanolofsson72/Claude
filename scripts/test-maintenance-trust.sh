@@ -42,6 +42,9 @@ mkfix() {
   printf '#!/bin/bash\nexit 0\n' > "$d/scripts/prune-agent-worktrees.sh"
   printf '#!/bin/bash\nexit 0\n' > "$d/scripts/validate-portability.sh"
   : > "$d/scripts/portability_audit.py"
+  # Spec 086: 2c, 6b and 6f say when their CORE script is missing, so the fixture carries passing stubs.
+  for s in validate-no-sigpipe-assertions.sh register-convergence.sh validate-hooks.sh; do printf '#!/bin/bash\nexit 0\n' > "$d/scripts/$s"; done
+  : > "$d/scripts/carve_audit.py"
   printf '#!/bin/bash\n[ "$1" = --stamp ] && echo "$2" >> "%s/stamped"\nexit 0\n' "$d" > "$d/scripts/maintenance-due.sh"
   cp "$DIR/run-verdict.sh" "$d/scripts/" 2>/dev/null
   printf '#!/bin/sh\necho "20 passed, 0 failed"\necho ran >> "%s/ran"\nexit 0\n' "$d" > "$d/tests/run.sh"

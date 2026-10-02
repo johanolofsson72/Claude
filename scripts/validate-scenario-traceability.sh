@@ -97,6 +97,10 @@
 # roots were used is always printed in the report's first line. See the `roots-discovery` region for
 # the candidate list and for the two directories deliberately excluded from it.
 #
+# A root may end in a file glob, `scripts/test-*.sh` (spec 086): only the matching files directly in
+# that directory are read. It credits a scenario a script self-test proves without making the whole
+# directory a root, where source comments would count as proof. A glob matching no file is exit 4.
+#
 # Exit codes — "I cannot answer" is never reported as "the answer is fine":
 #   0  clean — nothing uncovered, nothing dangling
 #   1  uncovered and/or dangling ids found
@@ -414,10 +418,14 @@ if [ "$ROOTS_EXPLICIT" -eq 0 ] && [ -f "$ROOTS_DECL" ]; then
   DECL=""
   # Strip comments and blanks. No `read -r` loop with a pipe: this must work under `set -eu` on a
   # file whose last line has no newline, which a hand-edited config often does.
+  # `set -f`: a glob root (scripts/test-*.sh, spec 086) must reach the gate as written, not as the
+  # shell's expansion of it against whatever directory this runs in.
+  set -f
   for line in $(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$ROOTS_DECL"); do
     [ -n "$line" ] || continue
     if [ -z "$DECL" ]; then DECL="$line"; else DECL="$DECL,$line"; fi
   done
+  set +f
   if [ -n "$DECL" ]; then
     ROOTS="$DECL"
     ROOTS_DECLARED=1
@@ -462,12 +470,24 @@ fi
 : > "$TMP/scan.err"
 OLDIFS=$IFS
 IFS=,
+set -f   # the list is split on commas; a glob root is a pattern for find, not for this shell
 for root in $ROOTS; do
   IFS=$OLDIFS
   [ -n "$root" ] || continue
-  case "$root" in
-    /*) rp="$root" ;;
-    *)  rp="$PROJECT/$root" ;;
+  # A GLOB ROOT (spec 086, F005): a last segment with a glob in it names FILES in one directory.
+  # `scripts/test-*.sh` credits a scenario a script self-test proves without making scripts/ a root,
+  # which would admit every comment in every production script as proof (row 012). Only the matching
+  # files directly in that directory are read.
+  NAMEPAT=""
+  root_dir="$root"
+  case "${root##*/}" in
+    *[\*\?\[]*)
+      NAMEPAT="${root##*/}"
+      case "$root" in */*) root_dir="${root%/*}" ;; *) root_dir="." ;; esac ;;
+  esac
+  case "$root_dir" in
+    /*) rp="$root_dir" ;;
+    *)  rp="$PROJECT/$root_dir" ;;
   esac
   # >>> root-guard
   if [ ! -d "$rp" ]; then
@@ -478,6 +498,11 @@ for root in $ROOTS; do
     exit 4
   fi
   # <<< root-guard
+  # The same refusal for a glob that matches nothing: zero files read is a missing root by another name.
+  if [ -n "$NAMEPAT" ] && [ -z "$(find "$rp" -maxdepth 1 -type f -name "$NAMEPAT" -print 2>/dev/null | sed -n 1p)" ]; then
+    echo "scenario-traceability: reference root matches no file: $root (no $NAMEPAT directly in $rp)" >&2
+    exit 4
+  fi
   : > "$TMP/files"
   # Match ids of ANY length. The keep-filter below used to be [0-9]{3} — see there.
   #
@@ -580,11 +605,11 @@ for root in $ROOTS; do
   # Nothing is lost by it: no map writes a range as SC-NNNN-NNNN (checked on agentcrm, 2026-09-30),
   # and `.claude/rules/scenarios.md` already tells criteria to use letters. case47 pins both halves.
   # >>> build-prune
-  find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
+  find "$rp" ${NAMEPAT:+-maxdepth 1} -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
        -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \
        -o -name blob-report -o -name allure-results -o -name .nyc_output \
        -o -name '*-snapshots' \) \
-       -prune -o -type f \
+       -prune -o -type f ${NAMEPAT:+-name "$NAMEPAT"} \
        ! -name '*.png' ! -name '*.jpg' ! -name '*.jpeg' ! -name '*.gif' ! -name '*.webp' \
        ! -name '*.ico' ! -name '*.pdf' ! -name '*.zip' ! -name '*.webm' ! -name '*.mp4' \
        ! -name '*.woff' ! -name '*.woff2' ! -name '*.ttf' ! -name '*.otf' \
@@ -600,6 +625,7 @@ for root in $ROOTS; do
   printf '%s: %s file(s)\n' "$root" "$(tr -cd '\000' < "$TMP/files" 2>/dev/null | wc -c | tr -d ' ')" >> "$TMP/scanned"
   IFS=,
 done
+set +f
 IFS=$OLDIFS
 
 # ANY id length, not {3}. This filter used to keep only three-digit ids, which was right when it was

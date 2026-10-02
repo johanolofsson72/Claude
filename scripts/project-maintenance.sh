@@ -58,6 +58,11 @@
 # finding. A ratchet opts out with `# maintenance: skip <reason>` in its first 30 lines.
 # MAINTENANCE_RATCHET_TIMEOUT=N  seconds per ratchet (default 300; needs timeout or gtimeout).
 #
+# --full also runs every CORE self-test scripts/core-gates.sh names (spec 086), in a synced project
+# only; a red one is a [CORE SELF-TEST] finding for the template. Every pass runs
+# scripts/validate-hooks.sh: a hook command that does not resolve is a [HOOKS] finding.
+# MAINTENANCE_CORE_TEST_TIMEOUT=N  seconds per CORE self-test (default 300).
+#
 # MAINTENANCE_WORKTREE_GRACE_HOURS=N  how long an agent worktree may sit untouched
 #   before it is reported as abandoned (default 24). Agent worktrees are not locked,
 #   so recency of writes is the only signal that one is still in use; the window keeps
@@ -360,6 +365,22 @@ if [ -f scripts/project-freshness.sh ]; then
   if [ "$FRESH_RC" -ne 0 ]; then
     add "[SECRETS/DEPS] scripts/project-freshness.sh reported findings:
 $(printf '%s' "$FRESH_OUT" | tail -25)"
+  else
+    # Exit 0 is "no findings", which is not "clean": a pass that did not run says NOT SCANNED on its
+    # RESULT line and still exits 0 (F033). A secret pass that did not run is the gap this section
+    # exists for, so it is a finding. Unchecked dependency manifests alone are a note: a manifest
+    # osv-scanner cannot read stays unread, and a pass that is red forever is a pass nobody reads.
+    FRESH_NS=$(grep -E '^ RESULT: no findings, but NOT SCANNED:' <<< "$FRESH_OUT" | sed -n 1p)
+    if [ -n "$FRESH_NS" ]; then
+      FRESH_NS_LIST=${FRESH_NS#*NOT SCANNED:}; FRESH_NS_LIST=${FRESH_NS_LIST%% — *}
+      if grep -qE '(^| )(trufflehog|key-shape)( |$)' <<< "$FRESH_NS_LIST"; then
+        add "[SECRETS/DEPS] NOT SCANNED — scripts/project-freshness.sh found nothing because a secret pass did not run:
+ ${FRESH_NS# }
+$(grep -E '^ (SUMMARY  Secrets| {9}Keys):' <<< "$FRESH_OUT" | sed -n 1,2p)"
+      else
+        note "[note] secrets/deps: dependency manifests not scanned —${FRESH_NS_LIST} (scripts/project-freshness.sh)"
+      fi
+    fi
   fi
 else
   add "[SETUP] scripts/project-freshness.sh missing — run /project-update to restore it."
@@ -522,6 +543,9 @@ $(sed -n '1,6p' <<< "$SIGPIPE_OUT")"
 $(tail -5 <<< "$SIGPIPE_OUT")"
       ;;
   esac
+else
+  # CORE, so a missing one is a sync defect, as in 6c (F032).
+  add "[SETUP] SIGPIPE check did not run — scripts/validate-no-sigpipe-assertions.sh missing. Run /project-update to restore it."
 fi
 
 # ------------------------------------------------------ 2d. register id health
@@ -961,19 +985,12 @@ fi
 # mutation run across every gate is a worse defect than the one it fixes -- a project that wants that
 # owns its own rotation script and schedules it separately.
 mutation_break_of() { # mutation_break_of <config path>; echoes the integer break, or nothing
+  # Through stryker_guard.py, which reads the config as Stryker.NET does (comments, BOM, trailing
+  # commas, any key case). A bare json.load here lost the break of a commented config while section 5
+  # still checked its patterns (F051).
   [ -f "$1" ] || return 0
-  command -v python3 >/dev/null 2>&1 || return 0
-  CFG="$1" python3 - <<'PY' 2>/dev/null
-import json, os
-try:
-    d = json.load(open(os.environ["CFG"]))
-except Exception:
-    raise SystemExit(0)
-d = d.get("stryker-config", d)
-b = (d.get("thresholds") or {}).get("break")
-if isinstance(b, (int, float)):
-    print(int(b))
-PY
+  command -v python3 >/dev/null 2>&1 && [ -f scripts/stryker_guard.py ] || return 0
+  python3 scripts/stryker_guard.py break "$1" 2>/dev/null
 }
 
 # THE HEADLINE IS NOT THE GATE (row 043). fundit spec 006 read 88.21% and PASS while PushEndpointPolicy,
@@ -1261,6 +1278,67 @@ elif [ "$MUT_RUN" -eq 1 ]; then
   has none declares one as scripts/run-mutation-gate.sh (project-owned; it must print \`mutation score N%\`)."
 fi
 
+# ------------------------------------------------------- 5b. CORE self-tests (--full, spec 086)
+# Fifty-odd CORE self-tests reach every project by sync, and only a project with its own gate runner
+# (consultpilot) ever ran one, so a red that only this project's tree produces stayed invisible (F023:
+# H7aw's test-runtime-markers-ignored). core-gates.sh names the population; --full runs it, each test
+# bounded, from the root with stdin closed. They are CORE, delivered like every validate-*.sh this pass
+# already runs, so --unattended needs no --trust for them; the trust store is for project-authored
+# commands. In the template itself (no .claude/.template-sync) they are the suite, which --suite runs.
+if [ "$FULL" -eq 1 ]; then
+  if [ ! -f .claude/.template-sync ]; then
+    note "[note] CORE self-tests: not run — no .claude/.template-sync, so this tree is the template (or was never synced), where they are its own suite."
+  elif [ ! -f scripts/core-gates.sh ]; then
+    add "[SETUP] CORE self-tests did not run — scripts/core-gates.sh missing. Run /project-update to restore it."
+  else
+    CG_OUT=$(bash scripts/core-gates.sh 2>&1); CG_RC=$?
+    if [ "$CG_RC" -ne 0 ]; then
+      add "[SETUP] CORE self-tests did not run — scripts/core-gates.sh exit $CG_RC:
+$(sed -n 1,3p <<< "$CG_OUT")"
+    else
+      CT_LIMIT=${MAINTENANCE_CORE_TEST_TIMEOUT:-300}
+      case "$CT_LIMIT" in (''|*[!0-9]*) CT_LIMIT=300 ;; esac
+      CT_TIMEOUT=""
+      command -v timeout >/dev/null 2>&1 && CT_TIMEOUT=timeout
+      [ -z "$CT_TIMEOUT" ] && command -v gtimeout >/dev/null 2>&1 && CT_TIMEOUT=gtimeout
+      CT_RED=""; CT_MISSING=""; CT_N=0; CT_RED_N=0
+      while IFS= read -r ct; do
+        [ -n "$ct" ] || continue
+        if [ ! -f "scripts/$ct" ]; then CT_MISSING="${CT_MISSING:+$CT_MISSING, }scripts/$ct"; continue; fi
+        CT_N=$((CT_N + 1))
+        ct_out=$(mktemp "${TMPDIR:-/tmp}/core-test.XXXXXX")
+        if [ -n "$CT_TIMEOUT" ]; then
+          "$CT_TIMEOUT" "$CT_LIMIT" bash "scripts/$ct" </dev/null >"$ct_out" 2>&1; ct_rc=$?
+        else
+          bash "scripts/$ct" </dev/null >"$ct_out" 2>&1; ct_rc=$?
+        fi
+        if [ -n "$CT_TIMEOUT" ] && [ "$ct_rc" -eq 124 ]; then
+          CT_RED_N=$((CT_RED_N + 1))
+          CT_RED="${CT_RED}  scripts/$ct timed out after ${CT_LIMIT}s — neither passed nor failed
+"
+        elif [ "$ct_rc" -ne 0 ]; then
+          CT_RED_N=$((CT_RED_N + 1))
+          CT_RED="${CT_RED}  scripts/$ct exit $ct_rc:
+$(tail -4 "$ct_out" | sed 's/^/      /')
+"
+        fi
+        rm -f "$ct_out"
+      done <<< "$CG_OUT"
+      [ -n "$CT_MISSING" ] && add "[SETUP] CORE self-test(s) core-gates.sh lists are missing — $CT_MISSING. Run /project-update to restore them."
+      if [ "$CT_RED_N" -gt 0 ]; then
+        add "[CORE SELF-TEST] $CT_RED_N of $CT_N CORE self-test(s) not green in this project:
+${CT_RED%
+}
+  These are the template's tests. Green in the template and red here is a defect the template has to
+  fix for this project: file it on the template's register (the standing T0 row points there)."
+      elif [ "$CT_N" -gt 0 ]; then
+        note "[note] CORE self-tests: $CT_N of $CT_N green (MAINTENANCE_CORE_TEST_TIMEOUT=${CT_LIMIT}s each)."
+      fi
+      [ -z "$CT_TIMEOUT" ] && [ "$CT_N" -gt 0 ] && note "[note] CORE self-tests ran unbounded — neither timeout nor gtimeout is installed."
+    fi
+  fi
+fi
+
 # ---------------------------------------------------------------- 6. census audits
 #
 # template-autosync: optional-project-script scripts/e2e-gate-census.py
@@ -1349,7 +1427,14 @@ fi
 # respected", and until 2026-09-04 nothing could: carve-budget.md sections 2 and 3 were prose.
 # Reported, never fatal on its own -- an over-budget carve is a fact about rows already written, and
 # the decision it wants is the developer's.
-if [ -f scripts/register-convergence.sh ] && [ -f scripts/carve_audit.py ] && [ -f specs/INDEX.md ]; then
+CARVE_MISSING=""
+for f in scripts/register-convergence.sh scripts/carve_audit.py; do
+  [ -f "$f" ] || CARVE_MISSING="${CARVE_MISSING:+$CARVE_MISSING, }$f"
+done
+if [ -f specs/INDEX.md ] && [ -n "$CARVE_MISSING" ]; then
+  # Both CORE: missing is a sync defect, not a project without a register (F032).
+  add "[SETUP] carve shape check did not run — $CARVE_MISSING missing. Run /project-update to restore it."
+elif [ -f specs/INDEX.md ]; then
   CARVE_OUT=$(bash scripts/register-convergence.sh --carves 2>&1); CARVE_RC=$?
   if [ "$CARVE_RC" -eq 1 ]; then
     add "[CARVE SHAPE] the carve budget or the depth limit is exceeded (.claude/rules/carve-budget.md):
@@ -1505,6 +1590,26 @@ done
 ${RATCHET_SKIPS%
 }"
 [ "$RATCHET_UNBOUNDED" -eq 1 ] && note "[note] ratchets ran unbounded — neither timeout nor gtimeout is installed, so a hung one hangs this pass."
+
+# ------------------------------------------------------ 6f. hook commands resolve (spec 086)
+# Every gate above reads scripts; none read the configuration that runs them. A plugin hook carrying a
+# literal ${CLAUDE_PLUGIN_ROOT} failed at every session start in every project for months (F001), and
+# rocky's own SC-id guards were inert denies no CORE test could see (F003). validate-hooks.sh reads the
+# project, user and enabled-plugin hook configuration and runs none of it. A user-global finding shows
+# in every project's pass, which is the point: it fails in every project too.
+if [ -f scripts/validate-hooks.sh ]; then
+  HOOKS_OUT=$(bash scripts/validate-hooks.sh "$ROOT" 2>&1); HOOKS_RC=$?
+  case "$HOOKS_RC" in
+    0) : ;;
+    1) add "[HOOKS] hook command(s) that will fail, or whose output Claude Code ignores, when they run:
+$(grep -v '^hooks: ' <<< "$HOOKS_OUT" | sed -n 1,12p | sed 's/^/  /')
+  Run: bash scripts/validate-hooks.sh" ;;
+    *) add "[HOOKS] scripts/validate-hooks.sh could not run (exit $HOOKS_RC):
+$(sed -n 1,3p <<< "$HOOKS_OUT")" ;;
+  esac
+else
+  add "[SETUP] hook check did not run — scripts/validate-hooks.sh missing. Run /project-update to restore it."
+fi
 
 # ------------------------------------------------------------- 7. the test suite (--suite)
 #

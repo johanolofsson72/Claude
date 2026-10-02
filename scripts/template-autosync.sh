@@ -239,6 +239,7 @@ acceptance_cases.py acceptance-cases.sh test-acceptance-cases.sh
 context-budget.sh test-context-budget.sh
 quality_gates.py quality-gate-bench.sh quality-gate-pass.sh quality-gates.tsv test-quality-gates.sh
 validate-portability.sh portability_audit.py
+validate-hooks.sh hook_audit.py test-validate-hooks.sh
 finding.sh test-finding.sh
 skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh test-tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh

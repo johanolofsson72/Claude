@@ -391,7 +391,13 @@ Line coverage proves a line *executed*; it says nothing about whether a test wou
   *per-mutant* verdicts, not percentages: two runs in one project both reported 90.91% while
   disagreeing on seven mutants. Equal totals hiding different kills is a coin toss with a
   confident face. (Reference implementation: `scripts/mutation-gate-repeat.sh 3` in the msroute
-  project — a repo without it should wrap its own runner the same way.)
+  project — a repo without it should wrap its own runner the same way.) A wrapper that rebuilds
+  between runs must print the tail of a failed build, not just "build failed before run 2": msroute
+  needed a second `dotnet build` to learn the cause was CA1822 (F010).
+- **A scan that counts mutation runners skips CORE files.** `scripts/test-stryker-guard.sh` passes
+  `dotnet stryker` command lines to a guard as text and runs nothing, but a project test that greps
+  `scripts/*.sh` for runners counted it (msroute's lock went from 2 to 3 after a sync, F059). Exclude
+  what `bash scripts/template-autosync.sh --list-core-scripts` names.
 - **Two instruments, one gate.** Gate on a **unit-only** project set; keep the wider set (unit +
   integration) for *attribution* and never tick a register row against it. A mutant "killed" by a
   hosted test with no stake in the mutated line is arithmetic, not evidence — measured at **38%**

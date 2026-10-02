@@ -37,7 +37,9 @@ expect_line() {
 }
 
 mkproj() { mkdir -p "$TMP/$1"; printf '%s' "$TMP/$1"; }
-mkcsproj() { mkdir -p "$(dirname "$1")"; printf '<Project Sdk="Microsoft.NET.Sdk" />\n' > "$1"; }
+# A project with a source file, as a real test project has. mkempty is the F060 shape: no .cs at all.
+mkcsproj() { mkdir -p "$(dirname "$1")"; printf '<Project Sdk="Microsoft.NET.Sdk" />\n' > "$1"; : > "$(dirname "$1")/UnitTest1.cs"; }
+mkempty() { mkdir -p "$(dirname "$1")"; printf '<Project Sdk="Microsoft.NET.Sdk" />\n' > "$1"; }
 mkpkg() { mkdir -p "$(dirname "$1")"; printf '{ "name": "x", "scripts": { "test": "%s" } }\n' "$2" > "$1"; }
 
 printf 'detect-verify-command self-test\n'
@@ -150,6 +152,61 @@ mkdir -p "$P"; printf '{ this is not json\n' > "$P/package.json"
 expect_command "a malformed package.json is silence, not a crash" "" "$P"
 
 expect_command "a nonexistent root is silence, not a crash" "" "$TMP/does-not-exist"
+
+# --------------------------------------------------------------- spec 086 (F060, F069)
+# noisycricket-rmk: CLAUDE.md runs club/Tests; the name rule picked nUnitTest/ ("nUnit" holds "unit").
+P=$(mkproj claude-md-names-it)
+mkcsproj "$P/nUnitTest/nUnitTest.csproj"
+mkcsproj "$P/club/Tests/Tests.csproj"
+mkcsproj "$P/club/E2ETests/E2ETests.csproj"
+printf '# P\n\n```bash\ndotnet test club/Tests/Tests.csproj   # unit + integration\ndotnet test club/E2ETests/E2ETests.csproj\ndotnet test --filter "Category=UI"\n```\n' > "$P/CLAUDE.md"
+expect_command "the one non-E2E suite CLAUDE.md runs wins over the name rule" \
+  "dotnet test club/Tests/Tests.csproj --nologo" "$P"
+expect_line "…and says it came from CLAUDE.md" 2 "named in CLAUDE.md: club/Tests/Tests.csproj" "$P"
+expect_line "…and is still held to the evidence rule" 3 '(Passed!|Failed!|Total tests|Passed:[[:space:]]*[0-9])' "$P"
+
+P=$(mkproj claude-md-dir)
+mkcsproj "$P/club/Tests/Tests.csproj"
+mkcsproj "$P/other/Other.Tests.Unit/Other.Tests.Unit.csproj"
+printf 'Run `dotnet test club/Tests` before done.\n' > "$P/CLAUDE.md"
+expect_command "a directory CLAUDE.md names resolves to its one project" \
+  "dotnet test club/Tests/Tests.csproj --nologo" "$P"
+
+P=$(mkproj claude-md-two)
+mkcsproj "$P/a/A.Tests/A.Tests.csproj"
+mkcsproj "$P/b/B.Tests/B.Tests.csproj"
+mkcsproj "$P/b/B.Tests.Unit/B.Tests.Unit.csproj"
+printf 'dotnet test a/A.Tests/A.Tests.csproj\ndotnet test b/B.Tests/B.Tests.csproj\n' > "$P/CLAUDE.md"
+expect_command "two suites in CLAUDE.md is ambiguity, so the old rule decides" \
+  "dotnet test b/B.Tests.Unit/B.Tests.Unit.csproj --nologo" "$P"
+
+P=$(mkproj claude-md-gone)
+mkcsproj "$P/tests/App.Tests.Unit/App.Tests.Unit.csproj"
+printf 'dotnet test src/Old.Tests/Old.Tests.csproj\n' > "$P/CLAUDE.md"
+expect_command "a project CLAUDE.md names that no longer exists is not chosen" \
+  "dotnet test tests/App.Tests.Unit/App.Tests.Unit.csproj --nologo" "$P"
+
+# matchgrid: Tests.Unit with zero .cs files was chosen, and runs nothing.
+P=$(mkproj empty-unit)
+mkempty "$P/tests/App.Tests.Unit/App.Tests.Unit.csproj"
+mkcsproj "$P/tests/App.Tests/App.Tests.csproj"
+expect_command "a test project with no sources is not a candidate" \
+  "dotnet test tests/App.Tests/App.Tests.csproj --nologo" "$P"
+P=$(mkproj only-empty)
+mkempty "$P/tests/App.Tests.Unit/App.Tests.Unit.csproj"
+expect_command "…and with nothing else, silence rather than a suite of zero tests" "" "$P"
+
+# F069: line 1 is run with sh -c, so a path is quoted when it has to be, and only then.
+P=$(mkproj quoting)
+mkcsproj "$P/te st;\$(touch PWNED)/A.Tests.Unit/A.Tests.Unit.csproj"
+L1=$(bash "$DETECT" "$P" 2>/dev/null | sed -n 1p)
+( cd "$P" && sh -c "${L1/dotnet test/printf '%s\n'}" >/dev/null 2>&1 )
+if [ ! -e "$P/PWNED" ] && [ "$L1" = "dotnet test 'te st;\$(touch PWNED)/A.Tests.Unit/A.Tests.Unit.csproj' --nologo" ]; then
+  ok "a path with shell syntax is single-quoted and runs as data under sh -c"
+else bad "a path with shell syntax is single-quoted and runs as data under sh -c" "quoted, no PWNED" "$L1 · PWNED=$([ -e "$P/PWNED" ] && echo yes || echo no)"; fi
+P=$(mkproj quoting-npm)
+mkpkg "$P/web'app/package.json" "vitest run"
+expect_command "an npm prefix is quoted too, a single quote included" "npm --prefix 'web'\\''app' test" "$P"
 
 RC=$(bash "$DETECT" "$TMP/does-not-exist" >/dev/null 2>&1; echo $?)
 if [ "$RC" -eq 0 ]; then ok "always exits 0 — a detector must never break a session start"

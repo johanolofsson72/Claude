@@ -202,6 +202,37 @@ scan_lines() {
   ' "$1"
 }
 
+# --- a pipe INSIDE a command substitution, quoted or not (spec 086, F027) ------------------------------
+# scan_lines walks quotes so prose is not read as a pipeline, and that is right for assertions. It also
+# means `X="$(cmd | head -1)"` is invisible (the pipe sits inside double quotes) and `X=$(cmd | head -1)`
+# is read as a diagnostic, so --strict printed clean over ~79 such sites in production scripts. Their
+# status is never read, so they invert nothing; they still leak "write error: Broken pipe" to stderr when
+# the parent ignores SIGPIPE (msroute F008). This walk resets quoting at every `$(`, the way bash does,
+# and prints a line whose substitution pipes into an early-exit consumer. One line at a time: a
+# substitution spanning lines is not followed.
+scan_subst_lines() {
+  awk -v consumer="$CONSUMER" '
+    {
+      line = $0; n = length(line); q = ""; d = 0
+      for (i = 1; i <= n; i++) {
+        c = substr(line, i, 1)
+        if (q == "'"'"'") { if (c == "'"'"'") q = ""; continue }
+        if (c == "\\") { i++; continue }
+        if (c == "$" && substr(line, i + 1, 1) == "(" && substr(line, i + 2, 1) != "(") {
+          saved[++d] = q; q = ""; i++; continue
+        }
+        if (c == ")" && q == "" && d > 0) { q = saved[d--]; continue }
+        if (c == "\"") { q = (q == "\"") ? "" : (q == "" ? "\"" : q); continue }
+        if (c == "'"'"'" && q == "") { q = c; continue }
+        if (q == "" && d > 0 && c == "|" && substr(line, i + 1, 1) != "|" && substr(line, i - 1, 1) != "|") {
+          rest = substr(line, i + 1); sub(/^[ \t]+/, "", rest)
+          if (rest ~ ("^(" consumer ")")) { print NR ":" line; next }
+        }
+      }
+    }
+  ' "$1"
+}
+
 # --- what counts as an ASSERTION ----------------------------------------------------------------------
 # The distinction the whole gate turns on: is this pipeline's exit status READ? A line is an assertion when
 # a conditional consumes it. A line is diagnostic when its status is discarded — printed inside a bad/ok
@@ -272,10 +303,19 @@ BACKLOG=0   # findings in production scripts: reported, not fatal unless --stric
 # backlog (66 lines) and test-no-sigpipe-assertions.sh keeps --strict at zero here.
 # --strict is not "no leak": an assignment (`X=$(… | head -1)`) is read as a
 # diagnostic and never reported, and it leaks the same way (finding F027).
+#
+# --leaks (spec 086): with --all, a pipeline into an early-exit consumer inside a command substitution in a
+# production script is a LEAK. Leaks are counted and named in every --all report, clean included, so
+# "clean" can no longer be read as "no leak"; --leaks lists every one and fails on them. --strict keeps
+# its meaning (assertions, undecided lines and the unquoted backlog).
 SCAN_ALL=0
 STRICT=0
+LEAKS_FAIL=0
+LEAKS=0
+LEAK_LINES=""
 case " $* " in *" --all "*) SCAN_ALL=1 ;; esac
 case " $* " in *" --strict "*) STRICT=1; SCAN_ALL=1 ;; esac
+case " $* " in *" --leaks "*) LEAKS_FAIL=1; SCAN_ALL=1 ;; esac
 shopt -s nullglob
 if [ "$SCAN_ALL" -eq 1 ]; then
   TESTS=("$SCAN_ROOT"/scripts/*.sh)
@@ -304,6 +344,7 @@ for f in "${TESTS[@]}"; do
   fi
   FILES=$((FILES + 1))
   HD="$(heredoc_lines "$f")"
+  COUNTED=""
   while IFS= read -r entry; do
     lineno="${entry%%:*}"
     body="${entry#*:}"
@@ -313,6 +354,8 @@ for f in "${TESTS[@]}"; do
     # explains it.
     case "${body#"${body%%[![:space:]]*}"}" in '#'*) continue ;; esac
     is_assertion "$body"; verdict=$?
+    [ "$verdict" -ne 1 ] && COUNTED="$COUNTED$lineno
+"
     case $verdict in
       0)
         if is_selftest "$f"; then HITS=$((HITS + 1)); else BACKLOG=$((BACKLOG + 1)); fi
@@ -328,12 +371,40 @@ for f in "${TESTS[@]}"; do
         ;;
     esac
   done < <(scan_lines "$f")
+  # Leaks: production scripts under --all only, and never a line already reported above.
+  if [ "$SCAN_ALL" -eq 1 ] && ! is_selftest "$f"; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      lineno="${entry%%:*}"; body="${entry#*:}"
+      if [ -n "$HD" ] && grep -qxF "$lineno" <<< "$HD"; then continue; fi
+      case "${body#"${body%%[![:space:]]*}"}" in '#'*) continue ;; esac
+      if [ -n "$COUNTED" ] && grep -qxF "$lineno" <<< "$COUNTED"; then continue; fi
+      LEAKS=$((LEAKS + 1))
+      LEAK_LINES="${LEAK_LINES}${f#"$SCAN_ROOT"/}:${lineno}  ${body#"${body%%[![:space:]]*}"}
+"
+    done < <(scan_subst_lines "$f")
+  fi
 done
+
+# Named in every --all branch: the count always, the lines in full under --leaks, else the first three.
+leak_report() {
+  [ "$SCAN_ALL" -eq 1 ] || return 0
+  if [ "$LEAKS" -eq 0 ]; then
+    printf 'leaks: 0 early-exit pipelines inside command substitutions in production scripts\n'
+    return 0
+  fi
+  printf 'leaks: %s early-exit pipeline(s) inside command substitutions in production scripts. Their status is\n' "$LEAKS"
+  printf '       never read, so they invert nothing, but each writes "Broken pipe" to stderr when the parent\n'
+  printf '       ignores SIGPIPE (msroute F008). Not in --strict; --leaks lists and fails on them.\n'
+  if [ "$LEAKS_FAIL" -eq 1 ]; then printf '%s' "$LEAK_LINES" | sed 's/^/  /'
+  else printf '%s' "$LEAK_LINES" | sed -n 1,3p | sed 's/^/  /'; fi
+}
 
 # --strict folds the production backlog into the verdict; by default it is
 # reported and the exit code speaks only for the self-tests, where a 141 silently
 # inverts an assertion.
 if [ "$STRICT" -eq 1 ]; then TOTAL=$((HITS + UNDECIDED + BACKLOG)); else TOTAL=$((HITS + UNDECIDED)); fi
+[ "$LEAKS_FAIL" -eq 1 ] && TOTAL=$((TOTAL + LEAKS))
 if [ "$BACKLOG" -gt 0 ]; then
   printf '\n[backlog] %s pipeline(s) in production scripts (not self-tests).\n' "$BACKLOG" >&2
   printf '          A diagnostic whose status is never read still writes "write error: Broken pipe"\n' >&2
@@ -355,6 +426,7 @@ if [ "$LIST" -eq 1 ]; then
   printf '\n'
   mode_line
   printf 'scanned %s %s: %s assertion(s), %s undecided\n' "$FILES" "$UNIT" "$HITS" "$UNDECIDED"
+  leak_report
   exit 0
 fi
 
@@ -366,6 +438,7 @@ if [ "$TOTAL" -gt 0 ]; then
   printf '      buffer (and intermittently well below it), which reads a true claim as false — and,\n' >&2
   printf '      when negated, reads a false claim as PASS. Row H7x.\n' >&2
   mode_line >&2
+  leak_report >&2
   exit 1
 fi
 
@@ -384,4 +457,5 @@ fi
 
 mode_line
 printf 'no-sigpipe-assertions: clean — %s %s, 0 early-exit assertion pipelines\n' "$FILES" "$UNIT"
+leak_report
 exit 0

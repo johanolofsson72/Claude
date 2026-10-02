@@ -343,15 +343,67 @@ def find_root(start: str) -> str:
     return ""
 
 
+# The SessionStart banner offered row 075 as Next while its clause read "needs 074 + five ordinary
+# specs ticked under its ledger", with the ledger at 0 of 5 (F025). Selection does not move: both
+# guards resolve the active spec through spec_active.py, and a banner that skipped the row would
+# point somewhere they do not. It says what the clause holds instead. Ids are checked against the
+# ticked rows (INDEX.md and the INDEX.completed.md archive); the words around them no script can
+# check, so they are quoted for the reader.
+NEEDS_CLAUSE = re.compile(r"\bneeds\s+(.+?)(?=\s+—\s|\.\s|\.?\s*$)")
+NEEDS_ID = re.compile(r"(?<![0-9A-Za-z])([0-9]{3}[a-z0-9]*|[A-Z][0-9]+[a-z0-9]*)(?![0-9A-Za-z])")
+NEEDS_GLUE = re.compile(r"^(?:[\s,+&/]|and|och)*$", re.IGNORECASE)
+
+
+def needs_note(root: str, row_id: str) -> str:
+    """Lines for the banner about row *row_id*'s `needs` clause, or "" when it holds nothing."""
+    register = read(root, "specs/INDEX.md")
+    line = next((ln for ln in register.split("## Register history")[0].splitlines()
+                 if (m := ROW.match(ln)) and m.group(2) == row_id), "")
+    m = NEEDS_CLAUSE.search(line)
+    if not m:
+        return ""
+    clause = m.group(1).strip()
+    ids = NEEDS_ID.findall(clause)
+    if not ids:
+        return ""  # "the freeze needs teeth": a verb in the goal, not a dependency
+    known, ticked = set(), set()
+    for text in (register.split("## Register history")[0], read(root, "specs/INDEX.completed.md")):
+        for ln in text.splitlines():
+            r = ROW.match(ln)
+            if r:
+                known.add(r.group(2))
+                if r.group(1) == "x":
+                    ticked.add(r.group(2))
+    out = []
+    open_ids = [i for i in ids if i in known and i not in ticked]
+    unknown = [i for i in ids if i not in known]
+    if open_ids:
+        out.append("⚠ blocked: this row needs %s, not ticked. Work that first, or fix the order "
+                   "(a register rewrite, .claude/rules/spec-register.md)." % ", ".join(open_ids))
+    if unknown:
+        out.append("⚠ needs names no row: %s. Fix the clause before starting." % ", ".join(unknown))
+    if not NEEDS_GLUE.match(NEEDS_ID.sub("", clause)):
+        out.append("⚠ this row says: needs %s — no script checks that; confirm it before starting."
+                   % clause)
+    return "\n".join(out)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Lane status from the spec register.")
     ap.add_argument("--root", default=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()))
     ap.add_argument("--full", action="store_true",
                     help="the answer to 'is there anything for me to do?'")
+    ap.add_argument("--needs-note", metavar="ID",
+                    help="what row ID's `needs` clause holds, for the SessionStart banner (F025)")
     args = ap.parse_args()
 
     root = find_root(args.root)
     if not root:
+        return 0
+    if args.needs_note:
+        text = needs_note(root, args.needs_note)
+        if text:
+            print(text)
         return 0
     me = os.environ.get("SPEC_OWNER", "").strip().lower()
     text = render(root, me, args.full)

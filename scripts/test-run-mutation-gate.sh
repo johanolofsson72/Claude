@@ -258,7 +258,7 @@ arm_infra_is_not_a_kill() {
 arm_maintenance_stamps() {
   echo "-- 085-AC-1: project-maintenance.sh --full measures through this runner and stamps the job"
   P="$TMP/maint"; mkdir -p "$P/scripts"
-  for f in project-maintenance.sh maintenance_ledger.py maintenance-due.sh stryker_guard.py; do
+  for f in project-maintenance.sh maintenance_ledger.py maintenance-due.sh stryker_guard.py bash_write_targets.py; do
     cp "$REPO/scripts/$f" "$P/scripts/"
   done
   cp "$RUNNER" "$P/scripts/run-mutation-gate.sh"; chmod +x "$P/scripts/run-mutation-gate.sh"

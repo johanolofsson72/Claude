@@ -11,6 +11,11 @@
 # what is under test is the process-table read, not a stub of it. Each is killed by its PID, never by a
 # pattern (the 056 trap).
 #
+# NOT A RUNNER. The `dotnet stryker …` lines below are fixtures handed to the guard as text; this file
+# starts no Stryker and builds nothing. A project scan that counts its mutation runners should skip
+# CORE files (`bash scripts/template-autosync.sh --list-core-scripts`): msroute's count went 2 -> 3
+# when this file arrived by sync (F059).
+#
 # Weighted toward what the guard must NOT do. It sits in front of every `dotnet` command Claude issues;
 # a false deny there costs more than the defect it prevents, so half the arms prove it stays quiet or
 # gets out of the way.
@@ -455,6 +460,36 @@ printf '{"mutate": ["**/No\\u202epe.cs"]}' > "$F14C/stryker-config.json"
 F14C_OUT=$(cd "$F14C" && python3 "$SELF_DIR/stryker_guard.py" configs . 2>&1)
 case "$F14C_OUT" in *$'\u202e'*) bad "F14 configs CLI echoes a bidi override raw" ;;
   *"No?pe.cs"*) ok "F14 the configs CLI output is sanitised too" ;; *) bad "F14 configs CLI: $F14C_OUT" ;; esac
+
+# ------------------------------------------------------------------ one config reader (F051)
+BRK=$WORK/brk; mkdir -p "$BRK"
+brk() { printf '%s' "$1" > "$BRK/c.json"; python3 "$SELF_DIR/stryker_guard.py" break "$BRK/c.json" 2>&1; }
+[ "$(brk '{"stryker-config":{"thresholds":{"break":79}}}')" = 79 ] && ok "B1 break is read" || bad "B1 plain break not read"
+LENIENT=$'\xef\xbb\xbf// top\n{"Stryker-Config":{/* c */"Thresholds":{"Break":72,},}}'
+[ "$(brk "$LENIENT")" = 72 ] \
+  && ok "B2 BOM, comments, trailing commas and key case read as Stryker.NET reads them" || bad "B2 lenient break: $(brk "$LENIENT")"
+[ "$(brk '{"thresholds":{"break":65}}')" = 65 ] && ok "B3 a config without the stryker-config wrapper" || bad "B3 unwrapped break"
+[ -z "$(brk '{"stryker-config":{"thresholds":{"break":true}}}')" ] && ok "B4 a boolean is not a break" || bad "B4 boolean read as a break"
+[ -z "$(brk '{ not json')" ] && ok "B5 unreadable prints nothing" || bad "B5 unreadable printed something"
+python3 "$SELF_DIR/stryker_guard.py" break "$BRK/absent.json" >/dev/null 2>&1 && ok "B6 a missing file exits 0" || bad "B6 missing file exit non-zero"
+
+# ------------------------------------------------------------------ one heredoc reader (F052)
+HD2=$(printf '%s\n' "cat > a.md <<'A' > b.md <<'B'" "first body" "A" "dotnet stryker -m '**/Nope.cs'" "B")
+expect "H1 the second heredoc on a line is data too"       none "$(hook "$HD2")"
+HD3=$(printf '%s\n' "cat > a.md <<'A'" "body" "A" "dotnet stryker -m '**/Nope.cs'")
+expect "H2 after the terminator, commands are read again"  deny "$(hook "$HD3")" "Nope.cs"
+H3_OUT=$(cd "$SELF_DIR" && python3 - <<'H3PY' 2>&1
+import bash_write_targets as b
+cmd = "cat <<A >x <<B\none\nA\n> evil.cs\nB\necho done > y"
+out = b.blank_heredoc_bodies(cmd)
+assert len(out) == len(cmd), "offsets moved"
+assert "evil.cs" not in out and "done > y" in out, out
+print("ok")
+H3PY
+)
+[ "$H3_OUT" = ok ] && ok "H3 blank_heredoc_bodies blanks every body on a line and keeps offsets" || bad "H3: $H3_OUT"
+grep -q '^def strip_heredocs' "$SELF_DIR/stryker_guard.py" && bad "H4 stryker_guard.py still carries its own heredoc stripper" \
+  || ok "H4 stryker_guard.py has no heredoc stripper of its own"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -27,7 +27,7 @@ fake() {
   local f="$T/pid.$RANDOM$RANDOM" pre=""
   [ "${2:-}" = ignore-term ] && pre='trap "" TERM; '
   # stdio to /dev/null: an inherited $(…) pipe would hold the caller's substitution open for 600 s.
-  ( bash -c "${pre}exec -a \"\$0\" sleep 600" "$1" </dev/null >/dev/null 2>&1 & echo $! > "$f" )
+  ( cd "${3:-.}" || exit; bash -c "${pre}exec -a \"\$0\" sleep 600" "$1" </dev/null >/dev/null 2>&1 & echo $! > "$f" )
   local p; p=$(cat "$f"); PIDS="$PIDS $p"; printf '%s' "$p"
 }
 tlc_argv() { echo "java -Xmx1g -cp /x/$TOKEN/tla2tools.jar tlc2.TLC -workers auto $1.tla"; }
@@ -94,6 +94,20 @@ cases() {
   sleep 0.3; run --all >/dev/null 2>&1; settle "$k"
   alive "$k" && bad "AC8 a TERM-ignoring run survived" || ok "AC8 a TERM-ignoring run is killed with SIGKILL"
 
+  # AC11-AC13 — project scope (spec 086, F070): another project's deliberate long run is not ours.
+  mkdir -p "$T/proj/specs" "$T/other/specs"
+  local mine theirs
+  mine=$(fake "$(tlc_argv ac11m)" "" "$T/proj/specs"); theirs=$(fake "$(tlc_argv ac11t)" "" "$T/other/specs")
+  sleep 2.2; out=$(CLAUDE_PROJECT_DIR="$T/proj" run --max-age 1 2>&1); settle "$mine"
+  alive "$mine" && bad "AC11 this project's runaway survived" || ok "AC11 this project's runaway is killed"
+  alive "$theirs" && ok "AC12 another project's long run survives this project's cleanup" \
+    || bad "AC12 another project's run was killed: $out"
+  out=$(CLAUDE_PROJECT_DIR="$T/proj" run --max-age 1 --any-project 2>&1); settle "$theirs"
+  alive "$theirs" && bad "AC13 --any-project left it alive" || ok "AC13 --any-project is the machine-wide sweep"
+  CLAUDE_PROJECT_DIR="$T/nope" run >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 2 ] && ok "AC13b a project root that does not exist is exit 2, not a machine-wide sweep" \
+    || bad "AC13b missing project root exit $rc"
+
   # AC9 — bad argument.
   run --bogus >/dev/null 2>&1; rc=$?
   [ "$rc" -eq 2 ] && ok "AC9 unknown argument exits 2" || bad "AC9 unknown argument exit $rc, want 2"
@@ -109,7 +123,7 @@ TOTAL_F=$F
 
 # AC10 — sabotage. Each arm deletes one marked region of the script; at least one case must go red.
 echo "sabotage"
-for arm in argv0-java age-bound; do
+for arm in argv0-java age-bound project-scope; do
   S="$T/sabotaged-$arm.sh"
   awk -v r="$arm" '$0 ~ "# region: " r {skip=1} !skip {print} skip && /# endregion/ {skip=0}' "$SD/tlc-cleanup.sh" > "$S"
   cmp -s "$S" "$SD/tlc-cleanup.sh" && { echo "  FAIL  arm $arm changed nothing — the region marker is gone"; TOTAL_F=$((TOTAL_F+1)); continue; }

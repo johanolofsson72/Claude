@@ -53,6 +53,8 @@ rc_inst() { ( cd "$1" && shift; HOME="$WORK/home" PATH="${IPATH:-$BASEPATH}" /bi
 # What cron hands to /bin/sh: the line minus its five schedule fields, under cron's PATH.
 cronrun() { cmd=$(sed -E 's/^([^ ]+ ){5}//' <<< "$1"); env -i HOME="$WORK/home" PATH=/usr/bin:/bin /bin/sh -c "$cmd"; }
 ourline() { grep -F "claude-nightly-maintenance:$1" "$CRONTAB_FILE"; }
+# nf <project> <log|path> — the file the installer keys by the whole root (spec 086, F068)
+nf() { local r; r=$(git -C "$1" rev-parse --show-toplevel); printf '%s/.claude/nightly/%s-%s.%s' "$WORK/home" "$(basename "$r")" "$(printf '%s' "$r" | cksum | awk '{ print $1 }')" "$2"; }
 
 # AC1 + AC2 — the installed line finds a tool only the install shell had, and brackets the log.
 P=$(mkproj plain); rm -f "$CRONTAB_FILE"
@@ -60,7 +62,7 @@ inst "$P" >/dev/null
 L=$(ourline "$P")
 [ -n "$L" ] && ok "a line is installed" || bad "no line installed"
 cronrun "$L"
-LOG="$WORK/home/.claude/nightly/plain.log"
+LOG=$(nf "$P" log)
 grep -q 'dotnet: found' "$LOG" 2>/dev/null && ok "AC1 under cron's PATH the line still finds dotnet" \
   || bad "AC1 the line runs blind under cron's PATH: $(cat "$LOG" 2>/dev/null | tr '\n' '|')"
 [ "$(head -1 "$LOG" 2>/dev/null | cut -c1-21)" = "claude-nightly: start" ] && ok "AC2 the log opens with a start heartbeat" \
@@ -70,9 +72,8 @@ grep -q 'dotnet: found' "$LOG" 2>/dev/null && ok "AC1 under cron's PATH the line
 
 # AC3 — a root that has moved still writes the heartbeat and a non-zero exit.
 M=$(mkproj moving); rm -f "$CRONTAB_FILE"
-inst "$M" >/dev/null; L=$(ourline "$M"); mv "$M" "$WORK/moved"
+inst "$M" >/dev/null; L=$(ourline "$M"); LOG=$(nf "$M" log); mv "$M" "$WORK/moved"
 cronrun "$L" 2>/dev/null
-LOG="$WORK/home/.claude/nightly/moving.log"
 grep -q '^claude-nightly: start' "$LOG" 2>/dev/null && ok "AC3 a failed cd still leaves the start line" \
   || bad "AC3 a failed cd leaves the log untouched"
 grep -Eq '^claude-nightly: end exit=[1-9]' "$LOG" 2>/dev/null && ok "AC3 a failed cd records a non-zero exit" \
@@ -83,7 +84,7 @@ Q=$(mkproj "my proj's"); rm -f "$CRONTAB_FILE"
 [ "$(rc_inst "$Q")" = 0 ] && ok "AC4 a root with a space and a quote installs" || bad "AC4 install refused a quoted root"
 L=$(ourline "$Q")
 cronrun "$L" 2>/dev/null
-LOG="$WORK/home/.claude/nightly/my proj's.log"
+LOG=$(nf "$Q" log)
 grep -qF "maintenance ran in $Q" "$LOG" 2>/dev/null && ok "AC4 the line cds into the quoted root" \
   || bad "AC4 the quoted root was not reached: $(cat "$LOG" 2>/dev/null | tr '\n' '|')"
 
@@ -104,7 +105,7 @@ grep -q 'syntax error: stub' "$WORK/o6" && ok "AC6 the shell's error is printed"
 # AC7 — relative and empty PATH entries are dropped, duplicates appear once.
 rm -f "$CRONTAB_FILE"
 IPATH="$STUB::rel/bin:$TOOLS:.:/usr/bin:$TOOLS:/bin" inst "$P" >/dev/null
-pathval=$(cat "$WORK/home/.claude/nightly/plain.path" 2>/dev/null)
+pathval=$(cat "$(nf "$P" path)" 2>/dev/null)
 [ "$pathval" = "$STUB:$TOOLS:/usr/bin:/bin" ] && ok "AC7 PATH is absolute, deduped, in order" \
   || bad "AC7 the captured PATH is '$pathval'"
 
@@ -169,11 +170,11 @@ grep -q '# mine' "$CRONTAB_FILE" && ok "AC10 an unrelated line survives install"
 inst "$P" --remove >/dev/null
 grep -qF "claude-nightly-maintenance:$P" "$CRONTAB_FILE" && bad "AC11 remove left our line" || ok "AC11 remove takes our line"
 grep -q '# mine' "$CRONTAB_FILE" && ok "AC11 remove keeps an unrelated line" || bad "AC11 remove ate another job"
-[ -e "$WORK/home/.claude/nightly/plain.path" ] && bad "AC11 remove left the PATH file" || ok "AC11 remove takes the PATH file"
+[ -e "$(nf "$P" path)" ] && bad "AC11 remove left the PATH file" || ok "AC11 remove takes the PATH file"
 
 # AC13 — a deleted PATH file stops the run with a logged error, not a blind run.
-inst "$P" >/dev/null; L=$(ourline "$P"); rm -f "$WORK/home/.claude/nightly/plain.path"
-cronrun "$L" 2>/dev/null; LOG="$WORK/home/.claude/nightly/plain.log"
+inst "$P" >/dev/null; L=$(ourline "$P"); rm -f "$(nf "$P" path)"
+cronrun "$L" 2>/dev/null; LOG=$(nf "$P" log)
 grep -q 'maintenance ran' "$LOG" && bad "AC13 maintenance ran without its PATH" || ok "AC13 no blind run without the PATH file"
 grep -Eq '^claude-nightly: end exit=[1-9]' "$LOG" && ok "AC13 the missing PATH file is a logged failure" \
   || bad "AC13 the missing PATH file is not recorded"
@@ -201,6 +202,27 @@ grep -q '# mine' "$CRONTAB_FILE" && ok "H2 …and the developer's jobs survive" 
 rm -f "$CRONTAB_FILE"; inst "$P" >/dev/null
 grep -qF "claude-nightly-maintenance:$P" "$CRONTAB_FILE" && ok "H2 no crontab yet is still an empty start" \
   || bad "H2 'no crontab' was treated as a failure"
+
+# F068 — two roots with one basename keep their own log and PATH file, and --remove of one leaves the
+# other's nightly runnable. A legacy <basename>.path goes only when no remaining line names it.
+mkdir -p "$WORK/a" "$WORK/b"
+A=$(mkproj a/twin); B=$(mkproj b/twin); rm -f "$CRONTAB_FILE"
+inst "$A" >/dev/null; inst "$B" >/dev/null
+[ "$(nf "$A" path)" != "$(nf "$B" path)" ] && [ -f "$(nf "$A" path)" ] && [ -f "$(nf "$B" path)" ] \
+  && ok "F068 two roots named twin get two PATH files" || bad "F068 the twins share a PATH file"
+inst "$A" --remove >/dev/null
+[ -f "$(nf "$B" path)" ] && ok "F068 removing one twin keeps the other's PATH file" || bad "F068 --remove took the other twin's PATH file"
+cronrun "$(ourline "$B")" 2>/dev/null
+grep -q 'maintenance ran' "$(nf "$B" log)" 2>/dev/null && ok "F068 …and the other twin's nightly still runs" \
+  || bad "F068 the other twin's nightly no longer runs"
+LEG="$WORK/home/.claude/nightly/legacy.path"; Lp=$(mkproj legacy)
+printf '/usr/bin:/bin\n' > "$LEG"
+printf '%s\n' "30 2 * * * cd /else && PATH=\$(cat '$LEG') && export PATH && /bin/bash scripts/project-maintenance.sh --full --suite --if-due --unattended # claude-nightly-maintenance:/else/legacy" > "$CRONTAB_FILE"
+inst "$Lp" >/dev/null
+[ -f "$LEG" ] && ok "F068 a legacy PATH file another line still reads is kept" || bad "F068 a legacy PATH file in use was removed"
+printf '' > "$CRONTAB_FILE"; printf '/usr/bin:/bin\n' > "$LEG"
+inst "$Lp" >/dev/null; inst "$Lp" --remove >/dev/null
+[ -e "$LEG" ] && bad "F068 an unreferenced legacy PATH file was left behind" || ok "F068 an unreferenced legacy PATH file is removed"
 
 echo
 echo "install-nightly-maintenance: $PASS passed, $FAIL failed"
