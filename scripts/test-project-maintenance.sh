@@ -1090,6 +1090,10 @@ mkratchet() { # mkratchet DIR NAME BODY — a ratchet script with the given body
 }
 
 # --- C88: a failing ratchet is a finding with its name, exit code and output (AC1) ------------------
+# The fixture name below is ighweld's own ratchet, and the expect line quotes it path-shaped, which the
+# [unlisted] scanner reads as a dependency. It is a fixture, not a call; this line says so, so a
+# project that owns the real script can still tick.
+# template-autosync: optional-project-script scripts/check-silent-catches.sh
 D=$(mkfix c88); mkratchet "$D" check-silent-catches.sh 'echo "3 silent catch(es) over the floor of 0"; exit 1'
 OUT=$(run "$D"); RC=$?
 expect_contains "C88 failing ratchet — a RATCHET finding"        "[RATCHET] scripts/check-silent-catches.sh failed (exit 1)" "$OUT"
