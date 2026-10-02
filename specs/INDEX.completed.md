@@ -1349,3 +1349,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 090 — guard-canonical-paths-round-2
 
 - [x] 090 — guard-canonical-paths-round-2 — full track [hardened] — guards judge spelling, not the file: case, existing symlinks, Unicode, 'App.cs.', --no-checkout worktrees, missing deny/ext entries, NotebookEdit; two false positives. F082–F085 F096 F105 F106 F112
+
+## 091 — trust-residuals
+
+- [x] 091 — trust-residuals — full track [hardened] — trust still rests on what the repo or agent can write: origin-URL template exemption, fork-network pins, claude -p writes outside the repo, suite hash, cloud stamps, laundered confirms. F079 F080 F092 F095 F097 F104 F107

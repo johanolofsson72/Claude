@@ -103,7 +103,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 089 — settings-edit-guard — full track [hardened] — .claude/settings*.json has no edit guard: one Edit unwires every PreToolUse hook or sets SPEC_ACCEPTANCE=off; guard the hooks and env keys, the developer edits by hand. F081 F103
 - [x] H4 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 085–089.
 - [x] 090 — guard-canonical-paths-round-2 — full track [hardened] — guards judge spelling, not the file: case, existing symlinks, Unicode, 'App.cs.', --no-checkout worktrees, missing deny/ext entries, NotebookEdit; two false positives. F082–F085 F096 F105 F106 F112
-- [ ] 091 — trust-residuals — full track [hardened] — trust still rests on what the repo or agent can write: origin-URL template exemption, fork-network pins, claude -p writes outside the repo, suite hash, cloud stamps, laundered confirms. F079 F080 F092 F095 F097 F104 F107
+- [x] 091 — trust-residuals — full track [hardened] — trust still rests on what the repo or agent can write: origin-URL template exemption, fork-network pins, claude -p writes outside the repo, suite hash, cloud stamps, laundered confirms. F079 F080 F092 F095 F097 F104 F107
 - [ ] 092 — kill-surviving-mutants — full track — no .csproj/.sln-only fixture, no suite asserts a guard's exit code, and the sampled survivors in autosync, maintenance, traceability and freshness. F099–F102 F108
 - [ ] 093 — maintenance-reports-what-it-measured — spec-only — section 5 misreads the bash runner, a suite timeout reads as FAIL, the mutation budget is unknown to the nightly, SIGPIPE leaks, CDPATH-relative cd. F087 F109–F111 F113
 
