@@ -70,11 +70,17 @@ INPUT=$(cat)
 # the session — nearly all of them — used to start two jq processes to learn the same thing.
 # Bounded to small payloads: bash's matchers are slow on long strings (a 200 KB Write took longer to
 # scan than jq takes to start), so a large payload skips this and pays exactly what it paid before.
+# Spec 090 (R2): case-folded, because macOS opens specs/index.md as the register, and a path that is or
+# runs through a symlink goes to the parser, because docs/reg.md -> ../specs/INDEX.md names neither
+# (F082, F083).
+. "${BASH_SOURCE[0]%/*}/guard-precheck.sh" 2>/dev/null || guard_precheck_link() { return 0; }
 if [ "${#INPUT}" -le 4096 ]; then
+  shopt -s nocasematch
   case "$INPUT" in
     *INDEX.md*) ;;
-    *) exit 0 ;;
+    *) guard_precheck_link "$INPUT" || exit 0 ;;
   esac
+  shopt -u nocasematch
 fi
 
 HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -194,25 +200,21 @@ if [ "${ALLOW_TICK_WITH_CORE_OWED:-0}" = "1" ]; then
 fi
 
 # ------------------------------------------------------------------- project root
-guard_anchor_for "$FILE"          # spec 088 R1 (F090): a .git planted below the project is no root
-DIR=$(dirname "$FILE")
-ROOT=""
-while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
-  if guard_git_boundary "$DIR"; then ROOT="$DIR"; break; fi   # spec 088 R1: not below CLAUDE_PROJECT_DIR
-  DIR=$(dirname "$DIR")
-done
+# spec 088 R1 (F090) anchors the walk; spec 090: an empty worktree takes the project's sync.
+guard_core_root "$FILE"
+ROOT=$GUARD_CORE_ROOT; SYNC_ROOT=$GUARD_SYNC_ROOT
 [ -n "$ROOT" ] || exit 0
-[ -d "$ROOT/.claude" ] || exit 0
+[ -d "$SYNC_ROOT/.claude" ] || exit 0
 
 # The template repository is where this guard is telling everyone to go, so denying a tick there
 # would be perfectly circular. Identified by origin URL, the same three patterns
 # template-autosync.sh uses — file markers are useless, because the sync copies
 # scripts/sync-prompt.md and friends into every project it touches.
-case "$(git -C "$ROOT" remote get-url origin 2>/dev/null)" in
+case "$(git -C "$SYNC_ROOT" remote get-url origin 2>/dev/null)" in
   *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) exit 0 ;;
 esac
 
-SYNC="$ROOT/scripts/template-autosync.sh"
+SYNC="$SYNC_ROOT/scripts/template-autosync.sh"
 [ -f "$SYNC" ] || exit 0
 
 # ------------------------------------------------------------------- the two questions
@@ -233,9 +235,9 @@ elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 15"; fi
 # about the session's repository instead of the file's. They are usually the same and then this
 # changes nothing; when they differ, the old form asked the wrong repository whether work was owed.
 # Same shape template-autosync-hook.sh already uses. Spec 010 (consultpilot H7bm).
-OWED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --owed 2>/dev/null); ORC=$?
+OWED=$(cd "$SYNC_ROOT" && CLAUDE_PROJECT_DIR="$SYNC_ROOT" $TO bash "$SYNC" --owed 2>/dev/null); ORC=$?
 [ "$ORC" -eq 0 ] || OWED=""
-UNLISTED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --unlisted 2>/dev/null); URC=$?
+UNLISTED=$(cd "$SYNC_ROOT" && CLAUDE_PROJECT_DIR="$SYNC_ROOT" $TO bash "$SYNC" --unlisted 2>/dev/null); URC=$?
 [ "$URC" -eq 0 ] || UNLISTED=""
 
 if [ -z "$OWED" ] && [ -z "$UNLISTED" ]; then

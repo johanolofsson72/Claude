@@ -301,6 +301,32 @@ run "$LONE/settings-edit-guard-hook.sh" "$(edit_p "$S" '"auto"' '"manual"')"; ex
 run "$GUARD" '{"tool_name":"Bash","tool_input":{"command":"rm .claude/settings.json"'
 expect "a truncated payload naming a settings file" deny
 
+printf '\n[090 R8c] a glob keeps to one path component, as the shell does\n'
+PYHD=$'python3 - <<\'X\'\nprint(2 * 3)\nX'
+run "$GUARD" "$(bash_p "$PYHD")";                                expect "an interpreter heredoc with a * in its program is allowed (found 2026-10-02)" none
+run "$GUARD" "$(bash_p "$(printf 'cd %s && python3 - <<%sX%s\nf(*args)\nX' "$P" "'" "'")")"; expect "the same after a cd into the project" none
+run "$GUARD" "$(bash_p "rm .claude/*.json")";                     expect "control: rm .claude/*.json still names the settings file" deny
+run "$GUARD" "$(bash_p "rm -r .c*")";                             expect "control: rm -r .c* still names .claude" deny
+run "$GUARD" "$(bash_p "rm -r *")";                               expect "control: rm -r * does not reach a dot directory (the shell's rule)" none
+run "$GUARD" "$(bash_p "shopt -s dotglob; rm -r *")";           expect "review #8: with dotglob, rm -r * reaches .claude" deny
+run "$GUARD" "$(bash_p "shopt -s dotglob; rm */settings.json")"; expect "review #8: with dotglob, */settings.json reaches .claude/settings.json" deny
+run "$GUARD" "$(bash_p "shopt -s globstar; rm .claude/**/settings.json")"; expect "review #8: with globstar, **/ also matches no directory" deny
+run "$GUARD" "$(bash_p "shopt -s dot''glob; cp e.json */settings.json")"; expect "/security-review: a quoted dot''glob still turns the loose match on" deny
+run "$GUARD" "$(bash_p "shopt -s \$'\\x64otglob'; cp e.json */settings.json")"; expect "/security-review: an ANSI-C spelled dotglob too" deny
+run "$GUARD" "$(bash_p "bash -O dotglob -c 'rm */settings.json'")"; expect "/security-review: bash -O dotglob" deny
+run "$GUARD" "$(bash_p "echo x > .cla{u..u}de/settings.json")"; expect "/simplify: a brace sequence (.cla{u..u}de) is expanded like bash does" deny
+run "$GUARD" "$(bash_p "echo x > .claude/s{e..e}ttings.json")"; expect "a brace sequence inside the name" deny
+run "$GUARD" "$(bash_p "echo x > out{1..9999}.txt")";            expect "control: a huge sequence naming no settings file" none
+MG="$WORK/mutglob"; mkdir -p "$MG"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MG"/ 2>/dev/null
+python3 - "$MG/settings_guard.py" <<'PY' || bad "sabotage target not found (shell_glob_match)"
+import sys
+p = sys.argv[1]; s = open(p).read()
+old = '    ps, qs = path.split("/"), pat.split("/")\n'
+if old not in s: sys.exit(1)
+open(p, "w").write(s.replace(old, '    return fnmatch.fnmatchcase(path, pat)\n' + old, 1))
+PY
+run "$MG/settings-edit-guard-hook.sh" "$(bash_p "$PYHD")"; expect "sabotage: fnmatch across / denies the interpreter heredoc again" deny
+
 printf '\n[sabotage] each rule is what denies its attack\n'
 sabotage() { # sabotage <label> <old> <new> <payload>
   local m="$WORK/mut$PASS$FAIL"; mkdir -p "$m"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$m"/ 2>/dev/null

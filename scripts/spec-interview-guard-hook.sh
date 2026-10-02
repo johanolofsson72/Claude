@@ -62,7 +62,10 @@ INPUT=$(cat)
 # precheck can never quietly disagree with the test it stands in front of. Markup and stylesheets are
 # source too (spec 032): fundit's 016a shipped a whole static site as .html/.css with no spec at all.
 # The three path guards carry this list byte-identical; test-spec-dir-absent.sh fails if one drifts.
-SOURCE_EXTS='cs|ts|tsx|mts|cts|js|jsx|mjs|cjs|vb|ps1|groovy|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
+SOURCE_EXTS='cs|ts|tsx|mts|cts|js|jsx|mjs|cjs|vb|ps1|psm1|groovy|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|mm|razor|cshtml|vbhtml|aspx|jsp|ejs|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|coffee|sol|tf|sql|ipynb|sh|bash|zsh|bat|cmd|pl|pm|html|htm|css|scss|sass|less'
+# The raw-text precheck, shared with the other two path guards (guard-precheck.sh, spec 090 R2). If it
+# cannot be loaded every payload goes to the parser, which is slower and never looser.
+. "${BASH_SOURCE[0]%/*}/guard-precheck.sh" 2>/dev/null || guard_precheck_src() { return 0; }
 
 # Cheapest exit first (spec 073, R9). This hook runs on every Edit/Write in every project, and nearly
 # every one of those is to a file it ignores — but the extension test in step 2 needs FILE, and FILE
@@ -76,9 +79,7 @@ SOURCE_EXTS='cs|ts|tsx|mts|cts|js|jsx|mjs|cjs|vb|ps1|groovy|py|go|rs|java|rb|php
 # Write took longer to scan than jq takes to start — so a large payload skips the precheck and goes
 # straight to the exact test, at exactly the cost it had before.
 if [ "${#INPUT}" -le 4096 ]; then
-  shopt -s nocasematch
-  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
-  shopt -u nocasematch
+  guard_precheck_src "$INPUT" || exit 0
 fi
 
 HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,76 +87,40 @@ HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # Spec 083: reading, writing and path canonicalisation go through one library. Without it this
 # fail-closed guard cannot read anything, so a payload naming a source file gets a fixed-text deny.
 if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
-  shopt -s nocasematch
-  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  guard_precheck_src "$INPUT" || exit 0
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED — spec-interview-guard cannot load scripts/guard-lib.sh, so it cannot read this tool call. Re-run the template sync (it is in CORE_SCRIPTS). Edits under scripts/, specs/ and .claude/ stay allowed."}}'
   exit 0
 fi
 
 # FAILS CLOSED when the payload cannot be read (spec 083, R2, O3; F044 found it allowing in silence).
-FILE=$(guard_field .tool_input.file_path); FRC=$?
+guard_target_path; FRC=$?             # file_path, or a NotebookEdit's notebook_path (spec 090 R4)
 if [ "$FRC" -ne 0 ]; then
-  shopt -s nocasematch
-  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  guard_precheck_src "$INPUT" || exit 0
   guard_unreadable_deny spec-interview-guard "$(guard_cause "$FRC")"
   exit 0
 fi
 [ -z "$FILE" ] && exit 0
-FILE=$(guard_canon "$FILE")          # spec 083, R4 (F040)
+FILE=$(guard_canon "$FILE")          # spec 083 R4 (F040); the stored name since 090 R1
 
 # 1) Name allowlist on the basename; the directory allowlist is root-anchored after the walk (3c).
 guard_name_exempt "$FILE" && exit 0
 
-# 2) Extension allowlist — only block clearly-source-code extensions
-EXT="${FILE##*.}"
-EXT_LC=$(printf '%s' "$EXT" | tr '[:upper:]' '[:lower:]')
-[[ $EXT_LC =~ ^($SOURCE_EXTS)$ ]] || exit 0
+# 2) Extension allowlist — only block clearly-source-code extensions, read the way NTFS reads the
+#    name (spec 090 R3).
+guard_is_source "$FILE" || exit 0      # the extension NTFS reads (spec 090 R3)
 
-# 3) Walk up to the .git boundary, collecting: a language marker (anywhere in
-#    the path — gates out template/scratch repos), and the spec register
-#    (specs/INDEX.md, searched independently because it may live at the repo
-#    root while the language marker sits in a subdir — e.g. an extension/ or
-#    backend/ package.json with the register at the git root).
-# Builtin stand-in for `ls "$DIR"/*.csproj >/dev/null 2>&1` (spec 073, R9): true when the glob
-# matched anything. The walk below visits every directory from the file up to the git root, and an
-# `ls` plus a `dirname` per level was most of this hook's own cost — processes, not work.
-has_match() { local f; for f in "$@"; do { [ -e "$f" ] || [ -L "$f" ]; } && return 0; done; return 1; }
-guard_anchor_for "$FILE"          # spec 088 R1 (F090): a .git planted below the project is no root
-DIR=$(dirname "$FILE")
-LANG_MARKER=""
-GIT_ROOT=""
-REGISTER=""
-PROJECT_ROOT=""
-while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
-  if [ -z "$LANG_MARKER" ]; then
-    for marker in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile build.gradle build.gradle.kts pom.xml pubspec.yaml; do
-      if [ -f "$DIR/$marker" ]; then LANG_MARKER="$marker"; break; fi
-    done
-  fi
-  [ -z "$LANG_MARKER" ] && has_match "$DIR"/*.csproj && LANG_MARKER="*.csproj"
-  [ -z "$LANG_MARKER" ] && has_match "$DIR"/*.sln && LANG_MARKER="*.sln"
-  # The OUTERMOST register wins (spec 083, adversarial review #3): .md writes are ungated, so a
-  # nearest-wins walk let a planted src/specs/INDEX.md, every row ticked, stand in for the real one
-  # and make src/ its root, which exempted src/scripts/ again. A monorepo with one register in its
-  # package directory resolves exactly as before.
-  if [ -f "$DIR/specs/INDEX.md" ]; then
-    REGISTER="$DIR/specs/INDEX.md"; PROJECT_ROOT="$DIR"
-  fi
-  if guard_git_boundary "$DIR"; then GIT_ROOT="$DIR"; break; fi   # spec 088 R1: not below CLAUDE_PROJECT_DIR
-  # `dirname` without the process: "/a/b" -> "/a", "/a" -> "/", "a" -> ".".
-  case "$DIR" in */*) DIR="${DIR%/*}"; [ -n "$DIR" ] || DIR="/" ;; *) DIR="." ;; esac
-done
+# 3) Walk up to the .git boundary, collecting a language marker (gates out template/scratch repos)
+#    and the outermost spec register. One walk for the three pipeline guards (guard-lib.sh,
+#    guard_walk); a linked worktree without its own register inherits the project's (spec 090 R7).
+guard_walk "$FILE"
+GIT_ROOT=$GUARD_GIT_ROOT; LANG_MARKER=$GUARD_LANG_MARKER; REGISTER=$GUARD_REGISTER; PROJECT_ROOT=$GUARD_PROJECT_ROOT
 
 [ -z "$GIT_ROOT" ] && exit 0      # not inside a git repo
 [ -z "$LANG_MARKER" ] && exit 0   # template/scratch repo — no code project
 [ -z "$REGISTER" ] && exit 0      # no spec register up to the git root
 
 # 3c) Directory allowlist, anchored to the git root and the register root (spec 083, R5, F041).
-REL_GIT="${FILE#"$GIT_ROOT"/}"
-guard_root_exempt "$REL_GIT" && exit 0
-if [ "$PROJECT_ROOT" != "$GIT_ROOT" ]; then
-  guard_root_exempt "${FILE#"$PROJECT_ROOT"/}" && exit 0
-fi
+guard_walk_exempt "$FILE" && exit 0
 
 # 4) Parse register + count answered interview questions in Python.
 MIN_QUESTIONS="${SPEC_INTERVIEW_MIN:-15}"

@@ -316,12 +316,12 @@ printf '%s' "$OUT" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/n
 
 printf '\n[sabotage] the arms above bite\n'
 SAB="$WORK/sab"; mkdir -p "$SAB"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$SAB"/ 2>/dev/null
-sed -i.bak 's/guard_root_exempt "\$REL_GIT"/case "$FILE" in *\/scripts\/*) true ;; *) false ;; esac/' "$SAB/pipeline-state-guard-hook.sh"
+sed -i.bak 's/^guard_walk_exempt "\$FILE"/case "$FILE" in *\/scripts\/*) true ;; *) false ;; esac/' "$SAB/pipeline-state-guard-hook.sh"
 run "$SAB/pipeline-state-guard-hook.sh" "$(edit_payload "$P/src/scripts/app.js")"
 [ "$VERDICT" != deny ] && ok "the old */scripts/* exemption lets src/scripts/app.js through — AC-3 would see it" || bad "sabotage R5 not observable"
 sed -i.bak 's/^FILE=\$(guard_canon "\$FILE")/: canon removed/' "$SAB/core-machinery-guard-hook.sh"
-run "$SAB/core-machinery-guard-hook.sh" "$(edit_payload "$CP//scripts/spec_active.py")"
-[ "$VERDICT" != deny ] && ok "without canon, //scripts is let through — AC-2 would see it" || bad "sabotage R4 not observable"
+run "$SAB/core-machinery-guard-hook.sh" "$(edit_payload "$CP/linked-scripts/spec_active.py")"
+[ "$VERDICT" != deny ] && ok "without canon, a symlinked scripts dir is let through — AC-2 would see it" || bad "sabotage R4 not observable"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

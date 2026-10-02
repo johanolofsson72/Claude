@@ -1,0 +1,199 @@
+-- allium: 3
+--
+-- 090 — guard canonical paths, round 2.
+--
+-- The Edit-path guards judged the path the agent spelled. Each rule below says which spelling is
+-- now resolved to the file the write lands on, or which command shape is now read as what it does.
+-- Rules cite R1..R9 (spec.md) and the developer's overflow answers O1..O4 (interview.md). The
+-- template keeps no scenario map.
+
+enum Verdict { allow | deny }
+
+enum FoldingSystem { folds | exact }
+
+enum BoundaryKind { none | project_root | linked_worktree | nested_repo }
+
+enum PushForm { plain | force | delete | mirror }
+
+enum ToolKind { edit | write | multi_edit | notebook_edit | bash | delegated_shell_write }
+
+entity SpelledPath {
+    typed: String                               -- the payload's file_path or notebook_path
+    system: FoldingSystem                       -- darwin, msys, cygwin, win fold; others are exact
+    exists_on_disk: Boolean
+    stored: String                              -- the name the file system returns for it
+    canonical: String                           -- what guard_canon gives the guards
+    through_symlink: Boolean                    -- the final component or an existing ancestor is a link
+    landing: String                             -- where a write through it lands
+
+    -- R1 (F082, F105): on a folding system an existing path is judged by its stored name.
+    invariant StoredNameWins {
+        not (this.system = folds and this.exists_on_disk) or this.canonical = this.stored
+    }
+
+    -- 083 R4 plus R2(b): a symlink is judged where the write lands.
+    invariant LinkIsFollowed {
+        not this.through_symlink or this.canonical = this.landing
+    }
+}
+
+entity Precheck {
+    path: SpelledPath
+    raw_names_source_ext: Boolean               -- `.ext"`, `.ext."`, `.ext "`, `.ext::$DATA"`, any case
+    raw_names_tooling_dir: Boolean              -- scripts/, rules/, INDEX.md, any case
+    passes_to_parser: Boolean
+
+    -- R2: a precheck may only exit early on a payload the parser would also allow.
+    invariant PrecheckIsSound {
+        this.passes_to_parser or (not this.raw_names_source_ext and not this.raw_names_tooling_dir and not this.path.through_symlink)
+    }
+}
+
+entity Extension {
+    basename: String
+    stripped: String                            -- trailing '.', ' ' and '::$DATA' removed (O2: everywhere)
+    ext: String                                 -- lower-cased, from stripped
+    is_source: Boolean                          -- ext in SOURCE_EXTS, the same list in all three guards
+}
+
+entity Walk {
+    file: SpelledPath
+    anchor: String?                             -- stored-name CLAUDE_PROJECT_DIR
+    boundary: BoundaryKind
+    boundary_dir: String                        -- where exemptions are anchored
+    own_register: Boolean                       -- a register between the file and the boundary
+    own_marker: Boolean
+    register_found: Boolean                     -- own, or inherited past a linked worktree (R7)
+    marker_found: Boolean
+    anchor_git_has_commit: Boolean              -- git rev-parse --verify HEAD at the anchor
+    ancestor_of_anchor_has_git: Boolean
+
+    -- R7 (F106, F122): a worktree below the anchor never hides the project's register.
+    invariant WorktreeInheritsRegister {
+        not (this.boundary = linked_worktree) or this.register_found
+    }
+}
+
+entity BashCommand {
+    words: List<String>
+    push_form: PushForm?
+    sed_scripts: Set<String>                    -- R8(a): -e/--expression args, else the first operand
+    verdict: Verdict?
+}
+
+entity AcceptanceGlob {
+    pattern: String
+    expansions: Set<String>                     -- brace (with a comma) then case-folded glob, on disk
+    literal_basename_is_acceptance: Boolean
+    counts: Boolean
+}
+
+rule CanonicalIsStoredName {
+    -- R1: /bin/pwd -P for directories, a case-insensitive match for the final component.
+    when: PathCanonicalised(p)
+    requires: p.system = folds and p.exists_on_disk
+    ensures: p.canonical = p.stored
+}
+
+rule PrecheckPassesLinks {
+    -- R2(b) (F083): builtin [ -L ] per component; a link anywhere goes to the parser.
+    when: PrecheckRan(c)
+    requires: c.path.through_symlink
+    ensures: c.passes_to_parser = true
+}
+
+rule PrecheckFoldsCase {
+    -- R2(a)(c) (F082, F096).
+    when: PrecheckRan(c)
+    requires: c.raw_names_source_ext or c.raw_names_tooling_dir
+    ensures: c.passes_to_parser = true
+}
+
+rule ExtensionIsTheFiles {
+    -- R3 (F096, O2).
+    when: ExtensionTaken(e)
+    ensures: e.ext = lower(e.stripped)
+}
+
+rule NotebookPathIsAPath {
+    -- R4 (F084, O4): notebook_path is read when file_path is empty; the matcher includes NotebookEdit.
+    when: ToolCallProposed(kind, path)
+    requires: kind = notebook_edit
+    ensures: PipelineGuardsJudge(path)
+}
+
+rule AnchorGitMustBeARepository {
+    -- R6 (F105, O1): at the anchor, with a .git above it, only a repository with a commit is a root.
+    when: WalkReachedAnchor(w)
+    requires: w.ancestor_of_anchor_has_git
+    ensures:
+        if w.anchor_git_has_commit:
+            w.boundary = nested_repo
+        else:
+            WalkContinuesAbove(w)
+}
+
+rule WorktreeInheritsMissingState {
+    -- R7 (F106, F122): exemptions stay at the worktree; the register and marker come from above.
+    when: WalkReachedWorktree(w)
+    requires: not w.own_register or not w.own_marker
+    ensures:
+        w.boundary = linked_worktree
+        WalkCollectsAbove(w)
+}
+
+rule PushDeletionIsDestructive {
+    -- R5 (F084, O3): no override.
+    when: CommandClassified(c)
+    requires: c.push_form = delete or c.push_form = mirror or c.push_form = force
+    ensures: c.verdict = deny
+}
+
+rule SedScriptIsData {
+    -- R8(a) (F085): a sed pattern is not a path; a file operand still is.
+    when: CommandScanned(c)
+    ensures: SensitiveCandidates(c) = words_minus(c.words, c.sed_scripts)
+}
+
+rule GlobCountsByExpansion {
+    -- R8(b) (F112).
+    when: AcceptanceGlobJudged(g)
+    ensures:
+        if g.literal_basename_is_acceptance or exists x in g.expansions where basename_lower(x) = "acceptance.md":
+            g.counts = true
+        else:
+            g.counts = false
+}
+
+rule SettingsGlobKeepsToOneComponent {
+    -- R8(c) (found in session): `*` stays inside one component and skips dot names, unless the
+    -- command turns on dotglob/globstar (read de-quoted), where the whole-path match applies.
+    when: SettingsGlobJudged(g)
+    ensures:
+        if g.command_sets_glob_option:
+            g.match = whole_path_match(g.pattern)
+        else:
+            g.match = per_component_match(g.pattern)
+}
+
+rule CoreGuardsUseTheProjectsSync {
+    -- Adversarial review #1 (scanner, pre-implementation): a worktree with no .claude/ or sync of its
+    -- own is judged by the next root up; REL stays relative to the worktree.
+    when: CoreRootResolved(w)
+    requires: w.boundary = linked_worktree and not w.own_sync
+    ensures: SyncRootIsAbove(w)
+}
+
+rule OneBraceRule {
+    -- /simplify: trust-anchor, settings-edit and destructive-command share shell_glob.py; past the
+    -- cap an expansion fails closed.
+    when: BracesExpanded(word)
+    ensures: Expansions(word) = bash_brace_expansion(word) or FailsClosed(word)
+}
+
+invariant SameFileSameVerdict {
+    -- The point of the spec: two spellings that land on one file get one verdict.
+    for a in SpelledPaths:
+        for b in SpelledPaths where a.landing = b.landing and a.exists_on_disk and b.exists_on_disk:
+            GuardVerdict(a) = GuardVerdict(b)
+}

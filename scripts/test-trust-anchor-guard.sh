@@ -195,6 +195,49 @@ case "$(reason)" in *trust-anchor-guard-hook.sh*) ok "  and names it" ;; *) bad 
 OUT=$(bash_p "cat notes > specs/001-x/acceptance.md" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
 VERDICT=$(hook_verdict "$OUT"); expect "a redirect into acceptance.md is denied" deny
 
+printf '\n[090 R8b] a glob is judged by what bash expands it to  (090-AC-5, F112)\n'
+FIX=$'cat > fix.json <<\'X\'\n{/* c */ "a": 1}\nX'
+OUT=$(bash_p "$FIX" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
+VERDICT=$(hook_verdict "$OUT"); expect "090-AC-5 a heredoc fixture holding {/* c */}: allowed (bash-write route)" none
+FIXPY=$'python3 - <<\'X\'\nprint({/* 1 */})\nX'
+OUT=$(bash_p "$FIXPY" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
+VERDICT=$(hook_verdict "$OUT"); expect "an interpreter heredoc holding {/* */}: allowed" none
+run "$GUARD" "$(jq -cn --arg p "$P/{/*" '{tool_input:{file_path:$p}}')";           expect "a delegated target {/* (no comma: literal braces)" none
+run "$GUARD" "$(jq -cn --arg p "$P/docs/*" '{tool_input:{file_path:$p}}')";        expect "a delegated docs/* with no acceptance.md in docs/" none
+OUT=$(bash_p "sed -i 's/x/y/' specs/*/acceptance.md" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
+VERDICT=$(hook_verdict "$OUT"); expect "090-AC-5 sed -i on specs/*/acceptance.md is still denied" deny
+for g in 'specs/*/acceptance.md' 'specs/001-x/*' 'specs/001-x/{acceptance,x}.md' 'specs/001-x/ACCEPT*.MD' \
+         'specs/001-x/{a..a}cceptance.md' 'specs/001-x/a[[=c=]]ceptance.md' 'specs/00{1..3}-x/acceptance.md' \
+         'SPECS/*/acceptance.md' 'specs/0*/a*'; do
+  run "$GUARD" "$(jq -cn --arg p "$P/$g" '{tool_input:{file_path:$p}}')"
+  expect "a delegated glob that reaches acceptance.md: $g" deny
+done
+ln -s ../specs/001-x/acceptance.md "$P/docs/cases.txt"
+run "$GUARD" "$(jq -cn --arg p "$P/docs/c*.txt" '{tool_input:{file_path:$p}}')";   expect "a glob that expands to a symlink to acceptance.md" deny
+rm -f "$P/docs/cases.txt"
+run "$GUARD" "$(jq -cn --arg p "$P/specs/009-new/acceptance.md" '{tool_input:{file_path:$p}}')"; expect "a literal acceptance.md that does not exist yet is still one" deny
+ALTS=$(python3 -c 'print(",".join("q%d" % i for i in range(300)))')
+# Built in a variable first: bash 3.2 brace-expands a {…} inside "$( … "…" … )" (measured).
+GP="$P/specs/001-x/{$ALTS,acceptance}.m?"; PL=$(jq -cn --arg p "$GP" '{tool_input:{file_path:$p}}'); run "$GUARD" "$PL"; expect "review #2: 300 brace alternatives before acceptance are not truncated away" deny
+# Built in a variable first: bash 3.2 brace-expands a {…} inside "$( … "…" … )" (measured).
+GP="$P/specs/{100..001}-x/acceptance.m?"; PL=$(jq -cn --arg p "$GP" '{tool_input:{file_path:$p}}'); run "$GUARD" "$PL"; expect "review #2: a descending sequence reaching 001 is denied" deny
+T0=$(date +%s)
+# Built in a variable first: bash 3.2 brace-expands a {…} inside "$( … "…" … )" (measured).
+GP="$P/specs/x{1..99999999}/a*"; PL=$(jq -cn --arg p "$GP" '{tool_input:{file_path:$p}}'); run "$GUARD" "$PL"; expect "review #3: a huge sequence fails closed" deny
+# Built in a variable first: bash 3.2 brace-expands a {…} inside "$( … "…" … )" (measured).
+GP="$P/s{1..64}{1..64}{1..64}{1..64}/a*"; PL=$(jq -cn --arg p "$GP" '{tool_input:{file_path:$p}}'); run "$GUARD" "$PL"; expect "review #3: nested sequences fail closed" deny
+[ $(( $(date +%s) - T0 )) -le 5 ] && ok "review #3: both answered within 5 s" || bad "review #3: the caps did not bound the time"
+MUTG="$WORK/mutg"; mkdir -p "$MUTG"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUTG"/ 2>/dev/null
+python3 - "$MUTG/trust-anchor-guard-hook.sh" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+old = "            if any(same_as_acceptance(m) for m in hits):"
+assert old in s, "sabotage target not found"
+open(p, "w").write(s.replace(old, "            if True:"))
+PY
+run "$MUTG/trust-anchor-guard-hook.sh" "$(jq -cn --arg p "$P/{/*" '{tool_input:{file_path:$p}}')"
+expect "sabotage: 'any glob could match' denies {/* again — the F112 arm is about the expansion" deny
+
 printf '\n[R3] sabotage: without the Confirmed-line rule the forged Edit passes\n'
 MUT="$WORK/mut"; mkdir -p "$MUT"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT"/ 2>/dev/null
 python3 - "$MUT/trust-anchor-guard-hook.sh" <<'PY'

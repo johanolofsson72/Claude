@@ -5,7 +5,7 @@ Called by scripts/destructive-command-guard-hook.sh with the command in $CMD_TEX
 
     none              nothing on the list
     <form>            the first destructive form found: rm-recursive-force, sudo, git-push-force,
-                      git-reset-hard, git-clean-force, find-delete
+                      git-push-delete, git-push-mirror, git-reset-hard, git-clean-force, find-delete
 
 WHY A TOKENISER. `permissions.deny` in .claude/settings.json matches by prefix: `Bash(rm -rf *)` does
 not match `rm -r -f x`, `/bin/rm -rf x`, `command rm -rf x` or `git -C . push -f`, and under
@@ -17,7 +17,7 @@ filesystems find /bin/RM).
 WHAT IT DOES NOT DO (the declared bound). It recognises spellings; it does not evaluate. A variable
 (`$RM -rf x`), an alias, a function, brace expansion (`{rm,-rf,x}`), a script that deletes,
 `eval "$cmd"`, `python -c "shutil.rmtree(...)"` and `git -c alias.x='!rm -rf .' x` all pass. So does
-every destructive command the deny list never named (dd, mkfs, git branch -D, git push --delete). A
+every destructive command the deny list never named (dd, mkfs, git branch -D). A
 literal `sh -c '...'`, `eval '...'`, `$(...)`, backtick body, here-string or heredoc fed to a shell, and
 text piped into a shell are read, one level down per nesting, up to MAX_DEPTH.
 
@@ -31,6 +31,9 @@ import os
 import re
 import shlex
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from shell_glob import ANSI_C, ansi_c_text as _ansi_c   # one copy of bash's $'…' rule (spec 090)
 
 MAX_DEPTH = 3
 SEPARATORS = set(";&|()\n")
@@ -60,14 +63,16 @@ WRAPPERS = {
     "unbuffer": set(),
 }
 SUBST = re.compile(r"\$\(((?:[^()]|\([^()]*\))*)\)|`([^`]*)`")
-ANSI_C = re.compile(r"\$'((?:[^'\\]|\\.)*)'")
 
 
 def normalise(cmd: str) -> str:
     # A backslash-newline is removed by the shell before it splits words: `rm -r \<nl>-f x` is one
-    # command. $'…' (ANSI-C quoting) is read as a plain single-quoted word; its escapes are not decoded.
+    # command. $'…' (ANSI-C quoting) is decoded the way bash decodes it (\xHH, \NNN, \uHHHH, \n …),
+    # then read as a single-quoted word: `git push origin $'\x3amain'` deletes main (spec 090,
+    # adversarial review #6).
     cmd = cmd.replace("\\\r\n", "").replace("\\\n", "")
-    return ANSI_C.sub(lambda m: "'" + m.group(1).replace("'", "") + "'", cmd)
+    return ANSI_C.sub(lambda m: "'" + _ansi_c(m.group(1)).replace("'", "") + "'", cmd)
+
 
 
 def tokens(cmd: str) -> list[str]:
@@ -167,9 +172,77 @@ def judge_rm(args: list[str]) -> bool:
     return recursive and force
 
 
+# Spec 090 (R5, F084, developer O3): a push that deletes or mirrors a remote ref, set from the command
+# line or through the config git reads for the next push. `remote.<x>.mirror` makes every plain `git
+# push` a mirror; `remote.<x>.push` with `:` or `+` makes it a deletion or a force.
+_REMOTE_PUSH_KEY = re.compile(r"^remote\..+\.(mirror|push)$", re.I)
+
+
+def _push_config_form(key: str, value: str | None) -> str | None:
+    m = _REMOTE_PUSH_KEY.match(key)
+    if not m:
+        return None
+    if m.group(1).lower() == "mirror":
+        return "git-push-mirror"
+    v = (value or "").strip()
+    if v.startswith("+"):
+        return "git-push-force"
+    if v.startswith(":") and len(v) > 1:
+        return "git-push-delete"
+    return None
+
+
+def judge_push(rest: list[str]) -> str | None:
+    for a in rest:
+        if a == "--":
+            break
+        if a.startswith("--"):
+            if long_is(a, "--force", 5) or long_is(a, "--force-with-lease", 9) or long_is(a, "--force-if-includes", 9):
+                return "git-push-force"
+            if long_is(a, "--mirror", 3):
+                return "git-push-mirror"
+            if long_is(a, "--delete", 4) or long_is(a, "--prune", 4):
+                return "git-push-delete"
+            continue
+        c = short_cluster(a)
+        if "f" in c:
+            return "git-push-force"
+        if "d" in c:
+            return "git-push-delete"
+        if a.startswith("+") and len(a) > 1:
+            return "git-push-force"
+        # `:main` deletes main on the remote; a bare `:` pushes the matching branches.
+        if a.startswith(":") and len(a) > 1:
+            return "git-push-delete"
+    # Everything after `--` is a refspec.
+    if "--" in rest:
+        for a in rest[rest.index("--") + 1:]:
+            if a.startswith("+") and len(a) > 1:
+                return "git-push-force"
+            if a.startswith(":") and len(a) > 1:
+                return "git-push-delete"
+    return None
+
+
 def judge_git(args: list[str]) -> str | None:
     i = 0
     while i < len(args) and args[i].startswith("-"):
+        if args[i] == "-c" and i + 1 < len(args):
+            key, _, value = args[i + 1].partition("=")
+            form = _push_config_form(key, value)
+            if form:
+                return form
+        # --config-env=<key>=<ENVVAR>: the value is unknown here, so the key alone decides; a `push`
+        # key read from the environment is judged as a deletion (review #5).
+        if args[i].startswith("--config-env"):
+            spec = args[i].split("=", 1)[1] if "=" in args[i] else (args[i + 1] if i + 1 < len(args) else "")
+            key = spec.split("=", 1)[0]
+            form = _push_config_form(key, ":x") if _REMOTE_PUSH_KEY.match(key) else None
+            if form:
+                return form
+            if "=" not in args[i]:
+                i += 2
+                continue
         if args[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"):
             i += 2
         else:
@@ -177,15 +250,34 @@ def judge_git(args: list[str]) -> str | None:
     if i >= len(args):
         return None
     sub, rest = args[i].lower(), args[i + 1:]
-    if sub == "push":
-        for a in rest:
-            if a.startswith("--") and (long_is(a, "--force", 5) or long_is(a, "--force-with-lease", 9)
-                                       or long_is(a, "--force-if-includes", 9)):
-                return "git-push-force"
-            if "f" in short_cluster(a):
-                return "git-push-force"
-            if a.startswith("+") and len(a) > 1:
-                return "git-push-force"
+    if sub in ("push", "send-pack"):
+        return judge_push(rest)
+    # `git remote add --mirror=push bak <url>` sets remote.bak.mirror (review #5).
+    if sub == "remote" and any(a == "--mirror" or a.startswith("--mirror=") for a in rest):
+        return "git-push-mirror"
+    if sub == "config":
+        # Reading or removing the key changes nothing a push does.
+        if any(a in ("--get", "--get-all", "--get-regexp", "--list", "-l", "--unset", "--unset-all")
+               for a in rest):
+            return None
+        # Options that take a value (`--type bool`, `-f <file>`) would read their value as the key.
+        words, j = [], 0
+        while j < len(rest):
+            a = rest[j]
+            if a in ("--type", "-t", "-f", "--file", "--blob", "--default", "--comment", "--value"):
+                j += 2
+                continue
+            if not a.startswith("-"):
+                words.append(a)
+            j += 1
+        if words and words[0].lower() in ("get", "list", "unset", "rename-section", "remove-section", "edit"):
+            return None
+        if words and words[0].lower() == "set":
+            words = words[1:]
+        if words:
+            form = _push_config_form(words[0], words[1] if len(words) > 1 else "")
+            if form:
+                return form
         return None
     if sub == "reset" and any(a.startswith("--") and long_is(a, "--hard", 4) for a in rest):
         return "git-reset-hard"

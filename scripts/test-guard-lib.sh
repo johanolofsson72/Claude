@@ -114,7 +114,7 @@ OUT=$(bash -c '. "$0"; GUARD_PARSER=none; guard_deny "a\"b"' "$SAB")
 printf '%s' "$OUT" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null \
   && bad "an escaper that skips quotes still produced valid JSON — the round-trip arm would not see it" \
   || ok "an escaper that skips quotes produces invalid JSON, which the round-trip arm rejects"
-sed -e 's/cd -P -- "\$seg"/cd -L -- "$seg"/' -e 's/out=\$(pwd -P)/out=$(pwd -L)/' "$LIB" > "$SAB"
+sed -e 's/cd -P -- "\$seg"/cd -L -- "$seg"/' -e 's/out=\$(_guard_pwd)/out=$(pwd -L)/' "$LIB" > "$SAB"
 V=$(bash -c '. "$0"; guard_canon "$1"' "$SAB" "$WORK/s/a.sh")
 [ "$V" != "$WANT" ] && ok "a canon that does not resolve symlinks lands elsewhere (${V#$WORK})" || bad "sabotage 3 not observable"
 

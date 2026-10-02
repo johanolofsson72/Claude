@@ -104,6 +104,34 @@ expect none "Bash python3 - <<E whose program says .env" "$(tool Bash command $'
 expect deny "Bash ls .env* (a dot glob)"             "$(tool Bash command 'ls .env*')"
 expect deny "Bash bash <<E that cats a key"          "$(tool Bash command $'bash <<E\ncat ~/.ssh/id_rsa\nE')"
 
+printf '\n[sed] a pure substitution is a pattern, a file operand or file command is a path  (090-AC-5, R8a)\n'
+expect none "090-AC-5 sed 's/.env//' f.txt (F085)" "$(tool Bash command "sed 's/.env//' f.txt")"
+expect none "sed -i '' 's/.env//' f.txt (BSD -i)" "$(tool Bash command "sed -i '' 's/.env//' f.txt")"
+expect none "sed -e 's|.ssh|x|g' -e 'y/a/b/' f" "$(tool Bash command "sed -e 's|.ssh|x|g' -e 'y/a/b/' f")"
+expect none "sed --expression=s/.env// f" "$(tool Bash command "sed --expression=s/.env// f")"
+expect none "sed -ne 's/.env//p' f" "$(tool Bash command "sed -ne 's/.env//p' f")"
+expect none "sed -- 's/.env//' f" "$(tool Bash command "sed -- 's/.env//' f")"
+expect deny "090-AC-5 sed 's/a/b/' .env (a file operand)" "$(tool Bash command "sed 's/a/b/' .env")"
+expect deny "sed -n 's/x/y/p' .env" "$(tool Bash command "sed -n 's/x/y/p' .env")"
+expect deny "sed -f .env x (a script file)" "$(tool Bash command "sed -f .env x")"
+expect deny "sed 'r .env' README.md (sed reads it)" "$(tool Bash command "sed 'r .env' README.md")"
+expect deny "sed -n -e 'R .env' f" "$(tool Bash command "sed -n -e 'R .env' f")"
+expect deny "sed 's/x/y/w .env' f (the w flag writes it)" "$(tool Bash command "sed 's/x/y/w .env' f")"
+expect deny "sed 's/x/y/w.env' f (no space)" "$(tool Bash command "sed 's/x/y/w.env' f")"
+expect deny "sed '1e cat .env' f (e runs a command)" "$(tool Bash command "sed '1e cat .env' f")"
+expect deny "sed 's/a/b/;r .env' f (two commands)" "$(tool Bash command "sed 's/a/b/;r .env' f")"
+expect deny "review #4: sed -n '1r.env' f.txt" "$(tool Bash command "sed -n '1r.env' f.txt")"
+expect deny "review #4: sed -n -e '1R.env' f.txt" "$(tool Bash command "sed -n -e '1R.env' f.txt")"
+expect deny "review #4: sed --expression=1r.env f.txt" "$(tool Bash command "sed --expression=1r.env f.txt")"
+expect deny "review #4: sed 's/x/y/;1r.env' f.txt" "$(tool Bash command "sed 's/x/y/;1r.env' f.txt")"
+expect deny "review #4: sed -n '/r/r.env' f.txt" "$(tool Bash command "sed -n '/r/r.env' f.txt")"
+expect deny "review #4: sed 's/r/b/w.env' f.txt" "$(tool Bash command "sed 's/r/b/w.env' f.txt")"
+expect deny "/security-review: sed -f script.sed s/x/.env/ (with -f every operand is a path)" "$(tool Bash command "sed -f script.sed s/x/.env/")"
+expect deny "sed -nf prog .env" "$(tool Bash command "sed -nf prog .env")"
+expect deny "sed --file=prog .env" "$(tool Bash command "sed --file=prog .env")"
+expect none "sed -e's/.env//' f (an attached script)" "$(tool Bash command "sed -e's/.env//' f")"
+expect deny "perl -pe 's/.env//' f (a program, not a pattern)" "$(tool Bash command "perl -pe 's/.env//' f")"
+
 printf '\n[size and parse] the old fail-open paths\n'
 BIG=$(python3 -c 'import json; print(json.dumps({"tool_name":"Edit","tool_input":{"file_path":"/home/u/.ssh/config","old_string":"x"*9000,"new_string":"y"}}))')
 expect deny "a 9 KB Edit of .ssh/config" "$BIG"
@@ -150,7 +178,7 @@ assert any("sensitive-file-guard-hook.sh" in c for c in cmds), cmds
 PY
 
 printf '\n[sabotage] the matrix bites\n'
-SAB="$WORK/sab"; mkdir -p "$SAB"; cp "$HOOK" "$SELF_DIR/guard-lib.sh" "$SELF_DIR/hook-notice.sh" "$SAB/"
+SAB="$WORK/sab"; mkdir -p "$SAB"; cp "$HOOK" "$SELF_DIR/guard-lib.sh" "$SELF_DIR/hook-notice.sh" "$SELF_DIR/shell_glob.py" "$SAB/"
 sed 's/SEGMENTS = {".ssh", ".aws", ".azure", ".kube", ".gnupg"}/SEGMENTS = {".ssh", ".aws", ".azure"}/' "$SELF_DIR/sensitive_paths.py" > "$SAB/sensitive_paths.py"
 V=$(run "$(tool Read file_path /home/u/.kube/config)" "$SAB/sensitive-file-guard-hook.sh")
 [ "$V" != deny ] && ok "a list without .kube lets it through — the matrix would see it" || bad "sabotage .kube not observable"
@@ -160,6 +188,13 @@ V=$(run "$(tool Read file_path /p/.env.example)" "$SAB/sensitive-file-guard-hook
 sed 's/out.extend((w, True) for w in shell_words(ti\["command"\]))/pass/' "$SELF_DIR/sensitive_paths.py" > "$SAB/sensitive_paths.py"
 V=$(run "$(tool Bash command 'cat ~/.ssh/id_rsa')" "$SAB/sensitive-file-guard-hook.sh")
 [ "$V" != deny ] && ok "a classifier that skips Bash lets cat ~/.ssh through — AC-5 would see it" || bad "sabotage Bash not observable"
+cp "$SELF_DIR/destructive_command.py" "$SAB/"     # the shell tokeniser the sed rule rides on
+sed 's/    return \[tok for tok, body in sed_scripts(args) if _SED_PURE.match(body)\]/    return []/' "$SELF_DIR/sensitive_paths.py" > "$SAB/sensitive_paths.py"
+V=$(run "$(tool Bash command "sed 's/.env//' f.txt")" "$SAB/sensitive-file-guard-hook.sh")
+[ "$V" = deny ] && ok "without the sed rule s/.env// is denied again — the 090 arm would see it" || bad "sabotage sed not observable"
+sed 's/    return out$/    return []/' "$SELF_DIR/sensitive_paths.py" > "$SAB/sensitive_paths.py"
+V=$(run "$(tool Bash command "sed 'r .env' README.md")" "$SAB/sensitive-file-guard-hook.sh")
+[ "$V" != deny ] && ok "without the script split sed 'r .env' passes — the 090 arm would see it" || bad "sabotage sed split not observable"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

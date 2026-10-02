@@ -140,7 +140,7 @@ cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT"/ 2>/dev/null
 python3 - "$MUT/guard-lib.sh" <<'PY'
 import re, sys
 p = sys.argv[1]; s = open(p).read()
-s2 = s.replace('if _guard_under "$1" "$GUARD_ANCHOR"; then _guard_linked_worktree "$1"; else return 0; fi', 'return 0')
+s2 = s.replace('  if _guard_under "$1" "$GUARD_ANCHOR"; then\n    _guard_linked_worktree "$1" || return 1', '  if false; then')
 assert s2 != s, "sabotage target not found"
 open(p, "w").write(s2)
 PY

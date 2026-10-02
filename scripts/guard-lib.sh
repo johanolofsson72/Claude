@@ -147,7 +147,106 @@ To fix: install jq (brew install jq · apt/dnf/pacman install jq · winget insta
 Edits under scripts/, specs/, .specify/ and .claude/ at the project root, and every non-source file, stay allowed, so the tooling can be repaired now."
 }
 
+# ------------------------------------------------------------------ which file system
+# macOS and Windows fold case (and macOS folds Unicode normalisation), so two spellings open one file.
+# NTFS also drops trailing dots and spaces from a name. Decided once from OSTYPE, as PATH is above.
+GUARD_ANCHOR_FOLD=0
+GUARD_NTFS=0
+case "${OSTYPE:-}" in
+  darwin*) GUARD_ANCHOR_FOLD=1 ;;
+  msys*|cygwin*|win*) GUARD_ANCHOR_FOLD=1; GUARD_NTFS=1 ;;
+esac
+# OSTYPE says linux for WSL on /mnt/c, a casefold ext4 directory and an SMB mount, all of which fold
+# (spec 090 threat model, #6). Two stats ask the project itself: a folding file system opens .GIT too.
+if [ "$GUARD_ANCHOR_FOLD" -eq 0 ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ] \
+   && [ -e "$CLAUDE_PROJECT_DIR/.git" ] && [ -e "$CLAUDE_PROJECT_DIR/.GIT" ]; then
+  GUARD_ANCHOR_FOLD=1
+fi
+
 # ------------------------------------------------------------------ canonical paths
+# THE STORED NAME (spec 090 R1, F082, F105). A canonical path used to keep the spelling it was given:
+# bash's builtin `pwd -P` prints the case and Unicode form cd was handed (measured on APFS), so
+# <proj>/SCRIPTS/x.sh and <proj>/scripts/x.sh were two paths to the guards and one file to the disk,
+# and a CLAUDE_PROJECT_DIR spelled NFD did not contain a file spelled NFC. Where the file system folds,
+# directories now come from getcwd (/bin/pwd -P), which returns the name as stored, and an existing
+# final component is matched case-insensitively in its directory. A name that does not exist keeps
+# its typed spelling, since nothing is stored to look up.
+#
+# Still open (spec 090 threat model): a hard link that already exists under an innocent name (one
+# inode, two names; telling them apart needs a stat per Edit), a name that does not exist yet, NTFS
+# short names (APPCS~1.CS) and named streams other than ::$DATA.
+#
+# _guard_pwd: the working directory as stored. Falls back to the builtin, which is the old behaviour.
+_guard_pwd() {
+  if [ "$GUARD_ANCHOR_FOLD" -eq 1 ] && [ -x /bin/pwd ]; then /bin/pwd -P 2>/dev/null && return 0; fi
+  pwd -P
+}
+
+# _guard_stored_name <name>: GUARD_STORED, the entry of the current directory that <name> opens. A
+# builtin glob with every letter as a bracket and nocaseglob on; an exact match wins (a case-sensitive
+# volume can hold both App.cs and APP.CS), then a single folded match, else the name as given.
+# Called inside guard_canon's subshell, so the shell options it sets do not leak.
+_guard_stored_name() {
+  local n="$1" pat="" i c m
+  GUARD_STORED="$n"
+  [ "$GUARD_ANCHOR_FOLD" -eq 1 ] || return 0
+  { [ -e "$n" ] || [ -L "$n" ]; } || return 0
+  for ((i = 0; i < ${#n}; i++)); do
+    c=${n:i:1}
+    case "$c" in [[:alpha:]]) pat="$pat[$c]" ;; *) pat="$pat\\$c" ;; esac
+  done
+  set +f
+  shopt -s nocaseglob nullglob dotglob
+  local IFS=''
+  # shellcheck disable=SC2086
+  set -- $pat
+  for m in "$@"; do [ "$m" = "$n" ] && return 0; done
+  [ $# -eq 1 ] && GUARD_STORED="$1"
+  return 0
+}
+
+# _guard_ntfs_trim <name>: GUARD_TRIMMED, the name NTFS opens: trailing dots and spaces dropped, and a
+# `::$DATA` suffix (the file's own data stream). Used on the components of a path on msys/cygwin/win,
+# and by guard_ext_of on every platform (developer, 090 O2: WSL on an NTFS mount reports linux).
+_guard_ntfs_trim() {
+  local b="$1" prev=""
+  while [ "$b" != "$prev" ]; do
+    prev=$b
+    case "$b" in .|..) break ;; esac
+    case "$b" in *'::$'[Dd][Aa][Tt][Aa]) b=${b%???????} ;; esac
+    case "$b" in ?*.|?*' ') b=${b%?} ;; esac
+  done
+  GUARD_TRIMMED=$b
+}
+
+# guard_ext_of <path>: GUARD_EXT, the extension of the file a write lands on (spec 090 R3, F096). On
+# NTFS `App.cs.`, `App.cs ` and `App.cs::$DATA` are App.cs, and read by their last dot they were not
+# source at all. Case is left to the caller, which compares with nocasematch.
+guard_ext_of() {
+  _guard_ntfs_trim "${1##*/}"
+  case "$GUARD_TRIMMED" in *.*) GUARD_EXT=${GUARD_TRIMMED##*.} ;; *) GUARD_EXT="" ;; esac
+}
+
+# guard_target_path: FILE, the path a pipeline guard judges, and guard_field's return code. NotebookEdit
+# names its file notebook_path (spec 090 R4, F084).
+guard_target_path() {
+  local rc
+  FILE=$(guard_field .tool_input.file_path); rc=$?
+  if [ "$rc" -eq 0 ] && [ -z "$FILE" ]; then FILE=$(guard_field .tool_input.notebook_path); rc=$?; fi
+  return $rc
+}
+
+# guard_is_source <path>: 0 when the extension NTFS reads is in the caller's SOURCE_EXTS (R3).
+guard_is_source() {
+  local rc=1 was=0
+  guard_ext_of "$1"
+  shopt -q nocasematch && was=1
+  shopt -s nocasematch
+  [[ $GUARD_EXT =~ ^($SOURCE_EXTS)$ ]] && rc=0
+  [ "$was" -eq 1 ] || shopt -u nocasematch
+  return $rc
+}
+
 # guard_canon <path> [base]: an absolute path with ., .. and // resolved (spec 083 R4, F040).
 #
 # Walked left to right the way the kernel walks it: each component that is an existing directory is
@@ -165,7 +264,8 @@ guard_canon() {
   # most 8 hops; a loop past that is judged at the last name reached.
   local out hops=0 link
   out=$(_guard_canon_walk "$@") || return 1
-  while [ -L "$out" ] && [ "$hops" -lt 8 ]; do
+  while [ "$hops" -lt 8 ]; do
+    [ -L "$out" ] || break
     link=$(readlink "$out") || break
     case "$link" in /*) ;; *) link="${out%/*}/$link" ;; esac
     out=$(_guard_canon_walk "$link") || return 1
@@ -176,6 +276,13 @@ guard_canon() {
 
 _guard_canon_walk() {
   local p="$1" base="${2:-}"
+  # A Windows spelling under Git Bash or Cygwin: C:\proj\scripts\x.sh, \\?\C:\..., C:/proj/...; the
+  # walk below splits on `/` only (spec 090 threat model, #6). cygpath ships with both.
+  if [ "$GUARD_NTFS" -eq 1 ]; then
+    case "$p" in *\\*) p=${p//\\//} ;; esac
+    case "$p" in //\?/*|//./*) p=${p#//?/} ;; esac
+    case "$p" in [A-Za-z]:/*|[A-Za-z]:) command -v cygpath >/dev/null 2>&1 && p=$(cygpath -u -- "$p" 2>/dev/null || printf '%s' "$p") ;; esac
+  fi
   case "$p" in
     /*) ;;
     *)  if [ -z "$base" ]; then base=$(guard_field .cwd 2>/dev/null) || base=""; fi
@@ -192,6 +299,9 @@ _guard_canon_walk() {
   set -- $p
   IFS="$IFS_SAVE"; set +f
   for seg in "$@"; do
+    # On NTFS `scripts./x.sh` is scripts/x.sh and `.. ` is `..` (spec 090 R1): trimmed before `.` and
+    # `..` are read. Elsewhere a trailing dot is part of a real name.
+    if [ "$GUARD_NTFS" -eq 1 ] && [ -n "$seg" ]; then _guard_ntfs_trim "$seg"; seg=$GUARD_TRIMMED; fi
     case "$seg" in
       ''|.) ;;
       ..)   norm="${norm%/*}" ;;
@@ -219,8 +329,12 @@ _guard_canon_walk() {
       fi
       tail="$tail/$seg"
     done
-    out=$(pwd -P)
+    out=$(_guard_pwd)
     [ "$out" = "/" ] && out=""
+    # Every directory existed, so the name is an entry here: take its stored spelling (R1).
+    if [ -z "$tail" ]; then
+      case "$name" in ''|.|..) ;; *) _guard_stored_name "$name"; name=$GUARD_STORED; set -f ;; esac
+    fi
     IFS=/
     # shellcheck disable=SC2086
     set -- $tail "$name"
@@ -260,20 +374,36 @@ _guard_canon_walk() {
 #     .git back. A planted file has no such back-link (writing one means writing inside .git/, which
 #     trust-anchor-guard denies).
 #   * on a case-insensitive file system (macOS, Windows) /users/x/proj/src/main.py is the anchor's file,
-#     so the comparison folds case there. Unicode normalisation differences remain a named residual.
+#     so the comparison folds case there. Since spec 090 both sides are stored names (R1), which also
+#     settles Unicode normalisation; the fold stays as a second layer.
+#
+# Spec 090 adds two more, both decided by the developer or found reproduced:
+#   * a .git AT the anchor, when a directory above the anchor also holds one (a session started in a
+#     subdirectory), is a boundary only when it is a repository with a commit whose top level is the
+#     anchor (R6, developer O1). An empty file, an empty directory and a fresh `git init` are not, and
+#     the walk goes on to the project. With no .git above, nothing changes and git is not run.
+#   * a linked worktree is a root of kind `worktree` (GUARD_BOUNDARY_KIND). guard_walk takes a register
+#     or language marker the worktree lacks from above it (R7, F106, F122): a `--no-checkout` worktree,
+#     or one at a commit before the register existed, has neither, and it allowed every edit.
 GUARD_ANCHOR=""
-GUARD_ANCHOR_FOLD=0
-case "${OSTYPE:-}" in darwin*|msys*|cygwin*|win*) GUARD_ANCHOR_FOLD=1 ;; esac
+GUARD_BOUNDARY_KIND=""
 
-_guard_realdir() { (CDPATH='' cd -P -- "$1" 2>/dev/null && pwd -P); }
+_guard_realdir() { CDPATH='' cd -P -- "$1" 2>/dev/null && _guard_pwd; }   # call as $(_guard_realdir d)
 
 # _guard_under <path> <dir>: 0 when path lies strictly below dir, case-folded where the file system
 # folds. Builtins only: this runs on every Edit.
-_guard_under() {
+_guard_under() { _guard_fold_match "$1" "$2" under; }
+
+# _guard_fold_match <string> <dir> under|is: below <dir>, or <dir> itself, case-folded where the file
+# system folds; the caller's nocasematch is left as it was.
+_guard_fold_match() {
   local rc=1 was=0
   shopt -q nocasematch && was=1
   [ "$GUARD_ANCHOR_FOLD" -eq 1 ] && shopt -s nocasematch
-  case "$1" in "$2"/*) rc=0 ;; esac
+  case "$3" in
+    under) [[ $1 == "$2"/* ]] && rc=0 ;;
+    *)     [[ $1 == "$2" ]] && rc=0 ;;
+  esac
   [ "$was" -eq 1 ] || shopt -u nocasematch
   return $rc
 }
@@ -283,7 +413,7 @@ guard_anchor_for() {
   local a="${CLAUDE_PROJECT_DIR:-}"
   [ -n "$a" ] || return 0
   a=$(_guard_realdir "$a") || return 0
-  [ "$a" = "/" ] && return 0
+  [ "$a" = "/" ] && return 0   # mutant-equivalent: every caller ignores the return code; GUARD_ANCHOR stays ""
   _guard_under "$1" "$a" && GUARD_ANCHOR="$a"
   return 0
 }
@@ -306,10 +436,145 @@ _guard_linked_worktree() {   # $1 = dir whose .git is a file
   [ "$(_guard_realdir "${back%/.git}")" = "$(_guard_realdir "$1")" ]
 }
 
+# _guard_is <a> <b>: the same directory, case-folded where the file system folds.
+_guard_is() { _guard_fold_match "$1" "$2" is; }
+
+# _guard_anchor_git_counts <anchor>: R6 (F105, developer O1). Called only for the anchor's own .git.
+_guard_anchor_git_counts() {
+  local d="${1%/*}" top
+  while [ -n "$d" ]; do
+    [ -e "$d/.git" ] && break
+    d="${d%/*}"
+  done
+  [ -n "$d" ] || return 0                       # nothing above: the anchor is the project, as before
+  # A symlinked .git (`.git -> ../.git`) is the outer repository under another name (review #9).
+  [ -L "$1/.git" ] && return 1
+  # A .git FILE that is not a linked worktree of ours (checked by the caller) counts only when its
+  # gitdir is a git dir of its own: a submodule or a --separate-git-dir repository the developer
+  # started in (review #7). `gitdir: ../.git` names an outer repository's own git dir, a plant that
+  # rev-parse accepts (threat model #2).
+  if [ -f "$1/.git" ]; then
+    local line target up
+    IFS= read -r line < "$1/.git" 2>/dev/null || return 1
+    case "$line" in "gitdir: "*) target="${line#gitdir: }" ;; *) return 1 ;; esac
+    case "$target" in /*) ;; *) target="$1/$target" ;; esac
+    target=$(_guard_realdir "$target") || return 1
+    up="$d"
+    while [ -n "$up" ]; do
+      [ -d "$up/.git" ] && _guard_is "$target" "$(_guard_realdir "$up/.git")" && return 1
+      up="${up%/*}"
+    done
+  fi
+  top=$(unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+        git -C "$1" rev-parse --show-toplevel -q --verify HEAD 2>/dev/null)
+  case "$top" in *$'\n'?*) top=${top%%$'\n'*} ;; *) return 1 ;; esac
+  _guard_is "$top" "$1"
+}
+
 guard_git_boundary() {
+  GUARD_BOUNDARY_KIND=root
   [ -e "$1/.git" ] || return 1          # a worktree's .git is a file (spec 083)
   [ -n "$GUARD_ANCHOR" ] || return 0
-  if _guard_under "$1" "$GUARD_ANCHOR"; then _guard_linked_worktree "$1"; else return 0; fi
+  if _guard_under "$1" "$GUARD_ANCHOR"; then
+    _guard_linked_worktree "$1" || return 1
+    GUARD_BOUNDARY_KIND=worktree
+    return 0
+  fi
+  if _guard_is "$1" "$GUARD_ANCHOR"; then
+    # A session started inside a linked worktree: the same inheritance as one below the anchor (R7).
+    if _guard_linked_worktree "$1"; then GUARD_BOUNDARY_KIND=worktree; return 0; fi
+    _guard_anchor_git_counts "$1"
+    return
+  fi
+  return 0
+}
+
+# ------------------------------------------------------------------ the pipeline guards' walk
+# guard_walk <canonical-file>: the one walk spec-register, pipeline-state and spec-interview share
+# (spec 090; each used to carry its own copy). From the file's directory up to the git boundary it
+# collects:
+#   GUARD_LANG_MARKER   the nearest language marker: is this a code project at all
+#   GUARD_REGISTER      the OUTERMOST specs/INDEX.md (spec 083, adversarial #3: a planted nested
+#                       register, every row ticked, must not stand in for the real one)
+#   GUARD_PROJECT_ROOT  the directory holding that register
+#   GUARD_GIT_ROOT      the boundary, where exemptions are anchored
+#   GUARD_INHERITED     1 when the register or marker came from above a linked worktree (R7)
+# A linked worktree that lacks a register or a marker does not end the collection: the walk goes on
+# to the project's own boundary and fills in only what is missing. GUARD_GIT_ROOT stays the worktree,
+# so `.claude/worktrees/w/src/x.cs` is judged relative to the worktree and is never a `.claude/**`
+# path of the project.
+guard_walk() {
+  local dir own_reg="" marker
+  GUARD_LANG_MARKER=""; GUARD_REGISTER=""; GUARD_PROJECT_ROOT=""; GUARD_GIT_ROOT=""; GUARD_INHERITED=0
+  guard_anchor_for "$1"                 # spec 088 R1 (F090): a .git planted below the project is no root
+  dir="${1%/*}"; [ -n "$dir" ] || dir="/"
+  while [ "$dir" != "/" ]; do
+    if [ -z "$GUARD_LANG_MARKER" ]; then
+      for marker in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile build.gradle build.gradle.kts pom.xml pubspec.yaml; do
+        if [ -f "$dir/$marker" ]; then GUARD_LANG_MARKER="$marker"; break; fi
+      done
+    fi
+    # Builtin stand-in for `ls "$dir"/*.csproj` (spec 073, R9).
+    [ -z "$GUARD_LANG_MARKER" ] && _guard_has_match "$dir"/*.csproj && GUARD_LANG_MARKER="*.csproj"
+    [ -z "$GUARD_LANG_MARKER" ] && _guard_has_match "$dir"/*.sln && GUARD_LANG_MARKER="*.sln"
+    if [ -f "$dir/specs/INDEX.md" ] && { [ "$GUARD_INHERITED" -eq 0 ] || [ -z "$own_reg" ]; }; then
+      GUARD_REGISTER="$dir/specs/INDEX.md"; GUARD_PROJECT_ROOT="$dir"
+    fi
+    if guard_git_boundary "$dir"; then
+      # Past an inheriting worktree only the project's own root ends the walk: a worktree nested in a
+      # worktree (`.claude/worktrees/w/inner`) is passed through too (adversarial review #1).
+      if [ "$GUARD_INHERITED" -eq 1 ]; then
+        [ "$GUARD_BOUNDARY_KIND" = worktree ] || break
+      else
+        GUARD_GIT_ROOT="$dir"
+        if [ "$GUARD_BOUNDARY_KIND" = worktree ] && { [ -z "$GUARD_REGISTER" ] || [ -z "$GUARD_LANG_MARKER" ]; }; then
+          own_reg="$GUARD_REGISTER"; GUARD_INHERITED=1
+        else
+          break
+        fi
+      fi
+    fi
+    dir="${dir%/*}"; [ -n "$dir" ] || dir="/"
+  done
+  return 0
+}
+
+_guard_has_match() { local f; for f in "$@"; do { [ -e "$f" ] || [ -L "$f" ]; } && return 0; done; return 1; }
+
+# guard_core_root <canonical-file>: the two roots the CORE guards need (spec 090, adversarial #1).
+#   GUARD_CORE_ROOT  the boundary the file is relative to (REL for --is-core)
+#   GUARD_SYNC_ROOT  the root whose .claude/ and scripts/template-autosync.sh decide
+# They are the same directory except for a linked worktree that has no sync of its own (made with
+# --no-checkout, or at a commit that predates the sync): its scripts/<core>.sh is still CORE, judged by
+# the project's sync above it.
+guard_core_root() {
+  local dir="${1%/*}"
+  GUARD_CORE_ROOT=""; GUARD_SYNC_ROOT=""
+  guard_anchor_for "$1"
+  while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do
+    if guard_git_boundary "$dir"; then
+      [ -n "$GUARD_CORE_ROOT" ] || GUARD_CORE_ROOT="$dir"
+      # A worktree with no sync of its own, nested or not, defers to the next root up (review #1).
+      if [ "$GUARD_BOUNDARY_KIND" = worktree ] && { [ ! -d "$dir/.claude" ] || [ ! -f "$dir/scripts/template-autosync.sh" ]; }; then
+        dir="${dir%/*}"; continue
+      fi
+      GUARD_SYNC_ROOT="$dir"; break
+    fi
+    dir="${dir%/*}"
+  done
+  [ -n "$GUARD_SYNC_ROOT" ] || GUARD_SYNC_ROOT="$GUARD_CORE_ROOT"
+}
+
+# guard_walk_exempt <canonical-file>: the directory allow list of spec 083 R5, anchored at the git root
+# and, for a monorepo whose register sits in a package directory below it, at that directory too. A
+# register inherited from ABOVE a worktree (R7) anchors nothing: that is the project's root, and the
+# worktree's files are not its tooling.
+guard_walk_exempt() {
+  guard_root_exempt "${1#"$GUARD_GIT_ROOT"/}" && return 0
+  case "$GUARD_PROJECT_ROOT" in
+    "$GUARD_GIT_ROOT"/*) guard_root_exempt "${1#"$GUARD_PROJECT_ROOT"/}" && return 0 ;;
+  esac
+  return 1
 }
 
 # ------------------------------------------------------------------ root-anchored exemptions

@@ -98,6 +98,7 @@ import fnmatch, glob, json, os, re, sys
 
 sys.path.insert(0, sys.argv[1])
 from acceptance_cases import ACCEPTANCE_GLOBS, CONFIRMED_PREFIX as PREFIX   # the parser's own rules
+from shell_glob import ANSI_C, BRACE_CAP, TooMany, ansi_c, brace_alts      # bash's word rules (spec 090)
 
 STORES = ("claude-trusted-commands", "claude-developer-words")
 GLOBCH = re.compile(r"[*?\[{]")
@@ -125,13 +126,81 @@ def touches_git(p):
             return True
     return False
 
+# Spec 090 R8(b) (F112): a glob is judged by what bash expands it to, not by whether its last
+# component could spell acceptance.md. `{/* c */}` in a heredoc fixture ended in `*`, which "could",
+# and every such command was denied. Braces expand the way bash expands them (a comma or a `..`
+# sequence; `{/*` is literal), each glob component is matched case-insensitively against what is on
+# disk (macOS opens ACCEPT*.MD), and a bracket expression fnmatch cannot read ([[=c=]], [[:alpha:]])
+# is widened to `*`, which can only add matches (threat model #5).
+def widen(comp):
+    return re.sub(r"\[.*?\]+", "*", comp) if "[" in comp else comp
+
+def expand(p):
+    """Existing paths a glob p names, components matched case-insensitively (bash on a folding FS)."""
+    cur = ["/"] if p.startswith("/") else [cwd]
+    for comp in parts_of(p):
+        nxt = []
+        for d in cur:
+            if not GLOBCH.search(comp):
+                nxt.append(os.path.join(d, comp))
+                continue
+            pat = widen(comp).lower()
+            try:
+                names = os.listdir(d)
+            except OSError:
+                continue
+            for n in names:
+                if n.startswith(".") and not comp.startswith("."):
+                    continue
+                if fnmatch.fnmatchcase(n.lower(), pat):
+                    nxt.append(os.path.join(d, n))
+        if len(nxt) > 4 * BRACE_CAP:
+            raise TooMany
+        cur = nxt
+        if not cur:
+            return []
+    return [c for c in cur if os.path.lexists(c)]
+
+def same_as_acceptance(q):
+    if os.path.basename(q).lower() == "acceptance.md" or os.path.basename(os.path.realpath(q)).lower() == "acceptance.md":
+        return True
+    try:
+        if os.path.isfile(q) and os.stat(q).st_nlink > 1:
+            root = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
+            for pat in ACCEPTANCE_GLOBS:
+                for a in glob.glob(os.path.join(root, pat)):
+                    if os.path.samefile(q, a):
+                        return True
+    except OSError:
+        pass
+    return False
+
 def is_acceptance(p):
+    if GLOBCH.search(p):
+        try:
+            alts = brace_alts(p)
+        except TooMany:
+            return True
+        for alt in alts:
+            if not GLOBCH.search(alt):
+                if is_acceptance(alt):
+                    return True
+                continue
+            # A literal last component spelling acceptance.md names one, existing or about to.
+            last = parts_of(alt)[-1] if parts_of(alt) else ""
+            if not GLOBCH.search(last) and last.lower() == "acceptance.md":
+                return True
+            try:
+                hits = expand(alt)
+            except TooMany:
+                return True
+            if any(same_as_acceptance(m) for m in hits):
+                return True
+        return False
     for q in (p, os.path.realpath(p)):
         ps = parts_of(q)
-        if ps and fnmatch.fnmatchcase("acceptance.md", ps[-1].lower()):
+        if ps and ps[-1].lower() == "acceptance.md":
             return True
-    if GLOBCH.search(p):
-        return any(os.path.basename(m).lower() == "acceptance.md" for m in glob.glob(p))
     # A hard link is the same file under another name: judged by inode (/security-review, spec 088).
     try:
         if os.path.isfile(p) and os.stat(p).st_nlink > 1:
@@ -153,12 +222,6 @@ def apply(text, e):
         raise ValueError("no strings")
     return text.replace(old, new) if e.get("replace_all") else text.replace(old, new, 1)
 
-def ansi_c(m):
-    try:
-        return m.group(1).encode("latin-1", "backslashreplace").decode("unicode_escape")
-    except Exception:
-        return m.group(1)
-
 # (d) the agent answering its own question
 if tool == "AskUserQuestion":
     print("answers" if ti.get("answers") else "none"); sys.exit(0)
@@ -166,7 +229,7 @@ if tool == "AskUserQuestion":
 # (c) shell text
 cmd = ti.get("command")
 if isinstance(cmd, str):
-    n = re.sub(r"\$'((?:[^'\\]|\\.)*)'", ansi_c, cmd)       # $'\x63laude' -> claude (adversarial #2)
+    n = ANSI_C.sub(ansi_c, cmd)                              # $'\x63laude' -> claude (adversarial #2)
     n = re.sub(r"[\"'\\]", "", n).lower()
     if (re.search(r"claude-(trusted|developer)|trusted-comm|developer-word", n)
             or re.search(r"\.git/\S*[*?\[{]", n) or re.search(r"\.git\S*[*?\[{]\S*/", n)
@@ -223,7 +286,7 @@ VERDICT=$(printf '%s' "$INPUT" | python3 -c "$PROG" "$HOOK_DIR" 2>/dev/null) || 
 # The repair path (found 2026-10-01): a crash inside this verdict denied every call, its own repair
 # included. A crash still denies, except an Edit/Write of the files the verdict runs on. In a project
 # those are CORE, so core-machinery-guard still stands in front of them.
-if [ "$VERDICT" = crash ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*/scripts/(trust-anchor-guard-hook\.sh|acceptance_cases\.py|guard-lib\.sh)\" ]]; then
+if [ "$VERDICT" = crash ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*/scripts/(trust-anchor-guard-hook\.sh|acceptance_cases\.py|shell_glob\.py|guard-lib\.sh)\" ]]; then
   guard_context "trust-anchor-guard crashed and ALLOWED this edit unchecked, because it is an edit of the guard's own code (${BASH_REMATCH[1]}): a guard that cannot run must not block its own repair. Fix the crash; every other call it would judge is denied until then."
   exit 0
 fi

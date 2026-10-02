@@ -103,6 +103,77 @@ def _split_word(w: str) -> list[str]:
     return out
 
 
+# Spec 090 R8(a) (F085): `sed 's/.env//' f.txt` was denied, because the script split on `/` ends in
+# `.env`. A sed script is a pattern language, so a script that is ONE substitution or transliteration,
+# with an optional numeric address and no `w` or `e` flag, cannot open a file and is not a path. Any
+# other script stays a candidate: `r .env`, `R`, `w`, `W`, `e` and `s///w .env` read, write or run
+# (spec 090 threat model, #3). A file operand (`sed … .env`) and `-f <file>` are paths as before.
+_SED_PURE = re.compile(
+    r"""^\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*)?
+        (?:s(?P<d>[^\w\s\\])(?:\\.|(?!(?P=d)).)*(?P=d)(?:\\.|(?!(?P=d)).)*(?P=d)[gpiImM0-9]*
+          |y(?P<e>[^\w\s\\])(?:\\.|(?!(?P=e)).)*(?P=e)(?:\\.|(?!(?P=e)).)*(?P=e))
+        \s*$""", re.S | re.X)
+
+
+def sed_scripts(args: list[str]) -> list[tuple[str, str]]:
+    """(token, script) for every script on a sed command line. One parser for both uses below
+    (/simplify, spec 090): -e S, --expression=S, an attached -eS, and with none of those the first
+    operand. -f FILE, --file=FILE, -l N and BSD's `-i ''` take their values; a script read from a file
+    makes every operand a path."""
+    scripts, explicit, operands, i = [], False, [], 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            operands.extend(args[i + 1:])
+            break
+        if a in ("-e", "--expression") or re.match(r"^-[nEsruz]*e$", a):
+            if i + 1 < len(args):
+                scripts.append((args[i + 1], args[i + 1]))
+            explicit, i = True, i + 2
+        elif a.startswith("--expression="):
+            scripts.append((a, a.split("=", 1)[1]))
+            explicit, i = True, i + 1
+        elif re.match(r"^-[nEsruz]*e.", a):
+            scripts.append((a, a[a.index("e") + 1:]))
+            explicit, i = True, i + 1
+        elif a == "--file" or re.match(r"^-[nEsruz]*f$", a):
+            explicit, i = True, i + 2
+        elif a.startswith("--file=") or re.match(r"^-[nEsruz]*f.", a):
+            explicit, i = True, i + 1
+        elif a in ("-l", "--line-length") or (a == "-i" and i + 1 < len(args) and args[i + 1] == ""):
+            i += 2
+        elif a.startswith("-") and len(a) > 1:
+            i += 1
+        else:
+            operands.append(a)
+            i += 1
+    if not explicit and operands:
+        scripts.append((operands[0], operands[0]))
+    return scripts
+
+
+def sed_data_tokens(args: list[str]) -> list[str]:
+    """The tokens holding a pure s/// or y/// script: a pattern, not a path."""
+    return [tok for tok, body in sed_scripts(args) if _SED_PURE.match(body)]
+
+
+def sed_script_words(args: list[str]) -> list[str]:
+    """The words inside every sed script that is NOT pure: `r .env` is one shell word, and its file
+    name only shows once the script is split (spec 090 threat model, #3)."""
+    out = []
+    for _, body in sed_scripts(args):
+        if _SED_PURE.match(body):
+            continue
+        out.extend(w for w in re.split(r"[\s;{}]+", body) if w)
+        # GNU sed takes `rFILE`, `1r.env`, `/re/r.env` and the `s///wFILE` flag with no space, and
+        # the file name runs to the end of the line. Every r/R/w/W is tried as a file command,
+        # wherever it stands: over-reading a non-pure script costs a deny, never a leak
+        # (adversarial review #4).
+        for m in re.finditer(r"(?=[rRwW]\s*([^;\n}]+))", body):
+            out.append(m.group(1).strip())
+    return out
+
+
 def shell_words(cmd: str, depth: int = 0) -> list[str]:
     """Every word the shell would execute, executed bodies included.
 
@@ -125,15 +196,19 @@ def shell_words(cmd: str, depth: int = 0) -> list[str]:
         for pipe in d.pipelines(d.tokens(line)):
             for n, seg in enumerate(pipe):
                 words, here = d.strip_redirects(seg)
-                out.extend(p for w in seg if not d.is_sep(w) for p in _split_word(w))
-                if depth >= d.MAX_DEPTH:
-                    continue
                 # Resolve the command word the way the classifier does, then read what it executes.
                 k = 0
                 while k < len(words) and (d.ASSIGN.match(words[k]) or d.word(words[k]) in d.KEYWORDS
                                           or d.word(words[k]) in d.WRAPPERS or d.word(words[k]) in d.ESCALATE):
                     k += 1
-                if k >= len(words):
+                toks = [w for w in seg if not d.is_sep(w)]
+                if k < len(words) and d.word(words[k]) == "sed":
+                    for t in sed_data_tokens(words[k + 1:]):
+                        if t in toks:
+                            toks.remove(t)
+                    toks.extend(sed_script_words(words[k + 1:]))
+                out.extend(p for w in toks for p in _split_word(w))
+                if depth >= d.MAX_DEPTH or k >= len(words):
                     continue
                 w, args = d.word(words[k]), words[k + 1:]
                 if w in d.SHELLS or w == "eval":

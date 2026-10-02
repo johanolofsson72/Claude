@@ -37,6 +37,9 @@ import shlex
 import sys
 import unicodedata
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from shell_glob import ANSI_C, TooMany, ansi_c_text, brace_alts   # one copy of bash's word rules (spec 090)
+
 GUARDED_KEYS = ("hooks", "disableAllHooks", "env")
 SETTINGS_NAMES = ("settings.json", "settings.local.json")
 FOLD = sys.platform in ("darwin", "win32", "cygwin")
@@ -68,9 +71,27 @@ def norm_pattern(p):
     return p.lower() if FOLD else p
 
 
+def shell_glob_match(path, pat):
+    """The shell's rule, not fnmatch's (spec 090 R8(c)): `*`, `?` and `[…]` stay inside one path
+    component, and a component that starts with a dot is matched only by a pattern component that
+    starts with a literal dot. fnmatch over the whole path let `<cwd>/*` match
+    `<cwd>/.claude/settings.json`, so every `*` in an interpreter's heredoc (`a * b`, `*args`) read
+    as a write to the settings file."""
+    ps, qs = path.split("/"), pat.split("/")
+    if len(ps) != len(qs):
+        return False
+    for p, q in zip(ps, qs):
+        if p.startswith(".") and not q.startswith("."):
+            return False
+        if not fnmatch.fnmatchcase(p, q):
+            return False
+    return True
+
+
 class Guarded:
     def __init__(self, env, cwd):
         self.cwd = cwd
+        self.loose_glob = False
         self.proj = env.get("CLAUDE_PROJECT_DIR") or cwd
         self.conf = env.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
         self.env = env
@@ -108,7 +129,13 @@ class Guarded:
         """A guarded file or directory a glob pattern can match, or None."""
         pat = norm_pattern(self.absolute(pattern))
         for form in self.file_forms | self.dir_forms:
-            if fnmatch.fnmatchcase(form, pat):
+            # `shopt -s dotglob` lets `*` match .claude, and `globstar` lets `**` cross `/`; a command
+            # that names either is judged by the old whole-path match (adversarial review #8).
+            if self.loose_glob:
+                # globstar's `**/` also matches no directory at all: `.claude/**/settings.json`.
+                if fnmatch.fnmatchcase(form, pat) or fnmatch.fnmatchcase(form, pat.replace("**/", "")):
+                    return form
+            elif shell_glob_match(form, pat):
                 return form
         try:
             for m in glob.glob(self.absolute(pattern)):
@@ -234,7 +261,6 @@ def edit_verdict(tool, ti, g):
 
 # ----------------------------------------------------------------------------- the shell route
 
-ANSI_C = re.compile(r"\$'((?:[^'\\]|\\.)*)'")
 HEREDOC = re.compile(r"(?<!<)<<(?!<)(-?)[ \t]*([^\s;&|<>()]*)")
 NAME_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 PATHISH = re.compile(r"[^\s'\"`;&|<>()=,]+")
@@ -242,11 +268,7 @@ INTERESTING = re.compile(r"(?i)sett|\.cla|[*?\[$`{]")
 
 
 def ansi_c(m):
-    try:
-        s = m.group(1).encode("latin-1", "backslashreplace").decode("unicode_escape")
-    except Exception:
-        s = m.group(1)
-    return shlex.quote(s)
+    return shlex.quote(ansi_c_text(m.group(1)))
 
 
 def attach_heredocs(text):
@@ -280,14 +302,13 @@ def attach_heredocs(text):
     return "\n".join(out)
 
 
-def brace_expand(word, depth=0):
-    m = re.search(r"\{([^{}]*,[^{}]*)\}", word)
-    if not m or depth > 4:
-        return [word]
-    out = []
-    for alt in m.group(1).split(","):
-        out.extend(brace_expand(word[:m.start()] + alt + word[m.end():], depth + 1))
-    return out[:64]
+def brace_expand(word):
+    """bash brace expansion, sequences included: `.cla{u..u}de` is .claude (/simplify, spec 090).
+    Past the cap the word itself stands in, so a settings-shaped word is still judged."""
+    try:
+        return brace_alts(word)
+    except TooMany:
+        return [word, re.sub(r"\{[^{}]*\}", "*", word)]
 
 
 def expand_vars(w, g):
@@ -458,6 +479,11 @@ def split_commands(text):
 
 
 def bash_verdict(cmd, g):
+    # Read with quotes and backslashes gone and $'…' decoded, as bash reads it: `dot''glob` and
+    # `$'\x64otglob'` turn the option on too (/security-review, spec 090). Any shopt or -O at all
+    # counts, since the option name may come from a variable.
+    plain = re.sub(r"[\"'\\]", "", ANSI_C.sub(ansi_c, cmd))
+    g.loose_glob = bool(re.search(r"shopt|dotglob|globstar|GLOBIGNORE|(^|\s)-O", plain))
     text = cmd.replace("\\\n", "")
     text = ANSI_C.sub(ansi_c, text)
     text = text.replace('$"', '"')

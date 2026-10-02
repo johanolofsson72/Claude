@@ -98,7 +98,7 @@ KEYS=""
 case "$REST" in *$'\t'*) KEYS=${REST#*$'\t'} ;; esac
 
 # The repair path: a crash denies everything it would judge except an edit of the guard itself.
-if [ "$KIND" = crash ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*/scripts/(settings-edit-guard-hook\.sh|settings_guard\.py|guard-lib\.sh)\" ]]; then
+if [ "$KIND" = crash ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*/scripts/(settings-edit-guard-hook\.sh|settings_guard\.py|shell_glob\.py|guard-lib\.sh)\" ]]; then
   guard_context "settings-edit-guard crashed and ALLOWED this edit unchecked, because it is an edit of the guard's own code (${BASH_REMATCH[1]}): a guard that cannot run must not block its own repair. Fix the crash; every settings call it would judge is denied until then."
   exit 0
 fi

@@ -331,7 +331,11 @@ TARGETS_DEFAULT='scripts/template-autosync.sh scripts/test-drive-sync.sh scripts
 scripts/project-maintenance.sh scripts/test-project-maintenance.sh scripts/test-maintenance-trust.sh scripts/test-workload-placement.sh
 scripts/project-freshness.sh scripts/test-project-freshness.sh
 scripts/validate-scenario-traceability.sh scripts/test-validate-scenario-traceability.sh
-scripts/settings-edit-guard-hook.sh scripts/test-settings-edit-guard.sh'
+scripts/settings-edit-guard-hook.sh scripts/test-settings-edit-guard.sh
+scripts/guard-lib.sh scripts/test-guard-canonical-paths.sh scripts/test-guard-root-anchor.sh scripts/test-guard-lib.sh scripts/test-guard-fail-closed.sh
+scripts/guard-precheck.sh scripts/test-guard-canonical-paths.sh
+scripts/spec-interview-guard-hook.sh scripts/test-guard-canonical-paths.sh scripts/test-guard-root-anchor.sh scripts/test-guard-fail-closed.sh
+scripts/destructive-command-guard-hook.sh scripts/test-destructive-command-guard.sh'
 if [ -n "${MUTATION_TARGETS:-}" ]; then
   [ -f "$MUTATION_TARGETS" ] || die "MUTATION_TARGETS names no file: $MUTATION_TARGETS"
   TARGETS=$(grep -v '^[[:space:]]*#' "$MUTATION_TARGETS" | grep .)

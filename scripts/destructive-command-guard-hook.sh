@@ -16,6 +16,8 @@
 #   rm   with a recursive AND a force flag, in any spelling or order
 #   sudo, doas, su, pkexec as a command word
 #   git  push --force / -f / a cluster with f / --force-with-lease / --force-if-includes / +refspec;
+#        push --delete / -d / --prune / a `:ref` refspec, and push --mirror, also through send-pack, a
+#        `-c remote.<x>.mirror|push=…` or a `git config` of those keys (spec 090 R5, developer O3);
 #        reset --hard; clean -f / --force (global options before the subcommand are skipped)
 #   find with -delete, or -exec/-execdir/-ok running rm  (the developer's choice, spec 083 O2)
 #
@@ -58,7 +60,7 @@ if [ "${#INPUT}" -le 4096 ]; then
   [[ $INPUT =~ $TRIGGER ]] || exit 0
   # `git` alone is every status and log; only three of its subcommands are on the list.
   if ! [[ $INPUT =~ $NOGIT ]]; then
-    [[ $INPUT =~ (push|reset|clean) ]] || exit 0
+    [[ $INPUT =~ (push|reset|clean|send-pack|mirror|remote[[:space:]]+(add|set)|config) ]] || exit 0
   fi
   fi
   shopt -u nocasematch
@@ -93,6 +95,8 @@ case "$FORM" in
   rm-recursive-force) WHAT="a recursive, forced rm (rm -rf in some spelling: -r -f, -Rf, /bin/rm, command rm, behind xargs or sudo)" ;;
   sudo)               WHAT="a privilege escalation (sudo, doas, su, pkexec)" ;;
   git-push-force)     WHAT="a force push (git push -f / --force / --force-with-lease / --force-if-includes / a +refspec)" ;;
+  git-push-delete)    WHAT="a push that deletes a remote ref (git push --delete / -d / --prune / a :ref refspec, or a remote.<x>.push of one)" ;;
+  git-push-mirror)    WHAT="a mirror push (git push --mirror, send-pack --mirror, or remote.<x>.mirror), which deletes every remote ref the local repository lacks" ;;
   git-reset-hard)     WHAT="git reset --hard" ;;
   git-clean-force)    WHAT="git clean with -f (in any flag cluster)" ;;
   find-delete)        WHAT="find with -delete, or -exec rm" ;;
@@ -105,5 +109,5 @@ That form is on the project's destructive deny list (.claude/settings.json permi
 
 There is no override. If the operation is really needed:
   * ask the developer to run it themselves, prefixed with ! in the prompt — no hook sees that; or
-  * do it narrowly instead: remove named files without -r/-f, push without force, git restore / git stash instead of reset --hard, git clean -n to list before anything is removed."
+  * do it narrowly instead: remove named files without -r/-f, push without force, git restore / git stash instead of reset --hard, git clean -n to list before anything is removed. Deleting a remote branch is always the developer's step."
 exit 0

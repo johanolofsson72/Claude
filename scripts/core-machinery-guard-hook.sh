@@ -53,14 +53,17 @@ INPUT=$(cat)
 # scan than jq takes to start), so a large payload skips this and pays exactly what it paid before.
 #
 # Spec 083 widened it to "scripts/" and "rules/" without the leading slash (a relative path has none)
-# and to "..", which can climb into scripts/ from a path that does not name it. A symlinked directory
-# whose own name hides both is the residual of a text precheck; making that link is itself a write this
-# guard is never asked about.
+# and to "..", which can climb into scripts/ from a path that does not name it. Spec 090 (R2) folds
+# case, because macOS opens SCRIPTS/x.sh as scripts/x.sh, and sends a path that is or runs through a
+# symlink to the parser, because docs/tools -> ../scripts hides the directory's name (F082, F083).
+. "${BASH_SOURCE[0]%/*}/guard-precheck.sh" 2>/dev/null || guard_precheck_link() { return 0; }
 if [ "${#INPUT}" -le 4096 ]; then
+  shopt -s nocasematch
   case "$INPUT" in
     *scripts/*|*rules/*|*..*) ;;
-    *) exit 0 ;;
+    *) guard_precheck_link "$INPUT" || exit 0 ;;
   esac
+  shopt -u nocasematch
 fi
 
 HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -105,15 +108,11 @@ case "$FILE" in
 esac
 
 # ------------------------------------------------------------------- project root
-guard_anchor_for "$FILE"          # spec 088 R1 (F090): a .git planted below the project is no root
-DIR=$(dirname "$FILE")
-ROOT=""
-while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
-  if guard_git_boundary "$DIR"; then ROOT="$DIR"; break; fi   # spec 088 R1: not below CLAUDE_PROJECT_DIR
-  DIR=$(dirname "$DIR")
-done
+# spec 088 R1 (F090) anchors the walk; spec 090: an empty worktree takes the project's sync.
+guard_core_root "$FILE"
+ROOT=$GUARD_CORE_ROOT; SYNC_ROOT=$GUARD_SYNC_ROOT
 [ -n "$ROOT" ] || exit 0
-[ -d "$ROOT/.claude" ] || exit 0
+[ -d "$SYNC_ROOT/.claude" ] || exit 0
 
 # The template repository is where this guard is telling everyone to go, so denying an
 # edit here would be perfectly circular. Identified by origin URL, the same three
@@ -121,11 +120,11 @@ done
 # copies scripts/sync-prompt.md and friends into every project it touches. Asked
 # directly rather than by shelling out to the sync, because a guard that consults the
 # sync to decide whether to consult the sync is a loop with no floor.
-case "$(git -C "$ROOT" remote get-url origin 2>/dev/null)" in
+case "$(git -C "$SYNC_ROOT" remote get-url origin 2>/dev/null)" in
   *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) exit 0 ;;
 esac
 
-SYNC="$ROOT/scripts/template-autosync.sh"
+SYNC="$SYNC_ROOT/scripts/template-autosync.sh"
 [ -f "$SYNC" ] || exit 0
 
 REL=${FILE#"$ROOT"/}
@@ -220,7 +219,7 @@ if [ -n "$TEMPLATE_DIR" ]; then
 
 Edit it there, commit and push the template, then bring it here the way every other project gets it:
 
-  bash $ROOT/scripts/template-autosync.sh --force"
+  bash $SYNC_ROOT/scripts/template-autosync.sh --force"
 else
   WHERE="No local template clone was found at \$CLAUDE_TEMPLATE_DIR, ~/repos/Claude or ~/repos/claude.
 Clone it first — scripts/sync-prompt.md Step -1 has the command — then edit $REL there and re-sync."
