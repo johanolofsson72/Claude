@@ -1341,3 +1341,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 089 — settings-edit-guard
 
 - [x] 089 — settings-edit-guard — full track [hardened] — .claude/settings*.json has no edit guard: one Edit unwires every PreToolUse hook or sets SPEC_ACCEPTANCE=off; guard the hooks and env keys, the developer edits by hand. F081 F103
+
+## H4 — integration-hardening
+
+- [x] H4 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 085–089.
