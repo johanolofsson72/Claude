@@ -1329,3 +1329,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 085 — template-mutation-runner-and-core-coverage
 
 - [x] 085 — template-mutation-runner-and-core-coverage — full track — the template has no mutation runner, so the job is due forever; kill the surviving mutants in autosync, maintenance and freshness. F047 F048 F049 F058 F071–F073.
+
+## 086 — maintenance-and-gate-blind-spots
+
+- [x] 086 — maintenance-and-gate-blind-spots — spec-only — maintenance and gates pass silently on what they cannot see (NOT SCANNED, missing CORE scripts, project hooks, wrong suite). F001 F003 F005 F010 F023 F025 F027 F032 F033 F051 F052 F059 F060 F068–F070.
