@@ -1353,3 +1353,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 091 — trust-residuals
 
 - [x] 091 — trust-residuals — full track [hardened] — trust still rests on what the repo or agent can write: origin-URL template exemption, fork-network pins, claude -p writes outside the repo, suite hash, cloud stamps, laundered confirms. F079 F080 F092 F095 F097 F104 F107
+
+## 092 — kill-surviving-mutants
+
+- [x] 092 — kill-surviving-mutants — full track — no .csproj/.sln-only fixture, no suite asserts a guard's exit code, and the sampled survivors in autosync, maintenance, traceability and freshness. F099–F102 F108
