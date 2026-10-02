@@ -100,9 +100,16 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 086 — maintenance-and-gate-blind-spots — spec-only — maintenance and gates pass silently on what they cannot see (NOT SCANNED, missing CORE scripts, project hooks, wrong suite). F001 F003 F005 F010 F023 F025 F027 F032 F033 F051 F052 F059 F060 F068–F070.
 - [x] 087 — docs-and-skill-reference-fixes — spec-only — spec-kit SC numbering collides with the scenario map, agent memory strands in worktrees, agent reviews can read a stale tree, two reference docs teach wrong examples. F006–F009 F054.
 - [x] 088 — guard-trust-anchors — full track [hardened] — gates no longer trust state Claude can write: root walk, nightly trust, grandfathering, self-confirm. F090 F091 F093 F094 — approved F098
+- [ ] 089 — settings-edit-guard — full track [hardened] — .claude/settings*.json has no edit guard: one Edit unwires every PreToolUse hook or sets SPEC_ACCEPTANCE=off; guard the hooks and env keys, the developer edits by hand. F081 F103
+- [ ] H4 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 085–089.
+- [ ] 090 — guard-canonical-paths-round-2 — full track [hardened] — guards judge spelling, not the file: case, existing symlinks, Unicode, 'App.cs.', --no-checkout worktrees, missing deny/ext entries, NotebookEdit; two false positives. F082–F085 F096 F105 F106 F112
+- [ ] 091 — trust-residuals — full track [hardened] — trust still rests on what the repo or agent can write: origin-URL template exemption, fork-network pins, claude -p writes outside the repo, suite hash, cloud stamps, laundered confirms. F079 F080 F092 F095 F097 F104 F107
+- [ ] 092 — kill-surviving-mutants — full track — no .csproj/.sln-only fixture, no suite asserts a guard's exit code, and the sampled survivors in autosync, maintenance, traceability and freshness. F099–F102 F108
+- [ ] 093 — maintenance-reports-what-it-measured — spec-only — section 5 misreads the bash runner, a suite timeout reads as FAIL, the mutation budget is unknown to the nightly, SIGPIPE leaks, CDPATH-relative cd. F087 F109–F111 F113
 
 ## Register history (newest first)
 
+- 2026-10-02 — finding review decided 31: F078 fixed, F086 F088 F089 dropped, 27 folded into 089–093 (+ H4 after 089).
 - 2026-10-01 — added 088 guard-trust-anchors from the H3 checkpoint (approved F098).
 - 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).
 - 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.

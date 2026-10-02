@@ -803,11 +803,15 @@ fi
 
 ```bash
 # ui-ux-pro-max — Design intelligence (67 styles, 96 palettes, 57 font pairings, 25 charts, 13 stacks)
-if ! uipro --version &>/dev/null 2>&1; then
-  npm install -g uipro-cli
-  echo "[INSTALLED] uipro-cli — UI/UX Pro Max CLI"
+# Pinned (F078): an unpinned global install runs whatever the registry serves today, as you.
+# uipro-cli ships no install scripts, so --ignore-scripts costs nothing and stops a dependency's.
+# To move the pin: npm view uipro-cli version, read the changelog, then change UIPRO_VERSION.
+UIPRO_VERSION=2.2.3
+if [ "$(uipro --version 2>/dev/null)" != "$UIPRO_VERSION" ]; then
+  npm install -g --ignore-scripts "uipro-cli@$UIPRO_VERSION"
+  echo "[INSTALLED] uipro-cli $UIPRO_VERSION — UI/UX Pro Max CLI"
 else
-  echo "[SKIPPED] uipro-cli — already installed"
+  echo "[SKIPPED] uipro-cli $UIPRO_VERSION — already installed"
 fi
 
 # Initialize in the project if not already present
