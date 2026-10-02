@@ -52,7 +52,7 @@ set -u
 # nothing and the note was dropped in silence. Same split resolve-active-spec.sh
 # already makes against spec_active.py, and the two PreToolUse guards against the
 # module they import.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 RESOLVER="$SCRIPT_DIR/resolve-active-spec.sh"
 
 MAX="${RUNLOG_MAX:-60}"

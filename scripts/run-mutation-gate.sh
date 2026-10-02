@@ -414,7 +414,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
-RUN="$WORKDIR/run.$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom 2>/dev/null | head -c 6)"
+RUN="$WORKDIR/run.$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | LC_ALL=C tr -dc 'a-f0-9' | cut -c1-6)"
 case "$RUN" in *run.??????) ;; *) RUN=""; die "cannot name a run dir under $WORKDIR" ;; esac
 mkdir "$RUN" 2>/dev/null || { RUN=""; die "cannot create a run dir under $WORKDIR"; }
 echo "$$" > "$RUN/.mutation-gate-run"

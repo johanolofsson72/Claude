@@ -7,7 +7,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-fast}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
@@ -18,7 +18,7 @@ STDOUT=$(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // empty' 2>/dev/nu
 [ ${#STDOUT} -gt 800 ] || exit 0
 
 PAYLOAD=$(printf 'Command:\n%s\n\nOutput:\n%s\n' \
-  "$CMD" "$(printf '%s' "$STDOUT" | head -c 16000)")
+  "$CMD" "${STDOUT:0:16000}")
 
 SYSTEM='Digest a GitHub issue view output for a coding assistant.
 Output sections:

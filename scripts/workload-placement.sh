@@ -56,7 +56,7 @@ case "${1:-}" in
     ;;
   --place)
     [ -n "${2:-}" ] || usage
-    LINE=$(effective | awk -F'\t' -v j="$2" '$1 == j' | head -1)
+    LINE=$(effective | awk -F'\t' -v j="$2" '$1 == j' | sed -n 1p)
     if [ -z "$LINE" ]; then echo local; exit 0; fi
     PLACE=$(printf '%s' "$LINE" | cut -f2)
     # Spec 091 R7 (F095). A cloud run's stamp counts only for a job placed in the cloud, so placing the

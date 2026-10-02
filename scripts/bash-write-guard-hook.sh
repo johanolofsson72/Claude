@@ -94,7 +94,7 @@ MAX_PATHS=32   # row S5 — the basename-sensitive guards are asked per path, so
 INPUT=$(cat 2>/dev/null || true)
 [ -z "$INPUT" ] && exit 0
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # FAILS OPEN — AND SAYS SO (spec 083, R3). This hook sits in front of every Bash call, so a parse
 # failure here that denied would stop the shell itself, including the command that installs jq. It

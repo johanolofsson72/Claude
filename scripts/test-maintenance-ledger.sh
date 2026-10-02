@@ -207,6 +207,20 @@ case "$OUT" in *$'\033'*|*$'\007'*|*$'\xe2\x80\xae'*) bad "L17 sibling fields ar
   *) ok "L17 sibling fields are sanitised (no ESC, BEL or U+202E in the report)" ;; esac
 expect_contains "L17 the evil sibling's row is still reported" "== evil" "$OUT"
 
+# L18-L20 (spec 093, F110): estimate is this place's median, unknown when nothing ran here.
+R6=$(mkrepo f 1); mkdir -p "$R6/.claude/state"
+HERE=$(python3 -c 'import os; print("local-" + os.uname().sysname.lower())')
+{ printf 'ts\t%s\tmutation\t100\t0\t1\t4\t1\t1\n' "$HERE"
+  printf 'ts\t%s\tmutation\t300\t1\t1\t4\t1\t1\n' "$HERE"
+  printf 'ts\t%s\tmutation\tnan\t0\t1\t4\t1\t1\n' "$HERE"
+  printf 'ts\tcloud\tmutation\t9000\t0\t1\t4\t1\t1\n'; } > "$R6/.claude/state/maintenance-runs.tsv"
+OUT=$(cd "$R6" && python3 "$LEDGER_PY" estimate mutation suite 2>&1); RC=$?
+expect_contains "093 L18 median of this place's runs, red included, nan and cloud not" "$(printf 'mutation\t200\t2')" "$OUT"
+expect_contains "093 L19 a job with no run here is unknown, not zero" "$(printf 'suite\tunknown\t0')" "$OUT"
+expect_eq       "093 L19 estimate never fails its caller" "0" "$RC"
+OUT=$(cd "$R6" && python3 "$LEDGER_PY" estimate 2>&1); RC=$?
+expect_eq       "093 L20 estimate with no job is a usage error" "2" "$RC"
+
 echo
 echo "maintenance_ledger: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

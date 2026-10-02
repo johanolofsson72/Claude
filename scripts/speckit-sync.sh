@@ -26,7 +26,7 @@
 
 set -u
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+HERE=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 CHECK=0; CLI_ONLY=0; INIT_NEW=0; REPO=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-PIN=$(grep -v '^[[:space:]]*#' "$HERE/speckit-version" 2>/dev/null | tr -d '[:space:]' | head -c 64)
+PIN=$(grep -v '^[[:space:]]*#' "$HERE/speckit-version" 2>/dev/null | tr -d '[:space:]'); PIN=${PIN:0:64}
 [ -n "$PIN" ] || { echo "[FAIL] no pin in $HERE/speckit-version" >&2; exit 1; }
 PIN_VER=${PIN#v}
 

@@ -7,7 +7,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
@@ -19,7 +19,7 @@ if BRANCH_NAME=$(sed -nE 's/.*git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+(
   :
 fi
 if [ -z "$BRANCH_NAME" ]; then
-  BRANCH_NAME=$(echo "$CMD" | sed -nE 's/.*git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([A-Za-z0-9._\/-]+).*/\1/p' | head -1)
+  BRANCH_NAME=$(echo "$CMD" | sed -nE 's/.*git[[:space:]]+switch[[:space:]]+-c[[:space:]]+([A-Za-z0-9._\/-]+).*/\1/p' | sed -n 1p)
 fi
 [ -n "$BRANCH_NAME" ] || exit 0
 
@@ -44,8 +44,8 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 # Gather context for naming suggestion.
 RECENT_COMMITS=$(git -C "$REPO_ROOT" log --oneline -10 2>/dev/null)
-DIFF_STAT=$(git -C "$REPO_ROOT" diff --stat HEAD 2>/dev/null | head -20)
-DIFF_PEEK=$(git -C "$REPO_ROOT" diff HEAD 2>/dev/null | head -c 4000)
+DIFF_STAT=$(git -C "$REPO_ROOT" diff --stat HEAD 2>/dev/null | sed -n 1,20p)
+DIFF_PEEK=$(git -C "$REPO_ROOT" diff HEAD 2>/dev/null); DIFF_PEEK=${DIFF_PEEK:0:4000}
 
 PAYLOAD=$(printf 'Branch just created: %s\n\nRecent commits on parent:\n%s\n\nUncommitted changes (will likely live on this branch):\n%s\n\nDiff peek:\n%s\n' \
   "$BRANCH_NAME" "$RECENT_COMMITS" "$DIFF_STAT" "$DIFF_PEEK")

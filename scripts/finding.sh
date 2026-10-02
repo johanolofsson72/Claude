@@ -115,7 +115,7 @@ case "$MODE" in
     if [ -f "$ROOT/specs/INDEX.md" ]; then
       FRZ=""
       [ -f "$(dirname "$0")/register-convergence.sh" ] &&
-        FRZ=$(bash "$(dirname "$0")/register-convergence.sh" --dir "$ROOT" --freeze 2>/dev/null | head -1)
+        FRZ=$(bash "$(dirname "$0")/register-convergence.sh" --dir "$ROOT" --freeze 2>/dev/null | sed -n 1p)
       case "$FRZ" in
         *" ON "*|*MALFORMED*|*ERROR*) printf '%s\n' "$FRZ" ;;
         *) printf 'register: %s open · no freeze\n' "$(grep -cE '^- \[[ /!]\] ' "$ROOT/specs/INDEX.md")" ;;
@@ -157,7 +157,7 @@ case "$MODE" in
     ;;
   count)
     if [ -f "$LEDGER" ]; then
-      C=$(grep -cE '^- \[ \]' "$LEDGER" 2>/dev/null); C=$(printf '%s' "$C" | head -1)
+      C=$(grep -cE '^- \[ \]' "$LEDGER" 2>/dev/null); C=$(printf '%s' "$C" | sed -n 1p)
       case "$C" in ''|*[!0-9]*) C=0 ;; esac
       echo "$C"
     else echo 0; fi

@@ -139,6 +139,27 @@ else
   printf '  skip GNU premise check (BSD stat here)\n'
 fi
 
+# ------------------------------------------------ C7 — a cd CDPATH can steer (spec 093, F087)
+printf '\n  -- C7  cd "$(dirname ...)" without a CDPATH guard\n'
+audit_of cd_bare <<'EOF'
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+EOF
+expect_flag "093-SC-E an unguarded cd \"\$(dirname)\" is flagged" '[cd $(dirname)]'
+audit_of cd_dashdash <<'EOF'
+D="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+EOF
+expect_flag "093-SC-E and its cd -- form" '[cd $(dirname)]'
+audit_of cd_guarded <<'EOF'
+ROOT=$(CDPATH='' cd "$(dirname "$0")/.." && pwd)
+D="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+EOF
+expect_clean "093-SC-E CDPATH='' cd is clean"
+audit_of cd_selftest <<'EOF'
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+EOF
+expect_clean "093-SC-E a file that sources self-test-env.sh is exempt (CDPATH already unset)"
+
 # ------------------------------------------------ C6 — the repo passes its own gate
 printf '\n  -- C6  every scripts/*.sh passes\n'
 OUT=$(bash "$SELF_DIR/validate-portability.sh" --all 2>&1); RC=$?

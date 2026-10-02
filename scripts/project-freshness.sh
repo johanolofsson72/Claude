@@ -207,7 +207,7 @@ if [ "$DO_SECRETS" -eq 1 ]; then
       *)
         # trufflehog logs `<time>\terror\ttrufflehog\t<msg>\t{"error": "<why>"}`; the why is
         # the reason. Anything else (an old version's "unknown flag") is shown as it came.
-        TH_REASON=$(grep -i 'error' "$TH_ERR" | head -1)
+        TH_REASON=$(grep -i 'error' "$TH_ERR" | sed -n 1p)
         [ -n "$TH_REASON" ] || TH_REASON=$(grep -v '^[[:space:]]*$' "$TH_ERR" | tail -1)
         TH_WHY=$(printf '%s' "$TH_REASON" | sed -n 's/.*"errors*": *\[*"\([^"]*\)".*/\1/p')
         [ -n "$TH_WHY" ] && TH_REASON=$TH_WHY

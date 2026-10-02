@@ -6,7 +6,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -28,7 +28,7 @@ PLAN_CONTENT=$(head -c 10000 "$FILE")
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT="$(dirname "$FILE")"
 TECH_STACK=""
 if [ -r "$REPO_ROOT/CLAUDE.md" ]; then
-  TECH_STACK=$(awk '/^##[[:space:]]+Tech[[:space:]]+stack/,/^##[[:space:]]/' "$REPO_ROOT/CLAUDE.md" 2>/dev/null | head -40)
+  TECH_STACK=$(awk '/^##[[:space:]]+Tech[[:space:]]+stack/,/^##[[:space:]]/' "$REPO_ROOT/CLAUDE.md" 2>/dev/null | sed -n 1,40p)
 fi
 
 PAYLOAD=$(printf '== PLAN (plan.md) ==\n%s\n\n== DECLARED TECH STACK (from CLAUDE.md, may be empty) ==\n%s\n' "$PLAN_CONTENT" "$TECH_STACK")
@@ -67,7 +67,7 @@ REPORT=$(printf '%s' "$PAYLOAD" \
   | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 512 2>/dev/null)
 
 [ -n "$REPORT" ] || exit 0
-NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^[[:space:]]*FEASIBLE[[:space:]]*$' | head -1)
+NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^[[:space:]]*FEASIBLE[[:space:]]*$' | sed -n 1p)
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \

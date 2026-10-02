@@ -1516,5 +1516,60 @@ else
   printf '  --   C138a/C140-C142 not exercised: python3 missing\n'
 fi
 
+# ============================================================== spec 093 (F109): the project runner
+# The template's runner prints its break on a `settings:` line and picks its own targets. Section 5 used
+# to call that "reads only stryker.conf.json" and "this config states no break".
+mk_runner() { # mk_runner <name> <settings line or ""> <score> <rc>
+  local d; d=$(mkfix "$1")
+  { printf '#!/bin/bash\n'
+    [ -n "$2" ] && printf 'echo "%s"\n' "$2"
+    printf 'echo "mutation score %s%%"\nexit %s\n' "$3" "$4"; } > "$d/scripts/run-mutation-gate.sh"
+  printf '#!/bin/bash\n[ "$1" = --stamp ] && echo "$2" >> "%s/stamped"\nexit 0\n' "$d" > "$d/scripts/maintenance-due.sh"
+  printf '%s' "$d"
+}
+D=$(mk_runner c136 "settings: break 70, limit max(60, 3 x baseline s), table default" 75.0 0)
+OUT=$(run_full "$D")
+expect_absent   "093-SC-A C136 75 against the runner's break 70 — no score finding" "is below" "$OUT"
+expect_absent   "093-SC-A C136 no stryker.conf.json scope for a runner" "stryker.conf.json" "$OUT"
+expect_rc       "093-SC-A C136 measured, so stamped" 1 "$(grep -cx mutation "$D/stamped" 2>/dev/null)"
+
+D=$(mk_runner c137 "settings: break 70, table default" 60.0 1)
+OUT=$(run_full "$D")
+expect_contains "093-SC-A C137 under the runner's break — a gate failure against it" "against the runner's own break (its settings: line) (70)" "$OUT"
+expect_contains "093-SC-A C137 scope names the runner"           "the project runner decides what it mutates (scripts/run-mutation-gate.sh)" "$OUT"
+expect_contains "093-SC-A C137 the score is the runner's, not Stryker's" "the runner's own score 60.0%" "$OUT"
+expect_absent   "093-SC-A C137 and never called Stryker's"       "Stryker's" "$OUT"
+
+D=$(mk_runner c138 "" 79.0 0)
+OUT=$(run_full "$D")
+expect_contains "093-SC-A C138 no settings line — the default, said as the runner's silence" "the runner printed no break on a settings: line" "$OUT"
+expect_absent   "093-SC-A C138 never 'this config states no break'" "this config states no break" "$OUT"
+
+D=$(mk_runner c139 "settings: break 70" 75.0 0)
+printf '#!/bin/bash\necho "settings: break 70"\necho "test said break 99"\necho "mutation score 75.0%%"\n' > "$D/scripts/run-mutation-gate.sh"
+OUT=$(run_full "$D")
+expect_absent   "093-SC-A C139 a 'break' outside the settings: line is not read" "is below" "$OUT"
+
+# ============================================================== spec 093 (F111): a suite timeout
+SUITE_TEXT='ok   scripts/test-a.sh
+TIMEOUT scripts/test-b.sh — unmeasured after 900s
+suite: 2 scripts'
+D=$(mksuite c143 124)
+OUT=$(run_suite "$D"); RC=$?
+expect_contains "093-SC-C C143 exit 124 is UNMEASURED"            "UNMEASURED (exit 124)" "$OUT"
+expect_contains "093-SC-C C143 the timed-out test is named"       "TIMEOUT scripts/test-b.sh" "$OUT"
+expect_absent   "093-SC-C C143 never called failed"               "failed (exit" "$OUT"
+expect_absent   "093-SC-C C143 never called green"                "suite green" "$OUT"
+expect_rc       "093-SC-C C143 not stamped" 0 "$(stamped_suite "$D")"
+expect_rc       "093-SC-C C143 the job is still owed — a finding" 1 "$RC"
+
+SUITE_TEXT='FAIL scripts/test-a.sh
+TIMEOUT scripts/test-b.sh — unmeasured after 900s
+suite: 2 scripts'
+D=$(mksuite c144 1)
+OUT=$(run_suite "$D")
+expect_contains "093 C144 a red run is still failed"              "failed (exit 1)" "$OUT"
+expect_contains "093 C144 and its timeouts are counted apart"     "1 more timed out and are unmeasured" "$OUT"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

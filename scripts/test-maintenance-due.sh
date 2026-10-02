@@ -73,5 +73,29 @@ N=$(grep -c '^secrets' "$D/.claude/.maintenance-state" 2>/dev/null || echo 0)
 [ "$N" = 1 ] && ok "re-stamping rewrites the row rather than appending" \
   || bad "state file grew to $N rows for one job"
 
+# 8. Spec 093 (F110, R3): the banner names what the due heavy jobs cost here, from the ledger, and a due
+# suite puts --suite on the command (--full alone never runs it).
+D=$(mkfix e "- [x] 001 — a — spec-only — x")
+cp "$SCRIPT_DIR/maintenance_ledger.py" "$D/scripts/"
+OUT=$(run "$D" --brief)
+grep -q 'Expected: .*mutation, suite unmeasured' <<< "$OUT" && ok "093-SC-B an empty ledger says unmeasured, never silent" \
+  || bad "093-SC-B empty ledger: '$(grep Expected <<< "$OUT")'"
+grep -q 'Run now: bash scripts/project-maintenance.sh --full --suite' <<< "$OUT" && ok "093 R3 a due suite puts --suite on the command" \
+  || bad "093 R3 banner command lacks --suite"
+PLACE=$(python3 -c 'import os; print("local-" + os.uname().sysname.lower())')
+mkdir -p "$D/.claude/state"
+{ printf '2026-10-01T00:00:00Z\t%s\tmutation\t3600\t0\t300\t4\t1.0\t1\n' "$PLACE"
+  printf '2026-10-01T00:00:00Z\t%s\tsuite\t1200\t0\t300\t4\t1.0\t1\n' "$PLACE"
+  printf '2026-10-01T00:00:00Z\t%s\tsuite\t1800\t1\t300\t4\t1.0\t1\n' "$PLACE"
+  printf '2026-10-01T00:00:00Z\tcloud\tsuite\t9999\t0\t300\t4\t1.0\t1\n'; } > "$D/.claude/state/maintenance-runs.tsv"
+OUT=$(run "$D" --brief)
+grep -qF "Expected: ~1h25m by this machine's ledger — mutation ~60m (1 run), suite ~25m (2 runs)" <<< "$OUT" \
+  && ok "093-SC-B the ledger's medians at this place, red runs counted, cloud runs not" \
+  || bad "093-SC-B with a ledger: '$(grep Expected <<< "$OUT")'"
+run "$D" --stamp suite >/dev/null; run "$D" --stamp mutation >/dev/null
+OUT=$(run "$D" --brief)
+grep -q 'Expected' <<< "$OUT" && bad "093 no heavy job due, yet an Expected line" || ok "093 no heavy job due — no Expected line"
+grep -q -- '--suite' <<< "$OUT" && bad "093 R3 --suite printed with the suite not due" || ok "093 R3 suite not due — no --suite"
+
 echo "maintenance-due: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

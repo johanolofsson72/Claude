@@ -18,7 +18,7 @@
 # Exit: 0 clean · 1 findings · 2 could not run
 set -uo pipefail
 export LC_ALL=C
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 ENGINE="$SCRIPT_DIR/portability_audit.py"
 [ -f "$ENGINE" ] || { echo "validate-portability.sh: scripts/portability_audit.py is missing" >&2; exit 2; }

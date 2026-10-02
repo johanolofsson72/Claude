@@ -104,7 +104,7 @@ say() { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*"; }
 
 ROOT="${SANDBOX_GATE_ROOT:-}"
 if [ -z "$ROOT" ]; then
-  ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || { echo "cannot resolve repo root" >&2; exit 2; }
+  ROOT=$(CDPATH='' cd "$(dirname "$0")/.." 2>/dev/null && pwd) || { echo "cannot resolve repo root" >&2; exit 2; }
 fi
 [ -d "$ROOT/scripts" ] || { echo "no scripts/ under $ROOT" >&2; exit 2; }
 

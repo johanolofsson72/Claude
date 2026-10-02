@@ -120,7 +120,7 @@ fi
 # "--sync-feature-json did not run, leaving spec-kit's feature.json naming the
 # PREVIOUS spec". Writing this hook with the same bug it was created to fix would
 # have been a fine joke and a bad hook.
-_SYNCFJ_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+_SYNCFJ_SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 RESOLVER="$_SYNCFJ_SCRIPT_DIR/resolve-active-spec.sh"
 [ -f "$RESOLVER" ] || exit 0
 

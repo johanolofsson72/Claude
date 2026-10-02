@@ -37,7 +37,7 @@
 set -uo pipefail
 export LC_ALL=C
 
-SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 TEMPLATE=$(cd "$SELF_DIR/.." && pwd -P)
 SKILLS="project-wizard project-update"
 

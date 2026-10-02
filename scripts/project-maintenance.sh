@@ -482,7 +482,7 @@ record_map_canary() { # record_map_canary PATH KB ROLE HINT
   if [ "$rc" -ne 0 ]; then
     add "[CONTEXT-COST] the scenario-map canary for $1 could not be recorded (finding.sh exit $rc): $out"
   else
-    note "[CONTEXT-COST] recorded in specs/FINDINGS.md: $(printf '%s' "$out" | head -1)"
+    note "[CONTEXT-COST] recorded in specs/FINDINGS.md: $(printf '%s' "$out" | sed -n 1p)"
   fi
 }
 for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
@@ -553,7 +553,7 @@ if [ -f scripts/validate-scenario-traceability.sh ] && [ -f specs/SCENARIOS.md ]
     # every pass for not having them.
     7) : ;;
     0|1|6)
-      TRACE_COV=$(printf '%s\n' "$TRACE_OUT" | grep '^coverage:' | head -1)
+      TRACE_COV=$(printf '%s\n' "$TRACE_OUT" | grep '^coverage:' | sed -n 1p)
       [ -n "$TRACE_COV" ] && note "[TRACEABILITY] $TRACE_COV"
       TRACE_DANGL=$(printf '%s\n' "$TRACE_OUT" | sed -n 's/^dangling .*(\([0-9]*\)):$/\1/p')
       if [ -n "$TRACE_DANGL" ] && [ "$TRACE_DANGL" -gt 0 ]; then
@@ -714,11 +714,11 @@ fi
 # ratchet lives in test-context-budget.sh.
 if [ -f scripts/context-budget.sh ]; then
   BUDGET_OUT=$(bash scripts/context-budget.sh 2>&1); BUDGET_RC=$?
-  BUDGET_TOTAL=$(printf '%s\n' "$BUDGET_OUT" | grep '^total ' | head -n 1)
+  BUDGET_TOTAL=$(printf '%s\n' "$BUDGET_OUT" | grep '^total ' | sed -n 1p)
   case "$BUDGET_RC" in
     0) note "[ok] always-loaded context: ${BUDGET_TOTAL#total }" ;;
     1) note "[note] always-loaded context over budget: ${BUDGET_TOTAL#total } — list: bash scripts/context-budget.sh" ;;
-    *) note "[note] context budget could not measure: $(printf '%s\n' "$BUDGET_OUT" | grep -v '^ ' | head -n 1)" ;;
+    *) note "[note] context budget could not measure: $(printf '%s\n' "$BUDGET_OUT" | grep -v '^ ' | sed -n 1p)" ;;
   esac
 fi
 
@@ -747,7 +747,7 @@ if [ "$SIM_RUN" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-simila
     SIM_OUT=$(bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
   fi
   case "$SIM_RC" in
-    1) add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | head -20)" ;;
+    1) add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | sed -n 1,20p)" ;;
     2) note "[note] duplicate-row check skipped — no local embedding model reachable. It is the
 only check here that needs one; everything else above ran. \`ollama pull paraphrase-multilingual\`
 to enable it, or ignore this line: a machine without Ollama is a supported configuration." ;;
@@ -768,8 +768,8 @@ if [ "${QUALITY_GATES:-on}" != off ] && [ -f scripts/quality_gates.py ]; then
       0) note "[ok] quality-gate bench: $(printf '%s\n' "$QGB_OUT" | grep -c ' nightly ') nightly — scripts/quality-gates.tsv" ;;
       3) note "[note] quality-gate bench skipped — $(printf '%s\n' "$QGB_OUT" | tail -1)" ;;
       2) case "$QGB_OUT" in *"no corpus directory"*) note "[note] quality-gate bench: no corpus in this project; benching is a template job (the table arrives by sync)" ;;
-           *) add "[QUALITY-GATE BENCH] $(printf '%s' "$QGB_OUT" | head -10)" ;; esac ;;
-      *) add "[QUALITY-GATE BENCH] $(printf '%s' "$QGB_OUT" | head -10)" ;;
+           *) add "[QUALITY-GATE BENCH] $(printf '%s' "$QGB_OUT" | sed -n 1,10p)" ;; esac ;;
+      *) add "[QUALITY-GATE BENCH] $(printf '%s' "$QGB_OUT" | sed -n 1,10p)" ;;
     esac
   fi
   if [ "$FULL" -eq 1 ] && [ -f scripts/quality-gates.tsv ]; then
@@ -777,7 +777,7 @@ if [ "${QUALITY_GATES:-on}" != off ] && [ -f scripts/quality_gates.py ]; then
     case "$QGP_RC" in
       0) note "[ok] $(printf '%s\n' "$QGP_OUT" | tail -1)" ;;
       3) note "[note] quality-gate pass skipped — $(printf '%s\n' "$QGP_OUT" | tail -1)" ;;
-      *) add "[QUALITY-GATE PASS] $(printf '%s' "$QGP_OUT" | head -10)" ;;
+      *) add "[QUALITY-GATE PASS] $(printf '%s' "$QGP_OUT" | sed -n 1,10p)" ;;
     esac
   fi
 fi
@@ -851,7 +851,7 @@ if [ -f scripts/skill-reachable.sh ]; then
 $SR_OUT
 EOF
        ;;
-    *) note "[SKILLS] could not tell whether the BLOCKING skills are installed (scripts/skill-reachable.sh exit $SR_RC): $(printf '%s' "$SR_OUT" | head -3 | tr '\n' ' ')" ;;
+    *) note "[SKILLS] could not tell whether the BLOCKING skills are installed (scripts/skill-reachable.sh exit $SR_RC): $(printf '%s' "$SR_OUT" | sed -n 1,3p | tr '\n' ' ')" ;;
   esac
 fi
 
@@ -1035,6 +1035,10 @@ if [ -x scripts/run-mutation-gate.sh ]; then
   # per-module scores exist only in that report. Keep `"json"` in the config's `reporters`, and never
   # pass a CLI `--reporter` without also passing `--reporter json`: a CLI reporter REPLACES the
   # config's list, it does not add to it.
+  #
+  # Third half (spec 093): the runner's threshold is its own. A line starting `settings:` that
+  # carries `break N` is read as the break; without one the ~80 default applies and the report says
+  # the runner stated none. Which configs a bare Stryker would read says nothing about a runner.
   MUTATION_CMD="bash scripts/run-mutation-gate.sh"
 elif [ -f scripts/run-mutation-gate.sh ]; then
   # Present but not executable (085 /tla GAP-1, measured on the template): it used to fall through,
@@ -1280,6 +1284,11 @@ $(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '{ printf "  %s %s — %s\n", $1, $2, 
     case "$MUT_CFG_TOTAL" in (''|*[!0-9]*) MUT_CFG_TOTAL=1 ;; esac
     [ "$MUT_CFG_TOTAL" -lt 1 ] && MUT_CFG_TOTAL=1
     MUT_SCOPE="1 of $MUT_CFG_TOTAL config(s) — a bare \`$MUTATION_CMD\` reads only $MUT_CFG"
+    # Spec 093 (F109): a project runner is not a bare tool. It picks its own targets and states its own
+    # break, so neither the working-directory config nor its count says anything about this run.
+    MUT_IS_RUNNER=0
+    [ "$MUTATION_CMD" = "bash scripts/run-mutation-gate.sh" ] && MUT_IS_RUNNER=1
+    [ "$MUT_IS_RUNNER" -eq 1 ] && MUT_SCOPE="the project runner decides what it mutates ($MUTATION_RUNNER)"
 
     MUT_MARKER=$(mktemp "${TMPDIR:-/tmp}/mutation-marker.XXXXXX")
     MUT_OUT=$(measured mutation bash -c "$MUT_EXEC" 2>&1)
@@ -1289,11 +1298,28 @@ $(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '{ printf "  %s %s — %s\n", $1, $2, 
     SCORE=$(printf '%s' "$MUT_OUT" | grep -oE 'mutation score[^0-9]*[0-9]+(\.[0-9]+)?' | tail -1 | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1)
     INT_SCORE=${SCORE%%.*}
 
-    MUT_BREAK=$(mutation_break_of "$MUT_CFG")
-    if [ -n "$MUT_BREAK" ]; then
-      MUT_LIMIT="$MUT_BREAK"; MUT_LIMIT_SRC="$MUT_CFG thresholds.break"
+    if [ "$MUT_IS_RUNNER" -eq 1 ]; then
+      # The runner's contract: a `settings:` line carrying `break N`. Only that line is read; a wider
+      # grep would pick numbers out of whatever the tests printed.
+      MUT_BREAK=$(printf '%s\n' "$MUT_OUT" | sed -n 's/^settings:.*break \([0-9][0-9]*\).*/\1/p' | sed -n '$p')
+      if [ -n "$MUT_BREAK" ]; then
+        MUT_LIMIT=$((10#$MUT_BREAK)); MUT_LIMIT_SRC="the runner's own break (its settings: line)"
+      else
+        MUT_LIMIT=80; MUT_LIMIT_SRC="the ~80% default target (the runner printed no break on a settings: line)"
+      fi
+      MUT_SCORE_LABEL="the runner's own score"
+      MUT_SCORE_NOTE="${SCORE}% is the runner's own score; whether a Timeout counts as a kill is the runner's to
+  state, and a Timeout is not a kill (.claude/rules/mutation-timeouts.md)."
     else
-      MUT_LIMIT=80;           MUT_LIMIT_SRC="the ~80% default target (this config states no break)"
+      MUT_BREAK=$(mutation_break_of "$MUT_CFG")
+      if [ -n "$MUT_BREAK" ]; then
+        MUT_LIMIT="$MUT_BREAK"; MUT_LIMIT_SRC="$MUT_CFG thresholds.break"
+      else
+        MUT_LIMIT=80;           MUT_LIMIT_SRC="the ~80% default target (this config states no break)"
+      fi
+      MUT_SCORE_LABEL="Stryker's own score"
+      MUT_SCORE_NOTE="${SCORE}% is Stryker's score, (Killed + Timeout) / valid. A Timeout is not a kill, so the strict
+  score is this or lower — never higher (.claude/docs/testing.md)."
     fi
 
     # The per-module half, read only when a score came back: a crashed run's reports are not a gate.
@@ -1321,11 +1347,10 @@ $MUT_MOD_UNDER"
     if [ "$MUT_RC" -ne 0 ] && [ -n "$SCORE" ]; then
       # A number came back, so the tool ran. Non-zero here is the gate doing its job.
       MUT_MEASURED=1
-      add "[MUTATION] GATE FAILED — Stryker's own score ${SCORE}% against $MUT_LIMIT_SRC ($MUT_LIMIT).
-  This is the gate failing, not the tool crashing: Stryker exits non-zero when the score is under break.
+      add "[MUTATION] GATE FAILED — $MUT_SCORE_LABEL ${SCORE}% against $MUT_LIMIT_SRC ($MUT_LIMIT).
+  This is the gate failing, not the tool crashing: the run exits non-zero when the score is under break.
   Scope: $MUT_SCOPE.
-  NOTE: ${SCORE}% is Stryker's score, (Killed + Timeout) / valid. A Timeout is not a kill, so the strict
-  score is this or lower — never higher (.claude/docs/testing.md).${MUT_MODULES:+
+  NOTE: $MUT_SCORE_NOTE${MUT_MODULES:+
 $MUT_MODULES}"
     elif [ "$MUT_RC" -ne 0 ]; then
       add "[MUTATION] \`$MUTATION_CMD\` failed to complete — no score was produced:
@@ -1333,9 +1358,9 @@ $(printf '%s' "$MUT_OUT" | tail -15)"
     elif [ -n "$SCORE" ]; then
       MUT_MEASURED=1
       if [ "${INT_SCORE:-0}" -lt "$MUT_LIMIT" ]; then
-        add "[MUTATION] Stryker's own score ${SCORE}% is below $MUT_LIMIT_SRC ($MUT_LIMIT).
+        add "[MUTATION] $MUT_SCORE_LABEL ${SCORE}% is below $MUT_LIMIT_SRC ($MUT_LIMIT).
   Scope: $MUT_SCOPE.
-  NOTE: ${SCORE}% counts a Timeout as a kill; the strict score (Killed / valid) is this or lower.${MUT_MODULES:+
+  NOTE: $MUT_SCORE_NOTE${MUT_MODULES:+
 $MUT_MODULES}"
       elif [ -n "$MUT_MODULES" ]; then
         # The fundit 006 shape: the headline passes and says nothing about the module under it.
@@ -1631,7 +1656,7 @@ RATCHET_SKIPS=""
 RATCHET_UNBOUNDED=0
 for ratchet in scripts/check-*.sh; do
   [ -f "$ratchet" ] || continue
-  skip_line=$(head -30 "$ratchet" | grep -m1 -E '^#[[:space:]]*maintenance:[[:space:]]*skip([[:space:]]|$)')
+  skip_line=$(awk 'NR > 30 { exit } /^#[[:space:]]*maintenance:[[:space:]]*skip([[:space:]]|$)/ { print; exit }' "$ratchet")
   if [ -n "$skip_line" ]; then
     reason=$(printf '%s' "$skip_line" | sed -E 's/^#[[:space:]]*maintenance:[[:space:]]*skip[[:space:]]*//; s/^(—|–|-)[[:space:]]*//; s/[[:space:]]+$//')
     if [ -n "$reason" ]; then
@@ -1804,6 +1829,13 @@ $(suite_identity "$SUITE_CMD" 2>/dev/null | cat -v | sed 's/^/  /')
       add "[SUITE] \`$SUITE_CMD\` — the test run ABORTED (exit $SUITE_RC): the test host did not finish, so any
   Passed!/Total line below counts only the tests that ran. Not stamped: the job stays due.
 $SUITE_TAIL"
+    elif [ "$SUITE_RC" -eq 124 ]; then
+      # Spec 093 (F111): 124 is timeout(1)'s code. A test cut off at its bound measured nothing -- at load
+      # 7-8 a 175 s test ran 791 s -- so this is neither green nor red. Not stamped: the job stays due.
+      SUITE_TO=$(printf '%s\n' "$SUITE_OUT" | grep '^TIMEOUT ' | sed 's/^/  /')
+      add "[SUITE] \`$SUITE_CMD\` UNMEASURED (exit 124) — the run hit a time bound, so it neither passed nor
+  failed. Not stamped: the job stays due. Re-run on a quieter machine, or raise the bound.${SUITE_TO:+
+$SUITE_TO}"
     elif [ "$SUITE_VERDICT" = passed ] && [ -n "$SUITE_PARTIAL" ]; then
       add "[SUITE] \`$SUITE_CMD\` is green, but it is not the whole suite: it never runs the test script in
   $SUITE_PARTIAL. Not stamped: the job stays due. Put the command that runs every
@@ -1814,7 +1846,8 @@ $SUITE_TAIL"
     else
       # NOT stamped. A red suite has not satisfied the obligation, and stamping it would mark the
       # job done and stop reporting it — the failure this whole mechanism exists to prevent.
-      add "[SUITE] \`$SUITE_CMD\` failed (exit $SUITE_RC). Not stamped: the job stays due until it is green.
+      SUITE_TO_N=$(printf '%s\n' "$SUITE_OUT" | grep -c '^TIMEOUT ')
+      add "[SUITE] \`$SUITE_CMD\` failed (exit $SUITE_RC). Not stamped: the job stays due until it is green.$([ "$SUITE_TO_N" -gt 0 ] && printf '\n  %s more timed out and are unmeasured, not failed (lines starting TIMEOUT).' "$SUITE_TO_N")
 $SUITE_TAIL"
     fi
   fi

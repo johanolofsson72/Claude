@@ -48,7 +48,7 @@ EVIDENCE=$(printf '%s' "$DET" | sed -n '2p')
 [ -n "$EXPECTED" ] || exit 0            # nothing recognizable — say nothing
 
 MARKER_FILE="$ROOT/.claude/.sync-stack"
-ACTUAL=$(sed -n 's/^testing=//p' "$MARKER_FILE" 2>/dev/null | head -1 | tr -d '[:space:]')
+ACTUAL=$(sed -n 's/^testing=//p' "$MARKER_FILE" 2>/dev/null | sed -n 1p | tr -d '[:space:]')
 
 [ "$ACTUAL" = "$EXPECTED" ] && exit 0          # consistent → silent (the usual case)
 
@@ -80,7 +80,7 @@ fi
 
 if command -v jq >/dev/null 2>&1; then
   # SPEC 046 — orientation is addressed to Claude, not to the developer.
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+. "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
 notice_model SessionStart "$MSG"
 else
   printf '%s\n' "$MSG" >&2

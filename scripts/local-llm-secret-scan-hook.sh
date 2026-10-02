@@ -7,7 +7,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -32,7 +32,7 @@ SIZE=$(wc -c < "$FILE" 2>/dev/null || echo 0)
 [ "$SIZE" -lt 50000 ] || exit 0
 
 # Pre-filter: cheap regex catches likely secret patterns. Common ones first.
-SECRET_HITS=$(grep -nE '(api[_-]?key|secret|password|passwd|token|bearer|authorization|aws_access|aws_secret|AKIA[A-Z0-9]{16}|sk_live_[A-Za-z0-9]{20,}|sk_test_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]+|-----BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH)[[:space:]]+PRIVATE[[:space:]]+KEY)' "$FILE" 2>/dev/null | head -20)
+SECRET_HITS=$(grep -nE '(api[_-]?key|secret|password|passwd|token|bearer|authorization|aws_access|aws_secret|AKIA[A-Z0-9]{16}|sk_live_[A-Za-z0-9]{20,}|sk_test_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]+|-----BEGIN[[:space:]]+(RSA|EC|DSA|OPENSSH)[[:space:]]+PRIVATE[[:space:]]+KEY)' "$FILE" 2>/dev/null | sed -n 1,20p)
 [ -n "$SECRET_HITS" ] || exit 0
 
 PAYLOAD=$(printf 'File: %s\n\nMatched lines (line:content):\n%s\n' "$FILE" "$SECRET_HITS")
@@ -67,7 +67,7 @@ REPORT=$(printf '%s' "$PAYLOAD" \
   | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 384 2>/dev/null)
 
 [ -n "$REPORT" ] || exit 0
-NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^[[:space:]]*NO_LEAKS[[:space:]]*$' | head -1)
+NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^[[:space:]]*NO_LEAKS[[:space:]]*$' | sed -n 1p)
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \

@@ -12,7 +12,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-fast}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [ "${LOCAL_LLM_ORIENTATION_DISABLE:-0}" = "1" ] && exit 0
 
@@ -20,14 +20,14 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
 GIT_LOG=$(git -C "$REPO_ROOT" log --oneline -20 2>/dev/null)
-GIT_STATUS=$(git -C "$REPO_ROOT" status --short 2>/dev/null | head -30)
-GIT_DIFF_STAT=$(git -C "$REPO_ROOT" diff --stat 2>/dev/null | head -20)
+GIT_STATUS=$(git -C "$REPO_ROOT" status --short 2>/dev/null | sed -n 1,30p)
+GIT_DIFF_STAT=$(git -C "$REPO_ROOT" diff --stat 2>/dev/null | sed -n 1,20p)
 
 # Find specs modified in the last 7 days (speckit / .specify).
 ACTIVE_SPECS=""
 for d in "$REPO_ROOT/specs" "$REPO_ROOT/.specify/specs"; do
   [ -d "$d" ] || continue
-  ACTIVE_SPECS="${ACTIVE_SPECS}$(find "$d" -name "spec.md" -mtime -7 -print 2>/dev/null | head -3)
+  ACTIVE_SPECS="${ACTIVE_SPECS}$(find "$d" -name "spec.md" -mtime -7 -print 2>/dev/null | sed -n 1,3p)
 "
 done
 
@@ -59,7 +59,7 @@ echo "$ORIENTATION" | grep -qE '^[[:space:]]*CLEAN[[:space:]]*$' && exit 0
 # orientation hook) is the real "what to work on next".
 RAW_FACTS=$(printf 'Branch: %s\nLast 5 commits:\n%s\nUncommitted:\n%s' \
   "$BRANCH" \
-  "$(printf '%s' "$GIT_LOG" | head -5)" \
+  "$(printf '%s' "$GIT_LOG" | sed -n 1,5p)" \
   "$(if [ -n "$GIT_STATUS" ]; then printf '%s' "$GIT_STATUS"; else printf '(clean working tree)'; fi)")
 
 jq -nc --arg o "$ORIENTATION" --arg r "$RAW_FACTS" \

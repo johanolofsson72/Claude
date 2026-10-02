@@ -186,7 +186,7 @@ ensure_pipx || {
 
 # ---------- graphifyy ----------
 if command -v graphify >/dev/null 2>&1; then
-  printf '[graphify-bootstrap] graphify already installed (%s)\n' "$(graphify --version 2>&1 | head -1)"
+  printf '[graphify-bootstrap] graphify already installed (%s)\n' "$(graphify --version 2>&1 | sed -n 1p)"
 else
   printf '[graphify-bootstrap] installing graphifyy via pipx\n'
   pipx install graphifyy >/dev/null 2>&1 || {
@@ -251,7 +251,7 @@ fi
 # The settings.json wiring is the caller's job (sync-prompt.md does this
 # via sync-local-llm-hooks.py's mirror semantics). Here we only confirm
 # the script file exists so the wiring won't reference a ghost.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "$SCRIPT_DIR/graphify-fire-hook.sh" ]; then
   printf '[graphify-bootstrap] WARN: graphify-fire-hook.sh missing from %s\n' "$SCRIPT_DIR" >&2
   printf '  Run the template sync (project-update) so the script is copied.\n' >&2

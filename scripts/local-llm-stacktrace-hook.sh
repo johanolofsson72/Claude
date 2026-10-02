@@ -14,7 +14,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-fast}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 STDOUT=$(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // empty' 2>/dev/null)
@@ -34,7 +34,7 @@ echo "$COMBINED" | grep -qiE '(exception|error|panic:|fatal:|traceback|^[[:space
 # deepest (and most useful) stack frames.
 HEAD_CAP="${LOCAL_LLM_STACKTRACE_HEAD_CHARS:-1500}"
 TAIL_CAP="${LOCAL_LLM_STACKTRACE_TAIL_CHARS:-2500}"
-HEAD=$(printf '%s' "$COMBINED" | head -c "$HEAD_CAP")
+HEAD=${COMBINED:0:$HEAD_CAP}
 TAIL=$(printf '%s' "$COMBINED" | tail -c "$TAIL_CAP")
 PAYLOAD=$(printf '== HEAD ==\n%s\n\n== TAIL ==\n%s\n' "$HEAD" "$TAIL")
 

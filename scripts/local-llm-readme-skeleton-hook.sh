@@ -8,7 +8,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -28,15 +28,16 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT="$(dirname "
 # top-level layout, license file presence.
 SIGNALS=""
 if [ -f "$REPO_ROOT/package.json" ]; then
-  SIGNALS="$SIGNALS\npackage.json: $(jq -r '{name, description, scripts: (.scripts // {} | keys)}}' "$REPO_ROOT/package.json" 2>/dev/null | head -c 1500)"
+  PKG=$(jq -c '{name, description, scripts: (.scripts // {} | keys)}' "$REPO_ROOT/package.json" 2>/dev/null)
+  SIGNALS="$SIGNALS\npackage.json: ${PKG:0:1500}"
 fi
-CSPROJ=$(find "$REPO_ROOT" -maxdepth 3 -name '*.csproj' 2>/dev/null | head -3)
+CSPROJ=$(find "$REPO_ROOT" -maxdepth 3 -name '*.csproj' 2>/dev/null | sed -n 1,3p)
 [ -n "$CSPROJ" ] && SIGNALS="$SIGNALS\ncsproj: $CSPROJ"
 [ -f "$REPO_ROOT/Cargo.toml" ] && SIGNALS="$SIGNALS\nCargo.toml present"
 [ -f "$REPO_ROOT/pyproject.toml" ] && SIGNALS="$SIGNALS\npyproject.toml present"
 [ -f "$REPO_ROOT/Dockerfile" ] && SIGNALS="$SIGNALS\nDockerfile present"
 [ -f "$REPO_ROOT/LICENSE" ] && SIGNALS="$SIGNALS\nLICENSE present"
-TOP=$(ls -1 "$REPO_ROOT" 2>/dev/null | head -30)
+TOP=$(ls -1 "$REPO_ROOT" 2>/dev/null | sed -n 1,30p)
 SIGNALS="$SIGNALS\nTop-level entries:\n$TOP"
 
 PAYLOAD=$(printf 'Repo signals:\n%s\n' "$SIGNALS")

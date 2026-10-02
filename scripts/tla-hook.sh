@@ -17,7 +17,7 @@
 # and stays quiet for the rest.
 set -u
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 . "$HOOK_DIR/hook-notice.sh"
 
 INPUT=$(cat 2>/dev/null || true)

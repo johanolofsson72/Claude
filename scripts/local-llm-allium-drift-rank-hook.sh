@@ -6,7 +6,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 # Per-hook timeout override — drift reports up to 12KB get ranked with
@@ -33,7 +33,7 @@ LEN=${#COMBINED}
 # Look for drift markers.
 echo "$COMBINED" | grep -qiE '(drift|specified-but-not-implemented|implemented-but-not-specified|behavioral.+drift|open[[:space:]]+question|AMBIGUITY|deferred|GAP-)' || exit 0
 
-REPORT=$(printf '%s' "$COMBINED" | head -c 12000)
+REPORT=${COMBINED:0:12000}
 
 SYSTEM='You are ranking Allium drift findings by release-blocking severity for a developer who needs to decide what to fix now versus what can land as a follow-up PR.
 

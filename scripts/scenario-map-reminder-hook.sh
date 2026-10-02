@@ -14,7 +14,7 @@
 # SPEC 046 — the reminder tells Claude to start a scenario interview, so it goes
 # to Claude. As a systemMessage it was a paragraph of red warning at the
 # developer, repeated on every pass over the same spec file.
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+. "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
 
 INPUT=$(cat)
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -33,7 +33,7 @@ if ! grep -qiE '(spec|tasks|plan)' <<< "$FILE"; then
 fi
 
 # --- Walk up to project root (stop at .git boundary) ---
-DIR=$(cd "$(dirname "$FILE")" 2>/dev/null && pwd)
+DIR=$(CDPATH='' cd "$(dirname "$FILE")" 2>/dev/null && pwd)
 ROOT=""
 while [ -n "$DIR" ] && [ "$DIR" != "/" ]; do
   if [ -d "$DIR/.git" ]; then ROOT="$DIR"; break; fi
@@ -90,7 +90,7 @@ fi
 #
 # scenario_map_files resolves the layout and lists every file that can hold rows — the index
 # alone under the single-file layout, so projects that never split behave exactly as before.
-_SMR_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+_SMR_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 if [ -r "$_SMR_DIR/scenario-map-layout.sh" ]; then
   . "$_SMR_DIR/scenario-map-layout.sh"
   MAP_FILES=$(scenario_map_files "$ROOT")

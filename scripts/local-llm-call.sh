@@ -9,7 +9,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Resolve a per-project log directory. When invoked inside a git repo we
 # write logs to <repo>/.claude/ so each project gets its own telemetry
@@ -24,7 +24,7 @@ LOCAL_LLM_LOG_DIR="${LOCAL_LLM_REPO_ROOT:-$HOME}/.claude"
 TRACE_LOG="${LOCAL_LLM_TRACE_LOG:-$LOCAL_LLM_LOG_DIR/local-llm-trace.log}"
 {
   mkdir -p "$(dirname "$TRACE_LOG")" 2>/dev/null
-  PARENT_CMD=$(ps -o args= -p "$PPID" 2>/dev/null | head -c 200)
+  PARENT_CMD=$(ps -o args= -p "$PPID" 2>/dev/null); PARENT_CMD=${PARENT_CMD:0:200}
   printf '%s\tpid=%s\tppid=%s\tparent=%s\n' \
     "$(date +%Y-%m-%dT%H:%M:%S%z 2>/dev/null)" "$$" "$PPID" "$PARENT_CMD" \
     >> "$TRACE_LOG" 2>/dev/null

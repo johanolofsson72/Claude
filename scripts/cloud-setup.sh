@@ -50,7 +50,7 @@ fi
 if ! command -v dotnet >/dev/null 2>&1; then
   CHANNEL=LTS
   if [ -f global.json ]; then
-    PINNED=$(tr -d '\r' < global.json | grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+$' | head -1)
+    PINNED=$(tr -d '\r' < global.json | grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+$' | sed -n 1p)
     [ -n "$PINNED" ] && CHANNEL="$PINNED"
   fi
   say "installing the .NET SDK (channel $CHANNEL) into $DOTNET_DIR"

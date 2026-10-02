@@ -298,13 +298,13 @@ fi
 # not who owns what -- so it keeps its own engine and its own line.
 if [ -f scripts/register-convergence.sh ]; then
   CONV_RAW=$(bash scripts/register-convergence.sh 2>&1); RC=$?
-  say "  $(printf '%s\n' "$CONV_RAW" | head -1)"
+  say "  $(printf '%s\n' "$CONV_RAW" | sed -n 1p)"
   # A register the developer already froze (row 077) is not asked the three-ways-out question again.
   FRZ_RAW=$(bash scripts/register-convergence.sh --freeze 2>/dev/null); FRZ_RC=$?
   case "$FRZ_RC" in
-    0|2|3) say "  $(printf '%s\n' "$FRZ_RAW" | head -1)"
+    0|2|3) say "  $(printf '%s\n' "$FRZ_RAW" | sed -n 1p)"
            [ "$FRZ_RC" = 2 ] && todo "rows added during the freeze without an approved proposal — surface them (approve or cut)" ;;
-    4) todo "freeze line malformed: $(printf '%s\n' "$FRZ_RAW" | head -1)"
+    4) todo "freeze line malformed: $(printf '%s\n' "$FRZ_RAW" | sed -n 1p)"
        [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row" ;;
     *) [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row" ;;
   esac
@@ -325,7 +325,7 @@ fi
 head_ "6. This machine"
 if [ -f scripts/validate-portability.sh ]; then
   PORT_RAW=$(bash scripts/validate-portability.sh --all 2>&1); PRC=$?
-  say "  $(printf '%s\n' "$PORT_RAW" | grep -E '^portability:' | head -1)"
+  say "  $(printf '%s\n' "$PORT_RAW" | grep -E '^portability:' | sed -n 1p)"
   [ "$PRC" = 1 ] && todo "portability findings — bash scripts/validate-portability.sh --all"
 else
   say "  scripts/validate-portability.sh is not here yet (pull first)"

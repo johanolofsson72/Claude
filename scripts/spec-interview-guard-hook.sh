@@ -82,7 +82,7 @@ if [ "${#INPUT}" -le 4096 ]; then
   guard_precheck_src "$INPUT" || exit 0
 fi
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # Spec 083: reading, writing and path canonicalisation go through one library. Without it this
 # fail-closed guard cannot read anything, so a payload naming a source file gets a fixed-text deny.

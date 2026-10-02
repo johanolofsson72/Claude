@@ -7,7 +7,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -44,10 +44,10 @@ BASE=$(basename "$FILE" ".$EXT")
 TEST_FILES=""
 case "$EXT" in
   cs)
-    TEST_FILES=$(find "$REPO_ROOT" \( -name "${BASE}Tests.cs" -o -name "${BASE}Test.cs" \) -not -path '*/bin/*' -not -path '*/obj/*' 2>/dev/null | head -3)
+    TEST_FILES=$(find "$REPO_ROOT" \( -name "${BASE}Tests.cs" -o -name "${BASE}Test.cs" \) -not -path '*/bin/*' -not -path '*/obj/*' 2>/dev/null | sed -n 1,3p)
     ;;
   tsx|ts)
-    TEST_FILES=$(find "$REPO_ROOT" \( -name "${BASE}.test.${EXT}" -o -name "${BASE}.spec.${EXT}" \) -not -path '*/node_modules/*' -not -path '*/dist/*' 2>/dev/null | head -3)
+    TEST_FILES=$(find "$REPO_ROOT" \( -name "${BASE}.test.${EXT}" -o -name "${BASE}.spec.${EXT}" \) -not -path '*/node_modules/*' -not -path '*/dist/*' 2>/dev/null | sed -n 1,3p)
     ;;
 esac
 

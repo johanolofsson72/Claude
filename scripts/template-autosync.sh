@@ -1078,7 +1078,7 @@ refresh_local_template() {
   git -C "$_c" merge-base --is-ancestor "$_up" "$_head" 2>/dev/null && _ahead=1
 
   if [ "$_behind" -eq 1 ]; then
-    if [ -n "$(git -C "$_c" status --porcelain 2>/dev/null | head -1)" ]; then
+    if [ -n "$(git -C "$_c" status --porcelain 2>/dev/null | sed -n 1p)" ]; then
       # Dirty AND behind: the uncommitted work is deliberate (the -dirty- SHA below
       # exists for exactly that case), so it wins -- but say the source is stale,
       # because that is the part nobody would otherwise notice.
@@ -1354,7 +1354,7 @@ resolve_local_template() {
       # Spec 082 R3 (F037). Uncommitted content has no SHA that describes it, and this run would
       # commit it and push it into the project. Asked BEFORE the refresh, so a refused run neither
       # fetches nor prints the refresh's "syncing from the working tree as-is".
-      if [ "$ALLOW_DIRTY" -eq 0 ] && [ -n "$(git -C "$cand" status --porcelain 2>/dev/null </dev/null | head -1)" ]; then
+      if [ "$ALLOW_DIRTY" -eq 0 ] && [ -n "$(git -C "$cand" status --porcelain 2>/dev/null </dev/null | sed -n 1p)" ]; then
         DIRTY_REFUSED="$cand"
         return 3
       fi
@@ -1392,7 +1392,7 @@ resolve_remote_template() {
   if [ -n "$TEMPLATE_PIN" ]; then
     _full="$TEMPLATE_PIN"
   else
-    _full=$(git ls-remote "$TEMPLATE_REPO_URL" main 2>/dev/null </dev/null | cut -f1 | head -1 | tr 'A-F' 'a-f')
+    _full=$(git ls-remote "$TEMPLATE_REPO_URL" main 2>/dev/null </dev/null | cut -f1 | sed -n 1p | tr 'A-F' 'a-f')
     [ -n "$_full" ] || return 1
     if ! is_full_sha "$_full"; then
       warn "[warn] ls-remote answered '$(printf '%s' "$_full" | cut -c1-48)' for main — not a 40-hex SHA, nothing downloaded"
@@ -1401,7 +1401,7 @@ resolve_remote_template() {
   fi
   TEMPLATE_SHA=$(printf '%s' "$_full" | cut -c1-12)
   # Only pay for the download when the SHA actually moved.
-  STAMP_SHA=$(sed -n 's/^sha=//p' "$PROJECT_ROOT/.claude/.template-sync" 2>/dev/null | head -1)
+  STAMP_SHA=$(sed -n 's/^sha=//p' "$PROJECT_ROOT/.claude/.template-sync" 2>/dev/null | sed -n 1p)
   if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
     return 2   # up to date, no download needed
   fi
@@ -1923,7 +1923,7 @@ if [ -n "$TREE_LINKS" ]; then
   exit 0
 fi
 
-STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | head -1)
+STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | sed -n 1p)
 if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
   say "[ok] already at template $TEMPLATE_SHA"
   report_speckit_pin
@@ -2008,7 +2008,7 @@ matches_template_history() {
 # testing=mobile means .claude/docs/testing.md holds the MOBILE content under
 # the canonical name. Stamping the web doc over it is the documented failure
 # that left a Flutter app reading "browser back mid-flow" instructions.
-STACK=$(sed -n 's/^testing=//p' "$PROJECT_ROOT/.claude/.sync-stack" 2>/dev/null | head -1)
+STACK=$(sed -n 's/^testing=//p' "$PROJECT_ROOT/.claude/.sync-stack" 2>/dev/null | sed -n 1p)
 [ -n "$STACK" ] || STACK="unknown"
 
 # ------------------------------------------------------- --accept-local (spec 007af)
@@ -2968,7 +2968,7 @@ if [ -f "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" ]; then
   # anchor — spec-kit reworded the prompt and the STOP may be live — and that goes through `tell`,
   # which --quiet cannot silence, because the SessionStart wrapper runs this with --quiet.
   POL_ALL=$(bash "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" --repo "$PROJECT_ROOT" 2>&1); POL_RC=$?
-  POL=$(printf '%s\n' "$POL_ALL" | grep -v 'FAIL' | head -1)
+  POL=$(printf '%s\n' "$POL_ALL" | grep -v 'FAIL' | sed -n 1p)
   [ -n "$POL" ] && say "[speckit] $POL"
   # Record only what the policy actually wrote, and only paths that exist. `git add -- $WROTE`
   # stages nothing when one path is missing, and a spec-kit 1.0 project has no .registry at all —

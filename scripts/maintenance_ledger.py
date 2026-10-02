@@ -16,6 +16,7 @@ Usage:
   python3 scripts/maintenance_ledger.py run JOB --skip-rc N -- CMD  # same, but exit N means "never started": no line
   python3 scripts/maintenance_ledger.py record JOB SECONDS RC               # a span timed by the caller (the whole pass)
   python3 scripts/maintenance_ledger.py report [--all] [--ledger PATH]
+  python3 scripts/maintenance_ledger.py estimate JOB [JOB...]       # "JOB<TAB>median s<TAB>runs" here, or "JOB<TAB>unknown<TAB>0"
 
 `run` is transparent: the child inherits stdout/stderr and its exit code is ours. A ledger that
 cannot be written warns on stderr and changes nothing else -- a measurement must never turn a green
@@ -340,6 +341,25 @@ def cmd_report(argv):
     return 0
 
 
+def cmd_estimate(argv):
+    """Spec 093 (F110): how long a job takes on THIS machine, for the due banner and the nightly installer.
+    The median over every run at this place, red ones included: a red suite took that long too, and the
+    question is wall time. Cloud runs are not this machine's cost. Never fails a caller: exit 0 always."""
+    if not argv:
+        print("maintenance_ledger.py: estimate needs at least one job", file=sys.stderr)
+        return 2
+    here = place()
+    rows = read_ledger(os.path.join(repo_root(), LEDGER_REL))
+    for job in argv:
+        secs = [s for s in (num(r["seconds"]) for r in rows if r["job"] == job and r["place"] == here)
+                if s is not None and s >= 0]
+        if secs:
+            print("%s\t%d\t%d" % (clean(job), round(statistics.median(secs)), len(secs)))
+        else:
+            print("%s\tunknown\t0" % clean(job))
+    return 0
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -350,7 +370,9 @@ def main(argv):
         return cmd_record(argv[1:])
     if argv[0] == "report":
         return cmd_report(argv[1:])
-    print("maintenance_ledger.py: unknown command '%s' (run | record | report)" % argv[0], file=sys.stderr)
+    if argv[0] == "estimate":
+        return cmd_estimate(argv[1:])
+    print("maintenance_ledger.py: unknown command '%s' (run | record | report | estimate)" % argv[0], file=sys.stderr)
     return 2
 
 

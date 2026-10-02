@@ -86,7 +86,7 @@ detect_stack() {
 
   # .sync-stack records the testing track chosen during sync (web|mobile|hybrid)
   if [ -f .claude/.sync-stack ]; then
-    track=$(grep -E '^testing=' .claude/.sync-stack 2>/dev/null | head -1 | cut -d= -f2 | tr -d '[:space:]')
+    track=$(grep -E '^testing=' .claude/.sync-stack 2>/dev/null | sed -n 1p | cut -d= -f2 | tr -d '[:space:]')
     case "$track" in
       web)    flags="web" ;;
       mobile) flags="mobile" ;;

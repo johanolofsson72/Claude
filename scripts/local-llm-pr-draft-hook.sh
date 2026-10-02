@@ -10,7 +10,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-deep}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
@@ -31,8 +31,8 @@ git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/$BASE" >/dev/null 2>&1 \
 DIFF_STAT=$(git -C "$REPO_ROOT" diff --stat "origin/$BASE...HEAD" 2>/dev/null)
 [ -n "$DIFF_STAT" ] || exit 0
 
-DIFF_FULL=$(git -C "$REPO_ROOT" diff "origin/$BASE...HEAD" 2>/dev/null | head -c 24000)
-COMMIT_LOG=$(git -C "$REPO_ROOT" log --oneline "origin/$BASE..HEAD" 2>/dev/null | head -50)
+DIFF_FULL=$(git -C "$REPO_ROOT" diff "origin/$BASE...HEAD" 2>/dev/null); DIFF_FULL=${DIFF_FULL:0:24000}
+COMMIT_LOG=$(git -C "$REPO_ROOT" log --oneline "origin/$BASE..HEAD" 2>/dev/null | sed -n 1,50p)
 
 SYSTEM='Draft a pull request description for the diff between a feature branch and its base.
 

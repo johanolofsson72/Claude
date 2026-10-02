@@ -7,7 +7,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
@@ -34,7 +34,7 @@ THRESHOLD="${LOCAL_LLM_PR_SPLIT_MIN_LINES:-500}"
 [ "$TOTAL" -gt "$THRESHOLD" ] || exit 0
 
 DIFF_STAT=$(git -C "$REPO_ROOT" diff --stat "origin/$BASE...HEAD" 2>/dev/null)
-COMMIT_LOG=$(git -C "$REPO_ROOT" log --oneline "origin/$BASE..HEAD" 2>/dev/null | head -50)
+COMMIT_LOG=$(git -C "$REPO_ROOT" log --oneline "origin/$BASE..HEAD" 2>/dev/null | sed -n 1,50p)
 
 PAYLOAD=$(printf 'Branch: %s → %s\nTotal lines changed: %s\n\nFiles changed (with line counts):\n%s\n\nCommits on branch:\n%s\n' \
   "$BRANCH" "$BASE" "$TOTAL" "$DIFF_STAT" "$COMMIT_LOG")

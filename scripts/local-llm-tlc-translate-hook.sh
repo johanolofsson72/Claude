@@ -10,7 +10,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-fast}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
@@ -28,7 +28,7 @@ ${STDERR}"
 echo "$COMBINED" | grep -qiE '(counterexample|invariant.+violated|deadlock|error: invariant|behavior of length|state[[:space:]]+[0-9]+:|action[[:space:]]+[A-Z][A-Za-z0-9_]*[[:space:]])' || exit 0
 
 # TLC traces can be long; sample the relevant slice.
-TRACE=$(printf '%s' "$COMBINED" | head -c 12000)
+TRACE=${COMBINED:0:12000}
 
 read -r -d '' SYSTEM <<'TLC_SYSTEM_EOF'
 You are translating a TLA+ TLC counterexample trace into plain English for a developer who needs to fix the bug behind the violation.

@@ -38,7 +38,7 @@ fi
 # Is the gate this reminder demands reachable at all (spec 006)? Without the plugin the Skill call
 # fails, and the reminder below would tell the model to do something it cannot do, with nobody told.
 # Exit 1 only: "cannot tell" (3) and an absent checker fall through to today's reminder.
-HOOK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+HOOK_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 if [ -f "$HOOK_DIR/skill-reachable.sh" ]; then
   MISSING_LINE=$(bash "$HOOK_DIR/skill-reachable.sh" frontend-design 2>/dev/null)
   if [ "$?" -eq 1 ] && [ -f "$HOOK_DIR/hook-notice.sh" ]; then

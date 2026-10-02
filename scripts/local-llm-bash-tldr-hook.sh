@@ -10,7 +10,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-fast}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 STDOUT=$(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // empty' 2>/dev/null)
@@ -27,7 +27,7 @@ THRESHOLD="${LOCAL_LLM_TLDR_MIN_CHARS:-6000}"
 # gets the bulk because verdicts and errors live there.
 HEAD_CAP="${LOCAL_LLM_TLDR_HEAD_CHARS:-1500}"
 TAIL_CAP="${LOCAL_LLM_TLDR_TAIL_CHARS:-2500}"
-TRUNCATED=$(printf '%s' "$COMBINED" | head -c "$HEAD_CAP")
+TRUNCATED=${COMBINED:0:$HEAD_CAP}
 TAIL=$(printf '%s' "$COMBINED" | tail -c "$TAIL_CAP")
 PAYLOAD=$(printf '== HEAD ==\n%s\n\n== TAIL ==\n%s\n' "$TRUNCATED" "$TAIL")
 

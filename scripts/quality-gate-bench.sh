@@ -5,4 +5,4 @@
 #   pass:  bash scripts/quality-gate-pass.sh [--table FILE]   (run from inside the project)
 #          exit 0 ran or nothing to do · 3 no model (nothing changed)
 set -u
-exec python3 "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/quality_gates.py" bench "$@"
+exec python3 "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/quality_gates.py" bench "$@"

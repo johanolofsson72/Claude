@@ -21,7 +21,7 @@ set -u
 # not appear, and --sync-feature-json did not run, leaving spec-kit's
 # feature.json naming the PREVIOUS spec. That last one is the defect 007m exists
 # to prevent, re-entering through the lookup path rather than the parser.
-_ORIENT_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+_ORIENT_SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 
 # SPEC 046 — this brief is written FOR Claude: which row is next, what is due,
 # what the run log said last time. It went out as `systemMessage`, which the CLI
@@ -443,12 +443,12 @@ ${TAIL_LINES}"
     # never fires however badly the register diverges.
     CONV_RAW=$(cd "$PROJECT_ROOT" && bash scripts/register-convergence.sh --quiet 2>/dev/null)
     CONV_RC=$?
-    CONV_LINE=$(printf '%s\n' "$CONV_RAW" | head -1)
+    CONV_LINE=$(printf '%s\n' "$CONV_RAW" | sed -n 1p)
     # A developer who already answered the stop with a freeze (row 077) should not be asked again
     # every session. The freeze line replaces the three-ways-out banner and says what it permits.
     FREEZE_LINE=$(cd "$PROJECT_ROOT" && bash scripts/register-convergence.sh --freeze 2>/dev/null)
     FREEZE_RC=$?
-    FREEZE_LINE=$(printf '%s\n' "$FREEZE_LINE" | head -1)
+    FREEZE_LINE=$(printf '%s\n' "$FREEZE_LINE" | sed -n 1p)
     # Only 0/2/3 are a freeze. 4 (malformed line) is surfaced on its own and does NOT silence the
     # convergence stop; 5/127 (cannot evaluate: partial sync, no python3) fall through to it.
     FREEZE_BAD=""

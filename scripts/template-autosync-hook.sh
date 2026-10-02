@@ -191,7 +191,7 @@ fi
 # one notification per line, so "9 files synced" arrived as nine red warnings.
 # notice_both sends the headline to the person and the file list to Claude,
 # which is the half that actually has to act on which files changed.
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+. "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
 
 # Written AFTER the run, and carrying which kind of run it was. Writing it
 # first is what let a sync that never finished suppress its own retries.

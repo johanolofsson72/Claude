@@ -24,6 +24,7 @@ this repo is written. A line ending in `# portability-ok` is a recorded exceptio
 import os, re, sys
 
 # (label, pattern, counterpart-or-None, advice)
+CD_DIRNAME = "cd $(dirname)"
 CHECKS = [
     ("mapfile",      re.compile(r"\bmapfile\b"),                    None, "bash 4+; macOS ships bash 3.2. Use a while-read loop."),
     ("readarray",    re.compile(r"\breadarray\b"),                  None, "bash 4+; macOS ships bash 3.2. Use a while-read loop."),
@@ -36,6 +37,12 @@ CHECKS = [
     ("xargs -r",     re.compile(r"\bxargs\b[^|;]*\s-r\b"),          None, "GNU xargs only; BSD xargs already skips an empty list."),
     ("head -n -N",   re.compile(r"\bhead\s+-n\s+-[0-9]"),           None, "GNU head only. Use sed."),
     ("sort -V",      re.compile(r"\bsort\b[^|;]*\s-V\b"),           None, "GNU sort only on older macOS."),
+    # Spec 093 (F087): not a platform split but a machine split. Run by hand as `bash scripts/x.sh`,
+    # dirname is the relative `scripts`, so cd searches CDPATH first, can land in another clone, and
+    # prints the directory into the $(...) that captured it. A file that sources self-test-env.sh is
+    # exempt (see audit): that file unsets CDPATH before any cd.
+    (CD_DIRNAME,     re.compile(r"(?<!CDPATH='' )(?<!CDPATH= )\bcd\s+(?:-[LP]\s+)?(?:--\s+)?\"?\$\(dirname\b"), None,
+     "CDPATH steers a relative cd. Write CDPATH='' cd \"$(dirname ...)\"."),
     # `date -r <file>` reads an mtime on BOTH platforms, so it is a legitimate counterpart to either
     # stat form and not merely a second GNU-ism. Accepting it stops the gate flagging a fix that is
     # already correct -- which is how a gate loses its reader.
@@ -63,6 +70,7 @@ def audit(paths, root):
         except OSError:
             continue
         rel = os.path.relpath(path, root)
+        unsets_cdpath = any(re.match(r"\s*\.\s.*self-test-env\.sh", l) for l in lines)
         for i, line in enumerate(lines):
             stripped = line.lstrip()
             if stripped.startswith("#") or "# portability-ok" in line:
@@ -87,6 +95,8 @@ def audit(paths, root):
                 print(f"      {stripped[:104]}")
                 print(f"      -> {why}")
             for label, pat, pair, why in CHECKS:
+                if label == CD_DIRNAME and unsets_cdpath:
+                    continue
                 if not pat.search(line):
                     continue
                 if pair is not None and pair.search(window):

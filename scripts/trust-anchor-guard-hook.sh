@@ -95,7 +95,7 @@ else
 fi
 [ "$HIT" -eq 1 ] || exit 0
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED — trust-anchor-guard cannot load scripts/guard-lib.sh, and this call mentions a trust store, a Confirmed line or an answered question. Re-run the template sync (it is in CORE_SCRIPTS)."}}'
   exit 0

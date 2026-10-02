@@ -37,7 +37,7 @@ done
 command -v python3 >/dev/null 2>&1 || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$SCRIPT_DIR/lane_status.py" ] || exit 0
 
 MSG=$(python3 "$SCRIPT_DIR/lane_status.py" --root "$PROJECT_ROOT" 2>/dev/null)
@@ -48,6 +48,6 @@ MSG="$MSG
 Ask \"is there anything for me to do?\" for the full picture (bash scripts/lane-status.sh)."
 
 # SPEC 046 — orientation is addressed to Claude, not to the developer.
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+. "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
 notice_model SessionStart "$MSG"
 exit 0

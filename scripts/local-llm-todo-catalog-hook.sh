@@ -6,7 +6,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -29,7 +29,7 @@ THRESHOLD="${LOCAL_LLM_TODO_MIN_COUNT:-3}"
 [ "$TODO_COUNT" -ge "$THRESHOLD" ] || exit 0
 
 # Extract the markers with surrounding context (line number + the line itself).
-MARKERS=$(grep -nE '\b(TODO|FIXME|HACK|XXX|TBD)\b' "$FILE" 2>/dev/null | head -30)
+MARKERS=$(grep -nE '\b(TODO|FIXME|HACK|XXX|TBD)\b' "$FILE" 2>/dev/null | sed -n 1,30p)
 
 SYSTEM='You are cataloging accumulated TODO / FIXME / HACK / XXX / TBD markers in a single file.
 
@@ -54,7 +54,7 @@ REPORT=$(printf 'File: %s\nTotal markers: %s\n\nMarkers (line:content):\n%s\n' "
   | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 512 2>/dev/null)
 
 [ -n "$REPORT" ] || exit 0
-NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^[[:space:]]*NO_MARKERS[[:space:]]*$' | head -1)
+NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^[[:space:]]*NO_MARKERS[[:space:]]*$' | sed -n 1p)
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg n "$TODO_COUNT" --arg r "$REPORT" \

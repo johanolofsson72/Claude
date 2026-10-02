@@ -26,7 +26,7 @@
 # Scenario ids: none here; scripts/test-core-gates.sh is the proof.
 set -uo pipefail
 export LC_ALL=C
-SD=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SD=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # The discovery pattern consultpilot's runner uses. One definition, so two runners cannot disagree
 # about what a gate looks like.

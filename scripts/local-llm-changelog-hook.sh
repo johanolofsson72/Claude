@@ -10,7 +10,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-deep}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -34,11 +34,11 @@ else
   RANGE_LABEL="full history (no tags found)"
 fi
 
-COMMIT_LOG=$(git -C "$REPO_ROOT" log --oneline --no-merges "$RANGE" 2>/dev/null | head -100)
+COMMIT_LOG=$(git -C "$REPO_ROOT" log --oneline --no-merges "$RANGE" 2>/dev/null | sed -n 1,100p)
 [ -n "$COMMIT_LOG" ] || exit 0
 
 # Sample some commit bodies for richer context (first 20 commits with full message).
-COMMIT_DETAIL=$(git -C "$REPO_ROOT" log --pretty=format:'%h %s%n%n%b%n---' --no-merges "$RANGE" 2>/dev/null | head -c 6000)
+COMMIT_DETAIL=$(git -C "$REPO_ROOT" log --pretty=format:'%h %s%n%n%b%n---' --no-merges "$RANGE" 2>/dev/null); COMMIT_DETAIL=${COMMIT_DETAIL:0:6000}
 
 SYSTEM='Draft CHANGELOG entries from a list of commits in keep-a-changelog format.
 

@@ -212,11 +212,24 @@ printf '%s\n%s\n' "$cleaned" "$LINE" | sed '/^$/d' | crontab - || {
   echo "install-nightly-maintenance.sh: crontab refused the update" >&2; exit 1; }
 drop_legacy_pathfile "$cleaned"
 
+# Spec 093 (F110): what a night costs here, from the ledger, so --at is chosen knowing it. Unmeasured is
+# said, never left out: the template's own mutation run alone took an hour.
+COST="unmeasured — no ledger run of mutation or suite on this machine yet"
+if [ -f "$ROOT/scripts/maintenance_ledger.py" ] && command -v python3 >/dev/null 2>&1; then
+  EST=$(cd "$ROOT" && python3 scripts/maintenance_ledger.py estimate mutation suite 2>/dev/null)
+  EST_S=$(printf '%s\n' "$EST" | awk -F'\t' '$2 ~ /^[0-9]+$/ { t += $2; p = p (p ? ", " : "") $1 " ~" int(($2 + 30) / 60) "m" } END { if (p != "") printf "%d\t%s", t, p }')
+  if [ -n "$EST_S" ]; then
+    EST_T=$(( (${EST_S%%$'\t'*} + 30) / 60 ))
+    COST="~$((EST_T / 60))h$(printf '%02d' $((EST_T % 60)))m when both are due (${EST_S#*$'\t'}; ledger medians on this machine)"
+  fi
+fi
+
 cat <<MSG
 installed: $PROJECT — nightly maintenance at $(printf '%02d:%02d' "$HH" "$MM")
 
   runs:  scripts/project-maintenance.sh --full --suite --if-due --unattended   (secrets + CVEs, register drift,
          convergence, context-cost canary, hardening cadence, mutation kill rate)
+  cost:  $COST
   log:   $LOG
   PATH:  $PATHFILE (captured from this shell)
   trust: bash scripts/project-maintenance.sh --trust   (the nightly runs .claude/.suite-command and

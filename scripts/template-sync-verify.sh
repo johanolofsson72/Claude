@@ -124,7 +124,7 @@ if [ -z "$COMMAND" ]; then
   printf 'Outstanding: %s (template %s, %s)\n\n' \
     "${COMMIT:-unknown}" "${TEMPLATE:-unknown}" "${SYNCED:-unknown}"
   if [ -f "$DETECT" ]; then
-    CANDIDATES=$(bash "$DETECT" "$PROJECT_ROOT" --candidates 2>/dev/null | head -5)
+    CANDIDATES=$(bash "$DETECT" "$PROJECT_ROOT" --candidates 2>/dev/null | sed -n 1,5p)
     if [ -n "$CANDIDATES" ]; then
       printf 'What is here, none of it unambiguous enough to pick for you:\n\n'
       printf '%s\n' "$CANDIDATES" | sed 's/^/    /'

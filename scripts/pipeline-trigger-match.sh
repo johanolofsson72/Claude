@@ -28,6 +28,6 @@ INPUT=$(cat)
 PROMPT=$(printf '%s' "$INPUT" | jq -r '.prompt // empty' 2>/dev/null)
 [ -z "$PROMPT" ] && exit 1
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 printf '%s' "$PROMPT" | python3 "$SCRIPT_DIR/pipeline-trigger-match.py" "$SUBCMD"
 exit $?

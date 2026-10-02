@@ -5,7 +5,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -23,7 +23,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT="$(dirname "
 
 LANGS=""
 [ -f "$REPO_ROOT/package.json" ] && LANGS="$LANGS node"
-[ -n "$(find "$REPO_ROOT" -maxdepth 3 -name '*.csproj' 2>/dev/null | head -1)" ] && LANGS="$LANGS dotnet"
+[ -n "$(find "$REPO_ROOT" -maxdepth 3 -name '*.csproj' 2>/dev/null | sed -n 1p)" ] && LANGS="$LANGS dotnet"
 [ -f "$REPO_ROOT/Cargo.toml" ] && LANGS="$LANGS rust"
 [ -f "$REPO_ROOT/pyproject.toml" ] || [ -f "$REPO_ROOT/setup.py" ] && LANGS="$LANGS python"
 [ -f "$REPO_ROOT/go.mod" ] && LANGS="$LANGS go"

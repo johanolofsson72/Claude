@@ -75,7 +75,7 @@ FILES=$(sed -n 's/^file //p' "$MARKER" 2>/dev/null \
            printf "%d\t%s\n", r, $0 }' \
   | LC_ALL=C sort -t"$(printf '\t')" -k1,1n -k2,2 | cut -f2)
 N_FILES=$(printf '%s\n' "$FILES" | grep -c .)
-FILE_LINES=$(printf '%s\n' "$FILES" | head -8 | sed 's/^/  /')
+FILE_LINES=$(printf '%s\n' "$FILES" | sed -n 1,8p | sed 's/^/  /')
 [ "${N_FILES:-0}" -gt 8 ] && FILE_LINES="$FILE_LINES
   … and $((N_FILES - 8)) more"
 
@@ -166,6 +166,6 @@ fi
 # project carrying the obligation — which is most of them, which is how the
 # reminder became wallpaper. hook-notice.sh carries the same jq-free escaping
 # this hook hand-rolled, so the no-jq machine is still covered.
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+. "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
 notice_model SessionStart "$BODY"
 exit 0

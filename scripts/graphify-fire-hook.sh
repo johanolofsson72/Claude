@@ -49,7 +49,7 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 # Match `graphify query|path|explain|update`. The leading word boundary
 # ensures we don't accidentally fire on a command that merely mentions
 # graphify as an argument (e.g. `echo "see graphify"`).
-SUBCMD=$(printf '%s' "$CMD" | grep -oE '(^|[[:space:];|&]+)graphify[[:space:]]+(query|path|explain|update)' | head -1 | awk '{print $NF}')
+SUBCMD=$(printf '%s' "$CMD" | grep -oE '(^|[[:space:];|&]+)graphify[[:space:]]+(query|path|explain|update)' | sed -n 1p | awk '{print $NF}')
 [ -n "$SUBCMD" ] || exit 0
 
 EXIT_CODE=$(printf '%s' "$INPUT" | jq -r '.tool_response.exit_code // .tool_response.returncode // 0' 2>/dev/null)

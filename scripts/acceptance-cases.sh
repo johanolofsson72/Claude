@@ -16,7 +16,7 @@
 # spec-interview-guard-hook.sh so the helper and the gate cannot disagree.
 
 set -u
-HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PY="$HERE/acceptance_cases.py"
 
 usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }

@@ -11,7 +11,7 @@ set -u
 
 # SPEC 046 — addressed to Claude ("run /allium:elicit on this spec"), so it goes
 # on Claude's channel and once per spec file per session.
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+. "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
 
 INPUT=$(cat)
 

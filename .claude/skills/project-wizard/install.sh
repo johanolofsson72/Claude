@@ -42,7 +42,7 @@ mkdir -p "${SKILL_DIR}"
 echo "Installing project-wizard skill to ${SKILL_DIR}..."
 
 # Copy SKILL.md (the script assumes it's in the same directory)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "${SCRIPT_DIR}/SKILL.md" ]; then
     cp "${SCRIPT_DIR}/SKILL.md" "${SKILL_DIR}/SKILL.md"
 else

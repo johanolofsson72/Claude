@@ -22,7 +22,7 @@
 # Scenario ids: none here; scripts/test-validate-hooks.sh is the proof.
 set -uo pipefail
 
-SD=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SD=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
 [ -d "$ROOT" ] || { echo "validate-hooks: no such directory: $ROOT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "validate-hooks: python3 not found — hooks not checked" >&2; exit 2; }

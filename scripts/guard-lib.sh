@@ -30,7 +30,7 @@
 # Callers set INPUT to the raw payload before calling guard_field without a second argument.
 
 # hook-notice.sh owns the per-session "say this once" state; reused, not copied.
-_GUARD_LIB_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+_GUARD_LIB_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 # shellcheck source=/dev/null
 [ -f "$_GUARD_LIB_DIR/hook-notice.sh" ] && . "$_GUARD_LIB_DIR/hook-notice.sh"
 

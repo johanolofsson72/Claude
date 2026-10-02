@@ -38,10 +38,10 @@ cd "$REPO_ROOT" || exit 0
 
 # Check for UI file changes in working tree (staged + unstaged)
 # Includes native mobile UI: .tsx/.jsx (React Native) and .dart (Flutter widgets).
-UI_CHANGED=$(git diff --name-only HEAD 2>/dev/null | grep -iE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml|dart)$' | grep -vE '(node_modules|/dist/|/build/|/\.next/|/wwwroot/.*\.min\.|/bin/|/obj/|\.g\.dart$|\.freezed\.dart$)' | head -20)
+UI_CHANGED=$(git diff --name-only HEAD 2>/dev/null | grep -iE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml|dart)$' | grep -vE '(node_modules|/dist/|/build/|/\.next/|/wwwroot/.*\.min\.|/bin/|/obj/|\.g\.dart$|\.freezed\.dart$)' | sed -n 1,20p)
 
 # Also check untracked UI files
-UI_UNTRACKED=$(git ls-files --others --exclude-standard 2>/dev/null | grep -iE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml|dart)$' | grep -vE '(node_modules|/dist/|/build/|/\.next/|\.g\.dart$|\.freezed\.dart$)' | head -20)
+UI_UNTRACKED=$(git ls-files --others --exclude-standard 2>/dev/null | grep -iE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml|dart)$' | grep -vE '(node_modules|/dist/|/build/|/\.next/|\.g\.dart$|\.freezed\.dart$)' | sed -n 1,20p)
 
 # Join on a newline. Command substitution strips the trailing one, so a bare
 # "${UI_CHANGED}${UI_UNTRACKED}" glues the last tracked file to the first
@@ -129,7 +129,7 @@ if [ -f "$MARKER" ]; then
 fi
 
 # Block stop with a forceful reminder
-FILE_LIST=$(printf '%s\n' "$ALL_UI" | grep -v '^$' | sed 's/^/  - /' | head -10)
+FILE_LIST=$(printf '%s\n' "$ALL_UI" | grep -v '^$' | sed 's/^/  - /' | sed -n 1,10p)
 
 cat <<EOF >&2
 STOP BLOCKED — UI changes detected but no validation marker found.

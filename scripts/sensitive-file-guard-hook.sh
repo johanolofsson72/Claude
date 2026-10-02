@@ -40,7 +40,7 @@ if [ "${#INPUT}" -le 4096 ]; then
   shopt -u nocasematch
 fi
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED — sensitive-file-guard cannot load scripts/guard-lib.sh, and this call mentions a credential-shaped name. Re-run the template sync (it is in CORE_SCRIPTS)."}}'
   exit 0

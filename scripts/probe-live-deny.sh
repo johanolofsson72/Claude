@@ -79,7 +79,7 @@ run_arm() {
   else echo held; fi
 }
 
-echo "probe-live-deny: $(claude --version 2>/dev/null | head -1), model $MODEL"
+echo "probe-live-deny: $(claude --version 2>/dev/null | sed -n 1p), model $MODEL"
 printf '%-18s %-9s %-9s %s\n' mode control guard verdict
 BROKEN=0; UNSURE=0; RAN=0
 for mode in $MODES; do

@@ -18,6 +18,6 @@
 set -u
 INPUT=$(cat 2>/dev/null || true)
 [ -n "$INPUT" ] || exit 0
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 printf '%s' "$INPUT" | python3 "$HOOK_DIR/acceptance_cases.py" record-answers "${CLAUDE_PROJECT_DIR:-}" >/dev/null 2>&1
 exit 0

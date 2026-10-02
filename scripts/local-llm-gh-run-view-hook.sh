@@ -9,7 +9,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-fast}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
@@ -24,7 +24,7 @@ ${STDERR}"
 [ ${#COMBINED} -gt 1500 ] || exit 0
 
 # Keep both ends. Head usually has the run summary, tail has the failures.
-HEAD=$(printf '%s' "$COMBINED" | head -c 8000)
+HEAD=${COMBINED:0:8000}
 TAIL=$(printf '%s' "$COMBINED" | tail -c 8000)
 PAYLOAD=$(printf 'Command:\n%s\n\n== HEAD ==\n%s\n\n== TAIL ==\n%s\n' \
   "$CMD" "$HEAD" "$TAIL")

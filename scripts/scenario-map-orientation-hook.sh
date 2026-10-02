@@ -66,6 +66,6 @@ MSG="Scenario map gap: ${PROJECT_ROOT}/specs/SCENARIOS.md does not exist, but th
 
 This is a retroactive gap (the reactive PostToolUse reminder only fires while a spec is being edited, so it was never triggered for already-built specs). To close it: START A SCENARIO INTERVIEW (AskUserQuestion, one feature at a time, recommended answers the user confirms) to capture every use case — happy / edge / adversarial / error / offline — with the user as the completeness check, then write specs/SCENARIOS.md with SC-id rows (Mermaid use-case diagram + per-feature flowcharts + SC-id ledger). Do NOT invent the scenarios silently. See .claude/rules/scenarios.md."
 # SPEC 046 — orientation is addressed to Claude, not to the developer.
-. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+. "$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
 notice_model SessionStart "$MSG"
 exit 0

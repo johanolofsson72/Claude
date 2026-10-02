@@ -64,7 +64,7 @@ if [ "${#INPUT}" -le 4096 ]; then
   guard_precheck_src "$INPUT" || exit 0
 fi
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # Spec 083: reading, writing and path canonicalisation go through one library. If it is missing (a
 # truncated sync), this guard cannot read anything, and it is fail-closed: a payload that names a

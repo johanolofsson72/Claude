@@ -628,5 +628,20 @@ else
   bad "the real tree is clean" "rc=$REAL_RC — $(tail -3 <<< "$REAL_OUT")"
 fi
 
+# --- ARM 14 — the template's production scripts leak nothing (spec 093, F113) --------------------------
+# Template only: downstream the population is the project's own scripts, which are the project's to fix
+# and must not turn this CORE test red in someone else's tree.
+if [ ! -f "$REPO_ROOT/.claude/.template-sync" ]; then
+  LEAK_REAL="$(bash "$GATE" --leaks 2>&1)"; LEAK_REAL_RC=$?
+  if [ "$LEAK_REAL_RC" -eq 0 ] && grep -q '^leaks: 0 ' <<< "$LEAK_REAL"; then
+    ok "093-SC-D the template's production scripts carry no early-exit pipeline in a substitution"
+  else
+    bad "093-SC-D the template's production scripts carry no early-exit pipeline in a substitution" \
+      "rc=$LEAK_REAL_RC — $(grep '^  scripts' <<< "$LEAK_REAL" | sed -n 1,5p)"
+  fi
+else
+  printf '  --    ARM 14 not exercised: a synced project (.claude/.template-sync), not the template\n'
+fi
+
 printf '\nno-sigpipe-assertions self-test: %s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

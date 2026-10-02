@@ -95,7 +95,7 @@ MAX_PATHS=100   # row S5 — the two basename-sensitive guards are asked per cha
 INPUT=$(cat 2>/dev/null || true)
 [ -z "$INPUT" ] && exit 0
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # One jq for the three fields (spec 073, R9) — see the same block in bash-write-guard-hook.sh. A
 # payload jq cannot read leaves all three empty, exactly as the two separate calls used to.

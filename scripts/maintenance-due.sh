@@ -150,6 +150,7 @@ NEVER_TEXT=""
 # cloud-maintenance.sh --pull), but the banner must say where it runs, or the developer runs Stryker
 # on the laptop again. An unknown place is shown as such; workload-placement.sh names the line.
 CLOUD_DUE=0
+DUE_JOBS=""
 place_of() {
   [ -f "$ROOT/scripts/workload-placement.sh" ] || { echo local; return; }
   WORKLOAD_PLACEMENT_ROOT="$ROOT" bash "$ROOT/scripts/workload-placement.sh" --place "$1" 2>/dev/null || echo unknown
@@ -186,7 +187,7 @@ for line in $JOBS; do
     # NEVER RUN IS DUE, and it says so differently. "0 days since" would be a lie about a run that
     # did not happen, and .claude/rules/mutation-timeouts.md trap 4 is exactly this: an unmeasured
     # thing and a measured-clean thing must never render identically.
-    DUE_COUNT=$((DUE_COUNT + 1)); [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
+    DUE_COUNT=$((DUE_COUNT + 1)); DUE_JOBS="$DUE_JOBS $job"; [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
     NEVER_TEXT="$NEVER_TEXT  · $label — never run in this project
 "
     continue
@@ -201,19 +202,19 @@ for line in $JOBS; do
     days)
       n=$(today_days "$last_date"); delta=$((TODAY_N - n))
       [ "$delta" -ge "$thresh" ] && {
-        DUE_COUNT=$((DUE_COUNT + 1)); [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
+        DUE_COUNT=$((DUE_COUNT + 1)); DUE_JOBS="$DUE_JOBS $job"; [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
         DUE_TEXT="$DUE_TEXT  · $label — $delta day(s) since $last_date (due at $thresh)
 "; } ;;
     specs)
       delta=$((DONE - last_done))
       [ "$delta" -ge "$thresh" ] && {
-        DUE_COUNT=$((DUE_COUNT + 1)); [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
+        DUE_COUNT=$((DUE_COUNT + 1)); DUE_JOBS="$DUE_JOBS $job"; [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
         DUE_TEXT="$DUE_TEXT  · $label — $delta spec(s) ticked since $last_date (due at $thresh)
 "; } ;;
     rows)
       delta=$((ROWS - last_rows))
       [ "$delta" -ge "$thresh" ] && {
-        DUE_COUNT=$((DUE_COUNT + 1)); [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
+        DUE_COUNT=$((DUE_COUNT + 1)); DUE_JOBS="$DUE_JOBS $job"; [ "$CLOUD_PENDING" -eq 1 ] && CLOUD_DUE=1
         DUE_TEXT="$DUE_TEXT  · $label — $delta row(s) added since $last_date (due at $thresh)
 "; } ;;
   esac
@@ -235,14 +236,38 @@ if [ "$DUE_COUNT" -eq 0 ]; then
   exit 1
 fi
 
+# Spec 093 (R3): --full never runs the suite, so a due suite needs --suite on the line or the command
+# printed for it cannot clear it.
+RUN_SUITE=""
+case " $DUE_JOBS " in *" suite "*) RUN_SUITE=" --suite" ;; esac
+# Spec 093 (F110): what the heavy due jobs cost on this machine, from the ledger. Never a guess: no run
+# recorded here is said as unmeasured, because silence would read as cheap.
+EXPECTED=""
+HEAVY_DUE=""
+# A job placed in the cloud is not this machine's cost; the local half never runs it.
+for hj in mutation suite; do
+  case " $DUE_JOBS " in *" $hj "*) [ "$(place_of "$hj")" = cloud ] || HEAVY_DUE="$HEAVY_DUE $hj" ;; esac
+done
+if [ -n "$HEAVY_DUE" ] && [ -f "$ROOT/scripts/maintenance_ledger.py" ] && command -v python3 >/dev/null 2>&1; then
+  EST=$(cd "$ROOT" && python3 scripts/maintenance_ledger.py estimate $HEAVY_DUE 2>/dev/null)
+  EXPECTED=$(printf '%s\n' "$EST" | awk -F'\t' '
+    $2 == "unknown" { unk = unk (unk ? ", " : "") $1; next }
+    $2 ~ /^[0-9]+$/ { tot += $2; m = int(($2 + 30) / 60); part = part (part ? ", " : "") $1 " ~" m "m (" $3 " run" ($3 == 1 ? "" : "s") ")" }
+    END {
+      if (part != "") { t = int((tot + 30) / 60); printf "~%dh%02dm by this machine\x27s ledger — %s", int(t / 60), t % 60, part }
+      if (unk != "") printf "%s%s unmeasured (no ledger run here yet)", (part != "" ? "; " : ""), unk
+    }')
+fi
+
 if [ "$MODE" = brief ]; then
   printf '⚠ MAINTENANCE DUE (%s):\n%s%s' "$DUE_COUNT" "$DUE_TEXT" "$NEVER_TEXT"
   if [ "$CLOUD_DUE" -eq 1 ]; then
-    echo "  Run now: bash scripts/project-maintenance.sh --full --placed   (the local half)"
+    echo "  Run now: bash scripts/project-maintenance.sh --full$RUN_SUITE --placed   (the local half)"
     echo "  Cloud half: a Claude cloud session runs bash scripts/cloud-maintenance.sh; then bash scripts/cloud-maintenance.sh --pull"
   else
-    echo "  Run now: bash scripts/project-maintenance.sh --full"
+    echo "  Run now: bash scripts/project-maintenance.sh --full$RUN_SUITE"
   fi
+  [ -n "$EXPECTED" ] && echo "  Expected: $EXPECTED"
   echo "  Or defer: it stays due until it runs, so the next session says so again."
 else
   echo "maintenance due — $DUE_COUNT job(s)   [$DONE spec(s) done, $ROWS row(s)]"
@@ -250,12 +275,13 @@ else
   printf '%s%s' "$DUE_TEXT" "$NEVER_TEXT"
   echo
   if [ "$CLOUD_DUE" -eq 1 ]; then
-    echo "Run:      bash scripts/project-maintenance.sh --full --placed   (the local half)"
+    echo "Run:      bash scripts/project-maintenance.sh --full$RUN_SUITE --placed   (the local half)"
     echo "Cloud:    a Claude cloud session runs bash scripts/cloud-maintenance.sh"
     echo "Pull:     bash scripts/cloud-maintenance.sh --pull   (brings its stamps back)"
   else
-    echo "Run:      bash scripts/project-maintenance.sh --full"
+    echo "Run:      bash scripts/project-maintenance.sh --full$RUN_SUITE"
   fi
+  [ -n "$EXPECTED" ] && echo "Expected: $EXPECTED"
   echo "Deferring is safe: nothing is cleared until the job actually runs."
 fi
 exit 0

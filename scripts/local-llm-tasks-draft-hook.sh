@@ -9,7 +9,7 @@ set -uo pipefail
 # Latency/quality profile — see scripts/local-llm-detect.sh.
 export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-deep}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 # Per-hook timeout override — drafting tasks with 1536 num_predict on a
@@ -41,9 +41,9 @@ SPEC_EXTRACTED=$(awk '
   p { print }
 ' <<<"$SPEC_FULL")
 if [ "${#SPEC_EXTRACTED}" -ge 500 ]; then
-  SPEC=$(printf '%s' "$SPEC_EXTRACTED" | head -c 12000)
+  SPEC=${SPEC_EXTRACTED:0:12000}
 else
-  SPEC=$(printf '%s' "$SPEC_FULL" | head -c 12000)
+  SPEC=${SPEC_FULL:0:12000}
 fi
 [ -n "$SPEC" ] || exit 0
 

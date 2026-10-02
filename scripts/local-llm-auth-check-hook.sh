@@ -7,7 +7,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
@@ -48,7 +48,7 @@ REPORT=$(printf '%s' "$CONTENT" \
   | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 320 2>/dev/null)
 
 [ -n "$REPORT" ] || exit 0
-NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^[[:space:]]*(GUARDED|NOT_AN_ENDPOINT_FILE)[[:space:]]*$' | head -1)
+NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^[[:space:]]*(GUARDED|NOT_AN_ENDPOINT_FILE)[[:space:]]*$' | sed -n 1p)
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \

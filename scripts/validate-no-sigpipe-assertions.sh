@@ -74,7 +74,7 @@
 
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Overridable so the self-test can point the gate at a fixture tree. Without this the gate could only ever
 # be driven against the real repo, i.e. against whatever state it happens to be in — which is how a gate
 # ends up with no red case (H5b).

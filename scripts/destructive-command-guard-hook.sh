@@ -66,7 +66,7 @@ if [ "${#INPUT}" -le 4096 ]; then
   shopt -u nocasematch
 fi
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED — destructive-command-guard cannot load scripts/guard-lib.sh, so it cannot read this command. Re-run the template sync (it is in CORE_SCRIPTS), or ask the developer to run the command with !"}}'
   exit 0

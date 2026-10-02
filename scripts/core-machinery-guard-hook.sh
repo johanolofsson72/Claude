@@ -66,7 +66,7 @@ if [ "${#INPUT}" -le 4096 ]; then
   shopt -u nocasematch
 fi
 
-HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # FAILS OPEN — AND SAYS SO (spec 083, R3; the rationale is the paragraph above `set -u`). Before 083 a
 # missing jq emptied FILE and this guard allowed without a word (F044).
 if ! . "$HOOK_DIR/guard-lib.sh" 2>/dev/null; then
