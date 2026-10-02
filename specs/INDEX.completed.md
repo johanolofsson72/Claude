@@ -1357,3 +1357,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 092 — kill-surviving-mutants
 
 - [x] 092 — kill-surviving-mutants — full track — no .csproj/.sln-only fixture, no suite asserts a guard's exit code, and the sampled survivors in autosync, maintenance, traceability and freshness. F099–F102 F108
+
+## 093 — maintenance-reports-what-it-measured
+
+- [x] 093 — maintenance-reports-what-it-measured — spec-only — section 5 misreads the bash runner, a suite timeout reads as FAIL, the mutation budget is unknown to the nightly, SIGPIPE leaks, CDPATH-relative cd. F087 F109–F111 F113
