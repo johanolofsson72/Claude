@@ -24,6 +24,17 @@
 #   M18  [held] gate: `[ "$IN_PROGRESS_ARM" -eq 1 ]`
 #   M19  [held] cap: `[ "$N_HELD" -gt "$NAME_LIMIT" ]`
 #
+# Spec 092 (R4) armed the survivors the --lines re-measure left in template-autosync.sh, named by line:
+#
+#   M20-M22  L938   --owed in the template: `[ "$MODE_OWED" -eq 1 ] && exit 2`
+#   M23-M24  L2002  matches_template_history: `[ "$OLD" = "$CUR" ] && return 0`
+#   M25-M26  L2310  exec-bit-only difference: `[ "$MODE_CHECK" -eq 1 ] || mirror_exec_bit`
+#   M27-M28  L2533  orphan the developer deleted: `[ -f "$PROJECT_ROOT/$_m" ] || continue`
+#   M29-M31  L2613  [check] header: `[ -n "$STAMP_SHA" ] && echo … || echo "never synced"`
+#   M32-M33  L3107  carried `# wrote` lines: `[ -n "$_cp" ] || continue`
+#   M34      L3526  commit guard: `[ -n "$MSG" ] && [ -n "$COMMIT_PATHS" ]`
+#   M35      L3764  [verify] hint: `[ -n "$VERIFY_CMD" ]`
+#
 # M14 (`[ -n "$_cands" ] || exit 0` in unlisted_core_shaped's project mode) has no arm: it is the
 # exit status of a subshell whose stdout is empty either way, and every caller reads only the
 # stdout. The line carries `# mutant-equivalent:`.
@@ -73,7 +84,23 @@ M15@@    if [ "$_claimed" -ne "$_n" ]; then@@    if [ "$_claimed" -eq "$_n" ]; t
 M16@@if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@if [ -z "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@arm_held_gate
 M17@@if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@if [ -n "$SYNC_COMMIT" ] && [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@arm_held_gate
 M18@@if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -ne 1 ]; then@@arm_held_gate
-M19@@    if [ "$N_HELD" -gt "$NAME_LIMIT" ]; then@@    if [ "$N_HELD" -le "$NAME_LIMIT" ]; then@@arm_held_cap'
+M19@@    if [ "$N_HELD" -gt "$NAME_LIMIT" ]; then@@    if [ "$N_HELD" -le "$NAME_LIMIT" ]; then@@arm_held_cap
+M20@@  [ "$MODE_OWED" -eq 1 ] && exit 2@@  [ "$MODE_OWED" -ne 1 ] && exit 2@@arm_l938_owed_in_template
+M21@@  [ "$MODE_OWED" -eq 1 ] && exit 2@@  [ "$MODE_OWED" -eq 1 ] || exit 2@@arm_l938_owed_in_template
+M22@@  [ "$MODE_OWED" -eq 1 ] && exit 2@@  [ "$MODE_OWED" -eq 1 ] && exit 0@@arm_l938_owed_in_template
+M23@@    [ "$OLD" = "$CUR" ] && return 0@@    [ "$OLD" = "$CUR" ] || return 0@@arm_l2002_template_history
+M24@@    [ "$OLD" = "$CUR" ] && return 0@@    [ "$OLD" = "$CUR" ] && return 1@@arm_l2002_template_history
+M25@@        [ "$MODE_CHECK" -eq 1 ] || mirror_exec_bit "$SRC" "$DEST"@@        [ "$MODE_CHECK" -ne 1 ] || mirror_exec_bit "$SRC" "$DEST"@@arm_l2310_exec_bit
+M26@@        [ "$MODE_CHECK" -eq 1 ] || mirror_exec_bit "$SRC" "$DEST"@@        [ "$MODE_CHECK" -eq 1 ] && mirror_exec_bit "$SRC" "$DEST"@@arm_l2310_exec_bit
+M27@@    [ -f "$PROJECT_ROOT/$_m" ] || continue@@    [ -f "$PROJECT_ROOT/$_m" ] && continue@@arm_l2533_deleted_orphan
+M28@@    [ -f "$PROJECT_ROOT/$_m" ] || continue@@    [ ! -f "$PROJECT_ROOT/$_m" ] || continue@@arm_l2533_deleted_orphan
+M29@@vs project $([ -n "$STAMP_SHA" ] && echo "$STAMP_SHA" || echo "never synced")@@vs project $([ -z "$STAMP_SHA" ] && echo "$STAMP_SHA" || echo "never synced")@@arm_l2613_check_header
+M30@@vs project $([ -n "$STAMP_SHA" ] && echo "$STAMP_SHA" || echo "never synced")@@vs project $([ -n "$STAMP_SHA" ] || echo "$STAMP_SHA" || echo "never synced")@@arm_l2613_check_header
+M31@@vs project $([ -n "$STAMP_SHA" ] && echo "$STAMP_SHA" || echo "never synced")@@vs project $([ -n "$STAMP_SHA" ] && echo "$STAMP_SHA" && echo "never synced")@@arm_l2613_check_header
+M32@@    [ -n "$_cp" ] || continue@@    [ -z "$_cp" ] || continue@@arm_l3107_wrote_carry
+M33@@    [ -n "$_cp" ] || continue@@    [ -n "$_cp" ] && continue@@arm_l3107_wrote_carry
+M34@@    if [ -n "$MSG" ] && [ -n "$COMMIT_PATHS" ] \@@    if [ -n "$MSG" ] || [ -n "$COMMIT_PATHS" ] \@@arm_l3526_nothing_to_commit
+M35@@  if [ -n "$VERIFY_CMD" ]; then@@  if [ -z "$VERIFY_CMD" ]; then@@arm_l3764_verify_hint'
 
 if [ "${1:-}" = "--sabotage" ]; then
   RED=0; STILL_GREEN=""; STALE_ANCHOR=""
@@ -343,6 +370,192 @@ arm_held_cap() {
   has   "M19 the rest are counted and the cap named"          "$OUT" "… and 2 more, not named — capped at 1 (TEMPLATE_AUTOSYNC_NAME_LIMIT)"
 }
 
+# ---------------------------------------------------------------------------- 092 L938
+# 092 R4. --owed asks about a manifest and the template has none: exit 2 ("cannot answer") and an
+# empty stdout, never the `[skip]` prose under a success code. The template is recognised by its root
+# commit, which no fixture can forge and the mutation gate's snapshot does not carry, so the script
+# runs from a directory whose template-identity.sh is a stub that answers `template`.
+arm_l938_owed_in_template() {
+  echo "== 092 L938 — --owed in the template exits 2 with nothing on stdout"
+  R="$TMP/l938"; rm -rf "$R"; mkdir -p "$R/bin" "$R/repo/.claude"
+  cp "$SCRIPT" "$R/bin/template-autosync.sh"
+  printf 'template_identity() { echo template; }\n' > "$R/bin/template-identity.sh"
+  git -C "$R/repo" init -q -b main
+  OUT=$(DRIVE_SYNC_SCRIPT="$R/bin/template-autosync.sh" drive_sync "$R/repo" "$TMP" --owed 2>/dev/null); RC=$?
+  same "092 L938 --owed in the template exits 2"     "$RC" "2"
+  same "092 L938 --owed in the template: empty stdout" "$OUT" ""
+
+  # The control: a plain run in the same template skips and succeeds, so exit 2 is --owed's alone.
+  OUT=$(DRIVE_SYNC_SCRIPT="$R/bin/template-autosync.sh" drive_sync "$R/repo" "$TMP" 2>&1); RC=$?
+  same "092 L938 control: a plain run in the template exits 0" "$RC" "0"
+  has  "092 L938 control: and says it is the template"         "$OUT" "[skip] this IS the template repo"
+}
+
+# ---------------------------------------------------------------------------- 092 L2002
+# 092 R4. On a first sync (no manifest) a differing file is asked against the template's history:
+# bytes that ever WERE a template version are adopted (updated), bytes no version had are a local
+# edit and are left alone. The template carries two versions, so a match on the older one is needed.
+arm_l2002_template_history() {
+  echo "== 092 L2002 — an older template version is adopted, a local edit is not"
+  build l2002
+  printf 'other v1\n' > "$T/.claude/rules/other-rule.md"
+  git -C "$T" add -A; git -C "$T" commit -qm v1
+  printf 'rule v2\n'  > "$T/.claude/rules/demo-rule.md"
+  printf 'other v2\n' > "$T/.claude/rules/other-rule.md"
+  git -C "$T" add -A; git -C "$T" commit -qm v2
+  printf 'rule v1\n'    > "$P/.claude/rules/demo-rule.md"    # the OLDER template version
+  printf 'other mine\n' > "$P/.claude/rules/other-rule.md"   # no template version ever had these bytes
+  git -C "$P" add -A; git -C "$P" commit -qm project
+  sync --quiet >/dev/null 2>&1
+  same "092 L2002 bytes of an older template version are updated" "$(cat "$P/.claude/rules/demo-rule.md")" "rule v2"
+  same "092 L2002 a local edit is skipped, not overwritten"       "$(cat "$P/.claude/rules/other-rule.md")" "other mine"
+}
+
+# ---------------------------------------------------------------------------- 092 L2310
+# 092 R4. Bytes agree and only the exec bit differs: --check lists the file as an update and leaves
+# the mode alone; a real sync mirrors the template's mode.
+arm_l2310_exec_bit() {
+  echo "== 092 L2310 — an exec-bit-only difference: listed under --check, mirrored by a sync"
+  build l2310
+  chmod +x "$T/.claude/rules/demo-rule.md"
+  cp "$T/.claude/rules/demo-rule.md" "$P/.claude/rules/demo-rule.md"
+  chmod -x "$P/.claude/rules/demo-rule.md"
+  commit_both
+  OUT=$(sync --check 2>&1)
+  has "092 L2310 --check lists the mode correction as an update" "$OUT" "[check] would update:1 ·"
+  if [ -x "$P/.claude/rules/demo-rule.md" ]; then bad "092 L2310 --check leaves the mode on disk unchanged"
+  else ok "092 L2310 --check leaves the mode on disk unchanged"; fi
+  sync --quiet >/dev/null 2>&1
+  if [ -x "$P/.claude/rules/demo-rule.md" ]; then ok "092 L2310 a real sync mirrors the exec bit"
+  else bad "092 L2310 a real sync mirrors the exec bit"; fi
+}
+
+# ---------------------------------------------------------------------------- 092 L2533
+# 092 R4. A path the stamp says the sync wrote, which the template no longer ships, is an orphan only
+# while it is on disk. Once the developer has deleted it, there is nothing to act on and no line.
+orphan_fixture() {  # <name> — a synced project whose stamp claims a rule the template does not ship
+  build "$1"
+  commit_both
+  sync --quiet >/dev/null 2>&1
+  printf '%s  %s\n' 0000000000000000000000000000000000000000000000000000000000000000 \
+    .claude/rules/gone-rule.md >> "$P/.claude/.template-sync"
+}
+arm_l2533_deleted_orphan() {
+  echo "== 092 L2533 — an orphan the developer deleted is not reported again"
+  orphan_fixture l2533
+  OUT=$(sync --force 2>&1)
+  has   "092 L2533 the forced sync ran"                     "$OUT" "[synced] template"
+  hasnt "092 L2533 a deleted orphan is not reported"        "$OUT" "gone-rule.md"
+  hasnt "092 L2533 nor recorded in the stamp"               "$(cat "$P/.claude/.template-sync")" "# orphan"
+
+  # The control: the same orphan still on disk IS reported, so the arm is not blind to the line.
+  orphan_fixture l2533c
+  printf 'old\n' > "$P/.claude/rules/gone-rule.md"
+  OUT=$(sync --force 2>&1)
+  has   "092 L2533 control: an orphan on disk is reported"  "$OUT" "gone-rule.md"
+}
+
+# ---------------------------------------------------------------------------- 092 L2613
+# 092 R4. The [check] header names the project side: `never synced` with no stamp, the stamp's SHA
+# when there is one, and never both.
+arm_l2613_check_header() {
+  echo "== 092 L2613 — [check] says never synced, or the stamp's SHA"
+  build l2613
+  commit_both
+  OUT=$(sync --check 2>&1)
+  TSHA=$(printf '%s\n' "$OUT" | sed -n 's/^\[check\] template \([^ ]*\) vs project .*/\1/p')
+  same "092 L2613 no stamp: the header says never synced" \
+       "$(printf '%s\n' "$OUT" | grep '^\[check\] template ')" "[check] template $TSHA vs project never synced"
+
+  sync --quiet >/dev/null 2>&1
+  SSHA=$(sed -n 's/^sha=//p' "$P/.claude/.template-sync" | head -1)
+  printf 'rule v2\n' > "$T/.claude/rules/demo-rule.md"
+  git -C "$T" commit -qam v2
+  OUT=$(sync --check 2>&1)
+  TSHA=$(printf '%s\n' "$OUT" | sed -n 's/^\[check\] template \([^ ]*\) vs project .*/\1/p')
+  [ -n "$SSHA" ] && [ "$SSHA" != "$TSHA" ] && ok "092 L2613 the fixture has a stamp SHA behind the template" \
+    || bad "092 L2613 the fixture has a stamp SHA behind the template (stamp '$SSHA', template '$TSHA')"
+  same "092 L2613 with a stamp: the header names its SHA" \
+       "$(printf '%s\n' "$OUT" | grep '^\[check\] template ')" "[check] template $TSHA vs project $SSHA"
+  hasnt "092 L2613 with a stamp: never synced is not said" "$OUT" "never synced"
+}
+
+# ---------------------------------------------------------------------------- 092 L3107
+# 092 R4. A stamp `# wrote <hash> <path>` record is carried to the next stamp while the file still has
+# those bytes. A `# wrote <hash>` line with no path is dropped, and the carried entries stay intact.
+arm_l3107_wrote_carry() {
+  echo "== 092 L3107 — a pathless # wrote line is ignored, carried entries stay"
+  build l3107
+  printf 'mine\n' > "$P/notes.txt"
+  commit_both
+  sync --quiet >/dev/null 2>&1
+  H=$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$P/notes.txt"
+      else shasum -a 256 "$P/notes.txt"; fi | cut -d' ' -f1)
+  printf '# wrote %s\n# wrote %s notes.txt\n' "$H" "$H" >> "$P/.claude/.template-sync"
+  sync --force --quiet >/dev/null 2>&1
+  STAMP_NOW=$(cat "$P/.claude/.template-sync")
+  has  "092 L3107 the carried entry is still in the stamp" "$STAMP_NOW" "# wrote $H notes.txt"
+  same "092 L3107 the pathless line is gone"               "$(grep -cx "# wrote $H" "$P/.claude/.template-sync")" "0"
+}
+
+# ---------------------------------------------------------------------------- 092 L3526
+# 092 R4. The only run where the commit's two guards disagree: the sync's one staged change is a
+# deletion (the graphify helper removed a script) and the stamp has no news, so there is no message
+# but there IS a pathspec. That run says `nothing to commit` and HEAD does not move.
+fake_graphify_deleter() {
+  cat > "$1" <<'EOF'
+import os
+if os.path.exists("scripts/gfy-old.sh"):
+    os.remove("scripts/gfy-old.sh")
+    print("  - gfy-old.sh")
+    print("scripts: copied 0, deleted 1")
+EOF
+}
+arm_l3526_nothing_to_commit() {
+  echo "== 092 L3526 — a run with no message makes no commit, HEAD unchanged"
+  build l3526
+  printf '{"hooks":{}}\n' > "$T/.claude/settings.json"
+  printf '{"hooks":{}}\n' > "$P/.claude/settings.json"
+  fake_graphify_deleter "$T/scripts/sync-graphify-wiring.py"
+  cp "$T/scripts/sync-graphify-wiring.py" "$P/scripts/sync-graphify-wiring.py"
+  commit_both
+  sync --quiet >/dev/null 2>&1
+  printf '#!/bin/bash\n' > "$P/scripts/gfy-old.sh"
+  git -C "$P" add scripts/gfy-old.sh; git -C "$P" commit -qm "a script the helper will delete"
+  HEAD0=$(git -C "$P" rev-parse HEAD)
+  OUT=$(sync --force 2>&1)
+  [ -f "$P/scripts/gfy-old.sh" ] && bad "092 L3526 the helper deleted its script" || ok "092 L3526 the helper deleted its script"
+  has  "092 L3526 the run says there is nothing to commit" "$OUT" "nothing to commit"
+  same "092 L3526 HEAD did not move"                       "$(git -C "$P" rev-parse HEAD)" "$HEAD0"
+}
+
+# ---------------------------------------------------------------------------- 092 L3764
+# 092 R4. After a committing sync the [verify] obligation names the declared command, and with no
+# declaration it says how to declare one instead of naming an empty command. The obligation needs a
+# commit that carries more than the stamp, so the project holds an older template version of the rule.
+verify_fixture() {  # <name>
+  build "$1"
+  git -C "$T" add -A; git -C "$T" commit -qm v1
+  printf 'rule v2\n' > "$T/.claude/rules/demo-rule.md"
+  printf 'rule v1\n' > "$P/.claude/rules/demo-rule.md"
+}
+arm_l3764_verify_hint() {
+  echo "== 092 L3764 — [verify] names the declared command, or says how to declare one"
+  verify_fixture l3764
+  commit_both
+  OUT=$(sync 2>&1)
+  has   "092 L3764 no declaration: the obligation is raised"   "$OUT" "[verify]"
+  has   "092 L3764 no declaration: says how to declare one"   "$OUT" ".claude/.template-sync-verify"
+  hasnt "092 L3764 no declaration: no empty command is named" "$OUT" "run scripts/template-sync-verify.sh   ("
+
+  verify_fixture l3764d
+  printf '# how this project proves it works\nmake test\n' > "$P/.claude/.template-sync-verify"
+  commit_both
+  OUT=$(sync 2>&1)
+  has   "092 L3764 declared: the command is named"            "$OUT" "run scripts/template-sync-verify.sh   (make test)"
+  hasnt "092 L3764 declared: no how-to-declare text"          "$OUT" "no declaration"
+}
+
 want arm_unlisted_glob          && arm_unlisted_glob
 want arm_no_record_is_not_stale && arm_no_record_is_not_stale
 want arm_accept_core            && arm_accept_core
@@ -352,6 +565,14 @@ want arm_template_dir_none      && arm_template_dir_none
 want arm_helper_count_drift     && arm_helper_count_drift
 want arm_held_gate              && arm_held_gate
 want arm_held_cap               && arm_held_cap
+want arm_l938_owed_in_template  && arm_l938_owed_in_template
+want arm_l2002_template_history && arm_l2002_template_history
+want arm_l2310_exec_bit         && arm_l2310_exec_bit
+want arm_l2533_deleted_orphan   && arm_l2533_deleted_orphan
+want arm_l2613_check_header     && arm_l2613_check_header
+want arm_l3107_wrote_carry      && arm_l3107_wrote_carry
+want arm_l3526_nothing_to_commit && arm_l3526_nothing_to_commit
+want arm_l3764_verify_hint      && arm_l3764_verify_hint
 
 echo
 echo "test-template-autosync-arms.sh: $PASS passed, $FAIL failed"

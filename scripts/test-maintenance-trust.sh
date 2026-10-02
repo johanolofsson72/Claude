@@ -25,7 +25,7 @@ MAINT="$DIR/project-maintenance.sh"
 TMP=$(mktemp -d 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/maintenance-trust-test.$$")
 PASS=0
 FAIL=0
-trap '[ -n "${TMP:-}" ] && [ -d "$TMP" ] && rm -rf "$TMP"' EXIT
+trap '[ -n "${TMP:-}" ] && [ -d "$TMP" ] && { chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"; }' EXIT
 
 ok()  { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n       expected: %s\n       actual:   %s\n' "$1" "$2" "$3"; }
@@ -420,6 +420,63 @@ si "npm test" >/dev/null; expect_eq "T23 an empty npm test script is unreadable"
 printf '{ "scripts": { "test": "sh tests/unit" } }\n' > "$U/package.json"
 OUT=$(si "npm test")
 expect_contains "T23 an npm test script's paths are hashed too" "  tests/unit/a.sh" "$OUT"
+
+# ------------------------------------------------ T24-T26 — operator survivors (spec 092, R5)
+# path_without NAME... — $PATH with every directory that holds NAME swapped for a symlink farm of it
+# without NAME. Everything else stays reachable, so the script under test still finds git and awk.
+path_without() {
+  local out="" dir n hit farm old_ifs=$IFS
+  IFS=:
+  for dir in $PATH; do
+    IFS=$old_ifs
+    hit=0; for n in "$@"; do [ -e "$dir/$n" ] && hit=1; done
+    if [ "$hit" -eq 1 ]; then
+      farm=$(mktemp -d "$TMP/pathfarm.XXXXXX")
+      ln -s "$dir"/* "$farm"/ 2>/dev/null
+      for n in "$@"; do rm -f "$farm/$n"; done
+      dir=$farm
+    fi
+    out="$out${out:+:}$dir"
+    IFS=:
+  done
+  IFS=$old_ifs
+  printf '%s' "$out"
+}
+
+# --- T24 (line ~236): private_copy that cannot make its copy fails, so the caller never trusts it -----
+# Both callers read a failed private_copy as `untrusted`; a success with an empty PRIVATE_COPY would
+# hash an unnamed file instead. The contract is tested on the function itself, as C106 does.
+PC=$(sed -n '/^private_copy() {/,/^}/p' "$MAINT")
+OUT=$( TRUSTED_COPIES=""; eval "$PC"; private_copy "$TMP/no-such-dir/check-x.sh"; echo "rc=$? copy=[$PRIVATE_COPY]" )
+expect_eq       "092 L236 T24 no copy possible: private_copy fails with no copy" "rc=1 copy=[]" "$OUT"
+mkdir -p "$TMP/t24"; printf 'echo hi\n' > "$TMP/t24/check-x.sh"
+OUT=$( TRUSTED_COPIES=""; eval "$PC"; private_copy "$TMP/t24/check-x.sh"; rc=$?
+       cmp -s "$TMP/t24/check-x.sh" "$PRIVATE_COPY" && same=yes || same=no; rm -f "$PRIVATE_COPY"; echo "rc=$rc same=$same" )
+expect_eq       "092 L236 T24 a possible copy succeeds with the same bytes" "rc=0 same=yes" "$OUT"
+
+# --- T25 (line ~264): --trust with neither sha256sum nor shasum exits 2, names both, records nothing --
+D=$(mkfix t25); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+NOHASH_PATH=$(path_without sha256sum shasum)
+OUT=$(PATH="$NOHASH_PATH" maint "$D" --trust --yes); RC=$?
+expect_eq       "092 L264 T25 no hasher: --trust exits 2" "2" "$RC"
+expect_contains "092 L264 T25 it names both hashers" "needs sha256sum or shasum" "$OUT"
+expect_eq       "092 L264 T25 nothing recorded" "no" "$([ -f "$D/.git/claude-trusted-commands" ] && echo yes || echo no)"
+
+# --- T26 (line ~327): --trust with an unwritable store exits 2 and leaves the store as it was ---------
+if [ "$(id -u)" -eq 0 ]; then
+  echo "  skip  T26: running as root, a read-only git dir is still writable"
+else
+  D=$(mkfix t26); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+  maint "$D" --trust --yes >/dev/null
+  BEFORE=$(cat "$D/.git/claude-trusted-commands")
+  printf 'sh tests/run.sh --changed\n' > "$D/.claude/.suite-command"
+  chmod a-w "$D/.git"
+  OUT=$(maint "$D" --trust --yes); RC=$?
+  chmod u+w "$D/.git"
+  expect_eq       "092 L327 T26 unwritable store: --trust exits 2" "2" "$RC"
+  expect_contains "092 L327 T26 it says it could not write" "could not write" "$OUT"
+  expect_eq       "092 L327 T26 the store is unchanged" "$BEFORE" "$(cat "$D/.git/claude-trusted-commands")"
+fi
 
 echo
 echo "maintenance-trust: $PASS passed, $FAIL failed"

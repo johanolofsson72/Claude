@@ -1425,5 +1425,96 @@ if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; th
   expect_contains "C135 a CORE self-test past its bound is a finding, not a pass" "scripts/test-a.sh timed out after 1s" "$OUT"
 fi
 
+# ------------------------------------------------ C136-C142 — operator survivors (spec 092, R5)
+# path_without NAME... — $PATH with every directory that holds NAME swapped for a symlink farm of it
+# without NAME. Everything else stays reachable, so the script under test still finds git, python3, awk.
+path_without() {
+  local out="" dir n hit farm old_ifs=$IFS
+  IFS=:
+  for dir in $PATH; do
+    IFS=$old_ifs
+    hit=0; for n in "$@"; do [ -e "$dir/$n" ] && hit=1; done
+    if [ "$hit" -eq 1 ]; then
+      farm=$(mktemp -d "$TMP/pathfarm.XXXXXX")
+      ln -s "$dir"/* "$farm"/ 2>/dev/null
+      for n in "$@"; do rm -f "$farm/$n"; done
+      dir=$farm
+    fi
+    out="$out${out:+:}$dir"
+    IFS=:
+  done
+  IFS=$old_ifs
+  printf '%s' "$out"
+}
+EMPTY_BIN="$TMP/empty-bin"; mkdir -p "$EMPTY_BIN"
+
+# --- C136: --if-due with nothing due exits 0 and says so (line ~352, exit 0) -------------------------
+D=$(mkfix c136)
+printf '#!/bin/bash\n[ "$1" = --any ] && exit 1\nexit 0\n' > "$D/scripts/maintenance-due.sh"
+OUT=$( cd "$D" && chmod +x scripts/*.sh; bash "$MAINT" --if-due 2>&1 ); RC=$?
+expect_rc       "092 L352 C136 --if-due with nothing due exits 0" 0 "$RC"
+expect_contains "092 L352 C136 and says nothing is due"          "nothing due — skipped" "$OUT"
+
+# --- C137: two in-progress rows are a REGISTER finding; one is not (line ~659, -gt / &&) -------------
+D=$(mkfix c137); mkdir -p "$D/specs"
+printf '# Spec register\n\n## Specs\n\n- [/] 001 — a — light — x\n- [/] 002 — b — light — y\n' > "$D/specs/INDEX.md"
+OUT=$(run "$D")
+expect_contains "092 L659 C137 two [/] rows are a finding" "[REGISTER] 2 rows marked in-progress" "$OUT"
+D=$(mkfix c137b); mkdir -p "$D/specs"
+printf '# Spec register\n\n## Specs\n\n- [/] 001 — a — light — x\n- [ ] 002 — b — light — y\n' > "$D/specs/INDEX.md"
+OUT=$(run "$D")
+expect_absent   "092 L659 C137 one [/] row is no finding" "rows marked in-progress" "$OUT"
+
+# --- C138: mutation_break_of without python3 or without the guard prints nothing, returns 0 (~1081) --
+printf '{ "stryker-config": { "thresholds": { "break": 77 } } }\n' > "$TMP/c138-stryker-config.json"
+mkdir -p "$TMP/c138-noguard" "$TMP/c138-guard/scripts"
+printf 'print(99)\n' > "$TMP/c138-guard/scripts/stryker_guard.py"
+if command -v python3 >/dev/null 2>&1; then
+  MBO_OUT=$( cd "$TMP/c138-noguard" && eval "$MBO" && mutation_break_of "$TMP/c138-stryker-config.json" ); MBO_RC=$?
+  expect_rc     "092 L1081 C138 python3 but no stryker_guard.py returns 0"     0 "$MBO_RC"
+  expect_rc     "092 L1081 C138 python3 but no stryker_guard.py echoes nothing" "" "$MBO_OUT"
+fi
+MBO_OUT=$( cd "$TMP/c138-guard" && PATH="$EMPTY_BIN" && eval "$MBO" && mutation_break_of "$TMP/c138-stryker-config.json" ); MBO_RC=$?
+expect_rc       "092 L1081 C138 stryker_guard.py but no python3 returns 0"     0 "$MBO_RC"
+expect_rc       "092 L1081 C138 stryker_guard.py but no python3 echoes nothing" "" "$MBO_OUT"
+
+# --- C139: mutation_modules_under without python3 prints nopython and returns 0 (line ~1098) ---------
+MMU=$(sed -n '/^mutation_modules_under() {/,/^}/p' "$MAINT")
+: > "$TMP/c139-marker"
+MMU_OUT=$( PATH="$EMPTY_BIN" && eval "$MMU" && mutation_modules_under "$TMP/c139-marker" 80 ); MMU_RC=$?
+expect_rc       "092 L1098 C139 no python3 returns 0"        0 "$MMU_RC"
+expect_rc       "092 L1098 C139 no python3 prints nopython"  nopython "$MMU_OUT"
+
+# --- C140-C142: which timeout bounds stryker_guard.py (line ~1150, -z / && / &&) ---------------------
+# A shim timeout records that it was asked, drops `-k 5 <limit>`, and runs the guard. The guard stub
+# answers every call clean, so only the bounding is under test.
+guard_fix() { # guard_fix <name> [shim name...] — a fixture with a clean stryker_guard.py and shims
+  local d n; d=$(mkfix "$1"); shift
+  mkdir -p "$d/bin"
+  printf 'import sys\nsys.exit(0)\n' > "$d/scripts/stryker_guard.py"
+  for n in "$@"; do
+    printf '#!/bin/bash\necho "$*" >> "%s/%s-calls"\nshift 3\nexec "$@"\n' "$d" "$n" > "$d/bin/$n"
+    chmod +x "$d/bin/$n"
+  done
+  printf '%s' "$d"
+}
+guard_run() { ( cd "$1" && chmod +x scripts/*.sh; PATH="$1/bin:$NO_TIMEOUT_PATH" bash "$MAINT" 2>&1 ); }
+if command -v python3 >/dev/null 2>&1; then
+  NO_TIMEOUT_PATH=$(path_without timeout gtimeout)
+  D=$(guard_fix c140 gtimeout)
+  OUT=$(guard_run "$D")
+  expect_contains "092 L1150 C140 gtimeout alone bounds the guard"   "stryker_guard.py configs" "$(cat "$D/gtimeout-calls" 2>/dev/null)"
+  expect_absent   "092 L1150 C140 and no 'ran unbounded' note"       "ran unbounded" "$OUT"
+  D=$(guard_fix c141 timeout)
+  OUT=$(guard_run "$D")
+  expect_contains "092 L1150 C141 timeout alone bounds the guard"    "stryker_guard.py configs" "$(cat "$D/timeout-calls" 2>/dev/null)"
+  expect_absent   "092 L1150 C141 and no 'ran unbounded' note"       "ran unbounded" "$OUT"
+  D=$(guard_fix c142)
+  OUT=$(guard_run "$D")
+  expect_contains "092 L1150 C142 neither: the guard ran unbounded and says so" "scripts/stryker_guard.py ran unbounded" "$OUT"
+else
+  printf '  --   C138a/C140-C142 not exercised: python3 missing\n'
+fi
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

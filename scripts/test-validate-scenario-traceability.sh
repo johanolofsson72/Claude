@@ -245,6 +245,10 @@ proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
 run_gate "$proj" --not-a-flag
 if [ "$RC" -eq 2 ]; then ok "case12-usage-error"; else bad "case12-usage-error" "expected exit 2, got $RC: $OUT"; fi
+# 092-AC-4 (R6): a trailing --dir with no value is a usage error that names the flag.
+run_gate "$proj" --dir
+case "$RC:$OUT" in 2:*--dir*) ok "case12b-dir-without-value (092-AC-4)" ;;
+  *) bad "case12b-dir-without-value (092-AC-4)" "expected exit 2 naming --dir, got $RC: $OUT" ;; esac
 
 # case13 — the split layout classifies identically to the single-file one. Same rows, different
 # shape; the answer must not depend on where the rows live.

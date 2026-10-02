@@ -349,6 +349,12 @@ echo "== 13. hook_verdict reads what the CLI reads =="
   && ok "the well-formed deny is a deny" || bad "the well-formed deny is not read"
 [ "$(hook_verdict '')" = none ] && [ "$(hook_verdict 'not json')" = invalid ] \
   && ok "empty is none, garbage is invalid" || bad "empty/garbage misread"
+# 092-AC-2 (R2, F102): the exit code is part of the verdict when it is passed.
+WFD='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}'
+[ "$(hook_verdict "$WFD" 1)" = exit-1 ] && [ "$(hook_verdict "$WFD" 2)" = exit-2 ] && [ "$(hook_verdict '' 1)" = exit-1 ] \
+  && ok "092-AC-2 a well-formed deny with exit 1 is exit-1, not deny" || bad "092-AC-2 a non-zero exit still reads as a verdict"
+[ "$(hook_verdict "$WFD" 0)" = deny ] && [ "$(hook_verdict "$WFD")" = deny ] && [ "$(hook_verdict '' 0)" = none ] \
+  && ok "092-AC-2 exit 0, or no exit code passed: the output decides as before" || bad "092-AC-2 rc 0 / no rc changed the verdict"
 # A real guard, then the same guard with the field stripped: deny, then dropped.
 GV=$(mktemp -d) || exit 1
 mkdir -p "$GV/.git" "$GV/src"; echo '{}' > "$GV/package.json"

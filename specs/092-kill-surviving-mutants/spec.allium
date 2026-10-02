@@ -1,0 +1,91 @@
+-- allium: 3
+--
+-- 092 — kill surviving mutants.
+--
+-- A test-only spec: the rules state what the suites must observe, so a mutant that changes it is
+-- killed. Rules cite R1..R7 (spec.md). The template keeps no scenario map.
+
+enum Verdict { deny | ask | allow | none | dropped | invalid | exited }
+
+enum Outcome { killed | survived | timeout | equivalent }
+
+entity GuardRun {
+    output_decision: Verdict          -- what the JSON says
+    exit_code: Integer
+    observed: Verdict                 -- what the CLI acts on
+
+    -- R2 (F102): the CLI reads a hook's JSON only on exit 0.
+    invariant NonZeroExitIsNotADecision {
+        this.exit_code = 0 or this.observed = exited
+    }
+    invariant ZeroExitReadsTheJson {
+        this.exit_code != 0 or this.observed = this.output_decision
+    }
+}
+
+entity Repository {
+    has_register: Boolean
+    has_marker: Boolean               -- package.json and friends, *.csproj or *.sln, above the file
+    gate_decision: Verdict
+
+    -- R1 (F101): no marker means a template or scratch repository, never gated.
+    invariant NoMarkerNoGate {
+        this.has_marker or this.gate_decision = none
+    }
+}
+
+entity SurvivorSite {
+    module: String
+    line: Integer
+    outcome: Outcome
+    equivalence_reason: String?
+
+    -- R7: every named site is killed or justified; a timeout is neither.
+    invariant KilledOrJustified {
+        this.outcome = killed or (this.outcome = equivalent and this.equivalence_reason != null)
+    }
+    invariant TimeoutIsNotAKill {
+        this.outcome != timeout
+    }
+}
+
+entity DenyRoute {
+    route: String                     -- 96 acceptance, 97 malformed id, 98 resolver missing, resolver failed
+    run: GuardRun
+}
+
+entity FreshnessRun {
+    allow_file_ends_with_newline: Boolean
+    seconds: Integer
+    case_failed: Boolean
+}
+
+entity GateRun {
+    score: Integer
+    sites: Set<SurvivorSite>
+}
+
+rule SpecInterviewDenyRoutesExitZero {
+    -- R3: every deny route of spec-interview-guard is a deny the CLI reads.
+    when: DenyRouteReached(r)
+    ensures:
+        r.run.output_decision = deny
+        r.run.exit_code = 0
+        r.run.observed = deny
+}
+
+rule HangIsBoundedBySuite {
+    -- R6, O1: the suite bounds project-freshness at 20 s, so an EOF loop fails the case.
+    when: FreshnessCaseRan(f)
+    requires: f.allow_file_ends_with_newline = false
+    ensures:
+        if f.seconds > 20:
+            f.case_failed = true
+}
+
+rule GateReMeasured {
+    -- R7, 092-AC-3.
+    when: GateFinished(g)
+    ensures:
+        g.score >= 95
+}

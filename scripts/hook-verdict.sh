@@ -3,6 +3,9 @@
 #
 #   . scripts/hook-verdict.sh
 #   hook_verdict "$OUT"     # deny | ask | allow | dropped | none | invalid
+#   OUT=$(... | hook); RC=$?
+#   hook_verdict "$OUT" "$RC"  # the same, or exit-<RC> when RC is given and is not 0
+#   (save RC on the capture's own line: a $? read later is some other command's)
 #
 # Spec 029. A guard test that reads `.hookSpecificOutput.permissionDecision` and
 # nothing else accepts a payload the CLI throws away: without
@@ -17,9 +20,13 @@
 #   dropped         hookSpecificOutput present, hookEventName is not PreToolUse
 #   none            empty output, or a well-formed object with no decision
 #   invalid         output that is not JSON
+#   exit-<RC>       RC was passed and is not 0 (spec 092 R2, F102): the CLI reads a hook's JSON only on
+#                   exit 0, so a deny printed by a hook that then exits 1 is no deny at all. Without the
+#                   second argument the exit code is not looked at, exactly as before.
 
 hook_verdict() {
   local out="$1"
+  if [ $# -ge 2 ] && [ "$2" != 0 ]; then echo "exit-$2"; return 0; fi
   # A glob, not ${out//[[:space:]]/}: bash 3.2's pattern substitution never finished on a 40 KB
   # deny reason (row 047, found by a mutant that let an over-long pattern through).
   case "$out" in *[![:space:]]*) ;; *) echo none; return 0 ;; esac

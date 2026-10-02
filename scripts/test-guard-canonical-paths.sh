@@ -269,6 +269,24 @@ C="$WORK/dotnet"; make_project "$C"; rm -f "$C/package.json"; echo '<Project/>' 
 expect "a project whose only marker is a .csproj: spec-interview denies" deny "$(verdict "$SELF_DIR" spec-interview-guard-hook.sh "$(edit_payload "$C/src/App.cs")" "$C")"
 rm -f "$C/src/App.csproj"; echo 'x' > "$C/App.sln"
 expect "a project whose only marker is a .sln: spec-interview denies" deny "$(verdict "$SELF_DIR" spec-interview-guard-hook.sh "$(edit_payload "$C/src/App.cs")" "$C")"
+# 092-AC-1 (R1, F101): no marker at all is no project. Each '&&'->'||' on the .csproj/.sln lines, and a
+# _guard_has_match that matches an unexpanded glob, made every directory a .NET project.
+N="$WORK/nomarker"; make_project "$N"; rm -f "$N/package.json"; echo 'class Root {}' > "$N/Root.cs"
+for g in spec-interview-guard-hook.sh pipeline-state-guard-hook.sh; do
+  expect "092-AC-1 no marker anywhere: $g answers none, exit 0" none "$(verdict "$SELF_DIR" "$g" "$(edit_payload "$N/src/App.cs")" "$N")"
+done
+mv "$N/specs/INDEX.md" "$N/INDEX.md.away"
+expect "092-AC-1 no marker, no register: spec-register-guard answers none, exit 0" none "$(verdict "$SELF_DIR" spec-register-guard-hook.sh "$(edit_payload "$N/src/App.cs")" "$N")"
+mv "$N/INDEX.md.away" "$N/specs/INDEX.md"
+echo '<Project/>' > "$N/src/App.csproj"
+for g in spec-interview-guard-hook.sh pipeline-state-guard-hook.sh; do
+  expect "092-AC-1 a marker only in src/, an edit of Root.cs: $g answers none" none "$(verdict "$SELF_DIR" "$g" "$(edit_payload "$N/Root.cs")" "$N")"
+  expect "092-AC-1 control: App.csproj beside src/App.cs: $g denies" deny "$(verdict "$SELF_DIR" "$g" "$(edit_payload "$N/src/App.cs")" "$N")"
+done
+mv "$N/specs/INDEX.md" "$N/INDEX.md.away"
+expect "092-AC-1 a marker only in src/, no register, an edit of Root.cs: spec-register-guard answers none" none "$(verdict "$SELF_DIR" spec-register-guard-hook.sh "$(edit_payload "$N/Root.cs")" "$N")"
+expect "092-AC-1 control: App.csproj beside src/App.cs, no register: spec-register-guard denies" deny "$(verdict "$SELF_DIR" spec-register-guard-hook.sh "$(edit_payload "$N/src/App.cs")" "$N")"
+mv "$N/INDEX.md.away" "$N/specs/INDEX.md"
 LONE="$WORK/lone"; mkdir -p "$LONE"; cp "$SELF_DIR/spec-interview-guard-hook.sh" "$SELF_DIR/guard-precheck.sh" "$LONE/"
 expect "spec-interview without guard-lib.sh: a source payload is denied" deny "$(verdict "$LONE" spec-interview-guard-hook.sh "$(edit_payload "$P/src/App.cs")" "$P")"
 expect "spec-interview without guard-lib.sh: a text payload passes" none "$(verdict "$LONE" spec-interview-guard-hook.sh "$(edit_payload "$P/docs/plain.txt")" "$P")"

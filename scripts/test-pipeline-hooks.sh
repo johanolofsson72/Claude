@@ -106,21 +106,22 @@ guard_test() {
   local out rc
   out=$(run_guard "$file" 2>&1)
   rc=$?
+  # Spec 092 R2: a guard that exits non-zero is neither an allow nor a deny the CLI would read.
   if [ "$expect" = "allow" ]; then
-    if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected no output, got: ${out:0:100})" 1; fi
+    if [ -z "$out" ] && [ "$rc" -eq 0 ]; then _record "$name" 0; else _record "$name (expected no output and exit 0, got rc=$rc: ${out:0:100})" 1; fi
     return
   fi
   if [ "$expect" = "deny" ]; then
-    if [ "$(hook_verdict "$out")" = deny ]; then
+    if [ "$(hook_verdict "$out" "$rc")" = deny ]; then
       _record "$name" 0
     else
-      _record "$name (expected deny, got: ${out:0:100})" 1
+      _record "$name (expected deny, got rc=$rc: ${out:0:100})" 1
     fi
     return
   fi
   # deny:<phase> — verify the specific phase appears in Missing phases
   local phase="${expect#deny:}"
-  if [ "$(hook_verdict "$out")" = deny ] && printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecisionReason | contains(\"$phase\")" >/dev/null 2>&1; then
+  if [ "$(hook_verdict "$out" "$rc")" = deny ] && printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecisionReason | contains(\"$phase\")" >/dev/null 2>&1; then
     _record "$name" 0
   else
     _record "$name (expected deny mentioning '$phase', got: ${out:0:150})" 1
@@ -247,14 +248,15 @@ echo "# tasks" > "$TMP4/specs/003-search/tasks.md"
 
 lane_test() {
   local name="$1" lane="$2" expect="$3"
-  local out
+  local out rc
   out=$(printf '{"tool_input":{"file_path":"%s"}}' "$TMP4/src/app.ts" \
-        | SPEC_OWNER="$lane" bash scripts/pipeline-state-guard-hook.sh 2>&1)
+        | SPEC_OWNER="$lane" bash scripts/pipeline-state-guard-hook.sh 2>&1); rc=$?
   if [ "$expect" = "allow" ]; then
-    if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:100})" 1; fi
+    if [ -z "$out" ] && [ "$rc" -eq 0 ]; then _record "$name" 0; else _record "$name (expected allow, got rc=$rc: ${out:0:100})" 1; fi
     return
   fi
-  if printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecisionReason | contains(\"$expect\")" >/dev/null 2>&1; then
+  if [ "$(hook_verdict "$out" "$rc")" = deny ] \
+     && printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecisionReason | contains(\"$expect\")" >/dev/null 2>&1; then
     _record "$name" 0
   else
     _record "$name (expected deny naming '$expect', got: ${out:0:150})" 1
@@ -307,15 +309,15 @@ iv_guard() {
 
 iv_test() {
   local name="$1" expect="$2" mode="$3"
-  local out
-  out=$(iv_guard "$mode" "$IVT/src/app.ts" 2>&1)
+  local out rc
+  out=$(iv_guard "$mode" "$IVT/src/app.ts" 2>&1); rc=$?
   if [ "$expect" = "allow" ]; then
-    if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:80})" 1; fi
+    if [ -z "$out" ] && [ "$rc" -eq 0 ]; then _record "$name" 0; else _record "$name (expected allow and exit 0, got rc=$rc: ${out:0:80})" 1; fi
   else
-    if [ "$(hook_verdict "$out")" = deny ]; then
+    if [ "$(hook_verdict "$out" "$rc")" = deny ]; then
       _record "$name" 0
     else
-      _record "$name (expected deny, got: ${out:0:80})" 1
+      _record "$name (expected deny, got rc=$rc: ${out:0:80})" 1
     fi
   fi
 }
@@ -345,11 +347,11 @@ echo
 echo "scope + environment (interview guard):"
 _iv_scope() {
   local name="$1" expect="$2" file="$3"
-  local out; out=$(iv_guard "" "$file" 2>&1)
+  local out rc; out=$(iv_guard "" "$file" 2>&1); rc=$?
   if [ "$expect" = "allow" ]; then
-    if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:80})" 1; fi
+    if [ -z "$out" ] && [ "$rc" -eq 0 ]; then _record "$name" 0; else _record "$name (expected allow and exit 0, got rc=$rc: ${out:0:80})" 1; fi
   else
-    if [ "$(hook_verdict "$out")" = deny ]; then _record "$name" 0; else _record "$name (expected deny)" 1; fi
+    if [ "$(hook_verdict "$out" "$rc")" = deny ]; then _record "$name" 0; else _record "$name (expected deny, got rc=$rc)" 1; fi
   fi
 }
 write_interview 0 0   # empty interview so a source edit WOULD deny — proves allowlist bypasses it

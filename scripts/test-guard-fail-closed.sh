@@ -104,6 +104,37 @@ run "$STATE" "$(edit_payload "$P/README.md")" "$NONE"
 [ "$VERDICT" = none ] && ok "no parser, non-source file: allowed (the precheck already answers)" || bad "README with no parser: $VERDICT"
 run "$INTERVIEW" "$(edit_payload "$P/src/App.cs")" "$NONE"
 [ "$VERDICT" = deny ] && ok "spec-interview, neither parser: denies" || { bad "spec-interview neither parser: $VERDICT"; info "$OUT"; }
+
+printf '\n[092 R3] every spec-interview deny route exits 0  (092-AC-2)\n'
+# run() maps a non-zero exit to exit-N, so VERDICT=deny here means a deny on exit 0. One case per route;
+# the reason text proves the route, since a deny from the wrong branch would pass the verdict alone.
+unset SPEC_ACCEPTANCE SPEC_INTERVIEW_MODE SPEC_INTERVIEW_MIN
+# 96: interview complete (15 auto answers), full track, no acceptance.md. tasks.md has no ticked task,
+# so the "begun before 080" exemption cannot apply.
+AC=$(make_code_project ac96)
+for i in $(seq 1 15); do printf '## Q%d — t\n**Q:** q?\n**A (auto):** answer %d\n\n' "$i" "$i"; done > "$AC/specs/001-x/interview.md"
+printf '# x\n\n## Clarifications\n\n- none\n' > "$AC/specs/001-x/spec.md"
+echo 'rule X {}' > "$AC/specs/001-x/spec.allium"; echo '# plan' > "$AC/specs/001-x/plan.md"
+printf '# tasks\n\n- [ ] T001 do it\n' > "$AC/specs/001-x/tasks.md"
+run "$INTERVIEW" "$(edit_payload "$AC/src/App.cs")"
+case "$VERDICT:$(reason)" in deny:*"acceptance cases for active spec 001"*"no acceptance.md"*) ok "092-AC-2 route 96 (acceptance cases owed): deny, exit 0" ;;
+  *) bad "092-AC-2 route 96: $VERDICT"; info "$(reason | head -3)" ;; esac
+# 97: the active row's id is outside the id grammar.
+U=$(make_code_project id97)
+printf '# Spec register\n\n## Specs\n\n- [/] X-1 — x — full track — goal\n' > "$U/specs/INDEX.md"
+run "$INTERVIEW" "$(edit_payload "$U/src/App.cs")"
+case "$VERDICT:$(reason)" in deny:*"id this parser does not recognise"*'"X-1"'*) ok "092-AC-2 route 97 (row id outside the grammar): deny, exit 0" ;;
+  *) bad "092-AC-2 route 97: $VERDICT"; info "$(reason | head -3)" ;; esac
+# 98: the guard runs from a scripts/ copy that has no spec_active.py.
+R98="$WORK/noresolver"; mkdir -p "$R98"
+cp "$INTERVIEW" "$SELF_DIR/guard-lib.sh" "$SELF_DIR/guard-precheck.sh" "$R98/"
+run "$R98/spec-interview-guard-hook.sh" "$(edit_payload "$P/src/App.cs")"
+case "$VERDICT:$(reason)" in deny:*"cannot determine which spec is active"*) ok "092-AC-2 route 98 (resolver not importable): deny, exit 0" ;;
+  *) bad "092-AC-2 route 98: $VERDICT"; info "$(reason | head -3)" ;; esac
+# The resolver cannot start: python3 is off PATH, jq is still on it.
+run "$INTERVIEW" "$(edit_payload "$P/src/App.cs")" "$NOPY"
+case "$VERDICT:$(reason)" in deny:*"python3 is not on PATH"*) ok "092-AC-2 resolver failed to start (no python3, jq present): deny, exit 0" ;;
+  *) bad "092-AC-2 no python3: $VERDICT"; info "$(reason | head -3)" ;; esac
 NOREG="$WORK/noreg"; mkdir -p "$NOREG/src"; git init -q "$NOREG"; echo '{}' > "$NOREG/package.json"
 run "$REGGUARD" "$(edit_payload "$NOREG/src/App.cs")"
 [ "$VERDICT" = deny ] && ok "baseline: spec-register denies with no register" || bad "spec-register baseline: $VERDICT"

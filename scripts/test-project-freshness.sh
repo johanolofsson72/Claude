@@ -482,6 +482,40 @@ runk() {
 }
 keyscan() { OUT=$(runk "$@"); ALL_KEY_OUT="$ALL_KEY_OUT
 $OUT"; }
+# bounded_keyscan <seconds> <dir>: keyscan under a bound of the suite's own (spec 092 R6). Every
+# fixture with a .secret-shapes-allow goes through it, because the reader of that file is the loop a
+# mutant can make endless (`|| [ -z "$ka_line" ]`); unbounded, the hang would fall to the mutation
+# runner's timeout instead of failing a case. timeout/gtimeout when present, else a sleep+kill
+# watchdog. After one bound has fired the rest are not re-run (BOUND_HIT), so a loop costs one bound.
+BOUND_HIT=0
+bounded_keyscan() {   # -> OUT (ending in EXIT=<rc>), BOUND_RC, BOUND_SECS
+  local secs="$1" dir="$2" to pid wd t0
+  if [ "$BOUND_HIT" -eq 1 ]; then OUT="(not run: an earlier bound already fired)"; BOUND_RC=124; BOUND_SECS=0; return; fi
+  to=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)
+  t0=$(date +%s)
+  if [ -n "$to" ]; then
+    ( cd "$dir" && FRESHNESS_TRUFFLEHOG="$TH_UNDER_TEST" FRESHNESS_OSV_SCANNER="$OSV_UNDER_TEST" \
+        FRESHNESS_DOTNET="$DOTNET_UNDER_TEST" "$to" "$secs" bash "$FRESH" --secrets --no-install ) > "$TMP/bounded.out" 2>&1
+    BOUND_RC=$?
+  else
+    ( cd "$dir" && FRESHNESS_TRUFFLEHOG="$TH_UNDER_TEST" FRESHNESS_OSV_SCANNER="$OSV_UNDER_TEST" \
+        FRESHNESS_DOTNET="$DOTNET_UNDER_TEST" exec bash "$FRESH" --secrets --no-install ) > "$TMP/bounded.out" 2>&1 &
+    pid=$!
+    ( trap 'kill "$sp" 2>/dev/null; exit 0' TERM; sleep "$secs" & sp=$!; wait "$sp"; kill -9 "$pid" ) >/dev/null 2>&1 &
+    wd=$!
+    wait "$pid"; BOUND_RC=$?
+    kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  fi
+  BOUND_SECS=$(( $(date +%s) - t0 ))
+  OUT="$(cat "$TMP/bounded.out")
+EXIT=$BOUND_RC"
+  ALL_KEY_OUT="$ALL_KEY_OUT
+$OUT"
+  if [ "$BOUND_SECS" -ge "$secs" ] || [ "$BOUND_RC" -eq 124 ] || [ "$BOUND_RC" -eq 137 ]; then
+    BOUND_HIT=1
+    bad "the key scan finished inside its ${secs} s bound" "under ${secs} s" "${BOUND_SECS}s, exit $BOUND_RC (a loop reading .secret-shapes-allow)"
+  fi
+}
 commit_all() {
   ( cd "$1" && git add -A && git -c user.name=t -c user.email=t@example.invalid \
       -c commit.gpgsign=false commit -qm "${2:-fixture}" >/dev/null 2>&1 )
@@ -660,17 +694,30 @@ P=$(mkrepo k12); mkdir -p "$P/tests/fixtures"
 pem "RSA " "$BODY" > "$P/tests/fixtures/throwaway.pem"; pem "RSA " "$BODY" > "$P/real.pem"
 printf '# fixtures\n\ntests/fixtures/*.pem   # generated for the parser tests, never deployed\nreal.pem\n' > "$P/.secret-shapes-allow"
 commit_all "$P"
-keyscan "$P"
+bounded_keyscan 20 "$P"
 expect_contains "allowed hit is printed with its reason" "[ALLOWED] tests/fixtures/throwaway.pem — PEM private key (RSA) — at HEAD — generated for the parser tests, never deployed" "$OUT"
 expect_contains "a line with no reason is named by number" "[WARN] .secret-shapes-allow:4 has no '# reason'" "$OUT"
 expect_contains "…and does not allow" "[FINDING] real.pem" "$OUT"
 expect_contains "the summary counts the allowed one" "Keys:    1 KEY FILE(S) FOUND — rotate now, 1 allowed" "$OUT"
 ( cd "$P" && git rm -q real.pem ); commit_all "$P" drop
 ( cd "$P" && printf 'tests/fixtures/*.pem  # fixtures\nreal.pem  # rotated 2026-09-29, purge pending\n' > .secret-shapes-allow ); commit_all "$P" allow
-keyscan "$P"
+bounded_keyscan 20 "$P"
 expect_contains "a rotated history-only key can be allowed" "[ALLOWED] real.pem — PEM private key (RSA) — history only" "$OUT"
 expect_contains "…and the pass is clean with the allowances counted" "Keys:    clean, 2 allowed" "$OUT"
 expect_exit     "…exit 0" 0 "$OUT"
+
+printf '\n  -- K12b 092-AC-4 a last allow line with no newline is applied, inside a 20 s bound of our own\n'
+# The `|| [ -n "$ka_line" ]` in load_key_allow is what reads an unterminated last line; turned into
+# -z it drops that line here and spins forever on a file that does end in a newline. Either way this
+# case must fail on its own, inside its bound, rather than leave the hang to the runner's timeout.
+P=$(mkrepo k12b); mkdir -p "$P/tests/fixtures"
+pem "RSA " "$BODY" > "$P/tests/fixtures/throwaway.pem"
+printf '# fixtures\ntests/fixtures/*.pem  # fixture key, never deployed' > "$P/.secret-shapes-allow"
+commit_all "$P"
+bounded_keyscan 20 "$P"
+[ "$BOUND_HIT" -eq 0 ] && ok "092-AC-4 finished inside the 20 s bound (${BOUND_SECS}s, exit $BOUND_RC)"
+expect_contains "092-AC-4 the unterminated last line is applied" "[ALLOWED] tests/fixtures/throwaway.pem — PEM private key (RSA) — at HEAD — fixture key, never deployed" "$OUT"
+expect_absent   "092-AC-4 …and it is not named as reasonless" ".secret-shapes-allow:2 has no" "$OUT"
 
 printf '\n  -- K13 outside git: the working tree is scanned\n'
 P="$TMP/k13"; mkdir -p "$P/cfg" "$P/node_modules/x"
@@ -816,7 +863,7 @@ LC_ALL=C awk -v m="$M5" 'BEGIN { for (c = 0; c < 400; c++) { print m "BEGIN CERT
 pem "" "$BODY" > "$P/k.pem"
 printf 'k.pem  #   \n' > "$P/.secret-shapes-allow"
 commit_all "$P"
-keyscan "$P"
+bounded_keyscan 20 "$P"
 expect_absent   "a 250 KB text bundle is not called binary" "cacert.pem" "$OUT"
 expect_contains "'#' followed by only spaces is no reason" "[WARN] .secret-shapes-allow:1 has no '# reason'" "$OUT"
 expect_contains "…so the key is still a FINDING" "[FINDING] k.pem" "$OUT"

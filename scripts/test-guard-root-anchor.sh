@@ -34,13 +34,13 @@ unset ALLOW_CORE_MACHINERY_EDIT ALLOW_TICK_WITH_CORE_OWED
 
 # verdict <scripts-dir> <guard> <payload> [anchor] -> deny | none | ...
 verdict() {
-  local dir="$1" guard="$2" payload="$3" anchor="${4:-}" out
+  local dir="$1" guard="$2" payload="$3" anchor="${4:-}" out rc
   if [ -n "$anchor" ]; then
-    out=$(printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$anchor" "$BASH_BIN" "$dir/$guard" 2>/dev/null)
+    out=$(printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$anchor" "$BASH_BIN" "$dir/$guard" 2>/dev/null); rc=$?
   else
-    out=$(printf '%s' "$payload" | "$BASH_BIN" "$dir/$guard" 2>/dev/null)
+    out=$(printf '%s' "$payload" | "$BASH_BIN" "$dir/$guard" 2>/dev/null); rc=$?
   fi
-  hook_verdict "$out"
+  hook_verdict "$out" "$rc"      # spec 092 R2: a non-zero exit is exit-<rc>, never none or deny
 }
 edit_payload() { jq -cn --arg p "$1" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}'; }
 tick_payload() { jq -cn --arg p "$1" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"- [/] 001",new_string:"- [x] 001"}}'; }
