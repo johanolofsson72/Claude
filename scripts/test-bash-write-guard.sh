@@ -562,6 +562,39 @@ PY"
   esac
 fi
 
+# --------------------------------------------------------------- NOJQ (H4)
+# Without jq the pre-layer reads its fields through guard_field's python3 branch. No fixture ran it, so
+# at H4 a mutant that made that branch allow every readable payload survived (L120, 3 of 3). Git Bash
+# and minimal Linux images ship without jq: this is a path real machines take.
+if want nojq; then
+  echo "FIXTURE nojq — with jq off PATH, the python3 field reader denies what the jq reader denies"
+  ROOT=$(make_fixture nojq)
+  NOJQ="$WORK/nojq-bin"; mkdir -p "$NOJQ"
+  IFS=: read -r -a _dirs <<< "$PATH"
+  for _d in "${_dirs[@]}"; do
+    for _f in "$_d"/*; do
+      _n=${_f##*/}
+      [ "$_n" = jq ] || [ -e "$NOJQ/$_n" ] || { [ -x "$_f" ] && ln -s "$_f" "$NOJQ/$_n"; }
+    done
+  done 2>/dev/null
+  run_pre_nojq() {
+    local out rc
+    out=$(jq -n --arg c "$2" --arg w "$1" '{tool_input:{command:$c}, cwd:$w}' \
+          | CLAUDE_PROJECT_DIR="$1" PATH="$NOJQ" bash "$PRE" 2>/dev/null); rc=$?
+    [ "$rc" -eq 0 ] || { printf 'EXIT %s' "$rc"; return; }
+    [ -z "$out" ] && { printf 'ALLOW'; return; }
+    printf '%s' "$out" | python3 -c 'import json,sys; h=json.load(sys.stdin).get("hookSpecificOutput",{}); print((h.get("permissionDecision") or "ALLOW").upper()+" "+" ".join(h.get("permissionDecisionReason","").split()))'
+  }
+  if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then bad "nojq: jq is still reachable on the stripped PATH"; fi
+  expect_deny  "no jq: sed -i on a gated source file"   "$(run_pre_nojq "$ROOT" "sed -i '' 's/a/b/' src/App.cs")" "App.cs"
+  expect_deny  "no jq: a redirect into a gated file"     "$(run_pre_nojq "$ROOT" "echo x > src/App.cs")"           "App.cs"
+  expect_allow "no jq: a read stays allowed"             "$(run_pre_nojq "$ROOT" "cat src/App.cs")"
+  # An unreadable payload fails open and says so, on exit 0: the CLI reads a hook's JSON only on exit 0.
+  RAW=$(printf 'not json' | CLAUDE_PROJECT_DIR="$ROOT" PATH="$NOJQ" bash "$PRE" 2>/dev/null); RC=$?
+  if [ "$RC" -eq 0 ] && printf '%s' "$RAW" | grep -q 'additionalContext'; then ok "no jq: an unreadable payload allows on exit 0 and announces it"
+  else bad "no jq: unreadable payload gave exit $RC, output '$(printf '%s' "$RAW" | cut -c1-80)'"; fi
+fi
+
 # --------------------------------------------------------------- CWD (row 058)
 if want cwd; then
   echo "FIXTURE cwd — a relative target is where the command's own cd put it, and a URL is not a file"

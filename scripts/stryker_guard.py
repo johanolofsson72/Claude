@@ -507,6 +507,17 @@ def cwds_of(pids):
     return out
 
 
+def gone_pid(pid):
+    """True only when the pid no longer exists. A pid owned by another user (EPERM) is alive."""
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
 def proc_kind(args):
     argv = skip_interpreter(args.split())
     return argv_kind(argv, PROC_VERBS) or ("stryker-js" if js_stryker(argv, False) else None)
@@ -541,6 +552,8 @@ def live(root, kinds=("stryker", "build")):
     found, blind = [], []
     for pid, kind, args in cands:
         cwd = where.get(pid)
+        if not cwd and gone_pid(pid):
+            continue   # exited between ps and lsof: not a live run (F086, H4)
         if not cwd:
             blind.append("the working directory of pid %s (%s) could not be read" % (pid, kind))
             continue

@@ -261,6 +261,13 @@ stop "$P"
 D=$(swfix); NOPS="$WORK/nops"; mkdir -p "$NOPS"; for t in python3 git; do ln -sf "$(command -v "$t")" "$NOPS/$t"; done
 OUT=$(PATH="$NOPS" sweep "$D")
 if [ -d "$D/.stryker-tmp/sandbox-a1" ] && grep -q "^kept	" <<< "$OUT"; then ok "S20 no ps: blind keeps"; else bad "S20 '$OUT'"; fi
+# F086 (H4): a stryker that exits between ps and lsof left a cwd nobody could read, and the sweep kept
+# the directory for a run that no longer existed. Under a concurrent suite that was 2 runs in 3.
+sleep 0 & DEAD=$!; wait "$DEAD"
+D=$(swfix); EXITED="$WORK/exited"; mkdir -p "$EXITED"; for t in python3 git lsof; do ln -sf "$(command -v "$t")" "$EXITED/$t"; done
+printf '#!/bin/sh\necho "%s 1 dotnet-stryker"\n' "$DEAD" > "$EXITED/ps"; chmod +x "$EXITED/ps"
+OUT=$(PATH="$EXITED" sweep "$D")
+if gone "$D/.stryker-tmp"; then ok "S20b a stryker pid that exited before its cwd was read does not keep it"; else bad "S20b '$OUT'"; fi
 
 # the hook: which commands start a run, and how the sweep reaches the model
 for c in "npx stryker run" "pnpm exec stryker run" "yarn stryker run" "bunx stryker run" \
