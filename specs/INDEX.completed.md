@@ -1337,3 +1337,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 087 — docs-and-skill-reference-fixes
 
 - [x] 087 — docs-and-skill-reference-fixes — spec-only — spec-kit SC numbering collides with the scenario map, agent memory strands in worktrees, agent reviews can read a stale tree, two reference docs teach wrong examples. F006–F009 F054.
+
+## 089 — settings-edit-guard
+
+- [x] 089 — settings-edit-guard — full track [hardened] — .claude/settings*.json has no edit guard: one Edit unwires every PreToolUse hook or sets SPEC_ACCEPTANCE=off; guard the hooks and env keys, the developer edits by hand. F081 F103
