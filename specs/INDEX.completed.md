@@ -1345,3 +1345,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## H4 — integration-hardening
 
 - [x] H4 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 085–089.
+
+## 090 — guard-canonical-paths-round-2
+
+- [x] 090 — guard-canonical-paths-round-2 — full track [hardened] — guards judge spelling, not the file: case, existing symlinks, Unicode, 'App.cs.', --no-checkout worktrees, missing deny/ext entries, NotebookEdit; two false positives. F082–F085 F096 F105 F106 F112
