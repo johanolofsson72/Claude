@@ -1333,3 +1333,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 086 — maintenance-and-gate-blind-spots
 
 - [x] 086 — maintenance-and-gate-blind-spots — spec-only — maintenance and gates pass silently on what they cannot see (NOT SCANNED, missing CORE scripts, project hooks, wrong suite). F001 F003 F005 F010 F023 F025 F027 F032 F033 F051 F052 F059 F060 F068–F070.
+
+## 087 — docs-and-skill-reference-fixes
+
+- [x] 087 — docs-and-skill-reference-fixes — spec-only — spec-kit SC numbering collides with the scenario map, agent memory strands in worktrees, agent reviews can read a stale tree, two reference docs teach wrong examples. F006–F009 F054.
