@@ -387,14 +387,15 @@ HOW_TO_CONFIRM = """How to get it confirmed:
        **When** <the action>
        **Then** <the observable outcome>
 
-  2. Show them to the developer with ONE AskUserQuestion whose question text carries the
-     digest (bash scripts/acceptance-cases.sh --digest {spec_dir}), and ask them to confirm or
-     correct them. Never confirm them yourself: the point is that a requirement the developer
-     stated becomes a test.
-  3. Record their answer, quoted exactly as they gave it:
-       bash scripts/acceptance-cases.sh --confirm {spec_dir} --quote "<their exact answer>"
-     --confirm writes only when that answer was recorded for a question showing the digest
-     (spec 088: scripts/developer-answers-hook.sh records answers, hashed, in the git dir).
+  2. Show them to the developer with ONE AskUserQuestion whose question text is exactly what
+     bash scripts/acceptance-cases.sh --question {spec_dir}  prints (the digest and every case in
+     full), with an option labelled Confirm. Never confirm them yourself: the point is that a
+     requirement the developer stated becomes a test. A correction typed under Other confirms
+     nothing: edit the cases and ask again.
+  3. When they picked Confirm, record it:
+       bash scripts/acceptance-cases.sh --confirm {spec_dir} --quote "Confirm"
+     --confirm writes only when that click was recorded for a question showing the digest and every
+     case (specs 088 and 091: scripts/developer-answers-hook.sh records answers, hashed, in the git dir).
   4. Write one test per case that names it ({spec_id}-AC-<n>) before any production code.
 
 A project that does not want this sets SPEC_ACCEPTANCE=off in .claude/settings.json env."""
@@ -408,7 +409,12 @@ def _confirmed_line(text):
 
 
 def _committed_unchanged(spec_dir):
-    """True when HEAD's acceptance.md carries the same Confirmed line the working tree does."""
+    """True when the upstream's acceptance.md carries the same Confirmed line the working tree does.
+
+    Spec 091 R9 (F107). It used to be HEAD's, and a forged line that reached disk by a route no guard
+    reads (a script file) was laundered by one local commit. The upstream is a remote-tracking ref,
+    which R2 keeps the agent from moving; no upstream, or one that is not under refs/remotes/ (a
+    branch tracking `.`), means no shortcut, and the answer store has to back the line."""
     try:
         got = read_file(os.path.join(spec_dir, "acceptance.md"))
     except Unreadable:
@@ -421,12 +427,25 @@ def _committed_unchanged(spec_dir):
         rc, _, err = _git(spec_dir, "rev-parse", "--git-dir")
         if rc != 0:
             raise ScanError("git rev-parse exited %d: %s" % (rc, err.strip()[:200]))
-        rc, head, _ = _git(spec_dir, "show", "HEAD:./acceptance.md")
+        rc, up, _ = _git(spec_dir, "rev-parse", "--symbolic-full-name", "@{upstream}")
+        up = up.strip()
+        if rc != 0 or not up.startswith("refs/remotes/"):
+            return False                                   # no upstream: no shortcut, not an error
+        if os.path.islink(os.path.join(spec_dir, "acceptance.md")):
+            return False      # /security-review: a link to another spec's pushed file is not this one
+        rc, top, _ = _git(spec_dir, "rev-parse", "--show-toplevel")
+        if rc != 0:
+            return False
+        rel = os.path.relpath(os.path.realpath(os.path.join(spec_dir, "acceptance.md")),
+                              os.path.realpath(top.strip())).replace(os.sep, "/")
+        if rel.startswith("../"):
+            return False
+        rc, published, _ = _git(spec_dir, "show", "%s:%s" % (up, rel))
     except subprocess.TimeoutExpired as exc:
         raise ScanFailed(str(exc))
     except OSError as exc:
         raise ScanError("git could not run: %s" % exc)
-    return rc == 0 and _confirmed_line(head) == line   # rc != 0: no HEAD yet, or never committed
+    return rc == 0 and _confirmed_line(published) == line   # rc != 0: never pushed
 
 
 def gate(root, info, file_path):
@@ -469,8 +488,8 @@ def gate(root, info, file_path):
     # Spec 088 (adversarial #3): a Confirmed line nobody has committed yet must be one --confirm could
     # have written, i.e. its quote is a recorded answer for this digest. trust-anchor-guard stops the
     # shell spellings it can see; this catches the ones it cannot (a printf that splits the prefix, a
-    # glob for the file name). A committed line is trusted: the store is per clone, and the commit is in
-    # the history the developer reads.
+    # glob for the file name). A line already on the upstream is trusted (spec 091 R9): the store is per
+    # clone, and a pushed commit is in the shared history the developer reads.
     try:
         backed = _committed_unchanged(spec_dir) or answer_bound(spec_dir, conf["quote"], parsed["digest"])
     except ScanFailed:
@@ -546,21 +565,40 @@ def answer_hash(text):
 
 def _answers_of(payload):
     """[(question, answer)] from a PostToolUse AskUserQuestion payload. Measured 2026-10-01:
-    tool_response is {questions, answers} with answers keyed by the question text; tool_input.answers
-    holds the same map after the fact."""
+    tool_response is {questions, answers} with answers keyed by the question text. Only tool_response is
+    read (spec 091 A8): tool_input is what the agent sent."""
     if not isinstance(payload, dict):
         return []
-    for holder in (payload.get("tool_response"), payload.get("tool_input")):
-        a = holder.get("answers") if isinstance(holder, dict) else None
-        if isinstance(a, dict) and a:
-            out = []
-            for q, v in a.items():
-                if isinstance(v, list):
-                    v = ", ".join(str(x) for x in v)
-                if isinstance(q, str) and isinstance(v, str) and _collapse(v):
-                    out.append((q, v))
-            return out
-    return []
+    holder = payload.get("tool_response")
+    a = holder.get("answers") if isinstance(holder, dict) else None
+    if not isinstance(a, dict):
+        return []
+    out = []
+    for q, v in a.items():
+        if isinstance(v, list):
+            v = ", ".join(str(x) for x in v)
+        if isinstance(q, str) and isinstance(v, str) and _collapse(v):
+            out.append((q, v))
+    return out
+
+
+CONFIRM_LABEL = "Confirm"
+
+
+def question_text(spec_dir, parsed=None):
+    """The question --question prints: the digest, then every case in full, then how to answer. Spec 091
+    R8 binds a digest only to an answer given to exactly this text (whitespace aside), so one function
+    both shows the cases and decides what counts as having shown them."""
+    parsed = parsed or load(spec_dir)
+    if parsed is None:
+        return None
+    lines = ["Acceptance cases for spec %s (digest %s). Do these describe done?" % (
+        os.path.basename(os.path.normpath(spec_dir)), parsed["digest"]), ""]
+    for c in parsed["cases"]:
+        lines += ["AC-%d — %s" % (c["number"], c["title"]),
+                  "Given %s" % c["Given"], "When %s" % c["When"], "Then %s" % c["Then"], ""]
+    lines.append('Options: "%s" if they do; Other, with what to change, if not.' % CONFIRM_LABEL)
+    return "\n".join(lines)
 
 
 def _disk_digests(start):
@@ -569,14 +607,14 @@ def _disk_digests(start):
     (/tla GAP-1, spec 088): otherwise the agent could show a digest it precomputed for case text that
     is not on disk yet, get a yes for what is, then write the other text and confirm it."""
     top = (_git_out(start, "rev-parse", "--show-toplevel") or "").strip()
-    found = set()
+    found = {}
     for f in acceptance_files(top) if top else ():
         try:
             parsed = load(os.path.dirname(f))
         except Exception:
             continue
         if parsed and parsed.get("digest"):
-            found.add(parsed["digest"])
+            found.setdefault(parsed["digest"], _collapse(question_text(os.path.dirname(f), parsed)))
     return found
 
 
@@ -597,8 +635,15 @@ def record_answers(payload, start):
         return 0
     on_disk = _disk_digests(start)
     now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-    lines = "".join("%d %s%s\n" % (now, answer_hash(v),
-                                   "".join(" " + d for d in _DIGEST_TOKEN.findall(q) if d in on_disk))
+
+    # Spec 091 R8 (F104, O3). A digest is bound only to a click on Confirm, to the --question text for
+    # the cases on disk. "No" to an unrelated question that happened to show the digest binds nothing.
+    def bound(q, v):
+        if _collapse(v).casefold() != CONFIRM_LABEL.casefold():
+            return []
+        return [d for d in _DIGEST_TOKEN.findall(q) if on_disk.get(d) == _collapse(q)]
+
+    lines = "".join("%d %s%s\n" % (now, answer_hash(v), "".join(" " + d for d in bound(q, v)))
                     for q, v in pairs)
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     try:
@@ -637,10 +682,13 @@ def answer_bound(start, quote, digest):
 
 NOT_BOUND = """acceptance-cases: not confirmed — no AskUserQuestion answer matches this quote for digest {digest}.
 
---confirm records the developer's answer, so the answer has to be one they gave (spec 088):
-  1. Ask ONE AskUserQuestion whose question text shows the cases and the digest {digest}.
-  2. Quote their answer exactly (the option label they picked, or the text they typed):
-       bash scripts/acceptance-cases.sh --confirm {spec_dir} --quote "<their exact answer>"
+--confirm records the developer's answer, so the answer has to be one they gave (specs 088 and 091):
+  1. Ask ONE AskUserQuestion whose question text is what
+       bash scripts/acceptance-cases.sh --question {spec_dir}
+     prints (digest {digest} and every case in full), with an option labelled Confirm.
+  2. When they pick Confirm:
+       bash scripts/acceptance-cases.sh --confirm {spec_dir} --quote "Confirm"
+     Any other answer, a typed one included, confirms nothing.
 Answers are recorded by scripts/developer-answers-hook.sh. If it is not wired in this project, run the
 template sync first. Nothing was written."""
 
@@ -698,7 +746,7 @@ def _confirm(spec_dir, quote):
 
 def main(argv):
     if len(argv) < 2:
-        print("usage: acceptance_cases.py check|digest|confirm|coverage|is-test|record-answers ...", file=sys.stderr)
+        print("usage: acceptance_cases.py check|digest|question|confirm|coverage|is-test|record-answers ...", file=sys.stderr)
         return 2
     cmd = argv[1]
     try:
@@ -724,6 +772,9 @@ def main(argv):
             return 2
         if cmd == "digest":
             print(parsed["digest"])
+            return 0
+        if cmd == "question":
+            print(question_text(spec_dir))
             return 0
         if cmd == "check":
             for p in parsed["problems"]:

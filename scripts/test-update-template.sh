@@ -29,8 +29,19 @@ expect_absent()   { if grep -Fq -e "$2" <<< "$3"; then bad "$1" "absent: $2" "$3
 BIN="$TMP/bin"; mkdir -p "$BIN"
 cat > "$BIN/claude" <<'SH'
 #!/bin/bash
+# --help lists --restricted unless the test says this claude predates it (spec 091 R5).
+if [ "${1:-}" = "--help" ]; then
+  [ -n "${FAKE_NO_RESTRICTED:-}" ] || echo "  --restricted                          Restricted mode: ..."
+  echo "  --tools <tools...>"
+  exit 0
+fi
 for a in "$@"; do printf '%s\n' "$a"; done > "$CLAUDE_ARGV"
+# FAKE_WRITE="<path>|<content>" plays a model that edits a file in the repository.
+if [ -n "${FAKE_WRITE:-}" ]; then
+  mkdir -p "$(dirname "${FAKE_WRITE%%|*}")"; printf '%b' "${FAKE_WRITE#*|}" > "${FAKE_WRITE%%|*}"
+fi
 echo "fake claude ran"
+exit "${FAKE_EXIT:-0}"
 SH
 chmod +x "$BIN/claude"
 
@@ -97,6 +108,73 @@ OUT=$(PATH="$BIN:$PATH" CLAUDE_ARGV="$A" TMPDIR="$TMP" bash "$R/scripts/update-t
 expect_eq       "U8 a dirty template tree is refused" "1" "$RC"
 expect_contains "U8 the refusal says why" "uncommitted" "$OUT"
 expect_eq       "U8 the model never started" "no" "$([ -f "$A" ] && echo yes || echo no)"
+
+# ---- spec 091 R5 (F080): the model is confined to the repository -------------------------------
+R=$(mkrepo r5)
+A="$TMP/argv.r5"
+OUT=$(PATH="$BIN:$PATH" CLAUDE_ARGV="$A" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "091-AC-3 a clean live run still exits 0" "0" "$RC"
+expect_eq       "091-AC-3 claude is started --restricted" "--restricted" "$(grep -x -- --restricted "$A")"
+expect_eq       "091-AC-3 claude runs in dontAsk mode" "dontAsk" "$(argv_after "$A" --permission-mode)"
+TOOLS=$(argv_after "$A" --tools)
+expect_eq       "091-AC-3 --tools names exactly the allowed list" "$(argv_after "$A" --allowedTools)" "$TOOLS"
+expect_contains "091-AC-3 --tools keeps WebFetch (restricted mode drops it otherwise)" "WebFetch" "$TOOLS"
+expect_absent   "091-AC-3 --tools has no Bash" "Bash" "$TOOLS"
+DIS=$(argv_after "$A" --disallowedTools)
+expect_contains "091-AC-3 .mcp.json edits are denied" "Edit(.mcp.json)" "$DIS"
+expect_contains "091-AC-3 .mcp.json writes are denied" "Write(.mcp.json)" "$DIS"
+
+R=$(mkrepo old)
+A="$TMP/argv.old"; rm -f "$A"
+OUT=$(PATH="$BIN:$PATH" FAKE_NO_RESTRICTED=1 CLAUDE_ARGV="$A" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "091-AC-3 a claude without --restricted is refused (exit 2)" "2" "$RC"
+expect_contains "091-AC-3 the refusal names the fix" "Update Claude Code" "$OUT"
+expect_eq       "091-AC-3 the model never started" "no" "$([ -f "$A" ] && echo yes || echo no)"
+
+R=$(mkrepo hooks)
+A="$TMP/argv.hooks"
+OUT=$(PATH="$BIN:$PATH" FAKE_WRITE="$R/.claude/skills/x/SKILL.md|---\nname: x\nhooks:\n  PreToolUse: []\n---\nbody\n" \
+      CLAUDE_ARGV="$A" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "091-AC-3 a skill gaining hooks: exits 4" "4" "$RC"
+expect_contains "091-AC-3 it is named [REVIEW]" "[REVIEW] .claude/skills/x/SKILL.md" "$OUT"
+
+R=$(mkrepo quoted)
+OUT=$(PATH="$BIN:$PATH" FAKE_WRITE="$R/.claude/agents/a.md|---\r\nname: a\r\n\"permissionMode\" : bypassPermissions\r\n---\r\n" \
+      CLAUDE_ARGV="$TMP/argv.q" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "R5 a quoted permissionMode in CRLF frontmatter is caught" "4" "$RC"
+
+R=$(mkrepo body)
+OUT=$(PATH="$BIN:$PATH" FAKE_WRITE="$R/.claude/skills/y/SKILL.md|---\nname: y\n---\nhooks: are explained here\n" \
+      CLAUDE_ARGV="$TMP/argv.b" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "R5 'hooks:' in the body, not the frontmatter, is not a review" "0" "$RC"
+
+R=$(mkrepo script)
+OUT=$(PATH="$BIN:$PATH" FAKE_WRITE="$R/.claude/skills/z/run.sh|echo hi\n" \
+      CLAUDE_ARGV="$TMP/argv.s" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "R5 a new script under a skill is a review" "4" "$RC"
+expect_contains "R5 it says why" "not markdown" "$OUT"
+
+R=$(mkrepo failed)
+OUT=$(PATH="$BIN:$PATH" FAKE_EXIT=3 FAKE_WRITE="$R/.claude/skills/x/SKILL.md|---\nhooks: {}\n---\n" \
+      CLAUDE_ARGV="$TMP/argv.f" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "R5 claude's own failure code wins over 4" "3" "$RC"
+expect_contains "R5 the review is still printed" "[REVIEW]" "$OUT"
+
+R=$(mkrepo usage)
+OUT=$(PATH="$BIN:$PATH" CLAUDE_ARGV="$TMP/argv.u" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" --bogus 2>&1); RC=$?
+expect_eq       "an unknown argument exits 1" "1" "$RC"
+expect_contains "and says which" "Unknown argument: --bogus" "$OUT"
+OUT=$(PATH="$BIN:$PATH" CLAUDE_ARGV="$TMP/argv.f" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" --dry-run --focus skills 2>&1)
+expect_contains "--dry-run says so in the banner" "DRY RUN" "$OUT"
+expect_contains "--focus is named in the banner" "Focus: skills" "$OUT"
+expect_contains "--focus reaches the prompt" "skills" "$(cat "$TMP/argv.f")"
+OUT=$(PATH="$BIN:$PATH" CLAUDE_ARGV="$TMP/argv.l" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1)
+expect_absent   "a live run without --focus names no focus" "Focus:" "$OUT"
+expect_contains "a live run says LIVE" "LIVE" "$OUT"
+OUT=$(PATH="$BIN:$PATH" FAKE_EXIT=5 CLAUDE_ARGV="$TMP/argv.e" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "claude's failure is the exit code" "5" "$RC"
+expect_contains "and is reported as an error" "Error occurred (exit code: 5)" "$OUT"
+expect_absent   "not as done" "Done! Log saved" "$OUT"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

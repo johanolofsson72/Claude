@@ -289,9 +289,9 @@ def judge_git(args: list[str]) -> str | None:
     return None
 
 
-def judge_find(args: list[str], depth: int) -> str | None:
+def judge_find(args: list[str], depth: int, judge=None) -> str | None:
     for i, a in enumerate(args):
-        if a == "-delete":
+        if a == "-delete" and judge is None:
             return "find-delete"
         if a in ("-exec", "-execdir", "-ok", "-okdir") and i + 1 < len(args):
             inner = []
@@ -299,9 +299,9 @@ def judge_find(args: list[str], depth: int) -> str | None:
                 if t in (";", "+", "\\;"):
                     break
                 inner.append(t)
-            if inner and word(inner[0]) == "rm":
+            if inner and word(inner[0]) == "rm" and judge is None:
                 return "find-delete"
-            found = judge_words(inner, depth + 1) if depth < MAX_DEPTH else None
+            found = judge_words(inner, depth + 1, "", judge) if depth < MAX_DEPTH else None
             if found:
                 return found
     return None
@@ -317,15 +317,24 @@ def shell_body(args: list[str]) -> str | None:
     return ""
 
 
-def judge_words(seg: list[str], depth: int, stdin_text: str = "") -> str | None:
+# 091 adversarial B1: GIT_CONFIG_COUNT/KEY_n/VALUE_n and GIT_CONFIG_PARAMETERS are `git -c` by environment.
+GIT_CONFIG_ENV = re.compile(r"^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+|PARAMETERS)=", re.I)
+
+
+def judge_words(seg: list[str], depth: int, stdin_text: str = "", judge=None) -> str | None:
     seg, here = strip_redirects(seg)
+    env_config = False
     while seg:
         if ASSIGN.match(seg[0]) or word(seg[0]) in KEYWORDS:
+            env_config = env_config or bool(GIT_CONFIG_ENV.match(seg[0]))
             seg = seg[1:]
             continue
         w = word(seg[0])
         if w in ESCALATE:
-            return "sudo"
+            if judge is None:
+                return "sudo"
+            seg = seg[1:]          # another guard's question (spec 091 R2) looks through sudo
+            continue
         if w in WRAPPERS:
             takes = WRAPPERS[w]
             rest = seg[1:]
@@ -333,6 +342,7 @@ def judge_words(seg: list[str], depth: int, stdin_text: str = "") -> str | None:
                 return None
             while rest and (rest[0].startswith("-") or (w == "env" and ASSIGN.match(rest[0]))):
                 opt = rest[0]
+                env_config = env_config or bool(GIT_CONFIG_ENV.match(opt))
                 rest = rest[2:] if opt in takes else rest[1:]
             if w == "timeout" and rest:
                 rest = rest[1:]                       # the duration
@@ -344,17 +354,25 @@ def judge_words(seg: list[str], depth: int, stdin_text: str = "") -> str | None:
     if not seg:
         return None
     w, args = word(seg[0]), seg[1:]
-    if w == "rm":
-        return "rm-recursive-force" if judge_rm(args) else None
+    # Spec 091 R2: `judge` is another guard's question about git, asked through the same word rules;
+    # with one, rm and find are not this classifier's business.
+    if judge is not None and (w == "git" and env_config or
+                              w == "export" and any(GIT_CONFIG_ENV.match(a) for a in args)):
+        return "git-config-trust"                      # an exported one reaches every git after it
     if w == "git":
-        return judge_git(args)
+        return (judge or judge_git)(args)
+    if judge is None and w == "rm":
+        return "rm-recursive-force" if judge_rm(args) else None
     if w == "find":
-        return judge_find(args, depth)
+        return judge_find(args, depth, judge)                 # 091 adversarial B5: -exec git … too
+    # 091 adversarial B4: git-core's dashed binaries (git-update-ref, git-remote) are the same command.
+    if judge is not None and w.startswith("git-") and len(w) > 4:
+        return judge([w[4:]] + args)
     if (w in SHELLS or w == "eval") and depth < MAX_DEPTH:
         body = " ".join(args) if w == "eval" else shell_body(args)
         texts = [t for t in (body, stdin_text, *here) if t]
         for t in texts:
-            found = classify(t, depth + 1)
+            found = classify(t, depth + 1, judge)
             if found:
                 return found
     return None
@@ -408,7 +426,7 @@ def _heredoc_delims(line: str) -> list[str]:
     return out
 
 
-def classify(cmd: str, depth: int = 0) -> str | None:
+def classify(cmd: str, depth: int = 0, judge=None) -> str | None:
     cmd, docs = heredocs(normalise(cmd))
     lines = cmd.split("\n")
     # A heredoc body is data unless its line hands it to a shell — anywhere on the line, so
@@ -423,16 +441,106 @@ def classify(cmd: str, depth: int = 0) -> str | None:
             for n, seg in enumerate(pipe):
                 # Text piped into a shell is a program: everything the earlier stages name.
                 upstream = " ".join(t for s in pipe[:n] for t in strip_redirects(s)[0][1:])
-                found = judge_words(seg, depth, "\n".join(x for x in (fed, upstream) if x))
+                found = judge_words(seg, depth, "\n".join(x for x in (fed, upstream) if x), judge)
                 if found:
                     return found
     if depth < MAX_DEPTH:
         for m in SUBST.finditer(cmd):
             body = m.group(1) if m.group(1) is not None else m.group(2)
-            found = classify(body, depth + 1)
+            found = classify(body, depth + 1, judge)
             if found:
                 return found
     return None
+
+
+# ------------------------------------------------------------------ spec 091 R2: trust anchors in git
+# trust-anchor-guard asks this through classify(cmd, judge=judge_git_trust). The template is now known
+# by its root commit (template-identity.sh), so these denies are defence in depth: they keep origin, the
+# upstream a Confirmed line is checked against (R9), and remote-tracking refs the developer's to move.
+_TRUST_KEY = re.compile(r"^(remote\.|url\.|branch\.|include|alias\.)", re.I)
+_CONFIG_READS = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l",
+                 "--show-origin", "--show-scope", "--name-only"}
+_CONFIG_VALUED = {"--type", "-t", "-f", "--file", "--blob", "--default", "--comment", "--value"}
+_CONFIG_WRITES = {"--unset", "--unset-all", "--add", "--replace-all", "-e", "--edit",
+                  "--rename-section", "--remove-section"}
+
+
+def _refspec_writes_tracking(spec: str) -> bool:
+    if ":" not in spec:
+        return False
+    dst = spec.lstrip("+").split(":", 1)[1]
+    # 091 adversarial B2: a pattern destination can land on refs/remotes/ under any spelling
+    # (refs/rem*, refs/*/origin/main), so any `*` or any `remotes` in it counts.
+    return "*" in dst or "remotes" in dst.lower()
+
+
+# 091 adversarial B3: plumbing that writes refs without being fetch, push or update-ref.
+_REF_PLUMBING = {"fast-import", "fetch-pack", "receive-pack"}
+# 091 adversarial B6: global options whose value is the next word.
+_GIT_VALUED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env",
+               "--attr-source", "--super-prefix", "--list-cmds"}
+
+
+def judge_git_trust(args: list[str]) -> str | None:
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        # 091 adversarial B1: a one-shot -c or --config-env on a trust key redirects what this very
+        # command fetches into refs/remotes (`git -c remote.origin.url=/tmp/forge fetch origin`).
+        if args[i] in ("-c", "--config-env") and i + 1 < len(args) and _TRUST_KEY.match(args[i + 1]):
+            return "git-config-trust"
+        if args[i].startswith("--config-env=") and _TRUST_KEY.match(args[i].split("=", 1)[1]):
+            return "git-config-trust"
+        i += 2 if args[i] in _GIT_VALUED else 1
+    if i >= len(args):
+        return None
+    sub, rest = args[i].lower(), args[i + 1:]
+    if sub in _REF_PLUMBING:
+        return "git-ref-write"
+    if sub == "remote":
+        verbs = [a.lower() for a in rest if not a.startswith("-")]
+        if verbs and verbs[0] in ("add", "set-url", "rename", "remove", "rm", "set-head", "set-branches"):
+            return "git-remote-write"
+        return None
+    if sub in ("update-ref", "symbolic-ref"):
+        if sub == "symbolic-ref" and len([a for a in rest if not a.startswith("-")]) < 2:
+            return None                                   # reading HEAD's target
+        return "git-ref-write"
+    if sub in ("fetch", "push", "pull", "send-pack"):
+        if any(_refspec_writes_tracking(a) for a in rest if not a.startswith("-")):
+            return "git-ref-write"
+        if any(a.startswith("--refmap") for a in rest):
+            return "git-ref-write"
+        return None
+    if sub == "config":
+        if any(a in _CONFIG_READS for a in rest):
+            return None
+        words, j = [], 0
+        while j < len(rest):
+            if rest[j] in _CONFIG_VALUED:
+                j += 2
+                continue
+            if not rest[j].startswith("-"):
+                words.append(rest[j])
+            j += 1
+        verb = words[0].lower() if words else ""
+        if verb in ("get", "list"):
+            return None
+        if verb == "edit" or any(a in ("-e", "--edit") for a in rest):
+            return "git-config-trust"                     # an editor can change any key
+        if verb in ("set", "unset", "rename-section", "remove-section"):
+            words = words[1:]
+        elif len(words) == 1 and not any(a in _CONFIG_WRITES for a in rest):
+            return None                                   # `git config remote.origin.url` reads it
+        return "git-config-trust" if words and _TRUST_KEY.match(words[0]) else None
+    return None
+
+
+TRUST_VERDICTS = ("git-remote-write", "git-ref-write", "git-config-trust")
+
+
+def classify_trust(cmd: str) -> str | None:
+    found = classify(cmd, 0, judge_git_trust)
+    return found if found in TRUST_VERDICTS else None
 
 
 # Kept for sensitive_paths.py, which reads heredoc bodies the same way.

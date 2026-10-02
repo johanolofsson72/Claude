@@ -45,6 +45,7 @@ SHIMS="$TMP/shims"; mkdir -p "$SHIMS"
 # git: ls-remote answers $FAKE_LSREMOTE and is logged; everything else is the real git.
 cat > "$SHIMS/git" <<EOF
 #!/bin/bash
+for a in "\$@"; do [ "\$a" = checkout-index ] && [ -n "\${FAKE_CHECKOUT_FAIL:-}" ] && exit 1; done
 if [ "\${1:-}" = ls-remote ]; then
   echo "ls-remote \$*" >> "\$SHIM_LOG"
   [ -n "\${FAKE_LSREMOTE:-}" ] && printf '%s\trefs/heads/main\n' "\$FAKE_LSREMOTE"
@@ -64,6 +65,20 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$out" ] || { echo "fake curl: no -o (the sync must download to a file)" >&2; exit 2; }
+# Spec 091 R3: GitHub's compare API. FAKE_COMPARE_STATUS is what it says about <pin>...main (default
+# ahead, with the pin as merge base); `none` is no answer at all; FAKE_COMPARE_BASE overrides the base.
+case "$url" in
+  https://api.github.com/repos/johanolofsson72/Claude/compare/*)
+    pin=${url##*/compare/}; pin=${pin%%...*}
+    st="${FAKE_COMPARE_STATUS:-ahead}"
+    [ "$st" = none ] && exit 7
+    if [ "$st" = ratelimit ]; then
+      printf '{"message":"API rate limit exceeded"}' > "$out"; printf 403; exit 0
+    fi
+    printf '{"url":"x","base_commit":{"sha":"%s"},"merge_base_commit":{"sha":"%s"},"status":"%s","files":[{"status":"ahead"}]}' \
+      "$pin" "${FAKE_COMPARE_BASE:-$pin}" "$st" > "$out"
+    printf 200; exit 0 ;;
+esac
 id="${FAKE_TAR_ID-${url##*/}}"
 exec python3 "$FAKE_TAR_MAKER" "$out" "$FAKE_TAR_ROOT" "$id"
 EOF
@@ -93,6 +108,12 @@ build() {
   printf 'rule v1\n' > "$T/.claude/rules/allium.md"
   "$REAL_GIT" -C "$T" init -q -b main
   "$REAL_GIT" -C "$T" add -A; "$REAL_GIT" -C "$T" commit -qm template
+  # A real clone has origin/main; spec 091 R3 asks the pin's ancestry against it, without a fetch.
+  "$REAL_GIT" -C "$T" update-ref refs/remotes/origin/main HEAD
+  # ...and the template's URL as origin (091 adversarial B7), fetched from the clone itself so a
+  # refresh never reaches the network.
+  "$REAL_GIT" -C "$T" remote add origin https://github.com/johanolofsson72/Claude.git
+  "$REAL_GIT" -C "$T" config "url.$T.insteadOf" https://github.com/johanolofsson72/Claude.git
 
   mkdir -p "$P/.claude/rules" "$P/scripts"
   echo '{"name":"fake"}' > "$P/package.json"
@@ -174,6 +195,145 @@ echo scratch >> "$T/.claude/rules/allium.md"
 OUT=$(CLAUDE_TEMPLATE_PIN=$PIN sync_local); RC=$?
 has   "R2d fetched the pin from the remote" "$(cat "$LOG")" "tar.gz/$PIN"
 hasnt "R2d the scratch edit did not ship"   "$(cat "$P/.claude/rules/allium.md" 2>/dev/null)" "scratch"
+
+echo "== 091 R3 — 091-AC-2: a pin off the template's main is never synced"
+build ac2
+OUT=$(CLAUDE_TEMPLATE_PIN=$FULL_B FAKE_COMPARE_STATUS=diverged sync_remote); RC=$?
+same  "091-AC-2 exit 0"                                  "$RC" 0
+has   "091-AC-2 GitHub's compare API was asked about the pin" "$(cat "$LOG")" "compare/$FULL_B...main"
+hasnt "091-AC-2 nothing was downloaded"                  "$(cat "$LOG")" "tar.gz"
+same  "091-AC-2 no commit in the project"                "$(p_head)" "$P_HEAD0"
+same  "091-AC-2 the project tree is untouched"           "$("$REAL_GIT" -C "$P" status --porcelain)" ""
+has   "091-AC-2 the warning says why"                    "$OUT" "cannot show CLAUDE_TEMPLATE_PIN $(printf '%s' "$FULL_B" | cut -c1-12) is on the template's main (GitHub compares it to main as diverged)"
+build ac2b
+OUT=$(CLAUDE_TEMPLATE_PIN=$FULL_B sync_remote); RC=$?
+has   "091-AC-2 a pin GitHub reports behind main syncs as before" "$(cat "$LOG")" "tar.gz/$FULL_B"
+same  "091-AC-2 its stamp is the pin"                    "$(stamp_sha)" "$(printf '%s' "$FULL_B" | cut -c1-12)"
+build r3x
+OUT=$(CLAUDE_TEMPLATE_PIN=$FULL_B FAKE_COMPARE_STATUS=identical sync_remote)
+has   "R3 identical counts as on main"                   "$(cat "$LOG")" "tar.gz/$FULL_B"
+for st in behind none ratelimit; do
+  build "r3$st"
+  OUT=$(CLAUDE_TEMPLATE_PIN=$FULL_B FAKE_COMPARE_STATUS=$st sync_remote)
+  hasnt "R3 '$st' downloads nothing"                     "$(cat "$LOG")" "tar.gz"
+  has   "R3 '$st' says it was not synced"                "$OUT" "not synced"
+done
+has   "R3 a rate limit names GitHub's message"           "$OUT" "API rate limit exceeded"
+build r3base
+OUT=$(CLAUDE_TEMPLATE_PIN=$FULL_B FAKE_COMPARE_BASE=$FULL_A sync_remote)
+hasnt "R3 ahead with another merge base is no proof"     "$(cat "$LOG")" "tar.gz"
+build r3clone
+"$REAL_GIT" -C "$T" commit -q --allow-empty -m "local, not on main"
+PIN=$("$REAL_GIT" -C "$T" rev-parse HEAD)
+OUT=$(CLAUDE_TEMPLATE_PIN=$PIN FAKE_COMPARE_STATUS=diverged sync_local); RC=$?
+has   "R3 a clone at a pin its origin/main lacks asks GitHub" "$(cat "$LOG")" "compare/$PIN...main"
+hasnt "R3 and, refused there, downloads nothing"         "$(cat "$LOG")" "tar.gz"
+same  "R3 and writes nothing"                            "$(p_head)" "$P_HEAD0"
+
+build r3fork
+PIN=$("$REAL_GIT" -C "$T" rev-parse HEAD)
+"$REAL_GIT" -C "$T" remote set-url origin https://github.com/someone/Claude-fork.git
+OUT=$(CLAUDE_TEMPLATE_PIN=$PIN FAKE_COMPARE_STATUS=diverged sync_local); RC=$?
+has   "B7 a clean clone at the pin whose origin is a fork asks GitHub" "$(cat "$LOG")" "compare/$PIN...main"
+hasnt "B7 and, refused there, downloads nothing"         "$(cat "$LOG")" "tar.gz"
+same  "B7 and writes nothing"                            "$(p_head)" "$P_HEAD0"
+
+echo "== 091 R4 — a clean clone ships its committed bytes"
+build r4s
+"$REAL_GIT" -C "$T" update-index --skip-worktree .claude/rules/allium.md
+printf 'rule v1\nplanted under skip-worktree\n' > "$T/.claude/rules/allium.md"
+same  "R4 git status calls the clone clean"              "$("$REAL_GIT" -C "$T" status --porcelain)" ""
+OUT=$(sync_local); RC=$?
+same  "R4 exit 0"                                        "$RC" 0
+same  "R4 the skip-worktree file ships its committed bytes" "$(cat "$P/.claude/rules/allium.md" 2>/dev/null)" "rule v1"
+has   "R4 the warning names the path"                    "$OUT" ".claude/rules/allium.md"
+has   "R4 the warning says why"                          "$OUT" "skip-worktree or assume-unchanged"
+build r4a
+"$REAL_GIT" -C "$T" update-index --assume-unchanged .claude/rules/allium.md
+printf 'rule v1\nplanted under assume-unchanged\n' > "$T/.claude/rules/allium.md"
+OUT=$(sync_local)
+same  "R4 an assume-unchanged file ships its committed bytes" "$(cat "$P/.claude/rules/allium.md" 2>/dev/null)" "rule v1"
+build r4i
+mkdir -p "$T/.claude/skills/demo"
+printf -- '---\nname: demo\n---\nbody\n' > "$T/.claude/skills/demo/SKILL.md"
+printf '.claude/skills/demo/secret.md\n' > "$T/.gitignore"
+"$REAL_GIT" -C "$T" add -A; "$REAL_GIT" -C "$T" commit -qm skills; "$REAL_GIT" -C "$T" update-ref refs/remotes/origin/main HEAD
+printf 'ignored, never committed\n' > "$T/.claude/skills/demo/secret.md"
+same  "R4 the ignored file leaves the clone clean"       "$("$REAL_GIT" -C "$T" status --porcelain)" ""
+OUT=$(sync_local)
+[ -f "$P/.claude/skills/demo/SKILL.md" ] && ok "R4 the tracked skill file ships" || bad "R4 the tracked skill file did not ship ($(printf '%s' "$OUT" | tail -3 | tr '\n' '|'))"
+[ -e "$P/.claude/skills/demo/secret.md" ] && bad "R4 an ignored file under .claude/skills shipped" || ok "R4 an ignored file under .claude/skills is not shipped"
+
+build r3anc
+PIN=$("$REAL_GIT" -C "$T" rev-parse HEAD)
+"$REAL_GIT" -C "$T" commit -q --allow-empty -m "one more on main"
+"$REAL_GIT" -C "$T" update-ref refs/remotes/origin/main HEAD
+OUT=$(CLAUDE_TEMPLATE_PIN=$PIN sync_local)
+has   "R3 a clean template clone whose HEAD is past the pin is not the pin: the pin is downloaded" "$(cat "$LOG")" "tar.gz/$PIN"
+
+build r4f
+"$REAL_GIT" -C "$T" update-index --skip-worktree .claude/rules/allium.md
+printf 'rule v1\nplanted\n' > "$T/.claude/rules/allium.md"
+OUT=$(FAKE_CHECKOUT_FAIL=1 sync_local); RC=$?
+same  "R4 a flagged path that cannot be staged: exit 0"  "$RC" 0
+has   "R4 ... the clone is refused, not synced"          "$OUT" "not synced"
+same  "R4 ... and nothing is written"                    "$(p_head)" "$P_HEAD0"
+[ -f "$P/.claude/rules/allium.md" ] && bad "R4 the planted bytes shipped" || ok "R4 the planted bytes did not ship"
+
+build r4t
+mkdir -p "$T/.claude/skills/demo" "$TAR/Claude-fixture/.claude/skills/demo"
+printf -- '---\nname: demo\n---\nbody\n' > "$T/.claude/skills/demo/SKILL.md"
+cp "$T/.claude/skills/demo/SKILL.md" "$TAR/Claude-fixture/.claude/skills/demo/SKILL.md"
+OUT=$(FAKE_LSREMOTE=$FULL_A sync_remote)
+[ -f "$P/.claude/skills/demo/SKILL.md" ] && ok "R4 a tarball (no .git) still ships its skills by find" \
+  || bad "R4 the tarball's skill did not ship ($(printf '%s' "$OUT" | tail -2 | tr '\n' '|'))"
+
+echo "== 091 units — the new functions, extracted"
+UH="$TMP/units.sh"
+{ echo 'warn() { printf "%s\n" "$*"; }'
+  echo 'TEMPLATE_COMPARE_BASE="https://api.github.com/repos/johanolofsson72/Claude/compare"'
+  for fn in pin_on_main flagged_paths report_flagged stage_clone_divergence stage_committed_bytes report_eol_divergence; do
+    sed -n "/^$fn() {/,/^}\$/p" "$SCRIPT"
+  done; } > "$UH"
+NOBIN="$TMP/nobin"; mkdir -p "$NOBIN"; for b in mktemp rm cat tr grep sed awk xargs; do ln -sf "$(command -v $b)" "$NOBIN/$b"; done
+OUT=$( . "$UH"; PATH="$NOBIN"; pin_on_main "$FULL_A"; echo "rc=$? why=$PIN_WHY" )
+has   "U pin_on_main without curl: no proof"             "$OUT" "rc=1 why=no curl"
+ln -sf "$SHIMS/curl" "$NOBIN/curl"
+OUT=$( . "$UH"; PATH="$NOBIN"; pin_on_main "$FULL_A"; echo "rc=$? why=$PIN_WHY" )
+has   "U pin_on_main without python3: no proof"          "$OUT" "rc=1 why=no python3"
+FAILMK="$TMP/failmk"; mkdir -p "$FAILMK"; printf '#!/bin/sh\nexit 1\n' > "$FAILMK/mktemp"; chmod +x "$FAILMK/mktemp"
+OUT=$( . "$UH"; PATH="$FAILMK:$SHIMS:$PATH"; SHIM_LOG="$TMP/u.log"; pin_on_main "$FULL_A"; echo "rc=$? why=$PIN_WHY" )
+has   "U pin_on_main with no temp file: no proof"        "$OUT" "rc=1 why=no temp file"
+OUT=$( . "$UH"; PATH="$SHIMS:$PATH"; SHIM_LOG="$TMP/u.log"; FAKE_COMPARE_STATUS=none pin_on_main "$FULL_A"; echo "rc=$? why=$PIN_WHY" )
+has   "U pin_on_main when curl fails: the reason says no answer" "$OUT" "rc=1 why=GitHub answered HTTP none"
+OUT=$( . "$UH"; PATH="$SHIMS:$PATH"; SHIM_LOG="$TMP/u.log"; pin_on_main "$FULL_A"; echo "rc=$? why=$PIN_WHY" )
+has   "U pin_on_main on ahead: proven"                   "$OUT" "rc=0 why=ok"
+OUT=$( . "$UH"; EOL_STAGE=""; stage_committed_bytes "$TMP" ""; echo "rc=$? stage=[$EOL_STAGE]" )
+same  "U stage_committed_bytes with nothing to stage: rc 0, no stage" "$OUT" "rc=0 stage=[]"
+OUT=$( . "$UH"; EOL_STAGE=""; PATH="$FAILMK:$PATH"; stage_committed_bytes "$TMP" "x"; echo "rc=$? stage=[$EOL_STAGE]" )
+same  "U stage_committed_bytes with no temp dir: rc 0, no stage" "$OUT" "rc=0 stage=[]"
+OUT=$( . "$UH"; report_flagged /c ""; echo "rc=$?" )
+same  "U report_flagged with nothing flagged: silent, rc 0" "$OUT" "rc=0"
+OUT=$( . "$UH"; report_flagged /c "$(printf 'a.md\n\nb.md')" )
+has   "U report_flagged counts and names each path"      "$OUT" "marks 2 path(s)"
+same  "U report_flagged prints no blank path line"       "$(printf '%s\n' "$OUT" | grep -c '^      $')" 0
+build u1
+OUT=$( . "$UH"; EOL_DIVERGED=".claude/rules/allium.md"; EOL_STAGE=""; stage_clone_divergence "$T"; echo "rc=$?" )
+has   "U stage_clone_divergence reports EOL_DIVERGED"    "$OUT" "[eol] 1 file(s)"
+has   "U ... and stages it (rc 0)"                       "$OUT" "rc=0"
+OUT=$( . "$UH"; EOL_DIVERGED=""; EOL_STAGE=""; stage_clone_divergence "$T"; echo "rc=$? stage=[$EOL_STAGE]" )
+has   "U nothing diverged, nothing flagged: rc 0, no stage" "$OUT" "rc=0 stage=[]"
+hasnt "U ... and no report"                              "$OUT" "[eol]"
+"$REAL_GIT" -C "$T" update-index --skip-worktree .claude/rules/allium.md
+OUT=$( . "$UH"; EOL_DIVERGED=""; EOL_STAGE=""; stage_committed_bytes() { EOL_STAGE="$TMP/empty-stage"; mkdir -p "$EOL_STAGE"; }; stage_clone_divergence "$T"; echo "rc=$?" )
+has   "U a flagged path missing from the stage: rc 1"    "$OUT" "rc=1"
+"$REAL_GIT" -C "$T" update-index --no-skip-worktree .claude/rules/allium.md
+
+echo "== R2 — a candidate needs sync-prompt.md AND .claude/rules"
+build r2cand
+rm -f "$T/scripts/sync-prompt.md"; "$REAL_GIT" -C "$T" commit -qam "no prompt"
+OUT=$(FAKE_LSREMOTE=$FULL_A sync_local)
+has   "R2 a clone without sync-prompt.md is not a template: the remote is used" "$(cat "$LOG")" "tar.gz/$FULL_A"
 
 echo "== R3 — 082-AC-1: a dirty template clone does not reach the projects"
 build ac1

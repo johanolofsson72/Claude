@@ -33,6 +33,7 @@ HARNESS=$(mktemp)
   echo 'QUIET=0'
   echo 'say()  { printf "%s\n" "$*"; }'
   echo 'warn() { printf "%s\n" "$*"; }'
+  cat "$PWD/scripts/template-identity.sh"     # template_url_matches (spec 091 R1)
   sed -n '/^refresh_local_template() {$/,/^}$/p' "$SCRIPT"
 } > "$HARNESS"
 grep -q 'refresh_local_template' "$HARNESS" || { echo "FAIL: could not extract function"; exit 1; }
@@ -62,6 +63,10 @@ V1=$(git -C "$SEED" rev-parse HEAD~1)
 
 clone_at() {  # clone_at <dir> <sha>
   git clone -q "$ORIGIN" "$1" 2>/dev/null
+  # Spec 091 R1: the clone's origin is the template's real URL (the anchored match), and git fetches it
+  # from the local bare repository through insteadOf.
+  git -C "$1" remote set-url origin https://github.com/johanolofsson72/Claude.git
+  git -C "$1" config "url.$ORIGIN.insteadOf" https://github.com/johanolofsson72/Claude.git
   git -C "$1" checkout -q -B main "$2"
 }
 run() { ( . "$HARNESS"; refresh_local_template "$1" ) 2>&1; }
@@ -112,6 +117,14 @@ SHA=$(git -C "$C" rev-parse HEAD)
 OUT=$(run "$C")
 check "left alone" "$(git -C "$C" rev-parse HEAD)" "$SHA"
 check "says nothing" "$OUT" ""
+
+echo "== a look-alike origin is not ours to fetch (spec 091 R1, F097) =="
+C="$TMP/lookalike"; clone_at "$C" "$V1"
+git -C "$C" remote set-url origin https://github.com/evil-johanolofsson72/Claude.git
+git -C "$C" config "url.$ORIGIN.insteadOf" https://github.com/evil-johanolofsson72/Claude.git
+OUT=$(run "$C"); RC=$?
+check "returns 0" "$RC" "0"
+check "not fetched or moved" "$(git -C "$C" rev-parse HEAD)" "$V1"
 
 echo "== not a git clone at all: fails open =="
 C="$TMP/plain"; mkdir -p "$C/scripts" "$C/.claude/rules"; echo x > "$C/scripts/sync-prompt.md"

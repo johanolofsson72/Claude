@@ -24,7 +24,7 @@ Claude proposes the flag, the developer disposes; a waved-through flag is record
 
 ## Acceptance cases — full and hardened specs (BLOCKING)
 
-A full-track spec, or any row tagged `[hardened]`, also carries `<spec-dir>/acceptance.md`: 3–5 cases, each `## AC-<n> — <title>` with `**Given**` / `**When**` / `**Then**` lines. Claude drafts them after the interview. The developer confirms or corrects them in one `AskUserQuestion` showing the digest (`--digest`). Then `bash scripts/acceptance-cases.sh --confirm <spec-dir> --quote "<their exact answer>"` writes the `**Confirmed:**` line. Never confirm on the developer's behalf.
+A full-track spec, or any row tagged `[hardened]`, also carries `<spec-dir>/acceptance.md`: 3–5 cases, each `## AC-<n> — <title>` with `**Given**` / `**When**` / `**Then**` lines. Claude drafts them after the interview. The developer confirms or corrects them in one `AskUserQuestion` showing `--question`'s output, option `Confirm`. Then `bash scripts/acceptance-cases.sh --confirm <spec-dir> --quote "Confirm"` writes the `**Confirmed:**` line. Never confirm on the developer's behalf.
 
 The same guard enforces it in two steps. Until the cases parse and the digest matches, every source edit is denied, and editing a case after confirmation re-locks code until the developer confirms again. After that, test files are editable, and production source unlocks once a test file names every case as `<spec-id>-AC-<n>`. Exempt: light, spec-only and checkpoint rows, and a spec begun before 080 arrived (ticked task, no `acceptance.md`, interview committed before it, by ancestry). `SPEC_ACCEPTANCE=off` turns the step off for a project. Long form: `.claude/docs/spec-interview-rationale.md` § Acceptance cases.
 

@@ -146,16 +146,77 @@ MUTATION_RUNNER=scripts/run-mutation-gate.sh
 # suite_identity CMD — the bytes that decide what CMD executes. For `npm test` that is the package.json
 # `test` string, which is what npm runs (F2); for anything else the command line itself. Fails when the
 # string cannot be read, and an unreadable identity is never trusted.
+#
+# Spec 091 R6 (F092). The template's own line loops over scripts/test-*.sh, so hashing the line alone
+# let a new or edited test run at 02:30 under an unchanged hash. The identity now ends with one
+# `<blob hash>  <path>` line per file the text reaches (suite_files), so changing any of them changes
+# the hash and the suite reads as CHANGED until a person trusts it again.
 suite_identity() {
   if [ "$1" = "npm test" ]; then
     _t=$(python3 -c 'import json, sys
 v = json.load(open("package.json")).get("scripts", {}).get("test")
 sys.stdout.write(v if isinstance(v, str) else "")' 2>/dev/null) || return 1
     [ -n "$_t" ] || return 1
-    printf 'npm test\n%s' "$_t"
+    _head=$(printf 'npm test\n%s' "$_t")
   else
-    printf '%s' "$1"
+    _t="$1"; _head="$1"
   fi
+  _files=$(suite_files "$_t") || return 1
+  printf '%s' "$_head"
+  [ -n "$_files" ] || return 0
+  # One process for every file, attribute filters off so a clean driver cannot run while trusting.
+  _hashes=$(printf '%s\n' "$_files" | git hash-object --no-filters --stdin-paths 2>/dev/null) || return 1   # mutant-equivalent: suite_files just showed every path exists; fails only on a race
+  [ "$(printf '%s\n' "$_hashes" | wc -l)" -eq "$(printf '%s\n' "$_files" | wc -l)" ] || return 1   # mutant-equivalent: hash-object prints one line per path, or failed above
+  printf '\n'
+  paste -d ' ' <(printf '%s\n' "$_hashes") <(printf '%s\n' "$_files") | sed 's/ /  /'
+}
+# suite_files TEXT — the files a suite command reaches, sorted, one per line; fails when that cannot be
+# known honestly. A token is a word of TEXT split on whitespace, quotes and ; & | ( ) < > `:
+#   * holding `/`: expanded as a bash glob from the repository root; a directory adds every regular
+#     file under it, .git excluded;
+#   * without `/`: counted only when it names a regular file at the root (`bash test-all.sh`);
+#   * holding `/` and `$`, a backtick or `..`: the files cannot be named from here, so the identity is
+#     unreadable and the suite is never trusted (threat model A6).
+# More than SUITE_FILE_CAP files, or a path holding a newline, is unreadable too.
+SUITE_FILE_CAP=2000
+suite_files() {
+  # Split with globbing off, so a token is expanded once, below, and only when it holds a `/`. Every
+  # return restores globbing first; the rest of this script globs.
+  set -f
+  _toks=$(printf '%s' "$1" | tr '"\047;&|()<>\t' '         ')
+  _out=""
+  for _tok in $_toks; do
+    case "$_tok" in
+      */*)
+        case "$_tok" in *'$'*|*'`'*|*..*) set +f; return 1 ;; esac
+        set +f
+        _ms=$(for _m in $_tok; do printf '%s\n' "$_m"; done)
+        set -f
+        while IFS= read -r _m; do
+          [ -n "$_m" ] && [ -e "$_m" ] || continue   # mutant-equivalent: -d and -f below add nothing else
+          if [ -d "$_m" ] && [ ! -L "$_m" ]; then
+            _out="$_out
+$(find "$_m" -name .git -prune -o -type f -print 2>/dev/null)"
+          elif [ -f "$_m" ]; then
+            _out="$_out
+$_m"
+          fi
+        done <<SUITE_MATCHES
+$_ms
+SUITE_MATCHES
+        ;;
+      *'$'*|*'`'*) ;;
+      *) if [ -f "$_tok" ] && [ ! -L "$_tok" ]; then _out="$_out
+$_tok"; fi ;;
+    esac
+  done
+  set +f
+  _out=$(printf '%s\n' "$_out" | sed 's#^\./##' | grep -v '^$' | LC_ALL=C sort -u)
+  [ -n "$_out" ] || return 0
+  [ "$(printf '%s\n' "$_out" | grep -c .)" -le "$SUITE_FILE_CAP" ] || return 1
+  # A name holding a newline was split into two lines above; one that does not exist means exactly that.
+  printf '%s\n' "$_out" | while IFS= read -r _f; do [ -e "$_f" ] || exit 1; done || return 1
+  printf '%s\n' "$_out"
 }
 # hash_text TEXT — the hash of exactly TEXT, empty when there is no hasher.
 hash_text() { printf '%s' "$1" | sha256_stdin; }
@@ -217,7 +278,9 @@ if [ "$TRUST" -eq 1 ]; then
       printf '%s' "$_id" > "$TRUST_DIR/suite"
       show suite "the suite command ($([ "$_sc" = "npm test" ] && echo "npm test and the package.json test script" || echo "$SUITE_DECL"))" "$TRUST_DIR/suite"
     else
-      echo "project-maintenance: cannot read the package.json test script (python3 missing, or not a string) — the suite is not trusted." >&2
+      echo "project-maintenance: cannot name what the suite command runs — the suite is not trusted. Either the package.json" >&2
+      echo "  test script is unreadable (python3 missing, or not a string), or the command reaches files through \$, a" >&2
+      echo "  backtick or .., or more than $SUITE_FILE_CAP files (spec 091 R6). Spell the paths out in $SUITE_DECL." >&2
     fi
   fi
   if [ -f "$MUTATION_RUNNER" ]; then

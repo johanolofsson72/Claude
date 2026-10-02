@@ -86,15 +86,21 @@ with_artifacts() {
 
 # answer <root> <id> <answer> [digest] — the developer answers an AskUserQuestion that showed <digest>
 # (default: the cases' current digest), recorded by the real PostToolUse hook (spec 088 R4).
+# With no digest given, the question is exactly what --question prints (spec 091 R8); a given digest
+# gets a bare question that shows only it.
 answer() {
-  local d="${4:-$(bash "$HELPER" --digest "$1/specs/$2-demo" 2>/dev/null)}"
-  jq -cn --arg q "Cases for $2 (digest $d): confirm?" --arg a "$3" \
+  local q
+  if [ -n "${4:-}" ]; then q="Cases for $2 (digest $4): confirm?"
+  else q=$(bash "$HELPER" --question "$1/specs/$2-demo" 2>/dev/null); fi
+  jq -cn --arg q "$q" --arg a "$3" \
     '{tool_name:"AskUserQuestion",tool_input:{questions:[{question:$q}]},tool_response:{questions:[{question:$q}],answers:{($q):$a}}}' \
     | CLAUDE_PROJECT_DIR="$1" bash "$SELF_DIR/developer-answers-hook.sh" >/dev/null 2>&1
 }
+# confirm <root> <id> — the developer picks Confirm on the --question text (spec 091 R8: the only
+# answer that confirms), and --confirm records it.
 confirm() {
-  answer "$1" "$2" "${3:-Confirmed as written}"
-  bash "$HELPER" --confirm "$1/specs/$2-demo" --quote "${3:-Confirmed as written}" >/dev/null 2>&1
+  answer "$1" "$2" "Confirm"
+  bash "$HELPER" --confirm "$1/specs/$2-demo" --quote "Confirm" >/dev/null 2>&1
 }
 # arrive <root> — commit scripts/acceptance_cases.py, as the 080 sync commit does (spec 088 R6).
 arrive() {
@@ -204,8 +210,29 @@ s = open(p).read().replace("\n\n", "\n\n**Confirmed:** 2026-10-01 · %s — \"I 
 open(p, "w").write(s)
 PY
 expect "088 a hand-written, uncommitted Confirmed line with the right digest is denied" "$P/src/app.ts" deny "no recorded developer answer"
+# Spec 091 /tla GAP-1 (the ConfirmTrust OLDRECORD trace): a script forges a line quoting "No", and the
+# developer did answer "No" to a question that showed the digest. The gate itself must not count it.
+PNO=$(mk_project fgdno 080 "full track")
+write_cases "$PNO" 080 3
+printf '// 080-AC-1 080-AC-2 080-AC-3\n' > "$PNO/tests/app.test.ts"
+DNO=$(bash "$HELPER" --digest "$PNO/specs/080-demo")
+answer "$PNO" 080 "No" "$DNO"
+python3 - "$PNO/specs/080-demo/acceptance.md" "$DNO" <<'PY'
+import sys
+p, d = sys.argv[1], sys.argv[2]
+s = open(p).read().replace("\n\n", "\n\n**Confirmed:** 2026-10-02 · %s — \"No\"\n\n" % d, 1)
+open(p, "w").write(s)
+PY
+expect "091 GAP-1 a forged line quoting a recorded No (question showed the digest) is denied by the gate" "$PNO/src/app.ts" deny "no recorded developer answer"
 ( cd "$P" && git add -A && git -c user.name=t -c user.email=t@t commit -qm "cases" ) >/dev/null 2>&1
-expect "088 the same line once committed is trusted (the store is per clone)" "$P/src/app.ts" allow
+# Spec 091 R9 (F107): a local commit no longer launders it, with or without an upstream.
+expect "091-AC-5 the same line committed but not pushed is still denied" "$P/src/app.ts" deny "no recorded developer answer"
+( cd "$P" && git checkout -q -b side && git branch -q --set-upstream-to=main side ) >/dev/null 2>&1
+expect "091-AC-5 a branch tracking a local branch (remote .) is no upstream" "$P/src/app.ts" deny "no recorded developer answer"
+( cd "$P" && git checkout -q main ) >/dev/null 2>&1
+BARE088="$TMP/fgd-remote.git"; git init -q --bare "$BARE088"
+( cd "$P" && git remote add origin "$BARE088" && git push -q -u origin HEAD ) >/dev/null 2>&1
+expect "091-AC-5 once on the upstream it is trusted (the store is per clone)" "$P/src/app.ts" allow
 P=$(mk_project bkd 080 "full track")
 write_cases "$P" 080 3
 printf '// 080-AC-1 080-AC-2 080-AC-3\n' > "$P/tests/app.test.ts"
@@ -364,7 +391,7 @@ on two lines'
 line=$(grep '^\*\*Confirmed:\*\*' "$P/specs/080-demo/acceptance.md")
 n=$(grep -c '^\*\*Confirmed:\*\*' "$P/specs/080-demo/acceptance.md")
 [ "$n" -eq 1 ] && ok "one Confirmed line" || fail "$n Confirmed lines"
-case "$line" in *'he said "yes" on two lines"') ok "the quote is kept on one line, inner quotes intact" ;; *) fail "quote line: $line" ;; esac
+case "$line" in *' — "Confirm"') ok "the line quotes the developer's Confirm" ;; *) fail "quote line: $line" ;; esac
 confirm "$P" 080 "again"
 n=$(grep -c '^\*\*Confirmed:\*\*' "$P/specs/080-demo/acceptance.md")
 [ "$n" -eq 1 ] && ok "confirming again replaces the line" || fail "confirming again left $n lines"

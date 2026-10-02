@@ -284,11 +284,21 @@ fi
 # real list is ~110 names and a fixture holding none of them would report ~110 findings, which
 # proves nothing about the one under test.
 # ---------------------------------------------------------------------------------------------
+# Spec 091 R1: the template is recognised by its history. template_history <repo> borrows this clone's
+# objects and moves the repo's branch onto the template's HEAD; 1 when this clone is not the template.
+template_history() {
+  _src=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null) || return 1
+  git -C "$_src" cat-file -e d3cf8238372ce7a37d5d66b115cbcbf9d57bb2b9^{commit} 2>/dev/null || return 1
+  printf '%s\n' "$(git -C "$_src" rev-parse --path-format=absolute --git-common-dir)/objects" >> "$1/.git/objects/info/alternates"
+  git -C "$1" update-ref HEAD "$(git -C "$_src" rev-parse HEAD)"
+}
 echo
 echo "== AC-13 — a CORE_SCRIPTS name with no file behind it"
 TR="$TMP/tmplmode"; rm -rf "$TR"; mkdir -p "$TR/scripts"
 ( cd "$TR" && git init -q . >/dev/null 2>&1 && git remote add origin \
     "https://github.com/johanolofsson72/Claude.git" >/dev/null 2>&1 )
+TMPL_OK=1; template_history "$TR" || TMPL_OK=0
+cp "$PWD/scripts/template-identity.sh" "$TMP/"
 mkdir -p "$TR/.claude"
 : > "$TR/scripts/present-core.sh"
 
@@ -305,6 +315,8 @@ open(dst, 'w', encoding='utf-8').write(
 PYEOF
 if [ $? -ne 0 ]; then
   bad "AC-13 CORE_SCRIPTS anchor not found — the list was reshaped and this arm cannot aim"
+elif [ "$TMPL_OK" -eq 0 ]; then
+  skip "AC-13" "this clone is not the template, so template mode cannot be built (spec 091 R1)"
 else
   TOUT=$(DRIVE_SYNC_SCRIPT="$TWO" drive_sync "$TR" "$TMP" --unlisted 2>/dev/null); TRC=$?
   same "AC-13 a missing name is a finding, so exit 0"        "$TRC"  "0"

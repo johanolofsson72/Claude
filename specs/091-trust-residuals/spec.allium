@@ -1,0 +1,301 @@
+-- allium: 3
+--
+-- 091 — trust residuals.
+--
+-- Seven checks compared against state the agent's own tools could write. Each rule below moves one
+-- check onto something the agent cannot cheaply produce, or narrows what a writer can reach.
+-- Rules cite R1..R10 (spec.md) and the developer's overflow answers O1..O3 (interview.md). The
+-- template keeps no scenario map.
+
+enum Identity { template | impostor | project }
+
+enum Verdict { allow | deny }
+
+enum Place { local | cloud }
+
+enum CompareStatus { ahead | identical | behind | diverged | unknown }
+
+enum TrustState { trusted | changed | untrusted }
+
+config {
+    template_root: String = "d3cf8238372ce7a37d5d66b115cbcbf9d57bb2b9"
+    confirm_label: String = "Confirm"
+    directory_file_cap: Integer = 2000
+}
+
+entity Repository {
+    origin_url: String?
+    url_matches_anchored: Boolean               -- one of the three spellings, optional .git and /
+    true_roots: Set<String>                     -- rev-list --max-parents=0 HEAD, no replace refs, no grafts
+    identity: Identity
+
+    -- R1 (F097): the URL alone never makes a repository the template.
+    invariant IdentityNeedsHistory {
+        this.identity != template or (this.url_matches_anchored and this.true_roots = {config.template_root})
+    }
+    invariant ImpostorIsUrlWithoutHistory {
+        this.identity != impostor or (this.url_matches_anchored and this.true_roots != {config.template_root})
+    }
+}
+
+entity TemplateExemption {
+    repo: Repository
+    guard_exempts: Boolean                      -- core-machinery, core-owed-tick
+    sync_skips: Boolean                         -- template-autosync.sh and its hook
+    sync_writes: Boolean
+
+    invariant OnlyTheTemplateIsExempt {
+        this.guard_exempts = (this.repo.identity = template)
+    }
+    invariant ImpostorWritesNothing {
+        this.repo.identity != impostor or not this.sync_writes
+    }
+}
+
+entity OwedQuery {
+    -- /tla drift 1: --owed reads only the project's manifest. core-owed-tick-guard fails OPEN on
+    -- "cannot answer", so an impostor answers it as the project it is (built, then specified).
+    repo: Repository
+    answers: Boolean
+
+    invariant ImpostorAnswersOwed {
+        this.repo.identity != impostor or this.answers
+    }
+}
+
+entity BashCommand {
+    writes_remote_url: Boolean                  -- remote add|set-url|rename|remove|rm, config remote.*.url|pushurl, url.*.insteadOf|pushInsteadOf
+    rewrites_tracking_ref: Boolean              -- update-ref, or a fetch/push refspec writing refs/remotes/
+    names_placement_table: Boolean              -- .claude/workload-placement.tsv as a write target
+    verdict: Verdict
+}
+
+entity Pin {
+    sha: String
+    clone_head_is_pin: Boolean
+    clone_clean: Boolean                        -- status clean AND no skip-worktree/assume-unchanged path
+    clone_has_ancestry: Boolean                 -- merge-base --is-ancestor pin origin/main in the clone
+    api_status: CompareStatus
+    api_merge_base: String?
+    proven: Boolean
+    downloaded: Boolean
+    synced: Boolean
+
+    -- R3 (F079): nothing pinned is synced without proof the pin is on the template's main.
+    invariant SyncNeedsProof {
+        not this.synced or this.proven
+    }
+    invariant DownloadNeedsProof {
+        not this.downloaded or this.proven
+    }
+}
+
+entity CloneCopy {
+    flagged_paths: Set<String>                  -- ls-files -v tag S or lower case
+    shipped_from_index: Set<String>
+    ignored_skill_files: Set<String>
+    shipped_paths: Set<String>
+
+    -- R4 (F079): a flagged path ships its committed bytes; an ignored file never ships.
+    invariant FlaggedShipCommitted {
+        for p in this.flagged_paths:
+            p in this.shipped_from_index
+    }
+    invariant IgnoredNeverShips {
+        for p in this.ignored_skill_files:
+            not (p in this.shipped_paths)
+    }
+}
+
+entity UpdateRun {
+    claude_supports_restricted: Boolean
+    started: Boolean
+    flag_restricted: Boolean
+    flag_dont_ask: Boolean
+    tools_listed: Set<String>
+    claude_exit: Integer?
+    frontmatter_hooks_added: Set<String>        -- A5: changed or new skills/agents/commands files whose
+                                                -- frontmatter sets hooks, allowed-tools, permissionMode or
+                                                -- mcpServers, or that are not markdown
+    exit_code: Integer?
+
+    -- R5 (F080).
+    invariant NeverUnconfined {
+        not this.started or (this.flag_restricted and this.flag_dont_ask)
+    }
+    invariant NoStartWithoutRestricted {
+        this.claude_supports_restricted or not this.started
+    }
+}
+
+entity SuiteIdentity {
+    command_text: String
+    reached_files: Set<String>                  -- path-like tokens, glob-expanded, directories walked
+    file_hashes: Set<String>                    -- one blob hash per reached file
+    identity_text: String
+
+    unnameable: Boolean                         -- A6: a path token with $, ` or .., over 2000 files, a newline
+    trusted: Boolean
+
+    -- R6 (F092): a change to any reached file changes the identity.
+    invariant FilesAreInTheIdentity {
+        this.file_hashes.count = this.reached_files.count
+    }
+    -- A6: what cannot be named is never trusted.
+    invariant UnnameableNeverTrusted {
+        not this.unnameable or not this.trusted
+    }
+}
+
+entity CloudStamp {
+    job: String
+    placed_here: Place
+    imported: Boolean
+
+    -- R7 (F095).
+    invariant OnlyCloudJobsStamped {
+        not this.imported or this.placed_here = cloud
+    }
+    invariant SecretsNeverStamped {
+        not (this.job = "secrets" and this.imported)
+    }
+}
+
+entity RecordedAnswer {
+    question_shows_digest: Boolean
+    digest_on_disk: Boolean
+    question_is_canonical: Boolean             -- collapsed question equals the --question text for its digest
+    answer_is_confirm: Boolean                  -- collapsed, case-insensitive equal to config.confirm_label
+    binds_digest: Boolean
+
+    -- R8 (F104, O3).
+    invariant OnlyConfirmBinds {
+        this.binds_digest = (this.question_shows_digest and this.digest_on_disk
+                             and this.question_is_canonical and this.answer_is_confirm)
+    }
+}
+
+entity ConfirmedLine {
+    digest_matches: Boolean
+    answer_bound: Boolean                       -- RecordedAnswer with binds_digest for this quote
+    on_upstream: Boolean                        -- the same line at @{upstream}, which A9 requires to be a
+                                                -- ref under refs/remotes/ (a branch tracking `.` has none)
+    committed_at_head: Boolean
+    gate_opens: Boolean
+
+    -- R9 (F107): HEAD alone is no longer evidence.
+    invariant GateNeedsAnswerOrUpstream {
+        not this.gate_opens or (this.digest_matches and (this.answer_bound or this.on_upstream))
+    }
+}
+
+rule ClassifyRepository {
+    -- R1.
+    when: IdentityAsked(repo)
+    ensures:
+        if repo.url_matches_anchored and repo.true_roots = {config.template_root}:
+            repo.identity = template
+        else:
+            if repo.url_matches_anchored:
+                repo.identity = impostor
+            else:
+                repo.identity = project
+}
+
+rule ImpostorSyncWarns {
+    -- R1: autosync on an impostor writes nothing and says why, exit 0.
+    when: SyncStarted(ex)
+    requires: ex.repo.identity = impostor
+    ensures:
+        ex.sync_writes = false
+        WarningPrinted(ex, "origin names the template but HEAD's history is not the template's")
+}
+
+rule DenyRemoteRewrite {
+    -- R2 (O1): every remote URL write is the developer's step.
+    when: BashProposed(cmd)
+    requires: cmd.writes_remote_url or cmd.rewrites_tracking_ref
+    ensures: cmd.verdict = deny
+}
+
+rule DenyPlacementWrite {
+    -- R7 (O2): the placement override is a human decision.
+    when: BashProposed(cmd)
+    requires: cmd.names_placement_table
+    ensures: cmd.verdict = deny
+}
+
+rule ProvePin {
+    -- R3: the clone proves it locally, or GitHub's compare answers ahead/identical with the pin as merge base.
+    when: PinnedSyncStarted(pin)
+    ensures:
+        if pin.clone_head_is_pin and pin.clone_clean and pin.clone_has_ancestry:
+            pin.proven = true
+        else:
+            if pin.api_status in {ahead, identical} and pin.api_merge_base = pin.sha:
+                pin.proven = true
+            else:
+                pin.proven = false
+}
+
+rule RefuseUnprovenPin {
+    when: PinnedSyncStarted(pin)
+    requires: not pin.proven
+    ensures:
+        pin.downloaded = false
+        pin.synced = false
+        WarningPrinted(pin, "cannot show CLAUDE_TEMPLATE_PIN is on the template's main")
+}
+
+rule StartConfined {
+    -- R5.
+    when: UpdateRequested(run)
+    ensures:
+        if run.claude_supports_restricted:
+            run.started = true
+            run.flag_restricted = true
+            run.flag_dont_ask = true
+        else:
+            run.started = false
+            run.exit_code = 2
+}
+
+rule ReviewFrontmatterHooks {
+    -- R5: claude's own failure wins; exit 4 only after a clean claude run.
+    when: UpdateFinished(run)
+    requires: run.claude_exit = 0 and run.frontmatter_hooks_added.count > 0
+    ensures: run.exit_code = 4
+}
+
+rule SuiteTrustFollowsFiles {
+    -- R6: a stored hash of the old identity reads as changed.
+    when: SuiteFileEdited(s)
+    ensures: SuiteTrust(s) = changed
+}
+
+rule PullStamp {
+    -- R7.
+    when: StampPulled(st)
+    ensures:
+        if st.placed_here = cloud and st.job != "secrets":
+            st.imported = true
+        else:
+            st.imported = false
+}
+
+rule RecordAnswer {
+    -- R8.
+    when: AskUserQuestionAnswered(a)
+    ensures: a.binds_digest = (a.question_shows_digest and a.digest_on_disk
+                               and a.question_is_canonical and a.answer_is_confirm)
+}
+
+rule GateConfirmedLine {
+    -- R9: timeout fails open and any other git error denies, as before (not modelled).
+    when: SourceEditProposed(line)
+    ensures: line.gate_opens = (line.digest_matches and (line.answer_bound or line.on_upstream))
+}
+
+-- Allium findings 1 and 2: deferred by the developer 2026-10-02, recorded in specs/FINDINGS.md.
+deferred CloudResultSignature -- see: specs/091-trust-residuals/spec.md
+deferred SuiteSourceClosure -- see: specs/091-trust-residuals/spec.md

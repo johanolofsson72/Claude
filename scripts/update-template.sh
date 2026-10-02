@@ -176,8 +176,21 @@ echo ""
 # script changes come back as recommendations in the report. Read is denied on the credential
 # stores, because Read plus WebFetch is an exfiltration channel. Space-separated: `claude --help`
 # documents the flag as a comma- or space-separated list.
+# Spec 091 R5 (F080). Those path rules are relative to the repository, so an injected model could still
+# Write ~/.claude/settings.json, a shell rc file or .mcp.json. --restricted confines the file tools to the
+# working directory, ignores user/project/local settings, refuses bypassPermissions and leaves writes to
+# settings, git and tool-configuration files to a person; dontAsk denies whatever is not pre-allowed
+# instead of prompting nobody; --tools must name WebFetch, which restricted mode otherwise removes. A
+# claude that does not know --restricted cannot confine the model, so the run does not start.
+CLAUDE_HELP=$(claude --help 2>/dev/null || true)
+if ! grep -Eq '^[[:space:]]*--restricted([^[:alnum:]-]|$)' <<< "$CLAUDE_HELP"; then
+  echo "Error: this claude has no --restricted mode, so the model could write outside $REPO_ROOT." >&2
+  echo "       Update Claude Code (claude update) and run this again. Nothing was started." >&2
+  exit 2
+fi
 ALLOWED="WebSearch,WebFetch,Read,Glob,Grep,Skill"
 GUARDED="Edit(.git/**) Write(.git/**) Edit(.claude/settings*.json) Write(.claude/settings*.json)"
+GUARDED="$GUARDED Edit(.mcp.json) Write(.mcp.json)"
 GUARDED="$GUARDED Edit(scripts/**) Write(scripts/**)"
 GUARDED="$GUARDED Read(~/.ssh/**) Read(~/.aws/**) Read(~/.gnupg/**) Read(~/.config/gh/**) Read(~/.netrc) Read(~/.git-credentials)"
 DISALLOWED="Bash Agent $GUARDED"
@@ -195,9 +208,31 @@ cd "$REPO_ROOT"
 # set +e around the pipe: under -e with pipefail a failing claude would end the script here, before
 # the exit code is reported and before the diff a human needs to see.
 set +e
-claude -p "$PROMPT" --allowedTools "$ALLOWED" --disallowedTools "$DISALLOWED" 2>&1 | tee "$LOG"
+claude -p "$PROMPT" --restricted --permission-mode dontAsk --tools "$ALLOWED" \
+  --allowedTools "$ALLOWED" --disallowedTools "$DISALLOWED" 2>&1 | tee "$LOG"
 EXIT_CODE=${PIPESTATUS[0]}
 set -e
+
+# Spec 091 R5. --restricted may not count a skill's or agent's frontmatter as tool configuration, and a
+# `hooks:` key there runs commands in every project the sync reaches. Every changed or new file under
+# .claude/skills, .claude/agents or .claude/commands is read: a frontmatter key that grants or wires
+# something, or any file that is not markdown (a script), is named for review. Nothing is reverted.
+REVIEW=$(git -C "$REPO_ROOT" -c core.fsmonitor=false -c core.quotePath=false status --porcelain -uall \
+           -- .claude/skills .claude/agents .claude/commands 2>/dev/null \
+         | cut -c4- | sed 's/.* -> //' | while IFS= read -r f; do
+  [ -f "$REPO_ROOT/$f" ] || continue
+  if [ "${f%.md}" != "$f" ]; then   # an if: bash 3.2 cannot parse a case inside $(...)
+      if awk 'NR == 1 { sub(/^\xef\xbb\xbf/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "---") exit 1; next }
+              { sub(/\r$/, "") }
+              /^---[[:space:]]*$/ { exit 1 }
+              /^[[:space:]]*["\047]?(hooks|allowed-tools|allowedTools|permissionMode|mcpServers)["\047]?[[:space:]]*:/ { found = 1; exit 0 }
+              END { exit found ? 0 : 1 }' "$REPO_ROOT/$f"; then
+        echo "[REVIEW] $f: its frontmatter sets hooks, allowed-tools, permissionMode or mcpServers"
+      fi
+  else
+    echo "[REVIEW] $f: not markdown, so it can run in every project the sync reaches"
+  fi
+done)
 
 echo ""
 echo "════════════════════════════════════════════════════════"
@@ -210,4 +245,10 @@ fi
 echo ""
 echo "Review before committing (git diff --stat):"
 git -C "$REPO_ROOT" -c core.fsmonitor=false -c core.hooksPath=/dev/null --no-pager diff --no-ext-diff --no-textconv --stat
+if [ -n "$REVIEW" ]; then
+  echo ""
+  printf '%s\n' "$REVIEW"
+  # claude's own failure wins: exit 4 only replaces a clean run's 0.
+  [ "$EXIT_CODE" -eq 0 ] && EXIT_CODE=4
+fi
 exit $EXIT_CODE

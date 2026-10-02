@@ -284,12 +284,28 @@ OUT=$(run_hook "$FRESH/specs/INDEX.md" "$TICK")
 # ---- the template repository ----------------------------------------------------
 # The deny says "go and land it in the template". Denying the tick there would leave the
 # instruction with nowhere to be followed.
+# Spec 091 R1: the template is recognised by its history, so the fixture borrows this clone's objects
+# and moves its branch onto the template's HEAD. Returns 1 when this clone is not the template (a
+# project runs this test too), and the arm then checks only that a URL alone exempts nothing.
+template_history() {
+  _src=$(git -C "$SELF_DIR" rev-parse --show-toplevel 2>/dev/null) || return 1
+  git -C "$_src" cat-file -e d3cf8238372ce7a37d5d66b115cbcbf9d57bb2b9^{commit} 2>/dev/null || return 1
+  printf '%s\n' "$(git -C "$_src" rev-parse --path-format=absolute --git-common-dir)/objects" >> "$1/.git/objects/info/alternates"
+  git -C "$1" update-ref HEAD "$(git -C "$_src" rev-parse HEAD)"
+}
 TPL=$(make_project tpl)
 printf 'edited\n' > "$TPL/scripts/spec_active.py"
 git -C "$TPL" remote set-url origin "https://github.com/johanolofsson72/Claude.git"
 OUT=$(run_hook "$TPL/specs/INDEX.md" "$TICK")
-[ -z "$OUT" ] && ok "the template repository is exempt — that is where the change belongs" \
-              || { bad "the guard fired inside the template repo"; info "$(reason "$OUT")"; }
+[ "$(decision "$OUT")" = deny ] && ok "the template's URL alone exempts nothing (spec 091 R1)" \
+              || { bad "a project became the template by naming its URL"; info "$OUT"; }
+if template_history "$TPL"; then
+  OUT=$(run_hook "$TPL/specs/INDEX.md" "$TICK")
+  [ -z "$OUT" ] && ok "the template repository is exempt — that is where the change belongs" \
+                || { bad "the guard fired inside the template repo"; info "$(reason "$OUT")"; }
+else
+  printf '        skip: this clone is not the template, so the exempt arm cannot be built\n'
+fi
 
 # ---- nothing is written on the deny path -----------------------------------------
 # FR-012a. Nothing in this family writes when it refuses; the deny text is the record.

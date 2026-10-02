@@ -18,7 +18,8 @@
 # <TAB>date<TAB>done<TAB>rows`). No job output: a log can carry a secret, a number cannot. The pull
 # parses field by field against fixed job names and numeric fields; nothing in a results file is
 # executed or sourced. Imported file names are kept in .claude/state/cloud-imported, so a second
-# pull is a no-op. A stamp never moves backwards (maintenance-due.sh --stamp-as).
+# pull is a no-op. A stamp never moves backwards (maintenance-due.sh --stamp-as), and it is imported only
+# for a job workload-placement.sh places in the cloud on this machine; secrets never is (spec 091 R7).
 #
 # Exit: 0 ok · 1 the pass reported findings (still published) · 2 could not run · 3 publish failed.
 # CLOUD_RESULTS_REMOTE overrides the remote name (default origin). bash 3.2-safe.
@@ -114,7 +115,11 @@ if [ "$MODE" = pull ]; then
     while IFS="$TAB" read -r kind a b c d; do
       case "$kind" in
         L) printf '%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" >> "$LEDGER" ;;
-        S) if bash scripts/maintenance-due.sh --stamp-as "$a" "$b" "$c" "$d"; then
+        # Spec 091 R7 (F095): a stamp from a branch marks a job done only when this machine places that
+        # job in the cloud. Anything else (local, an unknown place, secrets) is skipped and counted.
+        S) if [ "$(env -u WORKLOAD_PLACEMENT_ROOT bash scripts/workload-placement.sh --place "$a" 2>/dev/null)" != cloud ]; then
+             say "skipped $name stamp $a — $a runs locally here"; SKIPPED_LINES=$((SKIPPED_LINES + 1))
+           elif bash scripts/maintenance-due.sh --stamp-as "$a" "$b" "$c" "$d"; then
              echo "cloud-maintenance: stamped $a from $name ($b, $c spec(s) done)"
            else
              say "skipped $name stamp $a — rejected"; SKIPPED_LINES=$((SKIPPED_LINES + 1))

@@ -174,9 +174,11 @@ re-wrapping a line does not either. Changing a word does. The digest is not a si
 recompute it, but doing so is a deliberate act that sits in the same diff as the changed case. It
 cannot happen by accident while the code is being made to pass.
 
-**Who confirms.** Claude drafts, then shows the cases in one `AskUserQuestion` whose question text
-includes the digest (`--digest`), and records the answer with
-`scripts/acceptance-cases.sh --confirm <spec-dir> --quote "<their exact answer>"`.
+**Who confirms.** Claude drafts, then shows the cases in one `AskUserQuestion` whose question text is
+what `scripts/acceptance-cases.sh --question <spec-dir>` prints (the digest and every case in full),
+with an option labelled `Confirm`. When the developer picks it, Claude records it with
+`scripts/acceptance-cases.sh --confirm <spec-dir> --quote "Confirm"`. A correction typed under Other
+confirms nothing: Claude edits the cases and asks again.
 
 Under 080 that was the whole mechanism, and the quote could be anything (F094). Since spec 088 the
 answer is bound to the developer:
@@ -188,14 +190,21 @@ answer is bound to the developer:
 - `--confirm` writes the Confirmed line only when that file holds the hash of the quote together with
   the cases' current digest. Otherwise it exits 3 and says how to ask. An answer from another spec,
   or one given before a case changed, carries another digest and does not count.
+- Since spec 091 (F104) the hook records a digest only for the answer `Confirm` (any case), and only
+  when the question showed every case's heading and Given, When and Then lines. Before that, "No" to
+  an unrelated question that happened to show the digest could be quoted as a confirmation.
+- A Confirmed line no answer in this clone backs is trusted once it is on the branch's upstream
+  (a remote-tracking ref). Until spec 091 (F107) a line committed at HEAD was enough, so one local
+  commit laundered a line that reached the file through a script.
 - `scripts/trust-anchor-guard-hook.sh` denies the agent's tools the rest of the way round: a
   Write/Edit/MultiEdit that adds, removes or changes the Confirmed line, a shell write to an
   `acceptance.md`, any tool call naming the answer store, and an `AskUserQuestion` that arrives with
   its own `answers` (an honest one never does at PreToolUse).
 
-What remains: a script file the agent writes and then runs, which no command-text guard sees, and a
-question that misdescribes the cases. The developer reads the question, which is why the digest and
-the file path go in it.
+What remains: a script file the agent writes and then runs, which no command-text guard sees, a
+question that shows the cases and then misdescribes them, and a forged line pushed for real, which
+is visible in the shared history. The developer reads the question, which is why the cases go in it
+whole.
 
 **Tests first.** Once the cases are confirmed, test files are editable and production source is not.
 A test file is recognised by path (`test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`,

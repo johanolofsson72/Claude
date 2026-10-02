@@ -136,8 +136,18 @@ projects update themselves. Spec 082 narrows what can go wrong between the push 
   exact commit (`codeload…/tar.gz/<40-hex>`), never `refs/heads/main`. Reading a moving ref twice could stamp one commit and
   ship another.
 - You can pin it. `CLAUDE_TEMPLATE_PIN=<40-hex sha>` in the project's settings `env` holds it on a commit you
-  reviewed. A local clone serves the pin only when its `HEAD` is that commit and its tree is clean. Otherwise the run downloads
-  the pinned commit. A tag or a short SHA is refused, because either one can be moved or collide. Unset, the project tracks main.
+  reviewed. A local clone serves the pin only when its `HEAD` is that commit, its tree is clean, and the commit is in its
+  `origin/main`. Otherwise the run downloads the pinned commit, but only after GitHub's compare API says main is ahead of
+  the pin (or the same) with the pin as merge base (spec 091, F079). codeload serves any commit in the template's fork
+  network under the template's URL, so without that check a fork's commit would sync. No answer, a rate limit or no
+  python3 means no proof, and nothing is synced. A tag or a short SHA is refused, because either one can be moved or
+  collide. Unset, the project tracks main.
+- A clean clone ships its committed bytes. `git status` hides files marked skip-worktree or assume-unchanged, so those are
+  copied from the index, with a warning naming them. Skills come from `git ls-files`, so an ignored file under
+  `.claude/skills/` stays home, and a tracked symlink is never copied.
+- The template is recognised by its history. The template repository is never synced onto itself. Until spec 091 that was
+  decided by origin's URL alone. Now HEAD's history must also start at the template's first commit. A project whose origin
+  was pointed at the template, or a shallow clone of the template, gets a warning and no sync.
 - Uncommitted edits stay home. A clone with uncommitted changes is not synced (table above). Half-edited files under a SHA that
   does not describe them used to be committed and pushed into every project.
 - Symlinks are skipped, with a `[skip]` line. Following one would copy a file from the syncing

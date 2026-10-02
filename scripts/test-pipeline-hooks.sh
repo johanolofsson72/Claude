@@ -1146,14 +1146,28 @@ _expect "autosync: opted out — no marker is written (SC-1305)"  absent "$(auto
 _expect "autosync: opted out — silent (SC-1305)"                ""     "$FOUT"
 rm -rf "$FD"
 
-# Control — the template repo is never its own sync target.
+# Control — the template repo is never its own sync target. Spec 091 R1: it is recognised by its
+# history, so the fixture borrows this clone's objects and moves onto its HEAD (only possible when this
+# clone IS the template), and a URL alone is a project like any other.
 GD=$(autosync_sandbox "$SLOW_SYNC")
+cp "$ROOT/scripts/template-identity.sh" "$GD/scripts/"
 git -C "$GD" remote set-url origin https://github.com/johanolofsson72/Claude.git
-GOUT=$(autosync_hook "$GD" TEMPLATE_AUTOSYNC_LIMIT=2)
-_expect "autosync: the template repo syncs nothing (SC-1299)"        0      "$(autosync_runs "$GD")"
-_expect "autosync: the template repo writes no marker (SC-1299)"     absent "$(autosync_marker "$GD")"
-_expect "autosync: the template repo is silent (SC-1299)"            ""     "$GOUT"
+if git -C "$ROOT" cat-file -e d3cf8238372ce7a37d5d66b115cbcbf9d57bb2b9^{commit} 2>/dev/null; then
+  printf '%s\n' "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/objects" >> "$GD/.git/objects/info/alternates"
+  git -C "$GD" update-ref HEAD "$(git -C "$ROOT" rev-parse HEAD)"
+  GOUT=$(autosync_hook "$GD" TEMPLATE_AUTOSYNC_LIMIT=2)
+  _expect "autosync: the template repo syncs nothing (SC-1299)"        0      "$(autosync_runs "$GD")"
+  _expect "autosync: the template repo writes no marker (SC-1299)"     absent "$(autosync_marker "$GD")"
+  _expect "autosync: the template repo is silent (SC-1299)"            ""     "$GOUT"
+fi
 rm -rf "$GD"
+ID=$(autosync_sandbox "$SLOW_SYNC")
+cp "$ROOT/scripts/template-identity.sh" "$ID/scripts/"
+git -C "$ID" commit -q --allow-empty -m "a project's own root"
+git -C "$ID" remote set-url origin https://github.com/johanolofsson72/Claude.git
+autosync_hook "$ID" TEMPLATE_AUTOSYNC_LIMIT=2 >/dev/null
+_expect "autosync: the template's URL on a project's history still runs the sync (spec 091 R1)" 1 "$(autosync_runs "$ID")"
+rm -rf "$ID"
 
 # The bound must exist even where coreutils does not. Stock macOS ships neither
 # `timeout` nor `gtimeout`; without a bound of its own the hook runs the sync

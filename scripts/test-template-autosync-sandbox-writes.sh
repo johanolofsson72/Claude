@@ -84,6 +84,7 @@ same "inside origin: the bare repo holds the sync commit"  "$(git -C "$WORK/s1in
 HARNESS="$WORK/harness.sh"
 {
   echo 'warn() { printf "%s\n" "$*" >&2; }'
+  cat "$(dirname "$SCRIPT")/template-identity.sh"     # template_url_matches (spec 091 R1)
   for fn in _phys _within _inside_sandbox _push_inside_sandbox _clone_inside_sandbox refresh_local_template; do
     sed -n "/^$fn() {/,/^}\$/p" "$SCRIPT"
   done
@@ -146,7 +147,14 @@ git -C "$SEED" remote add origin "$ORIGIN" && git -C "$SEED" push -q origin main
 V1=$(git -C "$SEED" rev-parse HEAD)
 echo v2 > "$SEED/scripts/sync-prompt.md"; git -C "$SEED" commit -qam v2 && git -C "$SEED" push -q origin main
 V2=$(git -C "$SEED" rev-parse HEAD)
-clone_v1() { git clone -q "$ORIGIN" "$1" 2>/dev/null; git -C "$1" checkout -q -B main "$V1"; git -C "$1" update-ref refs/remotes/origin/main "$V1"; }
+clone_v1() {
+  git clone -q "$ORIGIN" "$1" 2>/dev/null
+  # Spec 091 R1: the clone's origin is the template's real URL (the anchored match), and git fetches it
+  # from the local bare repository through insteadOf.
+  git -C "$1" remote set-url origin https://github.com/johanolofsson72/Claude.git
+  git -C "$1" config "url.$ORIGIN.insteadOf" https://github.com/johanolofsson72/Claude.git
+  git -C "$1" checkout -q -B main "$V1"; git -C "$1" update-ref refs/remotes/origin/main "$V1"
+}
 refresh() {  # refresh <clone> <sandbox-or-empty> [harness]
   ( . "${3:-$HARNESS}"
     if [ -n "$2" ]; then CLAUDE_TEMPLATE_SYNC_SANDBOX="$2"; _sbx=$(_phys "$2"); fi

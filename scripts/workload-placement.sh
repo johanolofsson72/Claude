@@ -9,7 +9,7 @@
 # The table: scripts/workload-placement.tsv ships with the template (CORE). A project overrides it
 # line by line in .claude/workload-placement.tsv, which sync never touches. One line per job:
 #   job<TAB>place<TAB>reason        place is `local` or `cloud`; `#` starts a comment
-# A job with no line is local. A place that is neither is an error, never a quiet `local`: a typo
+# A job with no line is local, and `secrets` is local whatever a table says (spec 091 R7). A place that is neither is an error, never a quiet `local`: a typo
 # must not keep Stryker on the laptop forever, nor skip it everywhere.
 #
 # Usage:
@@ -35,7 +35,7 @@ usage() {
 # lines FILE SOURCE — the file's job lines as job<TAB>place<TAB>source, comments and blanks dropped.
 # CR is stripped: a table saved on Windows must not turn `cloud` into `cloud\r`, an unknown place.
 lines() {
-  [ -f "$1" ] || return 0
+  [ -f "$1" ] || return 0   # mutant-equivalent: the status is never read (a { } group feeding awk)
   tr -d '\r' < "$1" | awk -F'\t' -v src="$2" '
     /^[[:space:]]*(#|$)/ { next }
     { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
@@ -59,6 +59,12 @@ case "${1:-}" in
     LINE=$(effective | awk -F'\t' -v j="$2" '$1 == j' | head -1)
     if [ -z "$LINE" ]; then echo local; exit 0; fi
     PLACE=$(printf '%s' "$LINE" | cut -f2)
+    # Spec 091 R7 (F095). A cloud run's stamp counts only for a job placed in the cloud, so placing the
+    # secret scan there would let a stamp on a branch mark it done while it runs nowhere. It is 6-51 s.
+    if [ "$2" = secrets ] && [ "$PLACE" != local ]; then
+      echo "workload-placement: secrets is always local: a cloud stamp must never mark the secret scan done (spec 091). Ignoring '$PLACE'." >&2
+      echo local; exit 0
+    fi
     case "$PLACE" in
       local|cloud) echo "$PLACE" ;;
       *)

@@ -134,6 +134,9 @@ TEMPLATE_REPO_URL="https://github.com/johanolofsson72/Claude.git"
 # refs/heads/main, which made the download a second read of a moving ref: ls-remote could name one
 # commit, the tarball carry another, and the stamp vouch for bytes it never described.
 TEMPLATE_TARBALL_BASE="https://codeload.github.com/johanolofsson72/Claude/tar.gz"
+# Spec 091 R3 (F079). codeload serves any commit in the template's fork network under the template's
+# URL, so a pin is proven to be on main before anything is downloaded. Fixed, never from the env.
+TEMPLATE_COMPARE_BASE="https://api.github.com/repos/johanolofsson72/Claude/compare"
 
 MODE_CHECK=0; MODE_DRYRUN=0; FORCE=0; DO_COMMIT=1; QUIET=0; MODE_ACCEPT=0; ACCEPT_PATHS=""
 MODE_IS_CORE=0; IS_CORE_PATH=""
@@ -246,7 +249,7 @@ test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
 core-owed-tick-guard-hook.sh test-core-owed-tick-guard.sh
 bash_write_targets.py bash-write-guard-hook.sh bash-write-detect-hook.sh test-bash-write-guard.sh
-guard-lib.sh guard-precheck.sh test-guard-lib.sh test-guard-fail-closed.sh test-guard-exit-codes.sh
+guard-lib.sh guard-precheck.sh template-identity.sh test-template-identity.sh test-guard-lib.sh test-guard-fail-closed.sh test-guard-exit-codes.sh
 destructive-command-guard-hook.sh destructive_command.py shell_glob.py test-destructive-command-guard.sh
 sensitive-file-guard-hook.sh sensitive_paths.py test-sensitive-file-guard.sh
 trust-anchor-guard-hook.sh test-trust-anchor-guard.sh developer-answers-hook.sh test-developer-answers.sh
@@ -895,14 +898,16 @@ STAMP="$PROJECT_ROOT/.claude/.template-sync"
 # never reassigned — so there is still no reader in between and still no behaviour in the move.
 STAMP_REL=".claude/.template-sync"
 
-# Never sync the template onto itself. Identify it by remote URL — file markers
-# are useless here because the sync copies scripts/sync-prompt.md and friends
-# into every project, so every synced project looks like the template.
-ORIGIN=$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null)
+# Never sync the template onto itself. Identify it by its history, not its remote URL (spec 091 R1,
+# F097): file markers are useless because the sync copies scripts/sync-prompt.md and friends into
+# every project, and origin is one `git remote set-url` away. template-identity.sh has the reasoning.
+# A missing library reads as a project, which is what every repository but one is.
+IDENTITY=project
+if . "$(dirname -- "$0")/template-identity.sh" 2>/dev/null; then
+  IDENTITY=$(template_identity "$PROJECT_ROOT")
+fi
 IS_TEMPLATE=0
-case "$ORIGIN" in
-  *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) IS_TEMPLATE=1 ;;
-esac
+[ "$IDENTITY" = template ] && IS_TEMPLATE=1
 
 # ------------------------------------------------------------ --unlisted (spec 007ca)
 # The machine-readable half of the block above: findings on stdout, one per line, and nothing else.
@@ -936,6 +941,16 @@ if [ "$IS_TEMPLATE" -eq 1 ]; then
   # a sync here to sync anything — the hook fires at every session start and this is where it lands —
   # so a finding that is not rendered on this path is rendered nowhere.
   report_unlisted "$(unlisted_core_shaped template "$PROJECT_ROOT")"
+  exit 0
+fi
+# Spec 091 R1. Origin names the template and HEAD's history is not the template's: a project whose
+# origin was pointed at the template, or a shallow clone of the template. Syncing is wrong for the
+# second and skipping silently is wrong for the first, so nothing is written and a human decides.
+# --owed is the exception: it reads only the project's own manifest, and core-owed-tick-guard fails
+# OPEN on "cannot answer", so an impostor answers it as the project it is.
+if [ "$IDENTITY" = impostor ] && [ "$MODE_OWED" -eq 0 ]; then
+  warn "[warn] origin names the template but HEAD's history is not the template's — not syncing"
+  warn "       (a project whose origin was changed, or a shallow clone of the template; check git remote -v)"
   exit 0
 fi
 
@@ -1030,10 +1045,12 @@ EOL_STAGE=""
 refresh_local_template() {
   _c="$1"
   git -C "$_c" rev-parse --git-dir >/dev/null 2>&1 || return 0
-  case "$(git -C "$_c" remote get-url origin 2>/dev/null)" in
-    *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) ;;
-    *) return 0 ;;   # a different repo parked at that path: not ours to fetch
-  esac
+  # Anchored (spec 091 R1): evil-johanolofsson72/Claude parked at that path is not ours to fetch.
+  # Only the URL is asked: this decides whether to fetch a clone, not whether it is the template.
+  if ! command -v template_url_matches >/dev/null 2>&1 \
+     || ! template_url_matches "$(git -C "$_c" config --local --get remote.origin.url 2>/dev/null)"; then
+    return 0   # a different repo parked at that path (or no library to tell): not ours to fetch
+  fi
   # Spec 084 (R3, developer O3). A run that declared a sandbox uses a clone outside it read-only.
   # Asked here, at the last step before the first write, so the note appears only when a fetch
   # was actually withheld and a declared run is otherwise byte-identical to an undeclared one.
@@ -1194,9 +1211,15 @@ stage_committed_bytes() {
   _c="$1"; _paths="$2"
   [ -n "$_paths" ] || return 0
   _stage=$(mktemp -d 2>/dev/null || mktemp -d -t claude-eol) || return 0
-  if printf '%s\n' "$_paths" | tr '\n' '\0' \
-     | xargs -0 git -C "$_c" -c core.autocrlf=false -c core.eol=lf \
-             checkout-index -f --prefix="$_stage/" -- >/dev/null 2>&1; then
+  # --ignore-skip-worktree-bits (spec 091 R4): without it checkout-index skips exactly the
+  # skip-worktree paths it was asked for. A git too old for the flag (< 2.35) gets the plain call, and
+  # stage_clone_divergence refuses the clone if a flagged path is then missing from the stage.
+  _ci() {
+    printf '%s\n' "$_paths" | tr '\n' '\0' \
+      | xargs -0 git -C "$_c" -c core.autocrlf=false -c core.eol=lf -c core.fsmonitor=false \
+              checkout-index -f "$@" --prefix="$_stage/" -- >/dev/null 2>&1
+  }
+  if _ci --ignore-skip-worktree-bits || _ci; then
     EOL_STAGE="$_stage"
   else
     rm -rf "$_stage"
@@ -1229,6 +1252,78 @@ report_eol_divergence() {
   warn "      Fix the clone with: git -C $_c add --renormalize ."
 }
 
+# Spec 091 R3 (F079). pin_on_main PIN: exit 0 when GitHub's compare API says main is ahead of (or
+# identical to) PIN with PIN as merge base, else 1 with PIN_WHY set. (A local clone answers from its own
+# origin/main in resolve_local_template, with no fetch; R2 keeps the agent off refs/remotes/*.) A fork commit answers diverged; no network, a rate limit or no python3 is no
+# proof, and an unproven pin syncs nothing.
+PIN_WHY=""
+pin_on_main() {
+  _pin="$1"
+  command -v curl >/dev/null 2>&1 || { PIN_WHY="no curl"; return 1; }
+  command -v python3 >/dev/null 2>&1 || { PIN_WHY="no python3 to read GitHub's answer"; return 1; }
+  _cmp=$(mktemp 2>/dev/null || mktemp -t claude-pin) || { PIN_WHY="no temp file"; return 1; }
+  _code=$(curl -q --proto =https --proto-redir =https -sS --max-time 30 --max-filesize 2097152 \
+            -H 'Accept: application/vnd.github+json' -o "$_cmp" -w '%{http_code}' \
+            "$TEMPLATE_COMPARE_BASE/$_pin...main?per_page=1" 2>/dev/null </dev/null) || _code="none"
+  PIN_WHY=$(python3 - "$_cmp" "$_pin" "$_code" <<'PINPY' 2>/dev/null
+import json, sys
+path, pin, code = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    d = json.load(open(path, encoding="utf-8"))
+except Exception:
+    print("GitHub answered HTTP %s with no readable JSON" % code); sys.exit(0)
+if not isinstance(d, dict):
+    print("GitHub's answer is not an object"); sys.exit(0)
+st, mb = d.get("status"), d.get("merge_base_commit")
+sha = mb.get("sha") if isinstance(mb, dict) else None
+if isinstance(st, str) and st in ("ahead", "identical") and isinstance(sha, str) and sha.lower() == pin:
+    print("ok"); sys.exit(0)
+if isinstance(st, str):
+    print("GitHub compares it to main as %s" % st[:20]); sys.exit(0)
+msg = d.get("message")
+print("HTTP %s: %s" % (code, msg[:80] if isinstance(msg, str) else "no status"))
+PINPY
+)
+  rm -f "$_cmp"
+  [ "$PIN_WHY" = ok ] && return 0
+  [ -n "$PIN_WHY" ] || PIN_WHY="GitHub's answer could not be read"
+  return 1
+}
+
+# Spec 091 R4 (F079). Paths `git status` calls clean while the bytes on disk are not the index's:
+# skip-worktree (S, s) and assume-unchanged (a lower-case tag). One ls-files, fsmonitor off so the clone
+# cannot run a program to answer. Newline-delimited, like EOL_DIVERGED, which they join.
+flagged_paths() {
+  git -C "$1" -c core.fsmonitor=false -c core.quotePath=false ls-files -v 2>/dev/null </dev/null \
+    | awk '{ t = substr($0, 1, 1) } t == "S" || (t ~ /[a-z]/) { print substr($0, 3) }'
+}
+report_flagged() {
+  [ -n "$2" ] || return 0
+  warn "[warn] template clone at $1 marks $(printf '%s\n' "$2" | grep -c .) path(s) skip-worktree or assume-unchanged,"
+  warn "       so git status hides their bytes. Syncing their committed bytes instead:"
+  printf '%s\n' "$2" | while IFS= read -r _p; do [ -n "$_p" ] && warn "      $_p"; done
+}
+# Reports EOL_DIVERGED, adds the flagged paths, de-duplicated, then stages them from the index.
+stage_clone_divergence() {
+  [ -n "$EOL_DIVERGED" ] && report_eol_divergence "$1" "$EOL_DIVERGED"
+  _fl=$(flagged_paths "$1")
+  report_flagged "$1" "$_fl"
+  if [ -n "$_fl" ]; then
+    EOL_DIVERGED=$(printf '%s\n%s\n' "$EOL_DIVERGED" "$_fl" | awk 'NF && !seen[$0]++')
+  fi
+  if [ -n "$EOL_DIVERGED" ]; then
+    stage_committed_bytes "$1" "$EOL_DIVERGED"
+  fi
+  # A flagged path that did not reach the stage would be copied from the worktree, which is the bytes
+  # this exists to keep out. Refused like a dirty clone: nothing is synced from it.
+  if [ -n "$_fl" ]; then
+    printf '%s\n' "$_fl" | while IFS= read -r _p; do
+      [ -z "$_p" ] || [ -f "$EOL_STAGE/$_p" ] || exit 1
+    done || return 1
+  fi
+  return 0
+}
+
 resolve_local_template() {
   # A here-doc, not a pipe: the loop assigns TEMPLATE_DIR and returns, and a pipe would run it in
   # a subshell and lose both. Line-wise, so a home directory with a space in it survives.
@@ -1239,18 +1334,21 @@ resolve_local_template() {
       # it is never fetched or fast-forwarded on the pin's behalf. Anything else goes to the remote
       # tarball of the pin, so "pinned bytes" has one source to audit.
       if [ -n "$TEMPLATE_PIN" ]; then
+        # 091 adversarial B7: a fork cloned to a candidate path has the pin on ITS main, so the clone
+        # must also name the template as origin; anything else goes to the compare API.
         if [ "$(git -C "$cand" rev-parse HEAD 2>/dev/null </dev/null)" = "$TEMPLATE_PIN" ] \
-           && [ -z "$(git -C "$cand" status --porcelain 2>/dev/null </dev/null)" ]; then
+           && command -v template_url_matches >/dev/null 2>&1 \
+           && template_url_matches "$(git -C "$cand" config --local --get remote.origin.url 2>/dev/null </dev/null)" \
+           && [ -z "$(git -C "$cand" status --porcelain 2>/dev/null </dev/null)" ] \
+           && git -C "$cand" -c core.fsmonitor=false merge-base --is-ancestor \
+                "$TEMPLATE_PIN" refs/remotes/origin/main 2>/dev/null </dev/null; then
           TEMPLATE_DIR="$cand"
           TEMPLATE_SHA=$(printf '%s' "$TEMPLATE_PIN" | cut -c1-12)
           EOL_DIVERGED=$(eol_divergent_paths "$cand" "")
-          if [ -n "$EOL_DIVERGED" ]; then
-            stage_committed_bytes "$cand" "$EOL_DIVERGED"
-            report_eol_divergence "$cand" "$EOL_DIVERGED"
-          fi
+          stage_clone_divergence "$cand" || { DIRTY_REFUSED="$cand"; return 3; }
           return 0
         fi
-        warn "[pin] template clone at $cand is not a clean checkout of CLAUDE_TEMPLATE_PIN — fetching the pinned commit instead"
+        warn "[pin] template clone at $cand is not a clean checkout of CLAUDE_TEMPLATE_PIN on its main — fetching the pinned commit instead"
         return 1
       fi
       # Spec 082 R3 (F037). Uncommitted content has no SHA that describes it, and this run would
@@ -1278,10 +1376,7 @@ resolve_local_template() {
       # the copied bytes ARE the bytes this SHA describes, so annotating it would be the opposite of
       # honest. -dirty- keeps meaning what it has always meant — uncommitted CONTENT.
       EOL_DIVERGED=$(eol_divergent_paths "$cand" "$_st")
-      if [ -n "$EOL_DIVERGED" ]; then
-        stage_committed_bytes "$cand" "$EOL_DIVERGED"
-        report_eol_divergence "$cand" "$EOL_DIVERGED"
-      fi
+      stage_clone_divergence "$cand" || { DIRTY_REFUSED="$cand"; return 3; }
       return 0
     fi
   done <<CANDIDATES
@@ -1309,6 +1404,10 @@ resolve_remote_template() {
   STAMP_SHA=$(sed -n 's/^sha=//p' "$PROJECT_ROOT/.claude/.template-sync" 2>/dev/null | head -1)
   if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
     return 2   # up to date, no download needed
+  fi
+  if [ -n "$TEMPLATE_PIN" ] && ! pin_on_main "$TEMPLATE_PIN"; then
+    warn "[pin] cannot show CLAUDE_TEMPLATE_PIN $TEMPLATE_SHA is on the template's main ($PIN_WHY) — not synced"
+    return 4
   fi
   TEMPLATE_TMP=$(mktemp -d 2>/dev/null || mktemp -d -t claude-template)
   # Spec 082 (H2 adversarial finding 16). To a file first, never piped into tar: the bytes are checked
@@ -1780,6 +1879,8 @@ if [ "$LOCAL_RC" -ne 0 ]; then
   resolve_remote_template
   RC=$?
   if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; report_speckit_pin; report_tracked; exit 0; fi
+  # Spec 091 R3: the pin was not proven to be on main; the warning is printed, nothing is written.
+  if [ "$RC" -eq 4 ]; then [ "$MODE_ACCEPT" -eq 1 ] && exit 1; exit 0; fi
   if [ "$RC" -ne 0 ]; then
     # A sync that cannot reach the template does nothing and says so quietly; it runs
     # from a SessionStart hook and must never make offline look like breakage. An
@@ -2322,7 +2423,17 @@ done
 # One process for the whole list, over stdin: this runs unattended at SessionStart, and one
 # subprocess per file would be 41 of them per sync with nobody to pay for it.
 if [ -d "$TEMPLATE_DIR/.claude/skills" ]; then
-  SKILL_FILES=$(cd "$TEMPLATE_DIR/.claude/skills" && find . -type f 2>/dev/null | sed 's#^\./##')
+  # Spec 091 R4 (F079): from a clone, only what the commit tracks, as regular files (modes 100644 and
+  # 100755: never a symlink or a gitlink); an ignored file under .claude/skills/ is not shipped. A
+  # tarball has no .git and keeps the find.
+  if [ -e "$TEMPLATE_DIR/.git" ]; then
+    SKILL_FILES=$(git -C "$TEMPLATE_DIR" -c core.fsmonitor=false -c core.quotePath=false \
+                    ls-files -s -- .claude/skills 2>/dev/null </dev/null \
+                  | awk -F '\t' '{ split($1, m, " ") } m[1] == "100644" || m[1] == "100755" { print $2 }' \
+                  | sed 's#^\.claude/skills/##')
+  else
+    SKILL_FILES=$(cd "$TEMPLATE_DIR/.claude/skills" && find . -type f 2>/dev/null | sed 's#^\./##')
+  fi
   SKILL_PATHS=$(printf '%s\n' "$SKILL_FILES" | grep -v '^$' | sed 's#^#.claude/skills/#')
 
   SKILL_IGNORED=$(

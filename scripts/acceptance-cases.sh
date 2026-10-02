@@ -4,6 +4,8 @@
 #   --check    <spec-dir>                    parse acceptance.md; exit 0 confirmed, 3 unconfirmed or
 #                                            changed since confirmation, 1 malformed, 2 missing
 #   --digest   <spec-dir>                    the digest a Confirmed line must carry
+#   --question <spec-dir>                    the AskUserQuestion text to show (digest, every case in
+#                                            full); the developer confirms by picking "Confirm"
 #   --confirm  <spec-dir> --quote "<words>"  write the Confirmed line, quoting the developer's answer
 #                                            (only after they answered an AskUserQuestion)
 #   --coverage <spec-dir> [--root <dir>]     which <spec-id>-AC-<n> a test file names; exit 1 if any
@@ -17,13 +19,14 @@ set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PY="$HERE/acceptance_cases.py"
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 [ $# -ge 2 ] || usage
 cmd="$1"; target="$2"; shift 2
 case "$cmd" in
   --check)  exec python3 "$PY" check "$target" ;;
   --digest) exec python3 "$PY" digest "$target" ;;
+  --question) exec python3 "$PY" question "$target" ;;
   --is-test) exec python3 "$PY" is-test "$target" ;;
   --confirm)
     [ "${1:-}" = "--quote" ] && [ $# -ge 2 ] || usage

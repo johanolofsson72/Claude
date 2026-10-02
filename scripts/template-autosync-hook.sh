@@ -59,11 +59,13 @@ done
 [ -d "$PROJECT_ROOT/.claude" ] || exit 0
 [ -x "$PROJECT_ROOT/scripts/template-autosync.sh" ] || [ -f "$PROJECT_ROOT/scripts/template-autosync.sh" ] || exit 0
 
-# The template repo itself is never a sync target (identified by remote URL —
-# file markers get copied into every project by the sync itself).
-case "$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null)" in
-  *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) exit 0 ;;
-esac
+# The template repo itself is never a sync target (spec 091 R1: identified by its history, not by a
+# remote URL the agent can set; file markers get copied into every project by the sync itself). An
+# impostor still runs the sync, which refuses it with a warning the developer sees.
+if . "$PROJECT_ROOT/scripts/template-identity.sh" 2>/dev/null \
+   && [ "$(template_identity "$PROJECT_ROOT")" = template ]; then
+  exit 0
+fi
 
 # ------------------------------------------------------------- rate limiting
 # The marker records *what happened*, not merely when. "ok" (and an empty file,

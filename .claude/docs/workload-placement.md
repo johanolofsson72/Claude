@@ -111,6 +111,11 @@ Everything below is in CORE and reaches every project through autosync.
   `maintenance-due.sh --stamp-as`. A stamp keeps the cloud run's own date and counts, and never moves
   backwards. A results file is data. Nothing in it is executed, every field is checked, and a file
   over 64 KB, a symlink, or an unexpected name is skipped with a message.
+- A pulled stamp counts only for a job this machine places in the cloud (spec 091, F095). A stamp
+  for a local job is skipped and named; ledger lines still import, because they are history. Anyone
+  who can push a `claude/*` branch can write that file, so the placement is what limits a forged
+  stamp. `secrets` is always local, whatever either table says, and the agent's tools cannot edit
+  `.claude/workload-placement.tsv`: the developer changes it by hand or with `!`.
 
 To set up the routine (once per repository, by the developer, at claude.ai/code/routines or
 `/schedule`): repository = the project, environment with network access to nuget.org and dot.net,

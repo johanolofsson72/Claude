@@ -49,7 +49,12 @@ cat > "$P/specs/001-x/acceptance.md" <<'EOF'
 EOF
 
 # run <guard> <payload> -> OUT, VERDICT
-run() { OUT=$(printf '%s' "$2" | (cd "$P" && "$BASH_BIN" "$1") 2>/dev/null); VERDICT=$(hook_verdict "$OUT"); }
+# A hook always exits 0 (its header); any other exit is reported as the verdict `exit<N>`, so a test that
+# reads only the JSON cannot miss it (spec 091 mutation gate: `exit 0` -> `exit 1` survived otherwise).
+run() {
+  OUT=$(printf '%s' "$2" | (cd "$P" && "$BASH_BIN" "$1") 2>/dev/null); local rc=$?
+  VERDICT=$(hook_verdict "$OUT"); [ "$rc" -eq 0 ] || VERDICT="exit$rc"
+}
 reason() { printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null; }
 expect() { [ "$VERDICT" = "$2" ] && ok "$1" || { bad "$1 (want $2, got $VERDICT)"; }; }
 bash_p()  { jq -cn --arg c "$1" --arg w "$P" '{tool_name:"Bash",tool_input:{command:$c},cwd:$w}'; }
@@ -237,6 +242,82 @@ open(p, "w").write(s.replace(old, "            if True:"))
 PY
 run "$MUTG/trust-anchor-guard-hook.sh" "$(jq -cn --arg p "$P/{/*" '{tool_input:{file_path:$p}}')"
 expect "sabotage: 'any glob could match' denies {/* again — the F112 arm is about the expansion" deny
+
+printf '\n[091 R2] remotes, upstreams and remote-tracking refs are the developer'"'"'s  (091-AC-1)\n'
+for c in "git remote set-url origin https://github.com/johanolofsson72/Claude.git" \
+         "git -C . remote add template https://github.com/johanolofsson72/Claude.git" \
+         "git remote rename origin old" "git remote remove origin" "git remote set-url --push origin x" \
+         "git config remote.origin.url https://github.com/johanolofsson72/Claude.git" \
+         "git config --local Remote.Origin.Url x" "git config set remote.origin.url x" \
+         "git config --replace-all remote.origin.pushurl x" \
+         "git config url.https://github.com/johanolofsson72/Claude.git.insteadOf https://github.com/me/p.git" \
+         "git config branch.main.remote ." "git config --unset branch.main.merge" \
+         "git config alias.r '!git remote set-url origin x'" "git config include.path /tmp/x" \
+         "git config --rename-section remote.origin remote.gone" "git config -e" \
+         "git update-ref refs/remotes/origin/main HEAD" "git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/x" \
+         "git fetch . HEAD:refs/remotes/origin/main" "git fetch origin +refs/heads/*:refs/*" \
+         "git push . HEAD:refs/remotes/origin/main" "git fetch --refmap=x origin" \
+         "bash -c 'git remote set-url origin x'" "sh -c \"git update-ref refs/remotes/origin/main HEAD\"" \
+         "true && command git remote add a b" "env GIT_DIR=.git git remote add a b" "/usr/bin/git remote add a b" \
+         "sudo git remote set-url origin x" "git \$'\\x72emote' set-url origin x"; do
+  run "$GUARD" "$(bash_p "$c")"
+  expect "091-AC-1 denies: $c" deny
+done
+case "$(reason)" in *"spec 091"*) ok "the reason names spec 091" ;; *) bad "reason: $(reason | head -c 120)" ;; esac
+for c in "git remote -v" "git remote get-url origin" "git remote" "git remote show origin" \
+         "git config --get remote.origin.url" "git config remote.origin.url" "git config --list" \
+         "git config user.name t" "git config core.autocrlf false" "git fetch origin" "git fetch" \
+         "git push origin main" "git push -u origin main" "git pull --rebase" "git symbolic-ref HEAD" \
+         "git log --oneline refs/remotes/origin/main" "cat tsconfig.json" "echo remote config" \
+         "printf 'git remote set-url origin x' > notes.txt"; do
+  run "$GUARD" "$(bash_p "$c")"
+  expect "control allows: $c" none
+done
+
+printf '\n[091] the hook exits 0 on every path\n'
+OUT=$(printf '' | "$BASH_BIN" "$GUARD" 2>/dev/null); expect_rc=$?
+[ "$expect_rc" -eq 0 ] && [ -z "$OUT" ] && ok "empty input: exit 0, no output" || bad "empty input: rc $expect_rc, '$OUT'"
+run "$GUARD" "$(bash_p "$(printf 'echo %04096d git remote' 0)")"
+expect "a payload over 4 KB still reaches the parser and is allowed when harmless" none
+
+printf '\n[091 adversarial review] the bypasses it traced are denied\n'
+for c in "git -c remote.origin.url=/tmp/forge fetch origin" \
+         "git -c url./tmp/f/.insteadOf=https://github.com/ fetch origin" \
+         "git --config-env=remote.origin.url=X fetch origin" \
+         "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.url GIT_CONFIG_VALUE_0=/tmp/f git fetch origin" \
+         "env GIT_CONFIG_PARAMETERS=x git fetch origin" "export GIT_CONFIG_COUNT=1; git fetch origin" \
+         "git fetch . 'refs/heads/*:refs/rem*'" "git fetch . 'refs/heads/*:refs/*/origin/main'" \
+         "git fast-import < stream" "git fetch-pack x" "git send-pack . HEAD:refs/remotes/origin/main" \
+         "/usr/libexec/git-core/git-update-ref refs/remotes/origin/main HEAD" "git-remote set-url origin X" \
+         "git-config remote.origin.url X" "find . -maxdepth 0 -exec git remote set-url origin X \\;" \
+         "git --attr-source HEAD remote set-url origin X"; do
+  run "$GUARD" "$(bash_p "$c")"
+  expect "B1-B6 denies: $c" deny
+done
+for c in "git push origin main:main" "git -c user.name=x commit -m y" "git fetch origin main:main" \
+         "echo GIT_CONFIG_COUNT=1 git" "git -c core.autocrlf=false status"; do
+  run "$GUARD" "$(bash_p "$c")"
+  expect "B1-B6 control allows: $c" none
+done
+
+printf '\n[091 R7] the placement table is the developer'"'"'s\n'
+mkdir -p "$P/.claude"; printf 'mutation\tlocal\tx\n' > "$P/.claude/workload-placement.tsv"
+run "$GUARD" "$(write_p "$P/.claude/workload-placement.tsv" "mutation	cloud	x")"
+expect "R7 a Write of .claude/workload-placement.tsv is denied" deny
+case "$(reason)" in *"R7"*) ok "the reason names R7" ;; *) bad "reason: $(reason | head -c 120)" ;; esac
+run "$GUARD" "$(edit_p "$P/.claude/workload-placement.tsv" "local" "cloud")"
+expect "R7 an Edit of it is denied" deny
+run "$GUARD" "$(jq -cn --arg p "$P/.claude/workload-placement.tsv" '{tool_name:"Edit",tool_input:{file_path:$p}}')"
+expect "R7 a delegated shell write (no bytes) is denied" deny
+run "$GUARD" "$(write_p "$P/.CLAUDE/Workload-Placement.TSV" "x")"
+expect "R7 a case-folded spelling is denied" deny
+ln -s "$P/.claude/workload-placement.tsv" "$P/docs/innocent.tsv"
+run "$GUARD" "$(write_p "$P/docs/innocent.tsv" "x")"
+expect "R7 a symlink onto it is denied" deny
+run "$GUARD" "$(write_p "$P/scripts/workload-placement.tsv" "x")"
+expect "R7 the template's table (CORE, scripts/) is not this rule's" none
+run "$GUARD" "$(bash_p "cat .claude/workload-placement.tsv")"
+expect "R7 reading it is fine" none
 
 printf '\n[R3] sabotage: without the Confirmed-line rule the forged Edit passes\n'
 MUT="$WORK/mut"; mkdir -p "$MUT"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT"/ 2>/dev/null

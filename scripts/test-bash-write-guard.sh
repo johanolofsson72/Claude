@@ -583,7 +583,8 @@ if want nojq; then
           | CLAUDE_PROJECT_DIR="$1" PATH="$NOJQ" bash "$PRE" 2>/dev/null); rc=$?
     [ "$rc" -eq 0 ] || { printf 'EXIT %s' "$rc"; return; }
     [ -z "$out" ] && { printf 'ALLOW'; return; }
-    printf '%s' "$out" | python3 -c 'import json,sys; h=json.load(sys.stdin).get("hookSpecificOutput",{}); print((h.get("permissionDecision") or "ALLOW").upper()+" "+" ".join(h.get("permissionDecisionReason","").split()))'
+    # The CLI's rule (spec 029): h.get("hookEventName") must be PreToolUse, else the decision is dropped (ALLOW).
+    printf '%s' "$out" | python3 -c 'import json,sys; h=json.load(sys.stdin).get("hookSpecificOutput",{}); ok=h.get("hookEventName")=="PreToolUse"; print(((h.get("permissionDecision") if ok else None) or "ALLOW").upper()+" "+" ".join(h.get("permissionDecisionReason","").split()))'
   }
   if PATH="$NOJQ" command -v jq >/dev/null 2>&1; then bad "nojq: jq is still reachable on the stripped PATH"; fi
   expect_deny  "no jq: sed -i on a gated source file"   "$(run_pre_nojq "$ROOT" "sed -i '' 's/a/b/' src/App.cs")" "App.cs"

@@ -115,14 +115,16 @@ ROOT=$GUARD_CORE_ROOT; SYNC_ROOT=$GUARD_SYNC_ROOT
 [ -d "$SYNC_ROOT/.claude" ] || exit 0
 
 # The template repository is where this guard is telling everyone to go, so denying an
-# edit here would be perfectly circular. Identified by origin URL, the same three
-# patterns template-autosync.sh uses — file markers are useless, because the sync
+# edit here would be perfectly circular. Identified by template-identity.sh, as
+# template-autosync.sh does — file markers are useless, because the sync
 # copies scripts/sync-prompt.md and friends into every project it touches. Asked
 # directly rather than by shelling out to the sync, because a guard that consults the
 # sync to decide whether to consult the sync is a loop with no floor.
-case "$(git -C "$SYNC_ROOT" remote get-url origin 2>/dev/null)" in
-  *johanolofsson72/Claude.git|*johanolofsson72/Claude|*:johanolofsson72/Claude*) exit 0 ;;
-esac
+# Spec 091 R1 (F097): by history, not by the URL alone, which the agent can set. A missing library
+# means no exemption, the strict reading.
+if . "$HOOK_DIR/template-identity.sh" 2>/dev/null && [ "$(template_identity "$SYNC_ROOT")" = template ]; then
+  exit 0
+fi
 
 SYNC="$SYNC_ROOT/scripts/template-autosync.sh"
 [ -f "$SYNC" ] || exit 0

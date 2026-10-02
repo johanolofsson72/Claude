@@ -75,8 +75,18 @@ expect_contains "P4 unknown place is named" "has place 'clod' in scripts/workloa
 expect_absent   "P4 unknown place does not print local" "local" "$(WP --place similarity 2>/dev/null)"
 
 # P5: a CRLF table still reads `cloud`, not `cloud\r`.
-printf 'secrets\tcloud\tcrlf\r\n' >> "$R/scripts/workload-placement.tsv"
-expect_eq "P5 CRLF line reads cleanly" "cloud" "$(WP --place secrets)"
+printf 'traceability\tcloud\tcrlf\r\n' >> "$R/scripts/workload-placement.tsv"
+expect_eq "P5 CRLF line reads cleanly" "cloud" "$(WP --place traceability)"
+# P9 (spec 091 R7): secrets is local whatever a table says, and the table is told so.
+printf 'secrets\tcloud\tplease\n' >> "$R/scripts/workload-placement.tsv"
+expect_eq       "P9 secrets placed in the cloud reads local, exit 0" "local 0" "$(WP --place secrets 2>/dev/null) $?"
+expect_contains "P9 the override is named" "secrets is always local" "$(WP --place secrets 2>&1 >/dev/null)"
+printf 'secrets\tcloud\tproject\n' > "$R/.claude/workload-placement.tsv"
+expect_eq       "P9 a project line cannot move it either" "local" "$(WP --place secrets 2>/dev/null)"
+rm -f "$R/.claude/workload-placement.tsv"
+
+# P10 (spec 091 mutation gate): a job with no line is local, exit 0.
+OUT=$(WP --place no-such-job); expect_eq "P10 an unplaced job is local, exit 0" "local 0" "$OUT $?"
 
 # P6: comments and blank lines are ignored; a commented-out line places nothing.
 printf '# portability\tcloud\tno\n\n' >> "$R/scripts/workload-placement.tsv"
@@ -236,6 +246,17 @@ expect_eq "C3 two runs, two files" "2" "$(git --git-dir="$BARE" ls-tree --name-o
 # The laptop: a clone of main, with nothing stamped.
 L="$TMP/laptop"; git clone -q "$BARE" "$L" 2>/dev/null; ( cd "$L" && git checkout -q main 2>/dev/null )
 
+# 091-AC-4 / R7: before this laptop places anything in the cloud, a pull imports the history (ledger)
+# and marks no job done: the run's mutation stamp is skipped and named.
+A4=$(mktemp -d "$TMP/ac4.XXXXXX"); git clone -q "$BARE" "$A4/l" 2>/dev/null; ( cd "$A4/l" && git checkout -q main 2>/dev/null )
+OUT=$(cd "$A4/l" && bash scripts/cloud-maintenance.sh --pull 2>&1)
+expect_contains "091-AC-4 a stamp for a job placed locally is skipped and named" "stamp mutation — mutation runs locally here" "$OUT"
+expect_eq       "091-AC-4 no mutation stamp" "" "$(cd "$A4/l" && bash scripts/maintenance-due.sh --state | grep '^mutation')"
+expect_eq       "091-AC-4 the ledger still imports" "2" "$(grep -c "${TAB}cloud${TAB}mutation${TAB}" "$A4/l/.claude/state/maintenance-runs.tsv")"
+
+# The laptop places mutation and suite in the cloud (its own decision), so their stamps count from here on.
+printf 'mutation\tcloud\tx\nsuite\tcloud\tx\nsecrets\tcloud\tx\n' >> "$L/scripts/workload-placement.tsv"
+
 # C4: pull imports both files: ledger lines appended, stamp applied with the run's own counts.
 OUT=$(cd "$L" && bash scripts/cloud-maintenance.sh --pull 2>&1)
 expect_contains "C4 pull reports what it imported" "imported 2 result file(s)" "$OUT"
@@ -281,6 +302,7 @@ expect_contains "C11 a symlink is not a plain file" "20261001T000001Z-aa.tsv —
 expect_contains "C11 an oversized file is skipped" "20261001T000002Z-bb.tsv — " "$OUT"
 expect_contains "C11 the size cap is named" "byte cap" "$OUT"
 expect_eq "C11 no forged secrets stamp" "" "$(cd "$L" && bash scripts/maintenance-due.sh --state | grep '^secrets')"
+expect_contains "091-AC-4 a secrets stamp is skipped and named, even with secrets placed in the cloud" "stamp secrets — secrets runs locally here" "$OUT"
 expect_eq "C11 the mutation stamp is not poisoned" "3" "$(cd "$L" && bash scripts/maintenance-due.sh --state | awk -F'\t' '$1=="mutation"{print $3}')"
 expect_contains "C11 the legitimate file after them still imports" "stamped suite from 20261001T000004Z-dd.tsv" "$OUT"
 expect_absent "C11 /etc/passwd never reaches the ledger" "root:" "$(cat "$L/.claude/state/maintenance-runs.tsv")"
@@ -294,6 +316,10 @@ NEWEST=$(git --git-dir="$BARE" ls-tree --name-only refs/heads/claude/maintenance
 BODY=$(git --git-dir="$BARE" show "refs/heads/claude/maintenance-results:$NEWEST")
 expect_contains "C12 this run's stamp is published" "stamp${TAB}mutation${TAB}" "$BODY"
 expect_absent   "C12 an older stamp is not republished" "stamp${TAB}secrets${TAB}" "$BODY"
+
+# C13 (spec 091 mutation gate): an unknown argument is exit 2 and named.
+OUT=$(cd "$L" && bash scripts/cloud-maintenance.sh --bogus 2>&1); expect_eq "C13 an unknown argument exits 2" "2" "$?"
+expect_contains "C13 and is named" "unknown argument '--bogus'" "$OUT"
 
 # C8: no results branch yet → a plain sentence and exit 0.
 E="$TMP/empty-remote.git"; git init -q --bare "$E"

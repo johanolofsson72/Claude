@@ -89,6 +89,17 @@ The guards that take a path judge the file the write lands on. Before spec 090 t
 
 A third guard keeps the hook wiring itself out of reach. `scripts/settings-edit-guard-hook.sh` (spec 089) refuses an agent change to `hooks`, `disableAllHooks` or `env` in `.claude/settings.json`, `.claude/settings.local.json` and `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). An Edit or Write is judged on the JSON it would leave behind, so a permissions entry or a re-indent passes, and a removed hook or `SPEC_ACCEPTANCE=off` does not. In the shell, a command that names one of the three files passes only when it reads it. There is no override and no template exemption: the developer makes those changes by hand or with `!`. It has the same limit as the other two. A script that writes the file without naming it on the command line gets through, and so does `sync-core-hooks.py` when it wires a project.
 
+Spec 091 closed the places where a trust decision still rested on state the agent could write:
+
+- **Which repository is the template.** The CORE guards exempt the template, and autosync skips it. Both used to decide by origin's URL, which `git remote set-url` changes. `scripts/template-identity.sh` now also requires that HEAD's history starts at the template's first commit, read with replace refs and grafts turned off. A project whose origin points at the template is treated as a project, and autosync on one writes nothing and warns.
+- **Remotes, upstreams and remote-tracking refs.** `scripts/trust-anchor-guard-hook.sh` denies `git remote add|set-url|rename|remove`, `git config` writes under `remote.*`, `url.*` (insteadOf), `branch.*`, `include*` and `alias.*`, `git update-ref`, `git symbolic-ref` with a target, and a fetch or push refspec that writes `refs/remotes/`. The developer runs those with `!`.
+- **The template updater's model.** `scripts/update-template.sh` starts `claude -p` with `--restricted`, `--permission-mode dontAsk` and `--tools`, so it cannot write outside the repository. It refuses to start on a `claude` without `--restricted`. A skill, agent or command that gains `hooks:` (or `allowed-tools`, `permissionMode`, `mcpServers`) in its frontmatter, or a new script under those directories, is named `[REVIEW]` and the run exits 4.
+- **What the nightly runs.** The trusted suite identity includes a blob hash of every file the suite command reaches, so an edited or new test file un-trusts it. A command that reaches files through `$`, a backtick or `..` is never trusted.
+- **Cloud stamps.** A stamp pulled from `claude/maintenance-results` counts only for a job placed in the cloud on this machine. `secrets` is always local. The agent cannot edit `.claude/workload-placement.tsv`.
+- **Acceptance confirmations.** Only a click on `Confirm`, given to a question that showed every case in full (`acceptance-cases.sh --question`), binds the digest. A committed Confirmed line is trusted without a recorded answer only once it is on the upstream, not because it is at HEAD.
+
+The residuals are in `specs/091-trust-residuals/spec.md` under Threat model.
+
 If you add a deny rule for a security-critical file or command, extend one of these two hooks as well and add the case to its test (`scripts/test-sensitive-file-guard.sh`, `scripts/test-destructive-command-guard.sh`).
 
 **March 2026 fix:** A bug where PreToolUse hooks returning "allow" could bypass deny rules (including enterprise managed settings) has been fixed. The hooks above are still the reliable layer.

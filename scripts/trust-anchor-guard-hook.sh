@@ -26,6 +26,8 @@
 #       (claude-trusted…, claude-developer…, …trusted-commands, …developer-words), uses a glob or brace on
 #       a path through .git/, names MAINTENANCE_TTY, CLAUDECODE, .git/worktrees or `Confirmed:**`, or
 #       carries the option --trust at all (a copied or glob-named project-maintenance.sh still parses it)
+#   (e) spec 091 R2: a Bash git command that rewrites a remote, an upstream or a remote-tracking ref
+#       (destructive_command.classify_trust); R7: any write to .claude/workload-placement.tsv
 #   (d) an AskUserQuestion whose tool_input already carries `answers`. An honest call never does at
 #       PreToolUse (measured 2026-10-01); the answers arrive after the developer picks them.
 #
@@ -63,6 +65,14 @@ else
     *claude-*|*trusted-comm*|*developer-word*|*maintenance_tty*|*claudecode*|*confirmed:*|*acceptance*) HIT=1 ;;
     # .git as a path component, not .gitignore or .github; a glob for an acceptance.md is caught below.
     *--trust*|*'.git/'*|*'.git'|*'.git'[!a-zA-Z0-9_-]*|*separate-git*) HIT=1 ;;
+  esac
+  # Spec 091 R2/R7: git commands that move origin, an upstream or a remote-tracking ref, and the
+  # placement table. `git` plus one of the words, so a plain `cat tsconfig.json` stays cheap.
+  case "$N" in
+    *workload-placement*) HIT=1 ;;
+    *git*remote*|*git*config*|*git*update-ref*|*git*symbolic-ref*|*refs/remotes*|*insteadof*|*git*:remotes/*) HIT=1 ;;
+    *git*:refs/*|*git*:\**|*git*refmap*) HIT=1 ;;    # a refspec whose destination could be a tracking ref
+    *git_config_*|*fast-import*|*fetch-pack*|*receive-pack*|*send-pack*|*git-remote*|*git-config*) HIT=1 ;;
   esac
   case "$TI" in *"\$'"*) HIT=1 ;; esac        # ANSI-C quoting: the stripped text no longer shows it
   shopt -u nocasematch
@@ -119,12 +129,12 @@ cwd = d.get("cwd") or os.getcwd()
 def parts_of(p):
     return [x for x in p.replace("\\", "/").split("/") if x]
 
+def path_hits(p, pred):
+    """pred(lower-cased components) for the path as spelled or as resolved."""
+    return any(pred([x.lower() for x in parts_of(q)]) for q in (p, os.path.realpath(p)))
+
 def touches_git(p):
-    for q in (p, os.path.realpath(p)):
-        ps = [x.lower() for x in parts_of(q)]
-        if ".git" in ps or (ps and ps[-1] in STORES):
-            return True
-    return False
+    return path_hits(p, lambda ps: ".git" in ps or (bool(ps) and ps[-1] in STORES))
 
 # Spec 090 R8(b) (F112): a glob is judged by what bash expands it to, not by whether its last
 # component could spell acceptance.md. `{/* c */}` in a heredoc fixture ended in `*`, which "could",
@@ -243,6 +253,10 @@ if isinstance(cmd, str):
         print("bash-confirmed"); sys.exit(0)
     if re.search(r"(^|[\s=;&|(])--trust(?![\w-])", n):
         print("bash-trust"); sys.exit(0)
+    from destructive_command import classify_trust                            # git's word rules (spec 091 R2)
+    found = classify_trust(cmd)
+    if found:
+        print(found); sys.exit(0)
     print("none"); sys.exit(0)
 
 # (a) (b) a path
@@ -252,6 +266,9 @@ if not isinstance(fp, str) or not fp:
 p = fp if os.path.isabs(fp) else os.path.join(cwd, fp)
 if touches_git(p):
     print("store"); sys.exit(0)
+# Spec 091 R7 (O2): which jobs may be stamped done from the cloud is the developer's decision.
+if path_hits(p, lambda ps: ps[-2:] == [".claude", "workload-placement.tsv"]):
+    print("placement"); sys.exit(0)
 if not is_acceptance(p):
     print("none"); sys.exit(0)
 
@@ -329,6 +346,14 @@ Edit the cases themselves freely; changing a case un-confirms it, and that is th
     guard_deny "BLOCKED — a shell write to an acceptance.md, or to a glob that can match one (spec 088, R3).
 
 The shell route carries no bytes to this guard, so it cannot tell a case edit from a forged Confirmed line. Use the Edit tool for the cases (it is judged on the bytes), and scripts/acceptance-cases.sh --confirm for the Confirmed line. $HUMAN_ROUTES" ;;
+  git-remote-write|git-config-trust|git-ref-write)
+    guard_deny "BLOCKED — this git command changes a remote, an upstream or a remote-tracking ref (spec 091, R2).
+
+\`git remote add|set-url|rename|remove\`, a \`git config\` write under remote.*, url.* (insteadOf), branch.*, include* or alias.*, \`git update-ref\`, \`git symbolic-ref\` with a target, and a fetch or push refspec that writes refs/remotes/ are the developer's steps. Where origin points and which upstream a branch tracks decide what the guards trust: the template is recognised by its history, and a Confirmed line counts once it is on the upstream. Reading is fine: \`git remote -v\`, \`git config --get …\`, \`git fetch origin\`, \`git push\`. If the change is really needed, ask the developer to run it with ! in the prompt." ;;
+  placement)
+    guard_deny "BLOCKED — .claude/workload-placement.tsv decides which maintenance jobs a cloud run may mark done (spec 091, R7).
+
+Placing a job in the cloud means trusting a stamp that arrives on a branch, so it is the developer's decision, like --trust. Tell the developer which line you would change and why; they edit it themselves or with ! in the prompt. Reading it (Read, cat, workload-placement.sh --list) is fine." ;;
   answers)
     guard_deny "BLOCKED — this AskUserQuestion already carries answers (spec 088, R3).
 

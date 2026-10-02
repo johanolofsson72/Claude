@@ -146,11 +146,22 @@ want() { [ -z "${ARMS_ONLY:-}" ] || [ "$ARMS_ONLY" = "$1" ]; }
 # In the template, `--unlisted` walks scripts/*.sh and scripts/*.py. A glob that matches nothing
 # stays literal, and without the -f guard the literal pattern is reported as a script that ships
 # to no project. The template has .py files today, which is why no suite ever saw it.
+# Spec 091 R1: the template is recognised by its history. template_history <repo> borrows this clone's
+# objects and moves the repo's branch onto the template's HEAD; 1 when this clone is not the template.
+template_history() {
+  _src=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null) || return 1
+  git -C "$_src" cat-file -e d3cf8238372ce7a37d5d66b115cbcbf9d57bb2b9^{commit} 2>/dev/null || return 1
+  printf '%s\n' "$(git -C "$_src" rev-parse --path-format=absolute --git-common-dir)/objects" >> "$1/.git/objects/info/alternates"
+  git -C "$1" update-ref HEAD "$(git -C "$_src" rev-parse HEAD)"
+}
 arm_unlisted_glob() {
   echo "== M01 — template --unlisted: an empty glob is not a script"
   R="$TMP/m01"; rm -rf "$R"; mkdir -p "$R/scripts" "$R/.claude"
   git -C "$R" init -q -b main
   git -C "$R" remote add origin https://github.com/johanolofsson72/Claude.git
+  template_history "$R" || { ok "M01 skipped: this clone is not the template, so template mode cannot be built"; return 0; }
+  cp "$(dirname "$SCRIPT")/template-identity.sh" "$TMP/" 2>/dev/null
+  [ -f "$(dirname "$SCRIPT")/template-identity.sh" ] || cp "$PWD/scripts/template-identity.sh" "$(dirname "$SCRIPT")/"
   : > "$R/scripts/not-in-core.sh"
   OUT=$(DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync "$R" "$TMP" --unlisted 2>&1)
   has   "M01 template mode is engaged (a real unlisted .sh is named)" "$OUT" "scripts/not-in-core.sh	absent from CORE_SCRIPTS"
