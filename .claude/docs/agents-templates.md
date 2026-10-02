@@ -6,7 +6,7 @@ Copy relevant agents to `.claude/agents/` in your project. Each agent runs in it
 
 | Feature | Agent | Description |
 | --- | --- | --- |
-| `isolation: worktree` | dotnet-reviewer, security-scanner | Runs in isolated git copy, cleaned up automatically |
+| `isolation: worktree` | (none) | Runs in an isolated git copy. Never combine with `memory:`, see below |
 | `background: true` | test-runner | Runs tests while Claude continues working |
 | `skills` | db-agent | Loads code-review skill for code quality |
 | `hooks` | dotnet-reviewer | Scoped hooks in agent frontmatter |
@@ -16,6 +16,20 @@ Copy relevant agents to `.claude/agents/` in your project. Each agent runs in it
 | `mcpServers` | (all) | MCP servers available to the agent |
 | `memory` | (all) | Persistent memory: `user`, `project`, or `local` scope |
 | `initialPrompt` | (all) | Auto-submitted as first user turn when running as main session agent |
+
+## Review agents read the tree you are on (spec 087)
+
+None of these agents uses `isolation: worktree`. Two things went wrong when they did:
+
+- **Stranded memory (F009).** An agent with `memory: project` writes `.claude/agent-memory/**`
+  inside its worktree, and nothing merges that back. rocky recovered 24 such files over three
+  checkpoints. `project-maintenance.sh` reports `[AGENTS]` for any agent that combines the two.
+- **A stale tree (F007).** A worktree is cut from a commit, not from the working tree. ighweld's
+  security-scanner reported a whole spec unimplemented while all of it was on disk and green.
+
+When you dispatch a reviewer, put the HEAD commit (`git rev-parse --short HEAD`) and the changed
+paths in the prompt. The agent names the tree it read on its first line. Before acting on a
+"missing" or "not implemented" claim, check the path on disk yourself.
 
 ## dotnet-reviewer
 
@@ -28,13 +42,12 @@ description: Expert .NET code reviewer. Use proactively after code changes to ch
 tools: Read, Grep, Glob, Bash
 model: sonnet
 memory: project
-isolation: worktree
 hooks:
   PostToolUse:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "echo '{\"additionalContext\": \"Focus on .cs file changes only. Ignore generated files and migrations.\"}'"
+          command: "echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"Focus on .cs file changes only. Ignore generated files and migrations.\"}}'"
 ---
 
 You are a senior .NET developer reviewing code changes.
@@ -55,6 +68,13 @@ Review checklist:
 - Proper IDisposable disposal
 
 Report by severity: Critical (must fix) | Warning (should fix) | Suggestion
+
+Before reporting:
+- Your first line names the tree you read: `git rev-parse --short HEAD` plus `git status --short`
+  (uncommitted changes are part of what you review). If the dispatcher named a commit and HEAD
+  differs, say so before anything else.
+- Never call something unimplemented or missing without the path you looked for. Check it on
+  disk first; if nothing is there, write "not found at <path>", not "not implemented".
 ```
 
 ## security-scanner
@@ -68,7 +88,6 @@ description: Security-focused code reviewer. Use proactively to scan for vulnera
 tools: Read, Grep, Glob
 model: sonnet
 memory: project
-isolation: worktree
 ---
 
 You are a security specialist reviewing code for vulnerabilities.
@@ -95,6 +114,12 @@ Report format per finding:
 - Severity: Critical / High / Medium / Low
 - File and line number
 - Description + recommended fix with code example
+
+Before reporting:
+- Your first line names the tree you read: the commit and changed paths the dispatcher gave you,
+  or "commit not given" if it gave none. You read the working tree, uncommitted changes included.
+- Never call something unimplemented or missing without the path you looked for. Glob it first;
+  if nothing is there, write "not found at <path>", not "not implemented".
 ```
 
 ## test-runner

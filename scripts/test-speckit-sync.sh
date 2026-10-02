@@ -37,7 +37,14 @@ case "$1" in
   --version) echo "specify $ver" ;;
   init)
     echo "init $*" >> "$CALLS"
-    mkdir -p .specify/memory .claude/skills/speckit-implement
+    mkdir -p .specify/memory .specify/templates .claude/skills/speckit-implement
+    if [ -n "${STUB_SC_REWORD:-}" ]; then
+      printf '%s\n' '### Measurable Outcomes' '' '- **Outcome 1**: [metric]' > .specify/templates/spec-template.md
+    else
+      printf '%s\n' '## Success Criteria *(mandatory)*' '' '### Measurable Outcomes' '' \
+        '- **SC-001**: [Measurable metric]' '- **SC-002**: [Measurable metric]' \
+        '- **SC-003**: [User satisfaction metric]' '- **SC-004**: [Business metric]' > .specify/templates/spec-template.md
+    fi
     printf '{"speckit_version": "%s", "script": "sh"}\n' "$ver" > .specify/init-options.json
     [ -n "${STUB_CLOBBER:-}" ] && echo "SPECKIT DEFAULT" > .specify/memory/constitution.md
     if [ -n "${STUB_REWORD:-}" ]; then
@@ -93,6 +100,20 @@ rc=$(run --repo "$P" --init-new)
 grep -q 'speckit-nostop' "$P/.claude/skills/speckit-implement/SKILL.md" 2>/dev/null && [ "$rc" = 0 ] \
   && ok "--init-new initialises and applies the policy" || bad "init-new" "patched skill, rc 0" "rc $rc; $(cat "$TMP/out")"
 
+# 5b. Spec 087 (F008): the spec template's Success Criteria are lettered, so a new spec cannot
+#     start a second SC-<digits> sequence beside the scenario map. A re-run changes nothing.
+TPL="$P/.specify/templates/spec-template.md"
+if grep -q '^- \*\*SC-A\*\*:' "$TPL" && grep -q '^- \*\*SC-D\*\*:' "$TPL" && ! grep -q 'SC-0' "$TPL" \
+   && grep -q 'Patched by scripts/speckit-extension-policy.sh' "$TPL"; then
+  ok "spec template's Success Criteria are lettered SC-A..SC-D"
+else
+  bad "SC letters" "SC-A..SC-D, no SC-0, marker" "$(cat "$TPL" 2>/dev/null)"
+fi
+cp "$TPL" "$TMP/tpl.before"
+out=$(bash "$TMP/scripts/speckit-extension-policy.sh" --repo "$P" 2>&1); rc=$?
+cmp -s "$TPL" "$TMP/tpl.before" && [ "$rc" = 0 ] && [ -z "$out" ] && ok "second policy run leaves the template alone" \
+  || bad "SC idempotence" "unchanged, rc 0, silent" "rc $rc; $out; $(diff "$TMP/tpl.before" "$TPL")"
+
 # 6. At the pin → no re-init (init is not idempotent).
 : > "$CALLS"; rc=$(run --repo "$P")
 ! grep -q '^init' "$CALLS" && [ "$rc" = 0 ] && ok "project at the pin → no re-init" || bad "project no-op" "no init" "$(cat "$CALLS")"
@@ -111,6 +132,13 @@ printf '{"speckit_version": "1.0.0", "script": "sh"}\n' > "$P/.specify/init-opti
 rc=$(STUB_REWORD=1 run --repo "$P")
 [ "$rc" = 2 ] && grep -q 'FAIL' "$TMP/out" && ok "moved anchor → exit 2 with a FAIL line" \
   || bad "moved anchor" "rc 2 + FAIL" "rc $rc; $(cat "$TMP/out")"
+
+# 8b. A reworded Success Criteria block is exit 2 with its own FAIL line, not a silent miss.
+P=$(mkproj screword); mkdir -p "$P/.specify"
+printf '{"speckit_version": "1.0.0", "script": "sh"}\n' > "$P/.specify/init-options.json"
+rc=$(STUB_SC_REWORD=1 run --repo "$P")
+[ "$rc" = 2 ] && grep -q 'FAIL.*Success Criteria' "$TMP/out" && ok "moved SC anchor → exit 2 with a FAIL line" \
+  || bad "moved SC anchor" "rc 2 + FAIL Success Criteria" "rc $rc; $(cat "$TMP/out")"
 
 # 9. No pin → hard failure, not a silent unpinned install.
 mv "$TMP/scripts/speckit-version" "$TMP/scripts/speckit-version.off"

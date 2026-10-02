@@ -145,7 +145,8 @@ that grew past `SC-999` still starts at three digits, so growth does not move th
 is arithmetic, not a fix: it holds only while no spec numbers a criterion up into the map's range, and
 that has already happened at least once. When you write a spec, prefer letters for its Success
 Criteria (`SC-A`, `SC-B`) or reuse the map ids the spec actually claims — do not start a second
-numeric sequence under the same prefix.
+numeric sequence under the same prefix. `scripts/speckit-extension-policy.sh` letters the spec-kit
+template's own placeholders after every `specify init` (spec 087).
 
 **A `☐ mapped` row is exempt from the coverage direction.** Mapped-not-yet-tested is the correct state for every scenario of every unbuilt spec, and counting it as a failure would leave the gate permanently red on any project with a roadmap — which is how a gate stops being read. A **retired** (`~~SC-nnn~~`) row is exempt too, but its id still counts as real for the dangling check: the id is a permanent handle, so a test still naming it is stale, not wrong about the map.
 

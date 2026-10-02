@@ -908,6 +908,32 @@ if [ -d .claude/worktrees ]; then
   fi
 fi
 
+# ------------------------------------------- 4c. agents that strand their own memory
+# Spec 087 (F009). 4b reports memory already stranded; this reports the agent that keeps doing it.
+# `memory:` plus `isolation: worktree` writes .claude/agent-memory/** inside a throwaway worktree
+# on every run (rocky harvested 24 such files over three checkpoints), and the worktree is cut from
+# a commit, so the agent also reviews a tree without the uncommitted work (F007). The template's
+# agents no longer combine the two; a project-authored agent can, and only a check says so.
+# Frontmatter only: the lines between the first two `---`.
+AG_BAD=""
+for ag in .claude/agents/*.md; do
+  [ -f "$ag" ] || continue
+  # r stays 1 (no match) unless the closing `---` is reached with both keys seen.
+  if awk 'BEGIN { r = 1 }
+          NR == 1 && $0 != "---" { exit }
+          NR > 1 && $0 == "---" { r = !(mem && iso); exit }
+          /^memory:[[:space:]]*[^[:space:]]/ { mem = 1 }
+          /^isolation:[[:space:]]*worktree[[:space:]]*$/ { iso = 1 }
+          END { exit r }' "$ag" 2>/dev/null; then
+    AG_BAD="${AG_BAD}
+    $ag"
+  fi
+done
+if [ -n "$AG_BAD" ]; then
+  add "[AGENTS] agent(s) combine memory: with isolation: worktree — their memory lands in a worktree nothing merges back, and they review a commit instead of the working tree:${AG_BAD}
+  Remove the isolation: worktree line (.claude/docs/agents-templates.md, spec 087)."
+fi
+
 # ------------------------------------------------------------- 5. mutation kill rate
 MUTATION_CMD=""
 MUT_NOEXEC=0

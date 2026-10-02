@@ -96,9 +96,14 @@ enum Priority { low | medium | high | critical }
 entity Order {
     customer: Customer
     total: Decimal
+    priority: Priority                                             -- enum-typed field
+    shipping_address: Address                                      -- value-typed field
     status: pending | confirmed | shipped | delivered | cancelled  -- inline union
     tracking_number: String when status = shipped | delivered      -- state-dependent
     notes: String?                                                 -- optional with ?
+    shipped_at: Timestamp?
+    cancelled_at: Timestamp?
+    cancelled_by: String?
 
     transitions status {
         pending -> confirmed
@@ -117,9 +122,10 @@ entity Order {
     invariant NonNegativeTotal { this.total >= 0 }
 }
 
-external entity Customer {
+entity Customer {
     email: String
     name: String
+    role: customer | admin
 }
 
 external entity Email {
@@ -134,6 +140,18 @@ value Address {
 }
 
 config { max_retries: Integer = 3 }
+
+-- Creation: the rule that puts an entity into its first state
+rule PlaceOrder {
+    when: PlaceOrder(customer, total, priority, address)
+    ensures: Order.created(
+        customer: customer,
+        total: total,
+        priority: priority,
+        shipping_address: address,
+        status: pending
+    )
+}
 
 -- Rules: when (trigger), requires (precondition), ensures (postcondition)
 rule ConfirmOrder {
@@ -151,6 +169,12 @@ rule ShipOrder {
         order.shipped_at = now
 }
 
+rule DeliverOrder {
+    when: DeliverOrder(order)
+    requires: order.status = shipped
+    ensures: order.status = delivered
+}
+
 rule CancelOrder {
     when: CustomerCancels(order)
     requires: order.status in {pending, confirmed}
@@ -165,10 +189,11 @@ rule NotifyOnShipment {
     ensures: Email.created(to: order.customer.email, template: order_shipped)
 }
 
--- Rule with if/else
+-- Rule with if/else. Its requires admits only the declared edges into cancelled:
+-- `status != delivered` would also admit shipped -> cancelled, which the graph does not declare.
 rule ProcessCancellation {
     when: Cancel(order, reason)
-    requires: order.status != delivered
+    requires: order.status in {pending, confirmed}
     ensures:
         order.status = cancelled
         if reason = customer_request:

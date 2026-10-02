@@ -275,6 +275,36 @@ OUT=$(run "$D")
 expect_contains "C13 space in a memory filename — counted, not split" \
   "2 agent-memory file(s) exist only inside them" "$OUT"
 
+# ------------------------- G1 — an agent that strands its memory in a worktree (spec 087, F009)
+# memory: plus isolation: worktree is reported per file. Each key alone is fine, a key below the
+# frontmatter is prose, and a frontmatter with no closing --- is not judged.
+D=$(mkfix g1)
+AG="$D/.claude/agents"
+mkdir -p "$AG"
+printf -- '---\nname: both\nmemory: project\nisolation: worktree\n---\nbody\n' > "$AG/both.md"
+printf -- '---\nname: mem\nmemory: project\n---\nbody\n'                       > "$AG/mem.md"
+printf -- '---\nname: iso\nisolation: worktree\n---\nbody\n'                    > "$AG/iso.md"
+printf -- '---\nname: prose\nmemory: project\n---\nisolation: worktree\n'       > "$AG/prose.md"
+printf -- '---\nname: open\nmemory: project\nisolation: worktree\n'             > "$AG/open.md"
+OUT=$(run "$D"); RC=$?
+expect_contains "G1 memory + worktree — [AGENTS] finding"     "[AGENTS]" "$OUT"
+expect_contains "G1 memory + worktree — names the file"       "agents/both.md" "$OUT"
+expect_absent   "G1 memory alone — not reported"              "agents/mem.md" "$OUT"
+expect_absent   "G1 worktree alone — not reported"            "agents/iso.md" "$OUT"
+expect_absent   "G1 key below the frontmatter — not reported" "agents/prose.md" "$OUT"
+expect_absent   "G1 unclosed frontmatter — not judged"        "agents/open.md" "$OUT"
+expect_rc       "G1 memory + worktree — non-zero exit" 1 "$RC"
+rm "$AG/both.md"
+OUT=$(run "$D"); RC=$?
+expect_absent "G1 none combine — no [AGENTS] finding" "[AGENTS]" "$OUT"
+expect_rc     "G1 none combine — clean exit" 0 "$RC"
+# The template's own agents are what every project syncs: none of them may combine the two.
+D=$(mkfix g1t)
+mkdir -p "$D/.claude/agents"
+cp "$DIR"/../.claude/agents/*.md "$D/.claude/agents/"
+OUT=$(run "$D")
+expect_absent "G1 template agents — none combine memory: with isolation: worktree" "[AGENTS]" "$OUT"
+
 # ===================================================================================================
 # The mutation section (section 5). Added after a measured audit found three defects in twelve lines,
 # on the only command a default project has that asks for a mutation run at all.

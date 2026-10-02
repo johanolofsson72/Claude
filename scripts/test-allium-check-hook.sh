@@ -155,6 +155,32 @@ else
                 || bad "version sabotage: wrong floor passed silently — suite is blind"
 fi
 
+# Spec 087 (F054). Every elicit copies the skill's reference example, so a warning in it is a
+# warning in every baseline. Real CLI only. Below 3.3.0 the deferred location-hint lint fires on
+# the documented form too, so that one code is the only warning tolerated there.
+echo "== skill reference example"
+SKILL_MD="$SCRIPT_DIR/../.claude/skills/allium/SKILL.md"
+if ! command -v allium >/dev/null 2>&1; then
+  echo "  SKIP  allium not on PATH"
+elif [ ! -f "$SKILL_MD" ]; then
+  bad "reference example: $SKILL_MD missing"
+else
+  EX="$TMP/example.allium"
+  awk '/^```allium/{f=1;next} /^```/{f=0} f' "$SKILL_MD" > "$EX"
+  ver=$(allium --version 2>/dev/null | awk '{print $2}')
+  tolerate='^$'
+  case "$ver" in 3.[012].*|[012].*) tolerate='^allium\.deferred\.missingLocationHint$' ;; esac
+  left=$(allium check "$EX" 2>/dev/null \
+    | jq -r '.diagnostics[] | select(.severity != "info") | .code' 2>/dev/null | grep -Ev "$tolerate")
+  if [ ! -s "$EX" ]; then
+    bad "reference example: no \`\`\`allium block found in SKILL.md"
+  elif [ -z "$left" ]; then
+    ok "reference example has no warnings or errors (allium $ver)"
+  else
+    bad "reference example draws: $(printf '%s' "$left" | sort | uniq -c | tr '\n' ' ')"
+  fi
+fi
+
 echo "== ignored paths"
 out=$(run "$HOOK" "$TMP/readme.md" ALLIUM_BIN="$FAKE/garbage"); [ -z "$out" ] && ok "non-.allium ignored" || bad "md: $out"
 out=$(run "$HOOK" "$TMP/gone.allium" ALLIUM_BIN="$FAKE/garbage"); [ -z "$out" ] && ok "missing file ignored" || bad "gone: $out"

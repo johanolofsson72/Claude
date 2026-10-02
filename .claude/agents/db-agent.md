@@ -4,7 +4,6 @@ description: Database operations specialist for SQLite and Entity Framework Core
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 memory: project
-isolation: worktree
 skills:
   - code-review
 ---

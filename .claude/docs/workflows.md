@@ -431,7 +431,7 @@ model: sonnet                 # Optional. sonnet|opus|haiku (default: inherit)
 permissionMode: default       # Optional. default|acceptEdits|dontAsk|plan|bypassPermissions
 maxTurns: 20                  # Optional. Max number of agent turns
 memory: project               # Optional. user|project|local (persistent memory)
-isolation: worktree            # Optional. Run in isolated git worktree
+isolation: worktree            # Optional. Run in isolated git worktree (not with memory:)
 background: false              # Optional. true = run in background (MCP not available)
 initialPrompt: "start here"   # Optional. Auto-submitted as first user turn
 skills:                        # Optional. Skills to load (NOT inherited from parent)
@@ -460,7 +460,7 @@ System prompt starts here. The agent receives ONLY this prompt.
 | `model` | `opus` (most capable), `sonnet` (balance), `haiku` (fastest/cheapest) |
 | `permissionMode` | `acceptEdits` auto-approves file changes, `plan` = read-only, `bypassPermissions` = skip all |
 | `memory` | `user` = all projects, `project` = shareable via git, `local` = only you |
-| `isolation` | `worktree` = isolated git copy, cleaned up automatically if no changes |
+| `isolation` | `worktree` = isolated git copy, cleaned up automatically if no changes. It is cut from a commit, so the agent does not see uncommitted work, and `memory:` written there is stranded. Leave it off for reviewers (`agents-templates.md`) |
 | `background` | Run while you continue working. MCP tools not available |
 | `initialPrompt` | Auto-submitted as first user turn when running as main session agent via `--agent` |
 | `skills` | Full skill content injected at start. NOT inherited from parent |
@@ -478,8 +478,8 @@ System prompt starts here. The agent receives ONLY this prompt.
 
 See `.claude/docs/agents-templates.md` for ready-made agents for .NET/fullstack projects:
 
-- **dotnet-reviewer** — code review with worktree isolation
-- **security-scanner** — security scanning in isolated worktree
+- **dotnet-reviewer** — code review of the working tree
+- **security-scanner** — read-only security scanning
 - **test-runner** — run tests in the background
 - **db-agent** — EF Core migrations, schema, queries
 

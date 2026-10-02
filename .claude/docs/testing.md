@@ -374,6 +374,24 @@ expect(overflow, 'page scrolls horizontally').toBeLessThanOrEqual(0);
 
 `scripts/project-maintenance.sh` (section 6d) reports a `[VIEWPORT]` finding for each Playwright config with no width below 480px and no phone device. A .NET suite has no config file to read, so there any test file setting a narrow width is accepted. A product that never renders on a phone (a kiosk, a fixed wall display) states it with a `narrow-viewport: not-applicable` comment in the config, followed by the reason.
 
+### Contrast checks: let the browser convert the colour
+
+A hand-written contrast check that reads `getComputedStyle(el).backgroundColor` and parses it as `rgb(r, g, b)` can be wrong while looking certain. For a `color-mix()`, `oklch()` or other modern colour, Chromium returns `color(srgb 0.82 0.41 0.12)`, with components from 0 to 1. A parser expecting 0–255 reads those as almost black. In ighweld this reported a badge as "passes AA at 6.36:1" when the real ratio was 2.83:1.
+
+- Use axe-core's `color-contrast` rule (`@axe-core/playwright`, or `Deque.AxeCore.Playwright` in .NET) where it can see the element. It resolves the colours itself.
+- For a check of your own, let the browser convert the colour. Paint it into a 1×1 canvas and read the pixel back as 0–255 sRGB:
+
+```ts
+const rgb = await page.evaluate((css) => {
+  const ctx = document.createElement('canvas').getContext('2d')!;
+  ctx.fillStyle = css; ctx.fillRect(0, 0, 1, 1);
+  return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3));
+}, await el.evaluate((n) => getComputedStyle(n).backgroundColor));
+```
+
+- A parser that meets a format it does not know must throw, not return black. A transparent background has no colour of its own, so the check walks up to the first opaque ancestor or fails.
+- Give the check one case with a known answer: a `color-mix()` badge whose ratio you worked out by hand, so a parser regression shows up as a wrong number.
+
 ## Mutation testing (THE quality gate — replaces "count the tests" as proof of done)
 
 Line coverage proves a line *executed*; it says nothing about whether a test would *notice* if that line were wrong. Mutation testing injects deliberate bugs (flip `>` to `>=`, `&&` to `||`, delete a statement) and checks your tests kill them. The kill rate is the only metric that measures whether tests actually bite — Google, Meta, and AWS all converge on this over coverage %.

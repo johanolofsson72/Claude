@@ -109,7 +109,8 @@ for path, old, new, label in targets:
     if MARK in text:
         continue                      # already patched
     if old not in text:
-        absent.append(label)          # upstream wording moved
+        absent.append((label, "the stop may be live. Until then .claude/rules/feature-pipeline.md "
+                                "governs: never relay that prompt"))  # upstream wording moved
         continue
     if dry:
         done.append(label + " (would patch)")
@@ -117,16 +118,46 @@ for path, old, new, label in targets:
     path.write_text(text.replace(old, new, 1) + "\n" + MARK + "\n", encoding="utf-8")
     done.append(label)
 
+# Spec 087 (F008). spec-kit's spec template numbers Success Criteria SC-<three digits>, the prefix the
+# scenario map uses for its permanent handles, so every new spec starts a second numeric SC-
+# sequence (ighweld 198 renamed all of its criteria by hand). Letters keep the SC- prefix that
+# /speckit-analyze and /speckit-converge key on, and cannot match SC-<digits>. The guidance
+# comment is the marker: it lands in every spec, where it says why the ids are letters.
+import re
+SC_MARK = ("<!-- Success Criteria ids are letters (SC-A, SC-B, ...). The scenario map owns "
+           "SC-<digits>; see .claude/rules/scenarios.md. Patched by scripts/speckit-extension-policy.sh -->")
+SC_LINE = re.compile(r"^- \*\*SC-(\d{3})\*\*:", re.M)
+tpl = root / ".specify/templates/spec-template.md"
+if tpl.exists():
+    text = tpl.read_text(encoding="utf-8")
+    ids = [int(n) for n in SC_LINE.findall(text)]
+    if SC_MARK in text:
+        pass
+    elif not ids or max(ids) > 26:
+        absent.append(("spec-template Success Criteria numbering",
+                       "new specs number their criteria under the scenario map's SC- prefix. "
+                       "Until then letter them by hand (.claude/rules/scenarios.md)"))
+    elif dry:
+        done.append("spec-template SC numbering (would patch)")
+    else:
+        text = SC_LINE.sub(lambda m: "- **SC-%s**:" % chr(64 + int(m.group(1))), text)
+        anchor = "### Measurable Outcomes\n"
+        if anchor in text:
+            text = text.replace(anchor, anchor + "\n" + SC_MARK + "\n", 1)
+        else:
+            text = re.sub(r"^(- \*\*SC-A\*\*:)", SC_MARK + "\n\n" + r"\1", text, count=1, flags=re.M)
+        tpl.write_text(text, encoding="utf-8")
+        done.append("spec-template SC numbering")
+
 for label in done:
     print(f"speckit-extension-policy: neutralized {label}")
 # Stdout AND a distinct exit code (spec 073). This used to be a stderr line with exit 0, and the
 # autosync caller runs this with 2>/dev/null — so the one message that meant "the permission stop
 # is back" was the one message nobody could ever see. spec-kit is pinned now, which makes a moved
 # anchor rare; rare is exactly when it has to be loud.
-for label in absent:
+for label, risk in absent:
     print(f"speckit-extension-policy: FAIL — could not find the {label}; spec-kit changed its wording "
-          f"and the stop may be live. Update the anchor in scripts/speckit-extension-policy.sh. "
-          f"Until then .claude/rules/feature-pipeline.md governs: never relay that prompt.")
+          f"and {risk}. Update the anchor in scripts/speckit-extension-policy.sh.")
 sys.exit(2 if absent else 0)
 PYEOF
 }

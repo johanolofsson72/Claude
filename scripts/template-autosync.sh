@@ -2871,6 +2871,9 @@ if [ -f "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" ]; then
   case "$POL_ALL" in *"neutralized specify"*)
     [ -f "$PROJECT_ROOT/.claude/skills/speckit-specify/SKILL.md" ] && record_write .claude/skills/speckit-specify/SKILL.md ;;
   esac
+  case "$POL_ALL" in *"neutralized spec-template"*)
+    [ -f "$PROJECT_ROOT/.specify/templates/spec-template.md" ] && record_write .specify/templates/spec-template.md ;;
+  esac
   case "$POL_ALL" in *"disable-model-invocation on"*)
     for _sk in "$PROJECT_ROOT"/.claude/skills/speckit-git-*/SKILL.md; do
       [ -f "$_sk" ] && record_write "${_sk#"$PROJECT_ROOT"/}"
