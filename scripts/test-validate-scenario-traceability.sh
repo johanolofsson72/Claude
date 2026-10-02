@@ -1291,10 +1291,18 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   # live in tests/ the constant is indistinguishable from the discovery, so every case above except
   # these two stays green either way. The defect only appears where the suite is somewhere else,
   # which is exactly where nobody was looking.
-  # Single-quoted like its siblings, but with no disable directive: the replacement holds no
-  # expansion for SC2016 to warn about, and a directive that guards nothing is the kind of noise
-  # this file is otherwise careful to keep out.
-  replace_region "$SCRIPT" "$SABDIR/l.sh" roots-discovery 'ROOTS="tests"'
+  # The replacement keeps the GUARD and changes only what is inside it, which is what "replaced by
+  # a constant" has to mean for this arm to prove anything. A bare `ROOTS="tests"` would also
+  # override an explicit `--roots` and an honoured declaration, so case35 and case38 would go red
+  # beside the two named here and the arm would be testing three defences at once.
+  #
+  # It once also deleted `ROOTS_DECLARED=0`, because the gate's `roots-discovery` region enclosed
+  # its `roots-declaration` region, and the copy died on `set -u` at the first read of that
+  # variable — every case red, `case1-clean` included, on breakage this arm did not cause. The gate
+  # un-nested the two markers; this is the other half of the same fix (agentcrm spec 080).
+  # shellcheck disable=SC2016
+  replace_region "$SCRIPT" "$SABDIR/l.sh" roots-discovery \
+    'if [ "$ROOTS_EXPLICIT" -eq 0 ] && [ "$ROOTS_DECLARED" -eq 0 ]; then ROOTS="tests"; fi'
   sab_run "$SABDIR/l.sh"
   expect_red "roots-discovery-replaced-by-constant" "$SAB_OUT" \
     case30-discovery-reads-e2e case31-discovery-without-a-tests-dir || SAB_FAIL=1

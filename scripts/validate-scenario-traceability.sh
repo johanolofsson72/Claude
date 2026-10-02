@@ -339,8 +339,18 @@ N_TESTED=$(awk -F'\t' 'index($5, "◐") == 1 {c++} END {print c+0}' "$TMP/rows")
 N_MAPPED=$(awk -F'\t' 'index($5, "☐") == 1 {c++} END {print c+0}' "$TMP/rows")
 N_STRUCK=$(awk -F'\t' '$6 == "1" {c++} END {print c+0}' "$TMP/rows")
 
-# >>> roots-discovery
 # ------------------------------------------------------------------------------- the default roots
+#
+# The `>>> roots-discovery` marker sits further down, immediately above the discovery BLOCK, and not
+# here above its prose. It used to be here, and that made this region ENCLOSE `roots-declaration`
+# below — so the one arm that sabotages discovery deleted the declaration's `ROOTS_DECLARED=0` with
+# it, and the copy then died on `set -u` at the first read of that variable. Every case went red,
+# including `case1-clean`, which is the false attribution the harness's own sabotage header says it
+# exists to prevent: "asserting only that the sabotaged run exits non-zero would be satisfied by a
+# copy that died of a syntax error". Measured on agentcrm, 2026-10-02, by spec 080.
+#
+# Overlapping regions are the defect, not the arm. Keep every `>>> name` / `<<< name` pair disjoint.
+#
 # DISCOVERED, never a constant. This read `ROOTS="tests"` for as long as the script existed, which is
 # right on a project whose whole suite lives there and silently wrong on every project that keeps its
 # browser tests anywhere else. On the project that found it, every Playwright spec lives in e2e/ and
@@ -438,6 +448,7 @@ if [ "$ROOTS_EXPLICIT" -eq 0 ] && [ -f "$ROOTS_DECL" ]; then
 fi
 # <<< roots-declaration
 
+# >>> roots-discovery
 if [ "$ROOTS_EXPLICIT" -eq 0 ] && [ "$ROOTS_DECLARED" -eq 0 ]; then
   ROOTS=""
   # Iterated in the list's declared order, not by a glob: the printed `roots:` line is part of the
