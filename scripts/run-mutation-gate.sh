@@ -330,7 +330,8 @@ py() { python3 -c "$PY" "$@"; }
 TARGETS_DEFAULT='scripts/template-autosync.sh scripts/test-drive-sync.sh scripts/test-template-autosync-arms.sh scripts/test-sync-count-honesty.sh scripts/test-core-owed-tick-guard.sh scripts/test-core-machinery-guard.sh scripts/test-template-autosync-owed.sh scripts/test-template-autosync-stranded.sh scripts/test-template-autosync-eol.sh scripts/test-template-autosync-unlisted.sh scripts/test-template-autosync-supply-chain.sh scripts/test-template-autosync-sandbox-writes.sh scripts/test-template-clone-refresh.sh
 scripts/project-maintenance.sh scripts/test-project-maintenance.sh scripts/test-maintenance-trust.sh scripts/test-workload-placement.sh
 scripts/project-freshness.sh scripts/test-project-freshness.sh
-scripts/validate-scenario-traceability.sh scripts/test-validate-scenario-traceability.sh'
+scripts/validate-scenario-traceability.sh scripts/test-validate-scenario-traceability.sh
+scripts/settings-edit-guard-hook.sh scripts/test-settings-edit-guard.sh'
 if [ -n "${MUTATION_TARGETS:-}" ]; then
   [ -f "$MUTATION_TARGETS" ] || die "MUTATION_TARGETS names no file: $MUTATION_TARGETS"
   TARGETS=$(grep -v '^[[:space:]]*#' "$MUTATION_TARGETS" | grep .)

@@ -250,6 +250,7 @@ guard-lib.sh test-guard-lib.sh test-guard-fail-closed.sh test-guard-exit-codes.s
 destructive-command-guard-hook.sh destructive_command.py test-destructive-command-guard.sh
 sensitive-file-guard-hook.sh sensitive_paths.py test-sensitive-file-guard.sh
 trust-anchor-guard-hook.sh test-trust-anchor-guard.sh developer-answers-hook.sh test-developer-answers.sh
+settings-edit-guard-hook.sh settings_guard.py test-settings-edit-guard.sh
 test-guard-root-anchor.sh
 test-runtime-markers-ignored.sh
 validate-register-ids.sh test-register-ids.sh

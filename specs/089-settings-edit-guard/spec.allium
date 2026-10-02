@@ -1,0 +1,150 @@
+-- allium: 3
+--
+-- 089 — settings edit guard.
+--
+-- The files that wire every hook are out of the agent's reach for the three keys that decide which
+-- hooks run and what environment they see. Rules cite R1..R8 (spec.md) and the developer's overflow
+-- answers O1..O4 (interview.md). The template keeps no scenario map.
+
+enum Verdict { allow | deny }
+
+enum DenyReason { settings_key | settings_invalid | settings_unreadable | settings_shell | settings_bash | crash }
+
+enum ToolKind { edit | write | multi_edit | notebook_edit | bash | delegated_shell_write }
+
+enum GuardedKey { hooks | disable_all_hooks | env }
+
+entity SettingsFile {
+    path: String                                -- canonical: realpath, case folded where the fs folds, NFC
+    is_project_settings: Boolean                -- <project>/.claude/settings.json
+    is_project_local: Boolean                   -- <project>/.claude/settings.local.json
+    is_config_settings: Boolean                 -- <config>/settings.json
+    guarded: Boolean
+
+    -- R1 (O1): exactly the three files this session and the next one load.
+    invariant GuardedIsTheSessionsThree {
+        this.guarded = (this.is_project_settings or this.is_project_local or this.is_config_settings)
+    }
+}
+
+entity EditCall {
+    kind: ToolKind
+    target: SettingsFile
+    simulable: Boolean                          -- carries bytes the tool would apply (content, old/new, edits)
+    before_parses: Boolean                      -- current bytes are a JSON object (missing or empty = {})
+    after_parses: Boolean                       -- simulated bytes are a JSON object as JSON.parse reads
+                                                -- it: NaN and Infinity do not parse (/tla D4)
+    changed_keys: Set<GuardedKey>               -- deep inequality, absent is a value
+    verdict: Verdict?
+    reason: DenyReason?
+}
+
+entity ShellCall {
+    names_guarded: Boolean                      -- some word resolves to, globs to, or after a cd into
+                                                -- .claude or an unresolvable dir may be, a guarded file (D3)
+    every_naming_command_reads: Boolean         -- each simple command naming one is on the read list,
+                                                -- with no NAME= prefix, git -c or rg --pre (D1) and no
+                                                -- output option naming the file (D5)
+    redirect_into_guarded: Boolean              -- a > / >> / tee-free redirection whose target names one
+    splittable: Boolean                         -- quotes balance; ` $( >( <( split commands (/tla D2)
+    mentions_settings_text: Boolean             -- raw text holds "settings" or ".claude"
+    verdict: Verdict?
+    reason: DenyReason?
+}
+
+entity GuardRun {
+    crashed: Boolean
+    edits_own_files: Boolean                    -- Edit/Write of the hook, settings_guard.py, guard-lib.sh
+    verdict: Verdict?
+}
+
+rule UnguardedFilePasses {
+    -- R1: another project's settings, and every non-settings path.
+    when: EditProposed(call)
+    requires: not call.target.guarded
+    ensures: call.verdict = allow
+}
+
+rule UnsimulableWriteIsDenied {
+    -- R3: NotebookEdit, a glob path, or a delegated shell write carries no bytes to compare.
+    when: EditProposed(call)
+    requires: call.target.guarded and not call.simulable
+    ensures: call.verdict = deny and call.reason = settings_shell
+}
+
+rule BrokenCurrentFileIsDenied {
+    -- R3: nothing to compare against; the developer repairs it.
+    when: EditProposed(call)
+    requires: call.target.guarded and call.simulable and not call.before_parses
+    ensures: call.verdict = deny and call.reason = settings_unreadable
+}
+
+rule BreakingWriteIsDenied {
+    -- R3: the harness drops a settings file it cannot parse, and every hook in it.
+    when: EditProposed(call)
+    requires: call.target.guarded and call.simulable and call.before_parses and not call.after_parses
+    ensures: call.verdict = deny and call.reason = settings_invalid
+}
+
+rule GuardedKeyChangeIsDenied {
+    -- R2 (O2), R3: hooks, disableAllHooks, env.
+    when: EditProposed(call)
+    requires: call.target.guarded and call.simulable and call.before_parses and call.after_parses and call.changed_keys != {}
+    ensures: call.verdict = deny and call.reason = settings_key
+}
+
+rule OtherKeysStayEditable {
+    -- R2: permissions, outputStyle, formatting.
+    when: EditProposed(call)
+    requires: call.target.guarded and call.simulable and call.before_parses and call.after_parses and call.changed_keys = {}
+    ensures: call.verdict = allow
+}
+
+rule ShellReadPasses {
+    -- R4: reads and git add/commit of a guarded file.
+    when: ShellProposed(call)
+    requires: call.splittable and (not call.names_guarded or (call.every_naming_command_reads and not call.redirect_into_guarded))
+    ensures: call.verdict = allow
+}
+
+rule ShellWriteIsDenied {
+    -- R4: anything else that names a guarded file.
+    when: ShellProposed(call)
+    requires: call.splittable and call.names_guarded and (not call.every_naming_command_reads or call.redirect_into_guarded)
+    ensures: call.verdict = deny and call.reason = settings_bash
+}
+
+rule UnsplittableShellFailsClosed {
+    -- R4: an unbalanced quote around a settings word.
+    when: ShellProposed(call)
+    requires: not call.splittable
+    ensures:
+        if call.mentions_settings_text:
+            call.verdict = deny and call.reason = settings_bash
+        else:
+            call.verdict = allow
+}
+
+rule CrashDeniesExceptOwnRepair {
+    -- R6: a guard that cannot run must not block its own repair.
+    when: GuardCrashed(run)
+    requires: run.crashed
+    ensures:
+        if run.edits_own_files:
+            run.verdict = allow
+        else:
+            run.verdict = deny
+}
+
+rule NoAgentOverride {
+    -- R7 (O3, O4): no variable, no template exemption. The developer's routes never reach PreToolUse.
+    when: EditProposed(call)
+    requires: call.target.guarded and call.changed_keys != {}
+    ensures: call.verdict = deny
+}
+
+invariant GuardedKeysOnlyChangeByHand {
+    -- The property 089 exists for: no allowed agent call changes a guarded key of a guarded file.
+    for c in EditCalls:
+        not (c.target.guarded and c.verdict = allow and c.changed_keys != {})
+}

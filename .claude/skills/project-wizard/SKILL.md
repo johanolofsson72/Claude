@@ -59,7 +59,7 @@ Read `$TEMPLATE/scripts/sync-prompt.md` and **execute every step it defines (Ste
 3. **Step 5d** — `python3 scripts/sync-graphify-wiring.py "$TEMPLATE/.claude/settings.json"` then `bash scripts/graphify-bootstrap.sh` (deterministic Graphify wiring, then install + AST graph build; the bootstrap eligibility-gates itself under 30 source files).
 4. **Step 6 / 6b** — install the external skills (`frontend-design` via anthropics/skills, superpowers, qa-test, playwright-skill, ui-ux-pro-max, …) and the TLC model checker.
 5. **Step 0.5** — the sync engine and then `bash scripts/speckit-sync.sh --init-new` (the wizard is the one caller that passes `--init-new`: it is creating the project's `.specify/`).
-6. **Step 8 / 8b** — normalize hook paths (`python3 scripts/fix-hook-paths.py .claude/settings.json`) and confirm the stamp `.claude/.template-sync` carries a `sha=` line.
+6. **Step 8 / 8b** — normalize hook paths (`python3 scripts/fix-hook-paths.py .claude/settings.json`; The settings guard (spec 089) refuses this from the agent's shell once it is wired: ask the developer to run it with `!`) and confirm the stamp `.claude/.template-sync` carries a `sha=` line.
 
 **Step 5.3 — Exit gate (BLOCKING — the wizard does not proceed until this prints `[OK]`):**
 

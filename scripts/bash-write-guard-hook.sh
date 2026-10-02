@@ -397,6 +397,17 @@ The guard's own reason follows (spec 088).
 ────────────────────────────────────────────────────────────
 ${INNER}"
         ;;
+      settings-edit-guard-hook.sh)
+        REASON="BLOCKED — a shell command was about to write a settings file that wires the hooks.
+
+Target: ${target}
+Guard:  scripts/${guard}
+
+The guard's own reason follows (spec 089).
+
+────────────────────────────────────────────────────────────
+${INNER}"
+        ;;
       core-machinery-guard-hook.sh)
         REASON="BLOCKED — a shell command was about to write to a file the TEMPLATE owns.
 
@@ -471,7 +482,9 @@ EOF
 
 # trust-anchor (spec 088, R3) answers about a spec's acceptance.md and the two .git trust stores; with a
 # path and no bytes it cannot tell a case edit from a forged Confirmed line, so it denies the shell route.
-BASENAME_GUARDS="core-machinery-guard-hook.sh core-owed-tick-guard-hook.sh trust-anchor-guard-hook.sh"
+# settings-edit (spec 089, R5) answers about the three settings files that wire the hooks; with a path
+# and no bytes it cannot tell a permissions edit from an unwired hook, so it denies the shell route too.
+BASENAME_GUARDS="core-machinery-guard-hook.sh core-owed-tick-guard-hook.sh trust-anchor-guard-hook.sh settings-edit-guard-hook.sh"
 PATH_GUARDS="spec-register-guard-hook.sh pipeline-state-guard-hook.sh spec-interview-guard-hook.sh"
 
 # shellcheck disable=SC2086

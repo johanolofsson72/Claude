@@ -179,7 +179,7 @@ NU1903/NU1904, the project already had the vulnerable package. Report it and fix
 ### Step 7: Verify
 
 - Verify `settings.json` is valid JSON: `python3 -m json.tool .claude/settings.json`
-- Normalize hook paths: `python3 scripts/fix-hook-paths.py .claude/settings.json`
+- Normalize hook paths: `python3 scripts/fix-hook-paths.py .claude/settings.json`. The settings guard (spec 089) refuses this from the agent's shell once it is wired: ask the developer to run it with `!`.
 - Verify CLAUDE.md does not exceed ~200 lines
 - Verify reference files in CLAUDE.md point to files that actually exist
 - **Core-hook wiring check** — every core hook script present on disk MUST be wired (catches the prose-merge gap that previously dropped pipeline/register/interview hooks):
