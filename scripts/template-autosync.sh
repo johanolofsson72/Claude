@@ -319,7 +319,7 @@ self-test-env.sh test-self-test-prologue.sh test-root-walk-terminates.sh test-te
 # is the fix when the claim turns out to be wrong.
 TEMPLATE_ONLY_SCRIPTS="after-specify-hook.sh allium-hook.sh tla-hook.sh ui-design-hook.sh
 sqlite-nfs-safety-hook.sh test-coverage-hook.sh
-run-mutation-gate.sh
+run-mutation-gate.sh test-run-mutation-gate.sh
 update-template.sh test-update-template.sh verify-local-llm-hooks.sh
 bench-hooks.sh install-global-skills.sh test-install-global-skills.sh test-on-linux.sh
 test-doc-dotnet-playwright-apis.sh test-doc-secrets-guidance.sh"
@@ -551,7 +551,7 @@ $_f
 scripts/$_b"
     done
     _cands=$(printf '%s\n' "$_cands" | grep -v '^$')
-    [ -n "$_cands" ] || exit 0
+    [ -n "$_cands" ] || exit 0  # mutant-equivalent: subshell status, stdout empty either way; all 5 callers of unlisted_core_shaped read only stdout
 
     # ONE grep over every CORE file, not one per (candidate, file) pair. The obvious nesting is
     # 13 candidates x 86 CORE files = ~1100 subprocesses, measured at 3.2 s — thirteen times this

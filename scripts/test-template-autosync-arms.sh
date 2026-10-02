@@ -15,6 +15,19 @@
 #   M11  --accept-local, template does not ship the path: `exit 1`
 #   M12  the final core-hooks re-merge: `&& python3 -m json.tool` validity check
 #
+# Spec 085 (085-AC-3) re-measured the survivors with scripts/run-mutation-gate.sh and armed these:
+#
+#   M13  --template-dir with no local clone anywhere: `exit 1`
+#   M15  fold_helper_writes: `[ "$_claimed" -ne "$_n" ]` drift check
+#   M16  [held] gate: `[ -n "$SYNC_COMMIT" ]`
+#   M17  [held] gate: the `||` between the two arms
+#   M18  [held] gate: `[ "$IN_PROGRESS_ARM" -eq 1 ]`
+#   M19  [held] cap: `[ "$N_HELD" -gt "$NAME_LIMIT" ]`
+#
+# M14 (`[ -n "$_cands" ] || exit 0` in unlisted_core_shaped's project mode) has no arm: it is the
+# exit status of a subshell whose stdout is empty either way, and every caller reads only the
+# stdout. The line carries `# mutant-equivalent:`.
+#
 # Run:  bash scripts/test-template-autosync-arms.sh              # the arms against the real script
 #       bash scripts/test-template-autosync-arms.sh --sabotage   # every arm against its mutant
 # ARMS_TEST_SCRIPT selects the script under test (the sabotage mode sets it per mutant).
@@ -50,7 +63,17 @@ M11@@      warn "               differ from — this sync never looks at that pa
       exit 0@@arm_accept_unshipped
 M12@@     && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
     cmp -s@@     || python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
-    cmp -s@@arm_settings_stay_valid'
+    cmp -s@@arm_settings_stay_valid
+M13@@CANDIDATES
+  exit 1
+fi@@CANDIDATES
+  exit 0
+fi@@arm_template_dir_none
+M15@@    if [ "$_claimed" -ne "$_n" ]; then@@    if [ "$_claimed" -eq "$_n" ]; then@@arm_helper_count_drift
+M16@@if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@if [ -z "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@arm_held_gate
+M17@@if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@if [ -n "$SYNC_COMMIT" ] && [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@arm_held_gate
+M18@@if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then@@if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -ne 1 ]; then@@arm_held_gate
+M19@@    if [ "$N_HELD" -gt "$NAME_LIMIT" ]; then@@    if [ "$N_HELD" -le "$NAME_LIMIT" ]; then@@arm_held_cap'
 
 if [ "${1:-}" = "--sabotage" ]; then
   RED=0; STILL_GREEN=""; STALE_ANCHOR=""
@@ -212,11 +235,112 @@ EOF
   fi
 }
 
+# ---------------------------------------------------------------------------- M13
+# 085-AC-3. `--template-dir` answers "where is a local template clone" and exits 1 when there is
+# none, which is how the wizard and /project-update learn to fall back to the tarball. An exit 0
+# with an empty stdout would send them to an empty path. HOME is moved so the real ~/repos/Claude on
+# this machine is not a candidate.
+arm_template_dir_none() {
+  echo "== M13 — --template-dir with no clone anywhere exits 1 (085-AC-3)"
+  build m13
+  mkdir -p "$R/home"
+  OUT=$(HOME="$R/home" CLAUDE_TEMPLATE_DIR="$R/nowhere" DRIVE_SYNC_SCRIPT="$SCRIPT" \
+        drive_sync_readonly "$P" --template-dir 2>/dev/null); RC=$?
+  same "M13 no clone: exit 1"            "$RC" "1"
+  same "M13 no clone: nothing on stdout" "$OUT" ""
+
+  # The control: the same run with a real clone named answers it, so exit 1 is not the only answer.
+  OUT=$(HOME="$R/home" CLAUDE_TEMPLATE_DIR="$T" DRIVE_SYNC_SCRIPT="$SCRIPT" \
+        drive_sync_readonly "$P" --template-dir 2>/dev/null); RC=$?
+  same "M13 control: a clone is found, exit 0" "$RC" "0"
+  same "M13 control: and its path is printed"  "$OUT" "$T"
+}
+
+# ---------------------------------------------------------------------------- M15
+# 085-AC-3. fold_helper_writes cross-checks the helper's own "scripts: copied N, deleted M" against
+# the `  + name` lines it parsed. When they agree there is nothing to say; a drift line on an honest
+# helper is noise forwarded into every session start. The graphify helper is the one stood in here:
+# the sync runs it from the project, so the fake sits in both repositories, identical.
+fake_graphify() {  # <claimed copies> <writes settings>
+  cat > "$1" <<EOF
+import os
+open("scripts/gfy-demo.sh", "w").write("#!/bin/bash\\n")
+print("  + gfy-demo.sh")
+print("scripts: copied $2, deleted 0")
+EOF
+}
+arm_helper_count_drift() {
+  echo "== M15 — a helper whose count matches its lines is not drift (085-AC-3)"
+  build m15
+  printf '{"hooks":{}}\n' > "$T/.claude/settings.json"
+  printf '{"hooks":{}}\n' > "$P/.claude/settings.json"
+  fake_graphify "$T/scripts/sync-graphify-wiring.py" 1
+  cp "$T/scripts/sync-graphify-wiring.py" "$P/scripts/sync-graphify-wiring.py"
+  commit_both
+  OUT=$(sync 2>&1)
+  has   "M15 the sync ran and committed"               "$OUT" "[synced] template"
+  hasnt "M15 claimed 1, parsed 1: no drift line"        "$OUT" "output format drift"
+
+  # The control: a helper that claims 2 and lists 1 IS drift, so the arm is not blind to the line.
+  build m15c
+  printf '{"hooks":{}}\n' > "$T/.claude/settings.json"
+  printf '{"hooks":{}}\n' > "$P/.claude/settings.json"
+  fake_graphify "$T/scripts/sync-graphify-wiring.py" 2
+  cp "$T/scripts/sync-graphify-wiring.py" "$P/scripts/sync-graphify-wiring.py"
+  commit_both
+  OUT=$(sync 2>&1)
+  has   "M15 control: claimed 2, parsed 1 is drift"     "$OUT" "reported 2 script write(s), 1 parsed — output format drift"
+}
+
+# ---------------------------------------------------------------------------- M16 / M17 / M18
+# 085-AC-3. [held] names the paths that were already staged and are not the sync's. It renders after
+# a commit (SYNC_COMMIT set) and on the rebase/merge arm, and on neither --no-commit nor a run that
+# committed nothing: there the developer asked the sync to leave git alone.
+stage_strangers() {  # <name>…
+  for _s in "$@"; do printf 'mine\n' > "$P/$_s"; git -C "$P" add "$_s"; done
+}
+arm_held_gate() {
+  echo "== M16/M17/M18 — [held] after a commit, not on --no-commit (085-AC-3)"
+  build m16
+  commit_both
+  stage_strangers stranger.txt
+  OUT=$(sync 2>&1)
+  has   "M16/M17 a committing sync names the staged stranger" "$OUT" "[held] 1 path(s) were already staged"
+  has   "M16/M17 by its path"                                 "$OUT" "       stranger.txt"
+  hasnt "M19 one held path under the cap is not capped"       "$OUT" "more, not named"
+  same  "M16 the stranger is still staged, not committed"     "$(git -C "$P" diff --cached --name-only)" "stranger.txt"
+
+  build m18
+  commit_both
+  stage_strangers stranger.txt
+  OUT=$(sync --no-commit 2>&1)
+  has   "M18 the --no-commit sync ran and committed nothing"  "$OUT" "· not committed"
+  hasnt "M18 --no-commit renders no [held]"                   "$OUT" "[held]"
+}
+
+# ---------------------------------------------------------------------------- M19
+# 085-AC-3. Past TEMPLATE_AUTOSYNC_NAME_LIMIT the list stops and says how many it did not name.
+arm_held_cap() {
+  echo "== M19 — [held] past the name limit says how many are not named (085-AC-3)"
+  build m19
+  commit_both
+  stage_strangers a.txt b.txt c.txt
+  OUT=$(TEMPLATE_AUTOSYNC_NAME_LIMIT=1 sync 2>&1)
+  has   "M19 three held paths are counted"                    "$OUT" "[held] 3 path(s)"
+  has   "M19 the first is named"                              "$OUT" "       a.txt"
+  hasnt "M19 the second is not"                               "$OUT" "       b.txt"
+  has   "M19 the rest are counted and the cap named"          "$OUT" "… and 2 more, not named — capped at 1 (TEMPLATE_AUTOSYNC_NAME_LIMIT)"
+}
+
 want arm_unlisted_glob          && arm_unlisted_glob
 want arm_no_record_is_not_stale && arm_no_record_is_not_stale
 want arm_accept_core            && arm_accept_core
 want arm_accept_unshipped       && arm_accept_unshipped
 want arm_settings_stay_valid    && arm_settings_stay_valid
+want arm_template_dir_none      && arm_template_dir_none
+want arm_helper_count_drift     && arm_helper_count_drift
+want arm_held_gate              && arm_held_gate
+want arm_held_cap               && arm_held_cap
 
 echo
 echo "test-template-autosync-arms.sh: $PASS passed, $FAIL failed"

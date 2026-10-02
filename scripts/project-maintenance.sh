@@ -886,6 +886,7 @@ fi
 
 # ------------------------------------------------------------- 5. mutation kill rate
 MUTATION_CMD=""
+MUT_NOEXEC=0
 # `find`, not a glob: bash globstar is off by default, so `./**/*.csproj` would
 # silently only match one level deep — and would miss src/Foo/Foo.csproj.
 if [ -x scripts/run-mutation-gate.sh ]; then
@@ -922,6 +923,11 @@ if [ -x scripts/run-mutation-gate.sh ]; then
   # pass a CLI `--reporter` without also passing `--reporter json`: a CLI reporter REPLACES the
   # config's list, it does not add to it.
   MUTATION_CMD="bash scripts/run-mutation-gate.sh"
+elif [ -f scripts/run-mutation-gate.sh ]; then
+  # Present but not executable (085 /tla GAP-1, measured on the template): it used to fall through,
+  # to "no mutation runner for this stack" at best and to the unbounded bare `dotnet stryker` the
+  # runner exists to prevent at worst. The project declared a runner; run nothing else in its place.
+  MUT_NOEXEC=1
 elif [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
   MUTATION_CMD="dotnet stryker"
 elif [ -f package.json ] && grep -q '"@stryker-mutator/core"' package.json 2>/dev/null; then
@@ -1245,6 +1251,9 @@ $MUT_MODULES"
     REPORT="${REPORT}[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow, and it covers only the working-directory config).
 "
   fi
+elif [ "$MUT_RUN" -eq 1 ] && [ "$MUT_NOEXEC" -eq 1 ]; then
+  add "[MUTATION] NOT RUN — scripts/run-mutation-gate.sh exists but is not executable, so nothing ran in its place.
+  Fix: chmod +x scripts/run-mutation-gate.sh (and commit the mode). Not stamped: the job stays due."
 elif [ "$MUT_RUN" -eq 1 ]; then
   # Row 051: a stack with no runner (PHP, bare node) heard nothing at all from --full, and the due
   # banner kept asking for a pass that had no way to happen. Not stamped, as before; now it is said.

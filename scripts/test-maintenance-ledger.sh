@@ -101,6 +101,21 @@ expect_contains "L9 the failed mutation run is counted" "     1  TOO BIG for 16 
 printf '2026-10-05T10:00:00+02:00\tcloud\tmutation\t400.0\t0\t3000\t4\t0.5\t25\n' >> "$L4"
 OUT=$(cd "$R4" && python3 "$LEDGER_PY" report 2>&1)
 expect_contains "L9 five specs spanned is ready" "spans 5 of 5 ticked specs needed (ready for 075)" "$OUT"
+
+# 085-AC-5 (F058): five specs spanned by cheap jobs only is not readiness; it names what is missing.
+R5=$(mkrepo cheap 0); L5="$R5/.claude/state/maintenance-runs.tsv"; mkdir -p "$(dirname "$L5")"
+printf '2026-09-29T10:00:00+02:00\tlocal-darwin\tsecrets\t10.0\t0\t100\t10\t1.0\t20\n'    >  "$L5"
+printf '2026-10-05T10:00:00+02:00\tlocal-darwin\tsimilarity\t5.0\t0\t100\t10\t1.0\t25\n' >> "$L5"
+OUT=$(cd "$R5" && python3 "$LEDGER_PY" report 2>&1)
+expect_contains "085-AC-5 cheap jobs only keep measuring and name both heavy jobs" "spans 5 of 5 ticked specs needed (keep measuring — no run of: mutation, suite)" "$OUT"
+expect_absent "085-AC-5 never ready without a heavy run" "ready for 075" "$OUT"
+printf '2026-10-05T11:00:00+02:00\tlocal-darwin\tmutation\t500.0\t1\t900\t10\t1.0\t25\n' >> "$L5"
+OUT=$(cd "$R5" && python3 "$LEDGER_PY" report 2>&1)
+expect_contains "085-AC-5 a failed mutation run is a measurement; suite is still missing" "(keep measuring — no run of: suite)" "$OUT"
+printf '2026-10-06T10:00:00+02:00\tlocal-darwin\tsuite\tinf\t0\tnan\t10\t1.0\tnan\n' >> "$L5"
+OUT=$(cd "$R5" && python3 "$LEDGER_PY" report 2>&1); RC=$?
+expect_eq "085 review: a nan/inf row does not crash the report" "0" "$RC"
+expect_contains "085 review: the row still counts as a suite run" "spans 5 of 5 ticked specs needed (ready for 075)" "$OUT"
 expect_contains "L9 cloud runs group separately" "cloud" "$OUT"
 
 # L10: --all reads sibling repos' ledgers.

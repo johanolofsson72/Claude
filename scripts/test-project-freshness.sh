@@ -234,6 +234,51 @@ OUT=$(run "$P")
 expect_contains "it is still skipped for want of a lockfile" "No lockfile" "$OUT"
 expect_absent   "…and is not claimed to be a workspaces member" "npm workspaces member" "$OUT"
 
+# Spec 085 R3: the workspaces-root test is three conditions joined by && (a package.json, a
+# lockfile or shrinkwrap, a "workspaces" key). Each arm below drops exactly one of them, so a
+# root that fails any one condition must not cover its members.
+printf '\n  -- C10 085-AC-3 a workspaces root needs all three: package.json, a lockfile, "workspaces"\n'
+P=$(mkrepo ws-nolock)
+printf '{ "name": "web-root", "version": "1.0.0", "workspaces": ["packages/*"] }\n' > "$P/package.json"
+mkpkg "$P/packages/ui/package.json" ui
+OUT=$(PATH="$NPM_STUB_DIR:$PATH" run "$P")
+expect_absent   "085-AC-3 a workspaces root with no lockfile covers nothing" "npm workspaces member" "$OUT"
+expect_contains "085-AC-3 …so the member is still a lockfile skip" "No lockfile" "$OUT"
+P=$(mkrepo ws-shrinkwrap)
+printf '{ "name": "web-root", "version": "1.0.0", "workspaces": ["packages/*"] }\n' > "$P/package.json"
+printf '{ "name": "web-root", "lockfileVersion": 3 }\n' > "$P/npm-shrinkwrap.json"
+mkpkg "$P/packages/ui/package.json" ui
+OUT=$(PATH="$NPM_STUB_DIR:$PATH" run "$P")
+expect_contains "085-AC-3 npm-shrinkwrap.json alone makes a workspaces root" "npm workspaces member" "$OUT"
+P=$(mkrepo ws-noworkspaces)
+mkpkg "$P/package.json" app
+printf '{ "name": "app", "lockfileVersion": 3, "packages": {} }\n' > "$P/package-lock.json"
+mkpkg "$P/tools/gen/package.json" gen
+OUT=$(PATH="$NPM_STUB_DIR:$PATH" run "$P")
+expect_absent   "085-AC-3 a lockfile root without \"workspaces\" covers nothing" "npm workspaces member" "$OUT"
+expect_contains "085-AC-3 …so the nested package is still a lockfile skip" "No lockfile" "$OUT"
+
+# Spec 085 R3: npm audit's exit code decides the verdict, and --fix decides the remedy.
+printf '\n  -- C10 085-AC-3 npm audit exit 0 is clean, non-zero is a finding; --fix runs the forced fix\n'
+P=$(mkrepo audit-rc)
+mkpkg "$P/package.json" app
+printf '{ "name": "app", "lockfileVersion": 3, "packages": {} }\n' > "$P/package-lock.json"
+OUT=$(PATH="$NPM_STUB_DIR:$PATH" run "$P")
+expect_contains "085-AC-3 npm audit exit 0 is [OK]" "[OK] No advisories for" "$OUT"
+expect_absent   "085-AC-3 …and not a finding" "[FINDING] Vulnerabilities reported" "$OUT"
+NPM_VULN_DIR="$TMP/npm-stub-vuln"; mkstub "$NPM_VULN_DIR/npm" '3 vulnerabilities (1 low, 2 high)' 1
+OUT=$(PATH="$NPM_VULN_DIR:$PATH" run "$P")
+expect_contains "085-AC-3 npm audit exit 1 is a finding" "[FINDING] Vulnerabilities reported" "$OUT"
+expect_contains "085-AC-3 …the summary carries npm's own count" "3 vulnerabilities (1 low, 2 high)" "$OUT"
+expect_contains "085-AC-3 …without --fix it is report-first" "[NEXT] Report-first: nothing was changed" "$OUT"
+expect_absent   "085-AC-3 …and never runs the forced fix" "[FIX] Running" "$OUT"
+expect_absent   "085-AC-3 …npm was not asked to fix" "audit fix" "$(cat "$NPM_VULN_DIR/npm.calls" 2>/dev/null)"
+OUT=$( cd "$P" && PATH="$NPM_VULN_DIR:$PATH" FRESHNESS_OSV_SCANNER="$OSV_UNDER_TEST" \
+    FRESHNESS_DOTNET="$DOTNET_UNDER_TEST" bash "$FRESH" --deps --fix --no-install 2>&1 )
+expect_contains "085-AC-3 --fix runs the forced fix" "[FIX] Running 'npm audit fix --force'" "$OUT"
+expect_contains "085-AC-3 …npm received audit fix --force" "audit fix --force" "$(cat "$NPM_VULN_DIR/npm.calls" 2>/dev/null)"
+expect_absent   "085-AC-3 …and does not also print the report-first advice" "[NEXT] Report-first" "$OUT"
+
 # ---------------------------------------------- C11 — osv-scanner absent: loud skip, not clean
 printf '\n  -- C11 osv-scanner missing is a loud one-line skip, and the summary repeats it\n'
 P=$(mkrepo noosv)
@@ -452,7 +497,7 @@ pem() { printf '%sBEGIN %sPRIVATE KEY%s\n%s\n%sEND %sPRIVATE KEY%s\n' "$M5" "$1"
 dpkey() {  # $1 = plain | encrypted
   printf '<?xml version="1.0" encoding="utf-8"?>\n<key id="d51365dc-16f0-4e2a-918c-df1fef2bdb34" version="1">\n  <descriptor><descriptor>\n'
   if [ "$1" = plain ]; then
-    printf '    <masterKey p4:requiresEncryption="true" xmlns:p4="http://schemas.asp.net/2015/03/dataProtection">\n      <value>%s</value>\n    </masterKey>\n' "$LINE64"
+    printf '    <masterKey p4:requiresEncryption="true" xmlns:p4="http://schemas.asp.net/2015/03/dataProtection">\n      <value>%s</value>\n    </masterKey>\n' "${2:-$LINE64}"
   else
     printf '    <masterKey><encryptedSecret decryptorType="X"><EncryptedData>%s</EncryptedData></encryptedSecret></masterKey>\n' "$LINE64"
   fi
@@ -568,6 +613,20 @@ expect_absent   "59 body characters is not a key" "under.pem" "$OUT"
 expect_contains "60 is" "[FINDING] at.pem — PEM private key (EC)" "$OUT"
 expect_absent   "tokens under 40 characters never add up to a key" "short-tokens.pem" "$OUT"
 
+# Spec 085 R3: the 40-character token floor is inclusive, in tokens() and in the DP threshold.
+# The awk program is a string, so the mutation runner cannot reach it; this pins both >= by hand.
+printf '\n  -- K8  085-AC-3 a Data Protection <value> of exactly 40 base64 characters is a key; 39 is not\n'
+P=$(mkrepo k8dp)
+T40="${LINE64%????????????????????????}"   # 40 base64 characters
+mkdir -p "$P/at40" "$P/under39"
+dpkey plain "$T40" > "$P/at40/$GUIDXML"
+dpkey plain "${T40%?}" > "$P/under39/$GUIDXML"
+commit_all "$P"
+keyscan "$P"
+expect_contains "085-AC-3 a 40-character DP master key is a FINDING" \
+  "[FINDING] at40/$GUIDXML — ASP.NET Data Protection key (plaintext master key)" "$OUT"
+expect_absent   "085-AC-3 …39 characters is not a key" "under39/" "$OUT"
+
 printf '\n  -- K9  one key at three paths, spaces included, is three lines\n'
 P=$(mkrepo k9); mkdir -p "$P/App/My Project/~BROMIUM" "$P/App/~BROMIUM"
 printf 'pfx' > "$P/App/Temp Key.pfx"; cp "$P/App/Temp Key.pfx" "$P/App/My Project/~BROMIUM/Temp Key.pfx"
@@ -644,6 +703,12 @@ TH_UNDER_TEST="$NO_BIN/trufflehog"
 keyscan "$P" --deps
 expect_contains "--deps does not run the key scan" "Keys:    not run (--deps)" "$OUT"
 expect_absent   "…nor print its section" "[2/6] key-shape" "$OUT"
+# Spec 085 R3: the first scope flag narrows, a second one widens back.
+keyscan "$P"
+expect_contains "085-AC-3 --secrets alone does not run the deps audit" "npm:     not run (--secrets)" "$OUT"
+keyscan "$P" "--deps --secrets"
+expect_absent   "085-AC-3 --deps --secrets runs the deps audit" "npm:     not run" "$OUT"
+expect_absent   "085-AC-3 …and the key scan" "Keys:    not run" "$OUT"
 
 printf '\n  -- K18 escapes and prefixes: +, \/, CRLF, commented-out body lines\n'
 P=$(mkrepo k18); mkdir -p "$P/cfg"

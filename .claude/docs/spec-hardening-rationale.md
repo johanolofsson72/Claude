@@ -129,7 +129,7 @@ Once 5 feature specs are ticked since the last ticked checkpoint, before the nex
 1. **Full-system regression** — entire suite: unit + integration + E2E + visual-regression baselines.
 2. **Cross-cutting security sweep** — `security-scanner` over the whole surface + `scripts/project-freshness.sh` (trufflehog + key-shape scan + dependency audits).
 3. **Scenario-map reconciliation** — index + every `specs/scenarios/*.md` vs reality; drift starts a scenario interview (`.claude/rules/scenarios.md`).
-4. **Mutation spot-check** — Stryker on the 2–3 most-changed critical modules since the last checkpoint.
+4. **Mutation spot-check** — Stryker on the 2–3 most-changed critical modules since the last checkpoint. Stryker cannot mutate bash, so the template runs its own: `bash scripts/run-mutation-gate.sh --module scripts/<name>.sh` (spec 085). Each day's seed draws a different sample, and `--lines` re-measures a recorded survivor.
 
 A checkpoint is bounded by the carve budget: many findings → **one consolidated row**, never past depth 2 (`.claude/rules/carve-budget.md`). It ends with a status summary and stops like a spec. N = 5 unless the project set its own N at wizard time (recorded in register history); a register N or more feature specs past its last checkpoint with none pending is drift to surface.
 

@@ -128,6 +128,11 @@ echo
 
 # -------------------------------------------------------------------- cases --
 
+# case0 — --help prints the header and exits 0 (085, F073: an `exit 1` there survived every case).
+OUT=$(bash "$SCRIPT" --help 2>&1); RC=$?
+if [ "$RC" -eq 0 ] && grep -q 'scenario' <<< "$OUT"; then ok "case0-help"
+else bad "case0-help" "expected exit 0 and the header, got $RC: $(printf '%s' "$OUT" | head -2)"; fi
+
 # case1 — a clean map: every claimed row is referenced, nothing dangles.
 proj=$(new_project)
 { map_header; row 901 "$V"; row 902 "$T"; } > "$proj/specs/SCENARIOS.md"

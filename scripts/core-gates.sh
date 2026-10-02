@@ -44,7 +44,8 @@ test-install-global-skills.sh|template-only. Tests install-global-skills.sh, whi
 test-update-template.sh|template-only. Tests update-template.sh (spec 082), which drives the template refresh and ships to no project
 test-on-linux.sh|template-only. Runs the template suite in a Linux container; needs Docker and the template tree
 test-doc-dotnet-playwright-apis.sh|template-only. Scans the template docs for Node-only Playwright APIs in C# fences (spec 071); projects receive the fixed docs through sync
-test-doc-secrets-guidance.sh|template-only. Scans the template docs for env-var or appsettings secret guidance (spec 072); projects receive the fixed docs through sync'
+test-doc-secrets-guidance.sh|template-only. Scans the template docs for env-var or appsettings secret guidance (spec 072); projects receive the fixed docs through sync
+test-run-mutation-gate.sh|template-only. Tests run-mutation-gate.sh, the bash mutation runner (spec 085), which ships to no project'
 
 die() { echo "core-gates.sh: $*" >&2; exit 2; }
 

@@ -1177,5 +1177,121 @@ expect_rc       "C100 dotnet never invoked"               1 "$( [ -f "$D/dotnet-
 expect_rc       "C100 mutation not stamped"               0 "$(grep -cx mutation "$D/stamped" 2>/dev/null)"
 expect_rc       "C100 verdict is red"                     1 "$RC"
 
+
+# ------------------------------------------------ C101-C108 — operator survivors (spec 085, R3)
+# Each arm below exists because scripts/run-mutation-gate.sh flipped one operator on the named line
+# and every case above still passed. They pin the decision the operator makes, not the prose around it.
+
+# --- C101: register-bytes answers -> its parts and moves replace the stock hint (line ~421, -n) ---
+D=$(mkfix c101); mkdir -p "$D/specs"
+awk 'BEGIN { for (i = 0; i < 400; i++) printf "- [x] %03d — row-%d — light — padding padding padding padding\n", i, i }' > "$D/specs/INDEX.md"
+printf '%s\n' '#!/bin/bash' 'echo "total=30000"' 'echo "rows=27000 share=90 over=0"' 'echo "history=1500 share=5 entries=3 over=0"' 'echo "prose=1500 share=5"' 'echo "move=rows scripts/archive-completed-rows.sh"' > "$D/scripts/register-bytes.sh"
+OUT=$(run "$D")
+expect_contains "C101 085-AC-3 register-bytes output becomes the hint" "rows 90%, history 5%, prose 5%. rows: scripts/archive-completed-rows.sh" "$OUT"
+expect_absent   "C101 085-AC-3 the stock hint is not used"            "(rows), scripts/archive-spec-history.sh --keep 5 (history)" "$OUT"
+
+# --- C102: register-bytes prints nothing -> the stock hint and the finding stay (line ~421, -n) ---
+D=$(mkfix c102); mkdir -p "$D/specs"; cp "$TMP/c101/specs/INDEX.md" "$D/specs/INDEX.md"
+printf '#!/bin/bash\nexit 0\n' > "$D/scripts/register-bytes.sh"
+OUT=$(run "$D"); RC=$?
+expect_contains "C102 085-AC-3 silent register-bytes keeps the stock hint" "Trim: scripts/archive-completed-rows.sh (rows), scripts/archive-spec-history.sh --keep 5 (history)" "$OUT"
+expect_absent   "C102 085-AC-3 no 'every part complies' note"           "every part complies" "$OUT"
+expect_rc       "C102 085-AC-3 still a finding"                          1 "$RC"
+
+# A traceability stub: prints $2 lines, exits $1. Needs specs/SCENARIOS.md to arm the section.
+trace_stub() { # trace_stub <dir> <exit> <output>
+  mkdir -p "$1/specs"; printf '# Scenarios\n' > "$1/specs/SCENARIOS.md"
+  printf '#!/bin/bash\nprintf "%%s\\n" "%s"\nexit %s\n' "$3" "$2" > "$1/scripts/validate-scenario-traceability.sh"
+}
+
+# --- C103: the coverage line is relayed as a note; a run without one adds none (line ~473) ----------
+D=$(mkfix c103); trace_stub "$D" 0 "coverage: 3 of 5 claimed rows referenced by a test"
+OUT=$(run "$D"); RC=$?
+expect_contains "C103 085-AC-3 coverage line relayed as a note" "[TRACEABILITY] coverage: 3 of 5 claimed rows" "$OUT"
+expect_rc       "C103 085-AC-3 coverage is a note, not a finding" 0 "$RC"
+D=$(mkfix c103b); trace_stub "$D" 0 "nothing to report"
+OUT=$(run "$D")
+expect_absent   "C103 085-AC-3 no coverage line, no TRACEABILITY note" "[TRACEABILITY]" "$OUT"
+
+# --- C104: duplicate ids are a finding with their count; a zero count is not (line ~483) -----------
+D=$(mkfix c104); trace_stub "$D" 6 "duplicate — one id on more than one row; an id is a permanent handle (2):"
+OUT=$(run "$D"); RC=$?
+expect_contains "C104 085-AC-3 two duplicate ids are a finding" "[TRACEABILITY] 2 scenario id(s) appear on more than one row" "$OUT"
+expect_rc       "C104 085-AC-3 duplicates turn the run red"     1 "$RC"
+D=$(mkfix c104b); trace_stub "$D" 0 "duplicate — one id on more than one row; an id is a permanent handle (0):"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C104 085-AC-3 a zero duplicate count is no finding" "scenario id(s) appear on more than one row" "$OUT"
+expect_rc       "C104 085-AC-3 a zero duplicate count stays clean"   0 "$RC"
+
+# A spec-kit install: a project manifest, a register, one speckit skill, and init-options.json ($2).
+sk_fix() { # sk_fix <name> <init-options JSON>
+  d=$(mkfix "$1")
+  : > "$d/Cargo.toml"; mkdir -p "$d/specs" "$d/.specify" "$d/.claude/skills/speckit-specify"
+  printf '# Spec register\n\n## Specs\n\n- [ ] 001 — a — light — goal\n' > "$d/specs/INDEX.md"
+  printf '%s\n' "$2" > "$d/.specify/init-options.json"
+  printf '%s' "$d"
+}
+
+# --- C105: an unstamped install is named as unstamped; a 1.x one is silent (line ~740, -z) ---------
+D=$(sk_fix c105 '{ "ai": "claude" }')
+OUT=$(run "$D")
+expect_contains "C105 085-AC-3 no speckit_version is named as unstamped" "records no speckit_version" "$OUT"
+expect_absent   "C105 085-AC-3 not misread as an ancient version"       "is well behind the 1.x line" "$OUT"
+D=$(sk_fix c105b '{ "ai": "claude", "speckit_version": "1.0.2" }')
+OUT=$(run "$D")
+expect_absent   "C105 085-AC-3 a 1.x install raises no SPECKIT finding"  "[SPECKIT]" "$OUT"
+
+# --- C106: mutation_break_of on a missing config echoes nothing and succeeds (line ~958) -----------
+# The caller only reads stdout today, but "no config" is the documented no-break case, not an error:
+# the contract is "echoes the integer break, or nothing", and a non-zero return would trip any
+# caller that ever tests it.
+MBO=$(sed -n '/^mutation_break_of() {/,/^}/p' "$MAINT")
+MBO_OUT=$( eval "$MBO"; mutation_break_of "$TMP/no-such-stryker-config.json" ); MBO_RC=$?
+expect_rc       "C106 085-AC-3 missing config returns 0"     0 "$MBO_RC"
+expect_rc       "C106 085-AC-3 missing config echoes nothing" "" "$MBO_OUT"
+printf '{ "stryker-config": { "thresholds": { "break": 77 } } }\n' > "$TMP/c106-stryker-config.json"
+MBO_OUT=$( eval "$MBO"; mutation_break_of "$TMP/c106-stryker-config.json" )
+expect_rc       "C106 085-AC-3 present config echoes its break" 77 "$MBO_OUT"
+
+# --- C107: the fast E2E census — exit 1 is drift, exit 0 is silent (line ~1303, -eq) ---------------
+D=$(mkfix c107)
+printf '%s\n' 'import sys' 'print("census"); print("---"); print("Ledger drift: FooTests.cs added")' 'sys.exit(1)' > "$D/scripts/e2e-gate-census.py"
+OUT=$(run "$D"); RC=$?
+expect_contains "C107 085-AC-3 census exit 1 is a drift finding" "[GATE LEDGER] The E2E gate ledger has drifted" "$OUT"
+expect_contains "C107 085-AC-3 the drift detail is relayed"      "Ledger drift: FooTests.cs added" "$OUT"
+expect_rc       "C107 085-AC-3 drift turns the run red"          1 "$RC"
+D=$(mkfix c107b); printf 'import sys\nsys.exit(0)\n' > "$D/scripts/e2e-gate-census.py"
+OUT=$(run "$D"); RC=$?
+expect_absent   "C107 085-AC-3 census exit 0 is silent" "[GATE LEDGER]" "$OUT"
+expect_rc       "C107 085-AC-3 census exit 0 stays clean" 0 "$RC"
+
+# --- C108: register-convergence --carves that cannot run is a finding; exit 0 is not (line ~1358) --
+carve_fix() { # carve_fix <name> <exit of --carves>
+  d=$(mkfix "$1"); mkdir -p "$d/specs"; : > "$d/scripts/carve_audit.py"
+  printf '# Spec register\n\n## Specs\n\n- [ ] 001 — a — light — goal\n' > "$d/specs/INDEX.md"
+  printf '#!/bin/bash\n[ "$1" = --carves ] || exit 0\necho "carves: boom"\nexit %s\n' "$2" > "$d/scripts/register-convergence.sh"
+  printf '%s' "$d"
+}
+D=$(carve_fix c108 2)
+OUT=$(run "$D"); RC=$?
+expect_contains "C108 085-AC-3 --carves exit 2 is could-not-run" "register-convergence.sh --carves could not run (exit 2)" "$OUT"
+expect_rc       "C108 085-AC-3 could-not-run turns the run red"  1 "$RC"
+D=$(carve_fix c108b 0)
+OUT=$(run "$D")
+expect_absent   "C108 085-AC-3 --carves exit 0 is silent" "[CARVE SHAPE]" "$OUT"
+
+# --- C109: every pass records a `pass` row in the ledger, rc 0 clean, 1 with findings (line ~1643) --
+# F049: nothing failed when the pass stopped recording itself.
+pass_rc() { awk -F'\t' '$3 == "pass" { r = $5 } END { print r }' "$1/.claude/state/maintenance-runs.tsv" 2>/dev/null; }
+D=$(mkfix c109); cp "$DIR/maintenance_ledger.py" "$D/scripts/maintenance_ledger.py"
+OUT=$(run "$D"); RC=$?
+expect_rc       "C109 085-AC-3 clean fixture exits 0"                0 "$RC"
+expect_rc       "C109 085-AC-3 clean pass recorded with rc 0"        0 "$(pass_rc "$D")"
+D=$(mkfix c109b); cp "$DIR/maintenance_ledger.py" "$D/scripts/maintenance_ledger.py"
+printf 'import sys\nsys.exit(1)\n' > "$D/scripts/e2e-gate-census.py"
+OUT=$(run "$D"); RC=$?
+expect_rc       "C109 085-AC-3 findings fixture exits 1"             1 "$RC"
+expect_rc       "C109 085-AC-3 red pass recorded with rc 1"          1 "$(pass_rc "$D")"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -1,0 +1,137 @@
+-- allium: 3
+--
+-- 085 — template mutation runner and core coverage.
+--
+-- A run draws operator mutants from the target modules, measures each against that module's own
+-- self-tests, and reports a strict score. Rules cite R1..R5 (spec.md), the acceptance cases
+-- AC-1..AC-5 (acceptance.md) and the overflow answers O1..O3 (interview.md). The template keeps no
+-- scenario map.
+
+enum OperatorClass { arith_compare | string_test | boolean | exit_code | file_test }
+
+enum MutantStatus { killed | survived | timeout }
+
+enum RunOutcome { scored_pass | scored_fail | unmeasured }
+
+entity Site {
+    module: String
+    line: Integer
+    class: OperatorClass
+    in_comment: Boolean
+    in_heredoc: Boolean
+    marked_equivalent: Boolean                  -- the line carries `# mutant-equivalent:`
+
+    -- R1: only shell code is mutated.
+    invariant OnlyLiveCode {
+        not this.in_comment and not this.in_heredoc and not this.marked_equivalent
+    }
+}
+
+entity Mutant {
+    site: Site
+    clean_failure_seen: Boolean                 -- some test exited non-zero without timing out
+    timeout_seen: Boolean                       -- some test hit max(60, 3 x baseline seconds)
+    tests_after_first_kill: Integer             -- tests started after the first clean failure
+    infra_seen: Boolean                         -- a copy or test was gone, or timeout exited 125/126
+    status: MutantStatus?                       -- null: no verdict was written
+
+    -- R1, AC-2, mutation-timeouts trap 1: a timeout is never a kill.
+    invariant TimeoutIsNotKill {
+        (this.status = killed) = this.clean_failure_seen
+    }
+
+    invariant TimeoutIsReported {
+        (this.status = timeout) = (this.timeout_seen and not this.clean_failure_seen and not this.infra_seen)
+    }
+
+    -- R1, review #3 (/tla drift 2): an infrastructure failure is neither a kill nor a survivor.
+    invariant InfraHasNoVerdict {
+        this.infra_seen implies this.status = null
+    }
+
+    -- R1: the first kill ends the mutant's tests.
+    invariant StopAtFirstKill {
+        this.tests_after_first_kill = 0
+    }
+}
+
+entity Run {
+    seed: Integer                               -- O2: UTC date YYYYMMDD by default
+    sample_per_module: Integer
+    baseline_green: Boolean                     -- every module's tests green unmutated
+    mutants_measured: Integer                   -- every measured mutant, timeouts included
+    mutants_killed: Integer
+    mutants_without_verdict: Integer
+    killed: Integer
+    valid: Integer
+    break: Integer                              -- O1: MUTATION_BREAK, default 80
+    printed_score: Boolean
+    exit_code: Integer
+    outcome: RunOutcome
+    worktrees_left: Integer                     -- after the run ends, however it ends
+    real_index_changed: Boolean
+    head_changed: Boolean
+
+    -- R1, AC-2: a red baseline is not a score.
+    invariant RedBaselineIsUnmeasured {
+        not this.baseline_green implies
+            (this.outcome = unmeasured and not this.printed_score and this.exit_code = 2)
+    }
+
+    -- R1, review #3: one mutant without a verdict and nothing is scored (TLA+ ScoreOnlyWhenComplete).
+    invariant MissingVerdictIsUnmeasured {
+        this.mutants_without_verdict > 0 implies
+            (this.outcome = unmeasured and not this.printed_score and this.exit_code = 2)
+    }
+
+    -- R1: the score is strict.
+    invariant StrictScore {
+        this.killed = this.mutants_killed and this.valid = this.mutants_measured
+    }
+
+    -- R1, O1: the exit code follows the strict score against the break.
+    invariant ExitFollowsScore {
+        this.outcome = scored_pass implies (this.exit_code = 0 and 100 * this.killed >= this.break * this.valid)
+        and this.outcome = scored_fail implies (this.exit_code = 1 and 100 * this.killed < this.break * this.valid)
+    }
+
+    -- R1, AC-4: nothing is left behind and the real checkout is untouched.
+    invariant LeavesNothing {
+        this.worktrees_left = 0 and not this.real_index_changed and not this.head_changed
+    }
+}
+
+entity MaintenancePass {
+    full: Boolean
+    runner_present: Boolean
+    score_read: Boolean
+    stamped: Boolean
+
+    -- R2, AC-1: a score that came back stamps the job; nothing else does.
+    invariant StampOnlyMeasured {
+        this.stamped = (this.full and this.runner_present and this.score_read)
+    }
+}
+
+entity LedgerReport {
+    span_specs: Integer
+    mutation_runs: Integer
+    suite_runs: Integer
+    says_ready: Boolean
+
+    -- R5, AC-5 (F058): readiness needs a measurement of each heavy job.
+    invariant ReadyNeedsHeavyRuns {
+        this.says_ready = (this.span_specs >= 5 and this.mutation_runs > 0 and this.suite_runs > 0)
+    }
+}
+
+entity RecordedSurvivor {
+    finding: String                             -- F048 | F049 | F071 | F072
+    site: Site
+    status_after: MutantStatus
+
+    -- R3, AC-3: killed, or equivalent with the reason on the line.
+    invariant KilledOrEquivalent {
+        this.status_after = killed or this.site.marked_equivalent
+    }
+}

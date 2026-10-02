@@ -46,6 +46,9 @@ LEDGER_REL = os.path.join(".claude", "state", "maintenance-runs.tsv")
 FIELDS = ["ts", "place", "job", "seconds", "rc", "peak_rss_mb", "cores", "load1", "done"]
 CLOUD_RAM_FIT_MB = 12 * 1024  # 16 GB VM minus 4 GB for the OS and the agent itself
 SPECS_NEEDED = 5
+# The jobs 075 places (local or cloud). A span of ticked specs with none of them in it measured the
+# cheap jobs only, and readiness is a claim about the heavy ones (F058).
+HEAVY_JOBS = ("mutation", "suite")
 
 
 def repo_root():
@@ -257,10 +260,13 @@ def read_ledger(path):
 
 
 def num(s):
+    # `nan` and `inf` parse as floats and then crash int() and max(); report --all reads other
+    # repositories' ledgers, so one such row must not take the whole report down (085 review).
     try:
-        return float(s)
+        v = float(s)
     except ValueError:
         return None
+    return v if v == v and v not in (float("inf"), float("-inf")) else None
 
 
 def report_one(label, root, rows):
@@ -270,7 +276,13 @@ def report_one(label, root, rows):
         return
     done = [int(n) for n in (num(r["done"]) for r in rows) if n is not None]
     span = (max(done) - min(done)) if done else 0
-    ready = "ready for 075" if span >= SPECS_NEEDED else "keep measuring"
+    unmeasured = [j for j in HEAVY_JOBS if not any(r["job"] == j for r in rows)]
+    if span < SPECS_NEEDED:
+        ready = "keep measuring"
+    elif unmeasured:
+        ready = "keep measuring — no run of: %s" % ", ".join(unmeasured)
+    else:
+        ready = "ready for 075"
     print("   spans %d of %d ticked specs needed (%s), %d runs, %s .. %s"
           % (span, SPECS_NEEDED, ready, len(rows), rows[0]["ts"][:10], rows[-1]["ts"][:10]))
     print("   (max RSS = whole process tree, sampled once a second; Docker containers are not counted)")
