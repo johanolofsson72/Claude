@@ -96,7 +96,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 083 — guard-bypass-and-fail-open — full track [hardened] — PreToolUse guards fail open without jq, miss unnormalised paths, exempt any */scripts/*, miss a split tick; the deny list is bypassable. F029 F035 F038–F042 F044.
 - [x] 084 — autosync-sandbox-and-harness-env — full track — the root walk loops on a relative dir, sandboxed runs still push, self-tests inherit CLAUDE_PROJECT_DIR and CDPATH. F013 F015–F020.
 - [x] H3 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 080–084.
-- [ ] 085 — template-mutation-runner-and-core-coverage — full track — the template has no mutation runner, so the job is due forever; kill the surviving mutants in autosync, maintenance and freshness. F047 F048 F049 F058 F071–F073.
+- [x] 085 — template-mutation-runner-and-core-coverage — full track — the template has no mutation runner, so the job is due forever; kill the surviving mutants in autosync, maintenance and freshness. F047 F048 F049 F058 F071–F073.
 - [ ] 086 — maintenance-and-gate-blind-spots — spec-only — maintenance and gates pass silently on what they cannot see (NOT SCANNED, missing CORE scripts, project hooks, wrong suite). F001 F003 F005 F010 F023 F025 F027 F032 F033 F051 F052 F059 F060 F068–F070.
 - [ ] 087 — docs-and-skill-reference-fixes — spec-only — spec-kit SC numbering collides with the scenario map, agent memory strands in worktrees, agent reviews can read a stale tree, two reference docs teach wrong examples. F006–F009 F054.
 - [x] 088 — guard-trust-anchors — full track [hardened] — gates no longer trust state Claude can write: root walk, nightly trust, grandfathering, self-confirm. F090 F091 F093 F094 — approved F098

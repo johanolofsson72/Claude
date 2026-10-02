@@ -1325,3 +1325,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 088 — guard-trust-anchors
 
 - [x] 088 — guard-trust-anchors — full track [hardened] — the gates trust state Claude can write: a planted .git ends the root walk, self-granted nightly trust, forged acceptance grandfathering and self-confirm. F090 F091 F093 F094 — approved F098
+
+## 085 — template-mutation-runner-and-core-coverage
+
+- [x] 085 — template-mutation-runner-and-core-coverage — full track — the template has no mutation runner, so the job is due forever; kill the surviving mutants in autosync, maintenance and freshness. F047 F048 F049 F058 F071–F073.
