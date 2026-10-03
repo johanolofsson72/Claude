@@ -1,0 +1,341 @@
+diff --git a/.claude/agents/dotnet-reviewer.md b/.claude/agents/dotnet-reviewer.md
+--- a/.claude/agents/dotnet-reviewer.md
++++ b/.claude/agents/dotnet-reviewer.md
+@@ -5,10 +5,4 @@
+ model: sonnet
+ memory: project
+-hooks:
+-  PostToolUse:
+-    - matcher: "Bash"
+-      hooks:
+-        - type: command
+-          command: "echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"Focus on .cs file changes only. Ignore generated files and migrations.\"}}'"
+ ---
+ 
+@@ -17,5 +11,5 @@
+ When invoked:
+ 1. Run `git diff` to see recent changes
+-2. Focus on modified .cs files
++2. Focus on modified .cs files; skip generated files and migrations
+ 
+ Review checklist:
+diff --git a/.claude/rules/carve-budget.md b/.claude/rules/carve-budget.md
+--- a/.claude/rules/carve-budget.md
++++ b/.claude/rules/carve-budget.md
+@@ -15,5 +15,5 @@
+ ## Forbidden
+ 
+-Turning a finding into a row on the spot. Treating the 2-carve ceiling as an allowance. A third carve from one spec without folding. Depth 3. A harness defect on a product register as anything but `T0`. Continuing past a diverging ratio without telling the developer. "The finding was real" as the reason for a row.
++A third carve from one spec without folding. "The finding was real" as the reason for a row.
+ 
+ Surfacing is governed by `.claude/rules/validation-followup.md`; this rule governs rowing.
+diff --git a/.claude/rules/continuous-execution.md b/.claude/rules/continuous-execution.md
+--- a/.claude/rules/continuous-execution.md
++++ b/.claude/rules/continuous-execution.md
+@@ -9,5 +9,5 @@
+ ## Legitimate stops
+ 
+-1. Genuine ambiguity the plan does not cover (`AskUserQuestion`).
++1. Genuine ambiguity the plan does not cover (`AskUserQuestion`), including a scenario gap or drift (`.claude/rules/scenarios.md`).
+ 2. A hard blocker: missing credentials or infrastructure, a failing external dependency, conflicting requirements.
+ 3. The plan is fully complete and verified.
+diff --git a/.claude/rules/feature-pipeline.md b/.claude/rules/feature-pipeline.md
+--- a/.claude/rules/feature-pipeline.md
++++ b/.claude/rules/feature-pipeline.md
+@@ -47,7 +47,7 @@
+ ## Forbidden
+ 
+-Editing production code for a multi-file feature without `/speckit-specify`. Skipping clarify, the interview, `/allium:elicit` (full/light), or plan + tasks. Inventing answers to genuinely ambiguous questions. Happy-path-only tests. Declaring done without `/tla` (or saying it is spec-only and why). Asking "should I start with /speckit-specify?".
++Happy-path-only tests. Declaring done without `/tla` (or saying it is spec-only and why).
+ 
+ ## When to stop
+ 
+-Only for genuine ambiguity (`AskUserQuestion`), a hard blocker outside your control, or Allium/TLA+ findings. Otherwise keep going.
++Only at a stop listed in `.claude/rules/continuous-execution.md`. Otherwise keep going.
+diff --git a/.claude/rules/spec-hardening.md b/.claude/rules/spec-hardening.md
+--- a/.claude/rules/spec-hardening.md
++++ b/.claude/rules/spec-hardening.md
+@@ -3,5 +3,5 @@
+ **Hardened** is the full pipeline plus four additions. A periodic **integration checkpoint** covers the seams between specs. Long form (reasoning, the full pre-081 text): `.claude/docs/spec-hardening-rationale.md`.
+ 
+-## When a spec is HARDENED (BLOCKING — any one trigger)
++## When a spec is hardened (BLOCKING — any one trigger)
+ 
+ Classify it at triage: (1) **risk domain:** authentication/authorization, payments, PII or secrets, file upload/parsing, or a **new external API surface**; (2) a full track with a **state machine or concurrency**; (3) a **`[hardened]`** tag on the row; (4) a **new entity/aggregate** or an estimated **≥ 6 files**. When in doubt, harden.
+@@ -22,5 +22,5 @@
+ Full, hardened and checkpoint rows begin in a fresh session. When the SessionStart banner fires and the session carries unrelated context, stop and tell the user to run `/clear`.
+ 
+-## Forbidden
++## Where it runs
+ 
+-A risk-domain spec on the plain full track. Treating `[hardened]` as decorative. Skipping the checkpoint. Downgrading the mutation gate on a hardened spec. Powering through after the `/clear` banner. Any hardening step as a GitHub Action: local or Claude cloud only (`scripts/workload-placement.tsv`).
++Every hardening step runs locally or in Claude cloud, never as a GitHub Action (`scripts/workload-placement.tsv`).
+diff --git a/.claude/rules/spec-interview.md b/.claude/rules/spec-interview.md
+--- a/.claude/rules/spec-interview.md
++++ b/.claude/rules/spec-interview.md
+@@ -27,5 +27,5 @@
+ A full-track spec, or any row tagged `[hardened]`, also carries `<spec-dir>/acceptance.md`: 3–5 cases, each `## AC-<n> — <title>` with `**Given**` / `**When**` / `**Then**` lines. Claude drafts them after the interview. The developer confirms or corrects them in one `AskUserQuestion` showing `--question`'s output, option `Confirm`. Then `bash scripts/acceptance-cases.sh --confirm <spec-dir> --quote "Confirm"` writes the `**Confirmed:**` line. Never confirm on the developer's behalf.
+ 
+-The same guard enforces it in two steps. Until the cases parse and the digest matches, every source edit is denied, and editing a case after confirmation re-locks code until the developer confirms again. After that, test files are editable, and production source unlocks once a test file names every case as `<spec-id>-AC-<n>`. Exempt: light, spec-only and checkpoint rows, and a spec begun before 080 arrived (ticked task, no `acceptance.md`, interview committed before it, by ancestry). `SPEC_ACCEPTANCE=off` turns the step off for a project. Long form: `.claude/docs/spec-interview-rationale.md` § Acceptance cases.
++The same guard enforces it in two steps. Until the cases parse and the digest matches, every source edit is denied, and editing a case after confirmation re-locks code until the developer confirms again. After that, test files are editable, and production source unlocks once a test file names every case as `<spec-id>-AC-<n>`. Exempt: light, spec-only and checkpoint rows, and specs the guard grandfathers. `SPEC_ACCEPTANCE=off` turns the step off for a project. Long form: `.claude/docs/spec-interview-rationale.md` § Acceptance cases.
+ 
+ ## Where it sits in the pipeline
+@@ -72,11 +72,8 @@
+ AUTO: base `**A (auto):**`, escalated/overflow `**A:**`. MANUAL: all `**A:**`, header `Mode: MANUAL`. Answers must be non-empty.
+ 
+-## What this rule forbids
++## Also
+ 
+-- Editing source for a spec with < 15 counted answers (no routing around it by calling real work "trivial").
+-- AUTO: inventing a "recommended" answer for a genuinely-ambiguous, spec-affecting question instead of escalating.
+-- AUTO: silently auto-answering a large/advanced spec without overflow questions, unless overridden to `[interview:auto]`.
+-- MANUAL: expecting `**A (auto):**` answers to unlock code.
+-- Dumping all questions in one message when asking the developer — one per turn (2–3 tightly-related trivial sub-questions may share one `AskUserQuestion`).
+-- Stopping after the interview to ask "ready to implement?".
+-- Treating the project-level wizard interview as a substitute.
++- Calling real work "trivial" does not route around the gate.
++- AUTO: a large/advanced spec is never auto-answered without overflow questions unless the row says `[interview:auto]`.
++- Asking the developer: one question per turn (2–3 tightly related trivial sub-questions may share one `AskUserQuestion`).
++- The project-level wizard interview does not substitute for a spec's interview.
+diff --git a/.claude/rules/spec-register.md b/.claude/rules/spec-register.md
+--- a/.claude/rules/spec-register.md
++++ b/.claude/rules/spec-register.md
+@@ -9,5 +9,5 @@
+ 1. **Read the register first, targeted.** The SessionStart hook usually prints the next row. If you must open it, read only `## Specs`, never `## Register history` or `INDEX.history.md`. On a large register: `grep -nE '^- \[[ /!]\]' specs/INDEX.md | head`.
+ 2. **Run the full pipeline for that one spec, end to end**, with no stops between phases.
+-3. **Commit and push to `main` directly** (solo, no PRs, no feature branches).
++3. **Commit and push** as `.claude/rules/project-workflow.md` says (solo default: straight to `main`, no PR, no feature branch).
+ 4. **Tick the register:** `[x]` on the row, committed and pushed with or right after the spec's final commit.
+ 5. **Stop with the status summary.** That is the only legitimate stop between specs.
+@@ -90,3 +90,3 @@
+ ## Forbidden
+ 
+-Feature work without checking the register. Working a spec that is not the next unchecked row. Chaining specs without explicit instruction. Mid-spec "should I continue?". Skipping the tick and commit. Silent scope growth (that is a register rewrite). Wrapping the stop in a question ("done, ready for 004?").
++Working a spec that is not the next unchecked row. Silent scope growth (that is a register rewrite).
+diff --git a/.claude/skills/allium/SKILL.md b/.claude/skills/allium/SKILL.md
+--- a/.claude/skills/allium/SKILL.md
++++ b/.claude/skills/allium/SKILL.md
+@@ -319,5 +319,5 @@
+ 1. **List every finding individually** — drift items, `open question` entries, `-- AMBIGUITY:` comments, `deferred` markers, "spec too vague to formalize" notes, validation errors from `allium check`. One numbered line per finding, citing source path and Allium construct.
+ 2. **Call `AskUserQuestion` with one question per finding** — batched in a single tool call. Each question offers `Fix now`, `Defer (track in spec)`, `Dismiss (with reason)`, plus a bespoke option where relevant (e.g. `Update spec instead of code` for drift items). Frame the language so `Fix now` is the default-feeling option.
+-3. **If there are zero findings** — say verbatim: "Allium run complete. Zero drift, zero open questions, zero ambiguities." If you cannot say that and mean it, you have findings — go back to step 1.
++3. **If there are zero findings** — say the sentence `.claude/rules/validation-followup.md` gives, verbatim. If you cannot say that and mean it, you have findings — go back to step 1.
+ 
+ Forbidden: "looks good overall" summaries, silently fixing easy items while ignoring hard ones, asking a single vague "want me to address the issues?" question, or continuing to the next task with findings undecided.
+diff --git a/.claude/skills/project-wizard/SKILL.md b/.claude/skills/project-wizard/SKILL.md
+--- a/.claude/skills/project-wizard/SKILL.md
++++ b/.claude/skills/project-wizard/SKILL.md
+@@ -536,5 +536,5 @@
+ If `CLAUDE.md` already exists, use the Edit tool to surgically update the `<!-- PROJECT-SPECIFIC -->` or `# PROJECT-SPECIFIC` section. Do NOT overwrite the rest of the file.
+ 
+-If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established pattern from the user's other projects. Use the hireflow CLAUDE.md as the reference template — it is the most up-to-date version. The structure MUST include ALL of these sections:
++If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established pattern from the user's other projects. Use the template repo's own `CLAUDE.md` (`$TEMPLATE/CLAUDE.md`) as the reference. Include all of these sections:
+ 
+ > **STACK-AWARE TESTING (READ THIS BEFORE FILLING THE TEMPLATE BELOW).** The template below is written for a web/.NET project where "tests" = Playwright browser tests + `dotnet test`. If the frontend answer (Q13) or the native-mobile answer (Q22) makes this a **native mobile** project — **React Native / Expo OR Flutter** — a browser does not exist, so Playwright/browser-test wording is wrong and will produce a project that can never satisfy its own Definition of Done. In that case, everywhere the template says "browser tests / Playwright" you MUST substitute the native equivalents for the chosen framework:
+@@ -555,13 +555,12 @@
+ # CLAUDE.md
+ 
+-## Critical rules (READ FIRST)
+-
+-- **ALWAYS** read the code first — base ALL conclusions on evidence from the codebase, not assumptions.
+-- **ALWAYS** verify with [BUILD COMMAND] and [TEST COMMAND] before claiming anything is "done".
+-- **ALWAYS** use the Edit tool for surgical changes — never copy entire files.
+-- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, or React Native / Flutter widgets — design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
+-- **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
+-- **ALWAYS** follow existing patterns in the codebase — look at similar components first.
+-- **ALWAYS** test **100% of implemented functions** in [browser tests (Playwright) | Maestro flows + React Native Testing Library — pick per the stack-aware note above]. [Adapt testing rules based on interview answers about testing strategy]
++## Critical rules
++
++- Read the code first. Base conclusions on evidence from the codebase.
++- Verify with [BUILD COMMAND] and [TEST COMMAND] before claiming anything is "done".
++- Use the Edit tool for surgical changes. Follow existing patterns; look at similar components first.
++- **(BLOCKING)** Invoke the `frontend-design` skill before writing UI code (HTML, CSS, JS, or React Native / Flutter widgets).
++- **(BLOCKING)** Run generated human-facing text through the `humanizer` skill (docs, commit messages, PR descriptions, emails, README).
++- Test **100% of implemented functions** in [browser tests (Playwright) | Maestro flows + React Native Testing Library — pick per the stack-aware note above]. [Adapt testing rules based on interview answers about testing strategy]
+ 
+ ## Execution mode
+@@ -583,8 +582,4 @@
+ When a hook stops continuation or provides feedback: acknowledge the feedback, handle it (fix the issue OR explain why it's not applicable), and **continue working autonomously**. Never stop and wait silently after hook feedback — that is treated as stalling.
+ 
+-### Interview pattern
+-
+-For larger features: interview the developer with `AskUserQuestion` before implementation. Ask about technical implementation, edge cases, and tradeoffs. Then write a spec before coding begins.
+-
+ ## Priority order
+ 
+@@ -644,7 +639,6 @@
+ ### Complexity assessment
+ 
+-- **Trivial** (one file, obvious fix) → execute immediately
+-- **Medium** (2-5 files, clear scope) → brief planning, then execute
+-- **Complex** (architecture impact, unclear requirements) → full exploration and plan first
++- **Trivial** (the one-file cases listed in `.claude/rules/feature-pipeline.md`) → execute immediately
++- **Everything else** → the feature pipeline (`.claude/rules/feature-pipeline.md`)
+ 
+ ### Plan → Implement → Verify
+@@ -660,5 +654,5 @@
+ > Giving Claude ways to verify its own work is the single most important measure for quality. — Anthropic Best Practices
+ 
+-- **IMPORTANT:** ALWAYS read relevant files BEFORE answering about the codebase. NEVER guess.
++- Read the relevant files before answering about the codebase.
+ - Run tests after every implementation.
+ - Run individual tests over the full suite for faster feedback.
+@@ -673,5 +667,5 @@
+ 4. For UI features: **functional coverage** (1 test per function) + a **destructive suite per interactive function sized to its input domain** (toggle ~3 → multi-step/auth ~20-30+, NOT a flat quota) + **visual-regression** baselines for key states. For mobile the attack categories include lifecycle and permissions — see `.claude/docs/spec-testing-checklist.md`.
+ 5. **Mutation kill rate** on the changed critical module(s) meets target (~80%; Stryker.NET web / StrykerJS mobile; nightly/on-demand, NOT per-push CI). The gate is the kill rate, not the test count.
+-6. For UI features: **TLA+ formal verification** has been run (`/tla`) — runtime-agnostic, applies to web and mobile alike.
++6. **TLA+ formal verification** has been run (`/tla`) where the track calls for it (full; light only when the state is non-trivial) — runtime-agnostic, applies to web and mobile alike.
+ 7. **Validated locally before deploy** — full suite green AND the app runs in local dev and in Docker (`docker compose up`); you ship the container, so prove the container works.
+ 8. For web: **visually verified** in the browser. For mobile: **visually verified** on a simulator/emulator or device. The code is assessed as **fully functional**.
+@@ -686,5 +680,4 @@
+ - Use `/compact <focus>` for controlled compaction.
+ - Break down large tasks into discrete subtasks.
+-- After 2 failed fixes of the same problem: `/clear` and write a better prompt from scratch.
+ 
+ ## Commands
+@@ -879,5 +872,5 @@
+ 
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "[product type] [industry] [style keywords from Q25]" --design-system --persist -p "[Project Name]"
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "[product type] [industry] [style keywords from Q25]" --design-system --persist -p "[Project Name]"
+ ```
+ 
+diff --git a/.claude/skills/tla/SKILL.md b/.claude/skills/tla/SKILL.md
+--- a/.claude/skills/tla/SKILL.md
++++ b/.claude/skills/tla/SKILL.md
+@@ -155,5 +155,5 @@
+ 1. **List every finding individually** — drift items, every `GAP-N` entry, every "MISSING TEST" row in the coverage matrix, every TLC counterexample, every "consider implementation change" recommendation, every TLC error or deadlock. One numbered line per finding, citing source (file path, rule name, state trace).
+ 2. **Call `AskUserQuestion` with one question per finding** — batched in a single tool call. Each question offers `Fix now`, `Defer (track in spec)`, `Dismiss (with reason)`, plus a bespoke option where relevant (e.g. `Add the missing test`, `Update spec instead of code`, `Reduce model state space and re-run`). Frame the language so `Fix now` is the default-feeling option.
+-3. **If there are zero findings** — say verbatim: "TLA+ verification complete. Zero gaps, zero drift, zero counterexamples, zero missing tests." If you cannot say that and mean it, you have findings — go back to step 1.
++3. **If there are zero findings** — say the sentence `.claude/rules/validation-followup.md` gives, verbatim. If you cannot say that and mean it, you have findings — go back to step 1.
+ 
+ Forbidden: "looks good overall" summaries, silently fixing easy items while ignoring hard ones, skipping the coverage-matrix gap rows because "the test would be hard to write", treating counterexamples as theoretical, asking a single vague "want me to address the gaps?" question, or continuing to the next task with findings undecided.
+diff --git a/.claude/skills/ui-ux-pro-max/SKILL.md b/.claude/skills/ui-ux-pro-max/SKILL.md
+--- a/.claude/skills/ui-ux-pro-max/SKILL.md
++++ b/.claude/skills/ui-ux-pro-max/SKILL.md
+@@ -146,5 +146,5 @@
+ 
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]
+ ```
+ 
+@@ -157,5 +157,5 @@
+ **Example:**
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "beauty spa wellness service" --design-system -p "Serenity Spa"
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "beauty spa wellness service" --design-system -p "Serenity Spa"
+ ```
+ 
+@@ -165,5 +165,5 @@
+ 
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "Project Name"
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "Project Name"
+ ```
+ 
+@@ -174,5 +174,5 @@
+ **With page-specific override:**
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "Project Name" --page "dashboard"
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "Project Name" --page "dashboard"
+ ```
+ 
+@@ -190,5 +190,5 @@
+ 
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "<keyword>" --domain <domain> [-n <max_results>]
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "<keyword>" --domain <domain> [-n <max_results>]
+ ```
+ 
+@@ -208,5 +208,5 @@
+ 
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "<keyword>" --stack html-tailwind
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "<keyword>" --stack html-tailwind
+ ```
+ 
+@@ -262,5 +262,5 @@
+ 
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "beauty spa wellness service elegant" --design-system -p "Serenity Spa"
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "beauty spa wellness service elegant" --design-system -p "Serenity Spa"
+ ```
+ 
+@@ -271,8 +271,8 @@
+ ```bash
+ # Get UX guidelines for animation and accessibility
+-python3 skills/ui-ux-pro-max/scripts/search.py "animation accessibility" --domain ux
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "animation accessibility" --domain ux
+ 
+ # Get alternative typography options if needed
+-python3 skills/ui-ux-pro-max/scripts/search.py "elegant luxury serif" --domain typography
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "elegant luxury serif" --domain typography
+ ```
+ 
+@@ -280,5 +280,5 @@
+ 
+ ```bash
+-python3 skills/ui-ux-pro-max/scripts/search.py "layout responsive form" --stack html-tailwind
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "layout responsive form" --stack html-tailwind
+ ```
+ 
+@@ -293,8 +293,8 @@
+ ```bash
+ # ASCII box (default) - best for terminal display
+-python3 skills/ui-ux-pro-max/scripts/search.py "fintech crypto" --design-system
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "fintech crypto" --design-system
+ 
+ # Markdown - best for documentation
+-python3 skills/ui-ux-pro-max/scripts/search.py "fintech crypto" --design-system -f markdown
++python3 .claude/skills/ui-ux-pro-max/scripts/search.py "fintech crypto" --design-system -f markdown
+ ```
+ 
+diff --git a/CLAUDE.md b/CLAUDE.md
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -3,9 +3,9 @@
+ Long form (the reasoning behind each line below): `.claude/docs/claude-md-rationale.md`.
+ 
+-## Critical rules (READ FIRST)
++## Critical rules
+ 
+ **(BLOCKING)** rules are enforced by hooks and by the Definition of Done. The rest are strong defaults.
+ 
+-- Read the code first. Base conclusions on evidence, and read the relevant files BEFORE answering about the codebase.
++- Read the code first. Base conclusions on evidence, and read the relevant files before answering about the codebase.
+ - Use Edit for surgical changes. Follow existing patterns. Verify with `dotnet build` + `dotnet test` before claiming done.
+ - **(BLOCKING)** Non-trivial work runs the full pipeline as **one task**, with no permission stops between phases. A trivial-fix bypass needs an explicit one-sentence classification. → `.claude/rules/feature-pipeline.md`
+@@ -15,5 +15,5 @@
+ - **(BLOCKING)** Carve budget: a finding is **recorded, not rowed** (`scripts/finding.sh --add`). → `.claude/rules/carve-budget.md`
+ - **(BLOCKING)** Keep the scenario map `specs/SCENARIOS.md` current. A gap or drift → **scenario interview**, never invent cases. → `.claude/rules/scenarios.md`
+-- **(BLOCKING)** Invoke the `frontend-design` skill BEFORE writing any UI code.
++- **(BLOCKING)** Invoke the `frontend-design` skill before writing any UI code.
+ - **(BLOCKING)** Run generated human-facing text (docs, commits, PRs, email, README) through the `humanizer` skill.
+ - **(BLOCKING)** Testing: **unit + integration + E2E**, **PBT** for wide-input logic, **visual regression** for UI, one functional test per function, a destructive suite **sized per function**. The **mutation kill rate** is the gate. → `.claude/docs/testing.md`
+@@ -26,5 +26,4 @@
+ - **Anti-stall:** with no clear task, pick the most likely one and act.
+ - **Hook feedback:** acknowledge it, handle it (fix it, or explain why it does not apply), and keep working. Never stop silently.
+-- **Larger features:** interview the developer (`AskUserQuestion`), then write a spec before coding.
+ 
+ ## Priority order
+@@ -54,5 +53,5 @@
+ ## Workflow
+ 
+-Trivial (one file, obvious) → do it. Medium (2–5 files) → brief plan, then do it. Complex → explore and plan first.
++Trivial (the one-file cases listed in `.claude/rules/feature-pipeline.md`) → do it. Everything else runs the pipeline.
+ Explore → Plan → Implement → Verify (all tests) → Commit `<type>: <description>` (→ `.claude/docs/git.md`).
+ 
+@@ -66,5 +65,5 @@
+ 4. UI: one functional test per function, a destructive suite per interactive function sized to its input domain, and visual-regression baselines.
+ 5. **Mutation kill rate** on the changed critical modules meets the target (`dotnet stryker`, ~80%).
+-6. UI: `/tla` has run (full/light tracks).
++6. `/tla` has run where the track calls for it (full; light only when the state is non-trivial).
+ 7. Validated locally before any deploy: clean build, full suite green, runs in local dev AND `docker compose up`.
+ 8. Web: visually verified in the browser.
+@@ -76,5 +75,4 @@
+ - On compaction, keep the modified files, verbatim error messages, debugging steps and test commands.
+ - Use subagents for exploration. `/clear` between unrelated tasks. `/compact <focus>` for controlled compaction.
+-- After 2 failed fixes of the same problem: `/clear` and write a better prompt.
+ 
+ ## Commands

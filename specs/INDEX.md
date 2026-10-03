@@ -109,8 +109,12 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 094 — mutation-sandbox-isolation — spec-only — mutation copies keep the real HOME, so a mutant can fetch or push from the real template clone; plus suite section 14 reads permissionDecision without hookEventName. F117 F128
 - [x] H5 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 090–094.
 - [ ] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
+- [ ] 096 — guard-notice-mod — light track — a Claude Code mod shows the developer guard fail-open notices and denies (today model-only, F144) and the register state (next row, checkpoint, maintenance due). — approved F148
+- [ ] 097 — prompt-audit-cleanup — spec-only — apply the Opus 5.5 prompt audit: CLAUDE.md self-contradictions, the stale wizard CLAUDE.md, two stop lists, ui-ux-pro-max path, language wording. — approved F149
 
 ## Register history (newest first)
+
+- 2026-10-03 — H5 ticked; 096 guard-notice-mod and 097 prompt-audit-cleanup added after 095 (approved F148, F149, from the Claude Code 2026-10 update).
 
 - 2026-10-03 — finding review (approved sort): 094 + 095 added; F119 F133 F134 F137 dropped; F130–F132 kept as debt; mutation survivors wait for the next run.
 
