@@ -112,8 +112,15 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 095a — mod-loading-guard — full track [hardened] — settings guard refuses agent writes of Claude Code mods on every route (long form: INDEX.completed.md) — carved by 096 (d1)
 - [x] 096 — guard-notice-mod — light track — a Claude Code mod shows the developer guard fail-open notices and denies (today model-only, F144) and the register state (next row, checkpoint, maintenance due). — approved F148
 - [x] 097 — prompt-audit-cleanup — spec-only — apply the Opus 5.5 prompt audit: CLAUDE.md self-contradictions, the stale wizard CLAUDE.md, two stop lists, ui-ux-pro-max path, language wording. — approved F149
+- [ ] 098 — guard-hole-sweep-2 — full track [hardened] — close the allow paths H5 and 095 found: symlinked dir into .git, refs/remotes trust, silent missing-file exits, git with no timeout, mutant env leak, notice stamp, bash false deny, mcp matcher. F139–F144 F155 F159
+- [ ] 099 — maintenance-script-fixes — light track — project-maintenance false RATCHET failures, carve-excess acknowledgement, context budget over cap in synced projects, archive-completed-rows honesty. F166–F169
+- [ ] H6 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 095–099.
+- [ ] 100 — kill-surviving-mutants-2 — spec-only — arm guard allow cases with rc==0, then kill the H4/H5/090/091/095 survivors; mark equivalents. F123–F125 F129 F136 F138 F150–F152 F160
+- [ ] 101 — guard-parser-dedupe — spec-only — one sed-purity parser, by_name scoped per simple command, sync-prompt reuses template_url_matches. F132 F153 F154
 
 ## Register history (newest first)
+
+- 2026-10-03 — finding review (38 open): 098–101 + H6 added from F123–F170; F147 F161 F170 resolved; F156–F158 F162–F165 accepted as bounds; F130 F131 F146 stay open.
 
 - 2026-10-03 — 095a mod-loading-guard inserted before 096 (developer, register rewrite): a loaded mod's allow skips all settings hooks, so 096's mod needs a guard first.
 - 2026-10-03 — H5 ticked; 096 guard-notice-mod and 097 prompt-audit-cleanup added after 095 (approved F148, F149, from the Claude Code 2026-10 update).
