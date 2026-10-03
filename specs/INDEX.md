@@ -106,7 +106,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 091 — trust-residuals — full track [hardened] — trust still rests on what the repo or agent can write: origin-URL template exemption, fork-network pins, claude -p writes outside the repo, suite hash, cloud stamps, laundered confirms. F079 F080 F092 F095 F097 F104 F107
 - [x] 092 — kill-surviving-mutants — full track — no .csproj/.sln-only fixture, no suite asserts a guard's exit code, and the sampled survivors in autosync, maintenance, traceability and freshness. F099–F102 F108
 - [x] 093 — maintenance-reports-what-it-measured — spec-only — section 5 misreads the bash runner, a suite timeout reads as FAIL, the mutation budget is unknown to the nightly, SIGPIPE leaks, CDPATH-relative cd. F087 F109–F111 F113
-- [ ] 094 — mutation-sandbox-isolation — spec-only — mutation copies keep the real HOME, so a mutant can fetch or push from the real template clone; plus suite section 14 reads permissionDecision without hookEventName. F117 F128
+- [x] 094 — mutation-sandbox-isolation — spec-only — mutation copies keep the real HOME, so a mutant can fetch or push from the real template clone; plus suite section 14 reads permissionDecision without hookEventName. F117 F128
 - [ ] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
 
 ## Register history (newest first)
