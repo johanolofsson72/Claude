@@ -237,11 +237,14 @@ v=$(verdict 'rm -rf x' "$WORK/nopy/destructive-command-guard-hook.sh")
 [ "$v" = deny ] && ok "a classifier that does not answer: deny" || bad "broken classifier: $v"
 
 printf '\n[cost] the everyday command starts no process\n'
-T0=$(python3 -c 'import time; print(time.time())')
-for _ in 1 2 3 4 5 6 7 8 9 10; do printf '{"tool_name":"Bash","tool_input":{"command":"ls -la src"}}' | "$BASH_BIN" "$HOOK" >/dev/null; done
-T1=$(python3 -c 'import time; print(time.time())')
-MS=$(python3 -c "print(int(($T1-$T0)*100))")
-[ "$MS" -lt 40 ] && ok "ls -la src: ${MS} ms per call (precheck exit)" || bad "ls -la src: ${MS} ms per call"
+# Asserted by what runs, not by wall-clock: a ms budget went red under the mutation gate's
+# parallel load (2026-10-03). A python3 shim first on PATH records every classifier start.
+SHIM="$WORK/shim"; mkdir -p "$SHIM"; REAL_PY=$(command -v python3)
+printf '#!/bin/sh\necho x >> "%s/started"\nexec "%s" "$@"\n' "$SHIM" "$REAL_PY" > "$SHIM/python3"; chmod +x "$SHIM/python3"
+for _ in 1 2 3 4 5 6 7 8 9 10; do printf '{"tool_name":"Bash","tool_input":{"command":"ls -la src"}}' | PATH="$SHIM:$PATH" "$BASH_BIN" "$HOOK" >/dev/null; done
+[ ! -e "$SHIM/started" ] && ok "ls -la src: 10 calls, classifier never started (precheck exit)" || bad "ls -la src started the classifier $(grep -c . "$SHIM/started") time(s)"
+printf '{"tool_name":"Bash","tool_input":{"command":"rm -rf x"}}' | PATH="$SHIM:$PATH" "$BASH_BIN" "$HOOK" >/dev/null
+[ -e "$SHIM/started" ] && ok "control: rm -rf x does start it — the shim sees the classifier" || bad "shim blind: rm -rf x never reached python3"
 
 printf '\n[sabotage] the matrix bites\n'
 SAB="$WORK/sab"; mkdir -p "$SAB"; cp "$HOOK" "$SELF_DIR/guard-lib.sh" "$SELF_DIR/hook-notice.sh" "$SELF_DIR/shell_glob.py" "$SAB/"
