@@ -451,5 +451,20 @@ probe_exit() { PATH="$FK:$PATH" FAKE_CLI="$1" PROBE_MODES="${2:-bypassPermission
 rm -rf "$FK"
 
 echo
+echo "[095-R4] the guards that keep settings and trust stores also see MCP and plugin tools  (095-AC-3)"
+# Claude Code matches a PreToolUse matcher as a regular expression over the tool name. A matcher that
+# lists built-in tools only lets mcp__fs__write_file reach the settings files with no guard run (F116).
+for g in settings-edit-guard-hook.sh trust-anchor-guard-hook.sh; do
+  M=$(jq -r --arg g "$g" '[.hooks.PreToolUse[] | select(any(.hooks[]; .command | contains($g))) | .matcher] | .[]' \
+      "$ROOT/.claude/settings.json" 2>/dev/null)
+  if [ -z "$M" ]; then bad "095-AC-3 $g is not wired in .claude/settings.json"; continue; fi
+  if python3 -c 'import re,sys; sys.exit(0 if all(re.fullmatch(m, "mcp__fs__write_file") for m in sys.argv[1:]) else 1)' $M; then
+    ok "095-AC-3 $g's matcher matches mcp__fs__write_file"
+  else
+    bad "095-AC-3 $g's matcher ($M) misses mcp__fs__write_file: add |mcp__.* (the developer's edit, 089 O3)"
+  fi
+done
+
+echo
 printf 'passed %s, failed %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

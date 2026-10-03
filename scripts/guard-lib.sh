@@ -536,6 +536,20 @@ guard_walk() {
     fi
     dir="${dir%/*}"; [ -n "$dir" ] || dir="/"
   done
+  # Spec 095 R6 (F120). Deleting or renaming the only language marker used to turn all three pipeline
+  # guards off. A register, or the sync stamp, at the git root now stands in for the marker, except in
+  # the template itself (template-identity.sh: its URL and its root commit; a missing library means a
+  # project). Asked about the git root, so a template clone nested in a project does not count.
+  if [ -z "$GUARD_LANG_MARKER" ] && [ -n "$GUARD_GIT_ROOT" ] \
+     && { [ -n "$GUARD_REGISTER" ] || [ -f "$GUARD_GIT_ROOT/.claude/.template-sync" ]; }; then
+    local _gl_id=project
+    if . "${BASH_SOURCE[0]%/*}/template-identity.sh" 2>/dev/null; then
+      _gl_id=$(template_identity "$GUARD_GIT_ROOT")
+    fi
+    if [ "$_gl_id" != template ]; then
+      if [ -n "$GUARD_REGISTER" ]; then GUARD_LANG_MARKER="specs/INDEX.md"; else GUARD_LANG_MARKER=".claude/.template-sync"; fi
+    fi
+  fi
   return 0
 }
 

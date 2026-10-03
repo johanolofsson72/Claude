@@ -213,14 +213,19 @@ claude -p "$PROMPT" --restricted --permission-mode dontAsk --tools "$ALLOWED" \
 EXIT_CODE=${PIPESTATUS[0]}
 set -e
 
-# Spec 091 R5. --restricted may not count a skill's or agent's frontmatter as tool configuration, and a
+# Spec 091 R5, 095 R11. --restricted may not count a skill's or agent's frontmatter as tool configuration, and a
 # `hooks:` key there runs commands in every project the sync reaches. Every changed or new file under
 # .claude/skills, .claude/agents or .claude/commands is read: a frontmatter key that grants or wires
 # something, or any file that is not markdown (a script), is named for review. Nothing is reverted.
 REVIEW=$(git -C "$REPO_ROOT" -c core.fsmonitor=false -c core.quotePath=false status --porcelain -uall \
-           -- .claude/skills .claude/agents .claude/commands 2>/dev/null \
+           -- .claude/skills .claude/agents .claude/commands .claude/rules .claude/docs CLAUDE.md 2>/dev/null \
          | cut -c4- | sed 's/.* -> //' | while IFS= read -r f; do
   [ -f "$REPO_ROOT/$f" ] || continue
+  # Spec 095 R11 (F135): rules, docs and CLAUDE.md are prompt text the sync carries into every project.
+  if [ "$f" = CLAUDE.md ] || [ "${f#.claude/rules/}" != "$f" ] || [ "${f#.claude/docs/}" != "$f" ]; then
+    echo "[REVIEW] $f: prompt text that syncs into every project"
+    continue
+  fi
   if [ "${f%.md}" != "$f" ]; then   # an if: bash 3.2 cannot parse a case inside $(...)
       if awk 'NR == 1 { sub(/^\xef\xbb\xbf/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "---") exit 1; next }
               { sub(/\r$/, "") }

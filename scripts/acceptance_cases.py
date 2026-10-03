@@ -213,7 +213,8 @@ def is_test_path(path):
 # ------------------------------------------------------------------------------ coverage
 
 class ScanFailed(Exception):
-    """The scan could not answer (timeout, git missing). The gate fails open on this."""
+    """The scan could not answer (a timeout). The coverage scan fails open on this and announces it
+    (080 O6); the Confirmed-line backing check denies (095 O2)."""
 
 
 def _scan_timeout():
@@ -255,7 +256,7 @@ def named_cases(root, spec_id):
     try:
         proc = subprocess.run(
             ["git", "-C", root, "grep", "--untracked", "-I", "-l", "-z", "-E", "-e", literal, "--", "."],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_scan_timeout(),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=_scan_timeout(), env=_git_env(),
         )
     except subprocess.TimeoutExpired as exc:
         raise ScanFailed(str(exc))
@@ -332,11 +333,25 @@ def _owes(info):
 ARRIVAL_PATH = "scripts/acceptance_cases.py"
 
 
+def _git_env():
+    """The environment for every git call here. Spec 095 R5 (F118): every GIT_ variable is dropped, so
+    GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE or GIT_CONFIG_* in the hook's environment cannot point the
+    gate at another repository or configuration. Replace refs and a grafts file rewrite ancestry
+    locally, without any push, so every call ignores both (088 adversarial #7)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull, GIT_OPTIONAL_LOCKS="0")
+    return env
+
+
+# Spec 095 R5 (developer O2): a fail-open the hook must say aloud. gate() appends the cause; the
+# spec-interview hook passes it to guard_announce.
+ANNOUNCE = []
+
+
 def _git(where, *args):
     """One git call for the 088 checks: (returncode, stdout, stderr). Raises subprocess.TimeoutExpired
-    and OSError for the caller to map. Replace refs and a grafts file rewrite ancestry locally, without
-    any push, so every call ignores both (088 adversarial #7)."""
-    env = dict(os.environ, GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull)
+    and OSError for the caller to map."""
+    env = _git_env()
     proc = subprocess.run(["git", "-C", where] + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           timeout=_scan_timeout(), env=env)
     return proc.returncode, proc.stdout.decode("utf-8", "replace"), proc.stderr.decode("utf-8", "replace")
@@ -422,7 +437,8 @@ def _committed_unchanged(spec_dir):
     line = _confirmed_line(got if isinstance(got, str) else None)
     if line is None:
         return False
-    # The gate's own failure rules (080 O6): a timeout fails open, any other git failure denies.
+    # A timeout raises ScanFailed, which the backing check turns into a deny (095 O2); any other git
+    # failure denies too.
     try:
         rc, _, err = _git(spec_dir, "rev-parse", "--git-dir")
         if rc != 0:
@@ -493,7 +509,12 @@ def gate(root, info, file_path):
     try:
         backed = _committed_unchanged(spec_dir) or answer_bound(spec_dir, conf["quote"], parsed["digest"])
     except ScanFailed:
-        backed = True     # fail open on a timeout, like the coverage scan (O6)
+        # Spec 095 R5 (developer O2): this is the forgery route, so a timeout denies here. The agent
+        # can grow the tree until git outlasts the limit.
+        return head + "could not be checked against the recorded answers: git timed out " \
+            "(ACCEPTANCE_SCAN_TIMEOUT, %ss).\n\nA Confirmed line that is not on the upstream must be " \
+            "backed by a recorded answer, and that check fails closed (spec 095). Commit and push the " \
+            "line, or make git answer in time, and try again." % _scan_timeout()
     except ScanError as exc:
         return head + "could not be checked against the recorded answers.\n\n%s\n\nOnly a timeout " \
             "lets an edit through; fix git here (safe.directory, a broken .git) and try again." % exc
@@ -515,7 +536,9 @@ def gate(root, info, file_path):
     try:
         found = named_cases(root, spec_id)
     except ScanFailed:
-        return None  # fail open: a scan that times out must not stop work (O6)
+        # fail open: a scan that times out must not stop work (080 O6), and it says so (095 O2)
+        ANNOUNCE.append("git grep for the %s-AC-n test names timed out (ACCEPTANCE_SCAN_TIMEOUT)" % spec_id)
+        return None
     except ScanError as exc:
         return head + "could not be checked against the tests.\n\n%s\n\nOnly a timeout lets an " \
             "edit through; fix git here (safe.directory, a broken .git) and try again." % exc

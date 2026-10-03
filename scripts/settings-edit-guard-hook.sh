@@ -13,9 +13,10 @@
 # WHAT IT GUARDS (developer O1, O2)
 # ---------------------------------
 # Three files: <project>/.claude/settings.json, <project>/.claude/settings.local.json and
-# <config>/settings.json (CLAUDE_CONFIG_DIR, default ~/.claude). Three keys: hooks, disableAllHooks,
-# env. Permissions, outputStyle and the rest stay editable, and another project's settings are not
-# this guard's. The verdict is scripts/settings_guard.py:
+# <config>/settings.json (CLAUDE_CONFIG_DIR, default ~/.claude). Every key except a safe list
+# ($schema, language, model, and permissions.allow/ask/additionalDirectories): spec 095 R2 inverted
+# 089's three keys (F115). Another
+# project's settings are not this guard's. The verdict is scripts/settings_guard.py:
 #
 #   Edit/Write/MultiEdit  the call is applied to the current bytes as the tool would apply it, and a
 #                         change to any of the three keys is denied, as is a result that is not a
@@ -23,7 +24,14 @@
 #   NotebookEdit, a glob, a path with no bytes (bash-write-guard's delegated shell write)
 #                         denied: nothing to compare
 #   Bash                  a simple command that names a guarded file passes only when it reads
-#                         (cat, jq, grep, git diff/add/commit, …); a redirection into one never does
+#                         (cat, jq, grep, sed -n, git diff/add/commit, …) on a line that changes no
+#                         variable, function or alias first (095 R7); a redirection into one never does
+#   Bash, git             a verb that writes the tree (checkout, restore, stash pop, apply, merge, …)
+#                         is judged by what git says it would write (095 R1, F114). A bound (/tla
+#                         GAP-1): a hand edit landing between the check and git's run is overwritten
+#                         by restore, checkout -- path and reset --hard, which do not refuse
+#   mcp__* tools          every string in the input, as a path and as a command (095 R3, F116); the
+#                         matcher in settings.json must list mcp__.* for this to run (R4)
 #
 # THE ROUTES THAT STAY OPEN (developer O3, O4). No override variable, no template exemption. The
 # developer edits the file by hand, or runs a command with the `!` prefix: that runs outside the
@@ -67,6 +75,15 @@ else
     *"\$'"*) HIT=1 ;;                                  # ANSI-C quoting hides the letters
     *\"command\"*) case "$TI" in *[*?[]*) HIT=1 ;; esac ;;   # a glob can spell either name
   esac
+  # Spec 095 R1: a git verb that rewrites the tree names no settings file (`git checkout HEAD -- .`),
+  # and git aliases can spell one, so any git command with a second word goes to the verdict.
+  case "$TI" in
+    # On the raw payload: a JSON \n or \t before git is a boundary (a heredoc body), and stripping the
+    # backslash would glue it to the word.
+    *\"command\"*) [[ $TI =~ (^|[^A-Za-z0-9_.-]|\\[nt])git[[:space:]]+[^[:space:]] ]] && HIT=1 ;;
+  esac
+  # Spec 095 R3: an MCP or plugin tool names its file in a field of its own choosing.
+  [[ $INPUT =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"mcp__ ]] && HIT=1
   # A file_path that is a symlink, or a hard link to a guarded file, under an innocent name.
   if [ "$HIT" -eq 0 ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
     _fp="${BASH_REMATCH[1]}"
@@ -108,9 +125,9 @@ ROUTES="Hook wiring and hook environment are the developer's to change. Show the
 case "$KIND" in
   none) exit 0 ;;
   settings-key)
-    guard_deny "BLOCKED — this edit changes ${KEYS} in ${TARGET} (spec 089).
+    guard_deny "BLOCKED — this edit changes ${KEYS} in ${TARGET} (spec 089, 095).
 
-hooks, disableAllHooks and env decide which guards run and what they see: removing a hook entry, adding disableAllHooks, or an env entry such as SPEC_ACCEPTANCE=off switches a gate off for this session or the next. Other keys (permissions, outputStyle, …) and formatting stay editable.
+Every settings key is guarded except a short safe list (\$schema, language, model, and permissions.allow, ask, additionalDirectories). hooks, env and disableAllHooks decide which guards run and what they see, and keys such as apiKeyHelper, statusLine or enabledPlugins run a command or add tools next session. Formatting and the safe keys stay editable.
 
 $ROUTES" ;;
   settings-invalid)
@@ -128,13 +145,19 @@ $ROUTES" ;;
   settings-shell)
     guard_deny "BLOCKED — a write to ${TARGET} that carries no bytes to check (a shell write, a NotebookEdit, or a glob path) (spec 089).
 
-This guard judges a settings write by what it does to hooks, disableAllHooks and env, and this route does not show it the result. Use the Edit tool for a change to another key; it is judged on the bytes.
+This guard judges a settings write by what it does to the guarded keys, and this route (a shell write, an MCP tool, a NotebookEdit) does not show it the result. Use the Edit tool for a change to another key; it is judged on the bytes.
 
 $ROUTES" ;;
   settings-bash)
     guard_deny "BLOCKED — this shell command writes, or may write, a guarded settings file (spec 089). Derived target: ${TARGET}
 
 The command is not shown here. Only reads pass when a command names one of the three settings files (cat, head, tail, grep, rg, jq, wc, diff, ls, stat, python3 -m json.tool <file>, git diff/log/show/status/add/commit, …). A redirection into one, an output option naming one, sed, cp, mv, rm, ln, touch, an interpreter or a script handed one are refused. If the file is only mentioned in prose (a message, a finding), drop the .claude/ prefix or use the Write tool for the text.
+
+$ROUTES" ;;
+  settings-git)
+    guard_deny "BLOCKED — this git command would rewrite a settings file's guarded keys, or this guard cannot tell what it would write (spec 095). Target: ${TARGET}. Cause: ${KEYS}.
+
+A git verb that writes the working tree (checkout, restore, switch, reset --hard, stash, clean, apply, am, merge, rebase, cherry-pick, revert, read-tree) is judged by the content it would leave. It passes when the settings files keep their hooks, env and other guarded keys, and is refused when they change or when git cannot answer. A pull from a configured remote is not judged.
 
 $ROUTES" ;;
   crash)

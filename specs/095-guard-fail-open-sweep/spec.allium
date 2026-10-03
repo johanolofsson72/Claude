@@ -1,0 +1,386 @@
+-- allium: 3
+--
+-- 095 — guard fail-open sweep.
+--
+-- Each rule closes one place where a guard allowed what its header says it refuses (R1–R7, R10, R11), or
+-- refused a harmless call (R8, R9). Rules cite R1..R13 (spec.md) and the developer's overflow answers
+-- O1..O3 (interview.md). The template keeps no scenario map; tests name the acceptance cases 095-AC-n.
+
+enum Verdict { allow | deny | announce_allow }
+
+enum GitVerbKind { content | history | patch | removal | not_tree_write }
+
+enum Source { revision | index | stash_commit | removed | history_change | patch_file | unknown }
+
+enum MarkerOrigin { language_file | register_stand_in | none }
+
+enum Identity { template | impostor | project }
+
+enum ScanCheck { confirmed_backing | coverage }
+
+-- ----------------------------------------------------------------------------- settings keys (R2, O1)
+
+entity SettingsSnapshot {
+    parses: Boolean                             -- a JSON object as JSON.parse reads it (NaN fails, 089)
+    guarded_projection: String                  -- canonical JSON of every top-level key except the
+                                                -- safe list, and permissions minus allow/ask/
+                                                -- additionalDirectories; absent is a value
+}
+
+config {
+    safe_top_level: String = "$schema language model"   -- TB2 took outputStyle, attribution, includeCoAuthoredBy, cleanupPeriodDays off
+    safe_permission_keys: String = "allow ask additionalDirectories"
+    scan_timeout_seconds: Integer = 5
+    mcp_max_depth: Integer = 8
+    mcp_max_strings: Integer = 512
+}
+
+-- ----------------------------------------------------------------------------- git tree writes (R1, O3)
+
+entity GitTreeCall {
+    verb_kind: GitVerbKind
+    is_pull: Boolean
+    control_flag: Boolean                       -- --abort --quit --continue --skip --dry-run -n --check
+                                                -- --stat --cached, restore --staged alone
+    guarded_in_scope: Boolean                   -- a guarded file inside the repo top level and the pathspec
+    source: Source
+    git_answered: Boolean                       -- every rev-parse / show / merge-base returned in time
+    before: SettingsSnapshot?                   -- the current file, or the base of a history change
+    after: SettingsSnapshot?                    -- what the verb would leave (removal = {})
+    patch_touches_settings_name: Boolean        -- a header path whose basename is settings(.local).json
+    patch_readable: Boolean
+    verdict: Verdict?
+}
+
+rule JudgeGitTreeWrite {
+    when: GitTreeCallJudged(call)
+    requires: call.verb_kind != not_tree_write
+    requires: not call.is_pull                  -- O3 bound: origin is the shared history
+    requires: not call.control_flag
+    requires: call.guarded_in_scope
+    ensures:
+        if call.verb_kind = patch:
+            if not call.patch_readable or call.patch_touches_settings_name:
+                call.verdict = deny
+            else:
+                call.verdict = allow
+        else:
+            if not call.git_answered:
+                call.verdict = deny             -- fail closed (Q10)
+            else:
+                if not call.after.parses:
+                    call.verdict = deny
+                else:
+                    if call.before.guarded_projection != call.after.guarded_projection:
+                        call.verdict = deny
+                    else:
+                        call.verdict = allow
+}
+
+rule GitCallOutOfScope {
+    when: GitTreeCallJudged(call)
+    requires: call.verb_kind = not_tree_write or call.is_pull or call.control_flag or not call.guarded_in_scope
+    ensures: call.verdict = allow
+}
+
+-- ----------------------------------------------------------------------------- settings edits (R2)
+
+entity SettingsEdit {
+    before: SettingsSnapshot
+    after: SettingsSnapshot
+    verdict: Verdict?
+}
+
+rule JudgeSettingsEdit {
+    when: SettingsEditJudged(edit)
+    ensures:
+        if not edit.after.parses:
+            edit.verdict = deny
+        else:
+            if edit.before.guarded_projection != edit.after.guarded_projection:
+                edit.verdict = deny
+            else:
+                edit.verdict = allow
+}
+
+-- ----------------------------------------------------------------------------- MCP calls (R3, R4)
+
+entity McpCall {
+    tool_is_mcp: Boolean                        -- tool_name starts with mcp__
+    some_string_names_settings: Boolean         -- a string in tool_input resolves or globs to one
+    some_string_names_trust_store: Boolean      -- .git component, acceptance.md, placement table
+    cap_exceeded: Boolean                       -- depth > 8 or > 512 strings
+    raw_mentions_settings: Boolean              -- raw text has sett or .cla, case folded
+    settings_verdict: Verdict?
+    trust_verdict: Verdict?
+}
+
+rule JudgeMcpForSettings {
+    when: McpCallJudged(call)
+    requires: call.tool_is_mcp
+    ensures:
+        if call.some_string_names_settings or (call.cap_exceeded and call.raw_mentions_settings):
+            call.settings_verdict = deny
+        else:
+            call.settings_verdict = allow
+}
+
+rule JudgeMcpForTrust {
+    when: McpCallJudged(call)
+    requires: call.tool_is_mcp
+    ensures:
+        if call.some_string_names_trust_store:
+            call.trust_verdict = deny
+        else:
+            call.trust_verdict = allow
+}
+
+entity HookMatcher {
+    guard_name: String
+    pattern: String
+    matches_mcp_tool: Boolean                   -- the pattern, as a regex, matches mcp__x__write_file
+}
+
+invariant GuardMatchersCoverMcp {
+    -- R4: applied by the developer (089 O3 keeps the agent out of the settings file).
+    for m in HookMatchers where guard_name in {"settings-edit-guard", "trust-anchor-guard"}:
+        m.matches_mcp_tool
+}
+
+-- ----------------------------------------------------------------------------- acceptance gate (R5, O2)
+
+entity GitScan {
+    check: ScanCheck
+    timed_out: Boolean
+    other_error: Boolean
+    redirect_env_removed: Boolean               -- GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, …
+    verdict: Verdict?
+}
+
+invariant ScansIgnoreRedirectEnv {
+    for s in GitScans:
+        s.redirect_env_removed
+}
+
+rule ScanTimesOut {
+    when: GitScanFinished(scan)
+    requires: scan.timed_out
+    ensures:
+        if scan.check = confirmed_backing:
+            scan.verdict = deny                 -- O2: the forgery route fails closed
+        else:
+            scan.verdict = announce_allow       -- O2 keeps 080 O6, now said aloud
+}
+
+rule ScanFailsOtherwise {
+    when: GitScanFinished(scan)
+    requires: not scan.timed_out and scan.other_error
+    ensures: scan.verdict = deny
+}
+
+-- ----------------------------------------------------------------------------- marker (R6)
+
+entity GuardWalk {
+    found_language_marker: Boolean
+    found_register: Boolean
+    identity: Identity                          -- template_identity; library missing = project
+    origin: MarkerOrigin?
+}
+
+rule ResolveMarker {
+    when: GuardWalkFinished(walk)
+    ensures:
+        if walk.found_language_marker:
+            walk.origin = language_file
+        else:
+            if walk.found_register and walk.identity != template:
+                walk.origin = register_stand_in
+            else:
+                walk.origin = none
+}
+
+invariant PipelineGuardsJudgeWhenMarked {
+    -- spec-interview, pipeline-state and spec-register exit early only when origin = none.
+    for w in GuardWalks where found_register and identity != template:
+        w.origin != none
+}
+
+-- ----------------------------------------------------------------------------- shell reads (R7, R8)
+
+entity ShellRead {
+    names_guarded: Boolean
+    read_command: Boolean                       -- 089 read list, plus print-only sed (R8)
+    prelude_changes_env_or_names: Boolean       -- export declare typeset readonly local set -a, bare X=,
+                                                -- a function or alias, hash enable shopt, source .
+    verdict: Verdict?
+}
+
+rule JudgeShellRead {
+    when: ShellReadJudged(read)
+    requires: read.names_guarded
+    ensures:
+        if read.read_command and not read.prelude_changes_env_or_names:
+            read.verdict = allow
+        else:
+            read.verdict = deny
+}
+
+entity TrustOption {
+    standalone_word: Boolean                    -- --trust or --trust=… as its own shell word
+    inside_program_string: Boolean              -- in a -c/-e body, eval, or a line piped into a shell
+    verdict: Verdict?
+}
+
+rule JudgeTrustOption {
+    when: TrustOptionJudged(opt)
+    ensures:
+        if opt.standalone_word or opt.inside_program_string:
+            opt.verdict = deny
+        else:
+            opt.verdict = allow                 -- prose in a quoted argument (R8)
+}
+
+-- ----------------------------------------------------------------------------- sed targets (R9)
+
+entity SedInPlace {
+    script_pure: Boolean                        -- only s, y and print-only commands, no w/W/e, parsed
+    script_kept_as_target: Boolean
+}
+
+rule SedScriptWord {
+    when: SedInPlaceParsed(sed)
+    ensures: sed.script_kept_as_target = not sed.script_pure
+}
+
+-- ----------------------------------------------------------------------------- git config (R10)
+
+entity GitConfigWrite {
+    persistent: Boolean                         -- git config …, any scope, set/unset/add/edit
+    one_shot: Boolean                           -- git -c key=value <cmd>
+    key_runs_program: Boolean                   -- core.fsmonitor, core.hooksPath, filter.*, credential.*, …
+    key_is_trust_anchor: Boolean                -- remote.*, url.*, branch.*, include*, alias.* (091)
+    verdict: Verdict?
+}
+
+rule JudgeGitConfig {
+    when: GitConfigJudged(cfg)
+    ensures:
+        if cfg.key_is_trust_anchor and (cfg.persistent or cfg.one_shot):
+            cfg.verdict = deny
+        else:
+            if cfg.key_runs_program and cfg.persistent:
+                cfg.verdict = deny
+            else:
+                cfg.verdict = allow
+}
+
+-- ----------------------------------------------------------------------------- update-template (R11)
+
+entity TemplateChange {
+    path_under_rules_docs_or_claude_md: Boolean
+    named_for_review: Boolean
+}
+
+invariant PromptTextIsReviewed {
+    for c in TemplateChanges where path_under_rules_docs_or_claude_md:
+        c.named_for_review
+}
+
+-- ----------------------------------------------------------------------------- added after review
+-- Built during the threat model and the adversarial review (spec.md: Threat model, Adversarial
+-- review); added here after /tla drift, developer decision 2026-10-03. The safe list in config is now
+-- $schema, language, model (TB2, developer decision): outputStyle, attribution, includeCoAuthoredBy and
+-- cleanupPeriodDays are guarded.
+
+entity GitLine {
+    tree_verb_present: Boolean
+    mover_before_tree_verb: Boolean            -- update-ref, commit, hash-object, branch … earlier on the line
+    git_variable_on_line: Boolean              -- any GIT_ text on a line with a tree verb
+    verb_unmodelled: Boolean                   -- am, sparse-checkout, submodule, filter-branch, bisect
+    git_behind_wrapper_or_program: Boolean     -- env/timeout/xargs git, a shell -c program, a heredoc to a shell
+    pull_source_is_remote: Boolean             -- a configured remote name, or a bare pull
+    both_sides_change_file: Boolean            -- history verb: base to target meets a current file unlike both
+    verdict: Verdict?
+}
+
+rule JudgeGitLine {
+    when: GitLineJudged(line)
+    requires: line.tree_verb_present
+    ensures:
+        if line.mover_before_tree_verb or line.git_variable_on_line or line.verb_unmodelled or line.both_sides_change_file:
+            line.verdict = deny
+        else:
+            line.verdict = allow                -- then JudgeGitTreeWrite decides on content
+}
+
+rule PullFromElsewhere {
+    when: GitLineJudged(line)
+    requires: not line.pull_source_is_remote
+    ensures: line.verdict = deny                -- a pull from . is judged as a merge instead
+}
+
+invariant WrappersDoNotHideGit {
+    for l in GitLines where git_behind_wrapper_or_program:
+        l.verdict != null
+}
+
+entity CommentReading {
+    denied_as_lexed: Boolean
+    denied_without_comments: Boolean
+    verdict: Verdict?
+}
+
+rule JudgeBothReadings {
+    when: CommandRead(reading)
+    ensures:
+        if reading.denied_as_lexed or reading.denied_without_comments:
+            reading.verdict = deny
+        else:
+            reading.verdict = allow
+}
+
+entity McpToolName {
+    read_named: Boolean                        -- read_, get_, list_, search_, find_ …
+    has_write_word: Boolean                    -- replace, write, edit, move … (find_and_replace)
+    treated_as_read: Boolean
+}
+
+rule McpReadName {
+    when: McpToolNamed(tool)
+    ensures: tool.treated_as_read = (tool.read_named and not tool.has_write_word)
+}
+
+entity SedCommand {
+    has_w_command: Boolean                     -- w, W or s///w, with or without in-place
+    w_file_is_target: Boolean
+}
+
+rule SedWritesWithoutInPlace {
+    when: SedCommandParsed(cmd)
+    requires: cmd.has_w_command
+    ensures: cmd.w_file_is_target = true
+}
+
+entity TrustProgram {
+    program_flag_seen: Boolean                 -- a -c/-e cluster or eval before, on a line a shell runs
+    word_names_trust: Boolean
+    verdict: Verdict?
+}
+
+rule TrustAfterProgramFlag {
+    when: TrustProgramJudged(t)
+    requires: t.program_flag_seen and t.word_names_trust
+    ensures: t.verdict = deny
+}
+
+entity MarkerStandIn {
+    sync_stamp_at_git_root: Boolean
+    found_register: Boolean
+    identity: Identity
+    stands_in: Boolean
+}
+
+rule StampOrRegisterStandsIn {
+    when: MarkerStandInChecked(m)
+    ensures: m.stands_in = ((m.found_register or m.sync_stamp_at_git_root) and m.identity != template)
+}

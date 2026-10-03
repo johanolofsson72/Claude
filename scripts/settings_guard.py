@@ -4,12 +4,14 @@
 Reads a PreToolUse payload on stdin and prints one line: a verdict word, then tab-separated details.
 
     none
-    settings-key <path> <key,key>     a write that changes hooks, disableAllHooks or env
+    settings-key <path> <key,key>     a write that changes a guarded key
     settings-invalid <path>           a write that leaves the file unparseable
     settings-unreadable <path>        the current file is not a JSON object
     settings-shell <path>             a call with no bytes to simulate (NotebookEdit, a glob, a
-                                      delegated shell write from bash-write-guard)
+                                      delegated shell write from bash-write-guard, an MCP tool)
     settings-bash <path>              a shell command that writes, or might write, a guarded file
+    settings-git <path> <cause>       a git verb that would rewrite a guarded key, or that git
+                                      cannot answer for (spec 095 R1)
     unparseable                       the payload is not a JSON object
 
 WHICH FILES (R1, developer O1). The three that this session and the next one load:
@@ -17,13 +19,22 @@ WHICH FILES (R1, developer O1). The three that this session and the next one loa
 compared after realpath, NFC, and case folding where the file system folds case. A hard link to one
 is the same file. Another project's settings are not this guard's.
 
-WHICH KEYS (R2, O2). hooks, disableAllHooks and env, by deep equality with "absent" as a value.
+WHICH KEYS (spec 095 R2, developer O1). Every key except SAFE_KEYS and, inside permissions,
+SAFE_PERMISSION_KEYS, by deep equality with "absent" as a value. Until 095 it was hooks,
+disableAllHooks and env only, and apiKeyHelper, statusLine or enabledPlugins passed (F115).
 
 THE SHELL (R4). The command text is split into simple commands, and a simple command that names a
-guarded file passes only when it reads (READ_COMMANDS, `python3 -m json.tool <one file>`, GIT_READ).
-A redirection into a guarded file, or an output option naming one, is a write whatever the command.
+guarded file passes only when it reads (READ_COMMANDS by bare name or from a system bin directory,
+print-only sed, `python3 -m json.tool <one file>`, GIT_READ). A redirection into a guarded file, or an
+output option naming one, is a write whatever the command. A read is not trusted on a line that also
+exports, assigns or declares a variable, defines a function or alias, or sources a file (095 R7).
 Nothing is evaluated: a name assembled at runtime from parts that spell neither the file nor its
 directory is the declared bound, the same as bash-write-guard's.
+
+GIT (095 R1, O3). A git verb that writes the working tree is judged by the content it would leave,
+read from git; see the "git tree writes" section. `git pull` from a configured remote is the bound.
+
+MCP (095 R3). An mcp__ tool is judged by every string in its input; see the "MCP tools" section.
 
 The command text is never printed.
 """
@@ -38,9 +49,17 @@ import sys
 import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from shell_glob import ANSI_C, TooMany, ansi_c_text, brace_alts   # one copy of bash's word rules (spec 090)
+from shell_glob import (ANSI_C, TooMany, ansi_c_text, brace_alts,   # one copy of bash's word rules (spec 090)
+                        sed_args, sed_script_kind)
 
-GUARDED_KEYS = ("hooks", "disableAllHooks", "env")
+# Spec 095 R2 (developer O1): every key is guarded except these. A key Claude Code adds later runs a
+# command or adds a tool surface as often as not (apiKeyHelper, statusLine, enabledPlugins), so it is
+# guarded until someone puts it here.
+# The threat model's TB2 (developer decision, 2026-10-03) took four keys back off: cleanupPeriodDays 0
+# purges the transcripts the developer audits, attribution and includeCoAuthoredBy strip authorship,
+# and outputStyle names a file the agent can write, so it is prompt text.
+SAFE_KEYS = frozenset(("$schema", "language", "model"))
+SAFE_PERMISSION_KEYS = frozenset(("allow", "ask", "additionalDirectories"))
 SETTINGS_NAMES = ("settings.json", "settings.local.json")
 FOLD = sys.platform in ("darwin", "win32", "cygwin")
 GLOBCH = re.compile(r"[*?\[]")
@@ -56,6 +75,7 @@ OUTPUT_OPTIONS = frozenset(("-o", "--output", "--output-file", "--output-directo
 EXEC_COMMANDS = frozenset(
     "sh bash zsh dash ksh fish eval source . exec xargs env python python3 perl ruby node php awk "
     "osascript parallel".split())
+SYSTEM_BIN = frozenset(("/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/usr/sbin", "/sbin"))
 MISSING = object()
 
 
@@ -92,6 +112,7 @@ class Guarded:
     def __init__(self, env, cwd):
         self.cwd = cwd
         self.loose_glob = False
+        self.depth = 0
         self.proj = env.get("CLAUDE_PROJECT_DIR") or cwd
         self.conf = env.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
         self.env = env
@@ -170,8 +191,20 @@ def _canon(v):
 
 
 def changed_keys(before, after):
-    # As JSON text, not Python ==: True == 1 would read env 1 -> true as unchanged (/security-review).
-    return [k for k in GUARDED_KEYS if _canon(before.get(k, MISSING)) != _canon(after.get(k, MISSING))]
+    """The guarded keys whose value differs, sorted; `permissions.<key>` inside permissions.
+    As JSON text, not Python ==: True == 1 would read env 1 -> true as unchanged (/security-review)."""
+    out = []
+    for k in sorted((set(before) | set(after)) - SAFE_KEYS):
+        b, a = before.get(k, MISSING), after.get(k, MISSING)
+        if k == "permissions" and isinstance(b if b is not MISSING else {}, dict) \
+                and isinstance(a if a is not MISSING else {}, dict):
+            b = {} if b is MISSING else b
+            a = {} if a is MISSING else a
+            out.extend("permissions." + s for s in sorted((set(b) | set(a)) - SAFE_PERMISSION_KEYS)
+                       if _canon(b.get(s, MISSING)) != _canon(a.get(s, MISSING)))
+        elif _canon(b) != _canon(a):
+            out.append(k)
+    return out
 
 
 QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
@@ -295,6 +328,8 @@ def attach_heredocs(text):
                     break
                 body.append(lines[i - 1])
             words = [w for w in PATHISH.findall("\n".join(body)) if INTERESTING.search(w)]
+            if re.search(r"\bgit\b", "\n".join(body)):
+                words.append("\n".join(body))       # judged as a program of its own (095 adversarial #2)
             extra.append((m.end(), " ".join(shlex.quote(w) for w in words)))
         for pos, words in reversed(extra):
             line = line[:pos] + " " + words + " " + line[pos:]
@@ -403,11 +438,16 @@ def reads(words):
         return False                                  # p=<settings>; … "$p": the name goes on (/security-review)
     if len(rest) != len(words):
         return False                                  # LESSOPEN=… less, GIT_EXTERNAL_DIFF=… git diff
-    cmd = rest[0].rpartition("/")[2]
-    if cmd == "rg" and any(w == "--pre" or w.startswith("--pre=") for w in rest):
+    head, _, cmd = rest[0].rpartition("/")
+    if head and head not in SYSTEM_BIN:
+        return False                                  # ./cat, /tmp/x/jq: the agent's program under a read name
+    if cmd == "rg" and any(w in ("--pre", "--hostname-bin") or w.startswith(("--pre=", "--hostname-bin=")) for w in rest):
         return False                                  # rg --pre runs a program on each file
     if cmd in READ_COMMANDS:
         return True
+    if cmd == "sed":                                  # spec 095 R8: print-only and s/// to stdout read
+        in_place, scripts, _ = sed_args(rest[1:])
+        return not in_place and bool(scripts) and all(sed_script_kind(s) for s in scripts)
     if cmd in ("python3", "python") and rest[1:3] == ["-m", "json.tool"]:
         return len([w for w in rest[3:] if not w.startswith("-")]) == 1
     if cmd == "git":
@@ -416,20 +456,59 @@ def reads(words):
             w = rest[j]
             if w in ("-c", "--config-env") or w.startswith("--config-env=") or w.startswith("--exec-path"):
                 return False                          # git -c core.pager=…, diff.external=…
-            if w in ("-C", "--git-dir", "--work-tree", "--namespace"):
+            if w in ("--git-dir", "--work-tree") or w.startswith(("--git-dir=", "--work-tree=")):
+                return False                          # a config the agent wrote (095 adversarial #8)
+            if w in ("-C", "--namespace"):
                 j += 2
                 continue
             if w.startswith("-"):
                 j += 1
                 continue
+            # git grep -O runs a pager program on each match; --ext-diff and --textconv run the
+            # configured diff programs (095 adversarial #8).
+            if any(a.startswith(("-O", "--open-files-in-pager", "--ext-diff", "--textconv")) for a in rest[j + 1:]):
+                return False
             return w in GIT_READ
         return True
     return False
 
 
-def split_commands(text):
-    """[(words, redirect_targets)] per simple command, or None when the text cannot be split."""
-    lex = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
+def strip_comments(text):
+    """The text with bash comments removed: a # at the start of a word, outside quotes, runs to the end
+    of its line. The lexer has no comment rule, and without this `echo # '` on one line and `# '` two
+    lines later made one quoted word of a real command between them (095 adversarial #5)."""
+    out, i, quote, n = [], 0, None, len(text)
+    while i < n:
+        c = text[i]
+        if quote:
+            out.append(c)
+            if c == "\\" and quote == '"' and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+        elif c == "\\" and i + 1 < n:
+            out.append(c + text[i + 1])
+            i += 2
+            continue
+        elif c in "'\"":
+            quote = c
+            out.append(c)
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()<>"):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def split_commands(text, strip=False):
+    """[(words, redirect_targets)] per simple command, or None when the text cannot be split. strip:
+    remove bash comments first (see bash_verdict for why both readings are judged)."""
+    lex = shlex.shlex(strip_comments(text) if strip else text, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"
     lex.commenters = ""
     lex.whitespace_split = True
@@ -478,7 +557,700 @@ def split_commands(text):
     return out
 
 
+# Spec 095 R7 (F121): a read is trusted only in a command that does not first change what a read runs.
+# An exported GIT_EXTERNAL_DIFF, PAGER or LESSOPEN, a function or alias named cat, a hashed path, or a
+# sourced file turns `git diff <settings>` or `cat <settings>` into a program. A bare assignment counts
+# too: assigning a variable that is already exported (PATH, the developer's GIT_PAGER) changes the
+# child's environment without any export on the line.
+PRELUDE_COMMANDS = frozenset("export declare typeset readonly local alias hash enable shopt source . function".split())
+FUNC_DEF = re.compile(r"(?:^|[\s;&|(){}])(?:function\s+[^\s(){};&|]+|[A-Za-z_][\w.:+-]*\s*\(\s*\))")
+
+
+def prelude_taints(cmds, text):
+    # A definition is shell syntax, never quoted text: `grep 'ok()' f` defines nothing (found 095).
+    if FUNC_DEF.search(re.sub(r"'[^']*'|\"(?:[^\"\\\\]|\\\\.)*\"", "''", text)):
+        return True
+    for words, _, _ in cmds:
+        if not words:
+            continue
+        if all(NAME_ASSIGN.match(w) for w in words):
+            return True
+        cw = command_word(words) or ""
+        base = cw.rpartition("/")[2]
+        if base in PRELUDE_COMMANDS:
+            return True
+        if base == "set" and any(w == "allexport" or (w[:1] in "-+" and "a" in w[1:]) for w in words[1:]):
+            return True
+    return False
+
+
+# Spec 095 R8 (F145): grep's and rg's pattern is not a file name, so `'[a-z]*'` does not "match"
+# settings.json in the by-name check that a find or xargs elsewhere on the line turns on.
+GREP_COMMANDS = frozenset("grep egrep fgrep rg".split())
+GREP_VALUED = frozenset("-f -m -A -B -C -g -t -T -j -M --file --max-count --glob --type --type-not "
+                        "--threads --max-columns --context --after-context --before-context".split())
+
+
+def pattern_indices(words):
+    cw = command_word(words)
+    if not cw:
+        return set()
+    start = words.index(cw) + 1
+    if cw.rpartition("/")[2] == "xargs":              # find … | xargs grep PATTERN
+        while start < len(words) and words[start].startswith("-"):
+            start += 2 if words[start] in ("-I", "-n", "-L", "-P", "-s", "-d", "-E", "-a") else 1
+        if start >= len(words):
+            return set()
+        cw = words[start]
+        start += 1
+    if cw.rpartition("/")[2] not in GREP_COMMANDS:
+        return set()
+    pats, positional, with_e = set(), [], False
+    i = start
+    while i < len(words):
+        w = words[i]
+        if w == "--":
+            positional.extend(range(i + 1, len(words)))
+            break
+        if w in ("-e", "--regexp"):
+            with_e = True
+            pats.add(i + 1)
+            i += 2
+            continue
+        if w.startswith("--regexp=") or (w.startswith("-e") and len(w) > 2):
+            with_e = True
+            pats.add(i)
+        elif w in GREP_VALUED:
+            i += 2
+            continue
+        elif not w.startswith("-"):
+            positional.append(i)
+        i += 1
+    if not with_e and positional:
+        pats.add(positional[0])
+    return pats
+
+
+# ----------------------------------------------------------------------------- git tree writes (R1)
+# Spec 095 R1 (F114, developer O3). `git checkout HEAD -- .`, `git restore --source=REV .`, `git stash
+# pop` and `git apply` rewrite a settings file without naming it, so the name check never saw them. A
+# git verb that writes the working tree is judged by what it would write: for each guarded file inside
+# the repository and the verb's pathspec, the content it would leave is read from git (a revision, the
+# index, a stash, nothing for a removal) and compared on the guarded keys. History verbs (merge, rebase,
+# cherry-pick, revert, stash pop) compare the change they apply. A patch is read for the file names it
+# touches. Any git call that fails or times out denies. `git pull` is allowed: what it brings is on
+# origin, in the shared history (O3, recorded bound).
+
+TREE_VERBS = frozenset("checkout switch restore reset stash clean apply merge rebase cherry-pick revert "
+                       "read-tree checkout-index rm".split())
+# Flags that make a verb write nothing. Per verb: `-n` is a dry run for clean and --no-commit for merge,
+# cherry-pick and revert, and `--stat` is a report for apply and a merge option (095 adversarial #1).
+CONTROL_FLAGS = frozenset("--abort --quit --continue --skip".split())
+DRY_RUN_FLAGS = {"clean": frozenset(("-n", "--dry-run")),
+                 "apply": frozenset(("--check", "--stat", "--numstat", "--summary")),
+                 "rebase": frozenset(("--edit-todo",)),
+                 "rm": frozenset(("-n", "--dry-run", "--cached"))}
+GIT_GLOBAL_VALUED = frozenset(("-c", "--config-env", "--namespace", "--exec-path", "--attr-source",
+                               "--super-prefix", "--list-cmds"))
+
+
+class GitUnknown(Exception):
+    """git could not answer, or the call cannot be modelled: the guard denies."""
+
+
+class NoSuchRev(Exception):
+    """A revision the verb names does not exist now; git refuses the verb."""
+
+
+def _git_env():
+    """Every GIT_ variable dropped (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_CONFIG_*, GIT_EXTERNAL_DIFF,
+    …), the same rule as acceptance_cases._git_env, with replace refs and grafts off."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull, GIT_OPTIONAL_LOCKS="0",
+               GIT_TERMINAL_PROMPT="0", LC_ALL="C")
+    return env
+
+
+def _git_timeout():
+    try:
+        v = float(os.environ.get("SETTINGS_GUARD_GIT_TIMEOUT", "5"))
+    except ValueError:
+        return 5.0
+    return v if v > 0 else 5.0
+
+
+GIT_ENV = _git_env()
+GIT_TIMEOUT = _git_timeout()
+
+
+def run_git(where, *args):
+    """(rc, stdout bytes). Timeouts and a missing git raise GitUnknown."""
+    import subprocess
+    try:
+        p = subprocess.run(["git", "-c", "core.fsmonitor=false", "-C", where] + list(args),
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                           timeout=GIT_TIMEOUT, env=GIT_ENV)
+    except (OSError, subprocess.SubprocessError):
+        raise GitUnknown("git did not answer in time")
+    return p.returncode, p.stdout
+
+
+class Repo:
+    def __init__(self, where, g):
+        rc, out = run_git(where, "rev-parse", "--show-toplevel")
+        if rc != 0:
+            self.top = None                           # not a repository: the verb writes nothing
+            return
+        self.where = where
+        self.top = out.decode("utf-8", "replace").strip()
+        top = norm(self.top)
+        self.files = {}                               # rel path (as git spells it) -> absolute guarded file
+        for f in g.files:
+            nf = norm(f)
+            if nf.startswith(top.rstrip("/") + "/"):
+                rel = os.path.relpath(os.path.realpath(f), os.path.realpath(self.top)).replace(os.sep, "/")
+                self.files[rel] = f
+        self._revs = {}
+        self._tracked = {}
+
+    def rev(self, r):
+        """The commit r names, or None when it names none. Any other failure raises."""
+        if r not in self._revs:
+            rc, out = run_git(self.top, "rev-parse", "--verify", "--quiet", "--end-of-options", r + "^{commit}")
+            self._revs[r] = out.decode().strip() if rc == 0 and out.strip() else None
+        return self._revs[r]
+
+    def blob(self, spec):
+        """Text at <rev>:<path> or :<path>, or MISSING when git has no such object."""
+        rc, out = run_git(self.top, "cat-file", "-e", spec)
+        if rc != 0:
+            return MISSING
+        rc, out = run_git(self.top, "cat-file", "blob", spec)
+        if rc != 0:
+            raise GitUnknown("git could not read " + spec)
+        return out.decode("utf-8", "replace")
+
+    def tracked(self, rel):
+        if rel not in self._tracked:
+            rc, _ = run_git(self.top, "ls-files", "--error-unmatch", "--", rel)
+            self._tracked[rel] = rc == 0
+        return self._tracked[rel]
+
+    def ignored(self, rel):
+        rc, _ = run_git(self.top, "check-ignore", "-q", "--no-index", "--", rel)
+        return rc == 0
+
+    def merge_base(self, a, b):
+        rc, out = run_git(self.top, "merge-base", a, b)
+        if rc != 0 or not out.strip():
+            return None
+        return out.decode().strip()
+
+    def current(self, rel):
+        try:
+            with open(self.files[rel], "r", encoding="utf-8", newline="") as fh:
+                return fh.read()
+        except FileNotFoundError:
+            return MISSING
+        except (OSError, UnicodeDecodeError):
+            raise GitUnknown("the current file cannot be read")
+
+
+def in_scope(rel, specs, repo):
+    """Does a pathspec list (empty = everything) cover rel?"""
+    if not specs:
+        return True
+    for p in specs:
+        if p.startswith(":") or GLOBCH.search(p):
+            return True                               # magic or a glob: assume it reaches the file
+        a = os.path.normpath(os.path.join(repo.where, p))
+        try:
+            r = os.path.relpath(os.path.realpath(a), os.path.realpath(repo.top)).replace(os.sep, "/")
+        except ValueError:
+            continue
+        r, f = (r.lower(), rel.lower()) if FOLD else (r, rel)
+        if r == "." or f == r or f.startswith(r.rstrip("/") + "/"):
+            return True
+    return False
+
+
+def _parsed(text):
+    return {} if text is MISSING else parse_settings(text)
+
+
+CONFLICT = object()
+
+
+def compare(before, after):
+    """None when the guarded keys agree; else a short cause."""
+    if after is CONFLICT:
+        return "both sides change it, so git would leave conflict markers"
+    b, a = _parsed(before), _parsed(after)
+    if a is None:
+        return "leaves invalid JSON"
+    if b is None:
+        b = {}
+    keys = changed_keys(b, a)
+    return ",".join(keys) if keys else None
+
+
+def split_args(args):
+    """(options, operands, after_dashdash) with operands in order; a valued option's value is kept with it."""
+    opts, ops, tail = [], [], []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            tail = args[i + 1:]
+            break
+        if a.startswith("-") and a != "-":
+            opts.append(a)
+        else:
+            ops.append(a)
+        i += 1
+    return opts, ops, tail
+
+
+def opt_value(args, *names):
+    for i, a in enumerate(args):
+        for n in names:
+            if a == n and i + 1 < len(args):
+                return args[i + 1]
+            if n.startswith("--") and a.startswith(n + "="):
+                return a.split("=", 1)[1]
+            if not n.startswith("--") and a.startswith(n) and len(a) > len(n):
+                return a[len(n):]
+    return None
+
+
+def without_values(args, valued):
+    """args with each valued option's separate value removed."""
+    out, i = [], 0
+    while i < len(args):
+        out.append(args[i])
+        i += 2 if args[i] in valued else 1
+    return out
+
+
+def patch_names(path, where):
+    try:
+        with open(os.path.join(where, path), "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read(4 << 20)
+    except OSError:
+        raise GitUnknown("a patch this guard cannot read")
+    names = []
+    for line in text.splitlines():
+        for head in ("diff --git ", "--- ", "+++ ", "rename to ", "copy to ", "rename from ", "copy from "):
+            if line.startswith(head):
+                names.extend(line[len(head):].split())
+    return names
+
+
+def judge_tree_write(verb, args, where, g):
+    """None when the verb leaves every guarded file's guarded keys as they are; else (path, cause)."""
+    if any(a in CONTROL_FLAGS or a in DRY_RUN_FLAGS.get(verb, ()) for a in args):
+        if not (verb == "apply" and "--apply" in args):
+            return None
+    if verb == "apply":
+        if "--cached" in args and "--index" not in args:
+            return None
+        valued = {"-p", "-C", "--directory", "--exclude", "--include", "--whitespace", "-S", "--patch-format"}
+        _, ops, tail = split_args(without_values(args, valued))
+        files = ops + tail
+        if not files:
+            return ("a patch", "comes from stdin, which this guard cannot read")
+        for f in files:
+            names = patch_names(f, where)
+            if True:
+                # git's own reading of the names (renames, --directory, quoted names), with the
+                # hand-read headers kept as well.
+                passthrough = [a for a in args if a.startswith(("-p", "--directory"))]
+                rc, out = run_git(where, "apply", "--numstat", "-z", *passthrough, "--", f)
+                if rc == 0:
+                    names += [x.split("\t")[-1] for x in out.decode("utf-8", "replace").split("\0") if x]
+            for n in names:
+                if n.rpartition("/")[2].lower() in SETTINGS_NAMES:
+                    return (n, "patches a settings file")
+        return None
+    repo = Repo(where, g)
+    if repo.top is None or not repo.files:
+        return None
+    try:
+        pairs = plan(verb, args, repo)               # [(rel, before, after)]
+    except NoSuchRev:
+        return None
+    for rel, before, after in pairs:
+        cause = compare(before, after)
+        if cause:
+            return (repo.files[rel], cause)
+    return None
+
+
+def plan(verb, args, repo):
+    """What the verb would do to each guarded file in scope: [(rel, before text, after text)]."""
+    out = []
+    rels = list(repo.files)
+
+    def need(r):
+        c = repo.rev(r)
+        if c is None:
+            raise NoSuchRev(r)                        # git fails on it too, and writes nothing
+        return c
+
+    def from_rev(commit, specs, remove_missing):
+        for rel in rels:
+            if not in_scope(rel, specs, repo):
+                continue
+            cur = repo.current(rel)
+            after = repo.blob(commit + ":" + rel)
+            if after is MISSING and not (remove_missing and repo.tracked(rel)):
+                continue
+            out.append((rel, cur, after))
+
+    def from_index(specs):
+        for rel in rels:
+            if in_scope(rel, specs, repo):
+                after = repo.blob(":" + rel)
+                if after is not MISSING:
+                    out.append((rel, repo.current(rel), after))
+
+    def change(base, target):
+        # The change base -> target lands on the current file. When both sides changed it, git leaves
+        # conflict markers, which no JSON parser reads (threat model, 095).
+        for rel in rels:
+            b = MISSING if base is None else repo.blob(base + ":" + rel)
+            t = repo.blob(target + ":" + rel)
+            if t == b:
+                continue
+            h = repo.current(rel)
+            out.append((rel, h, t if h in (b, t) else CONFLICT))
+
+    if verb == "checkout":
+        valued = {"-b", "-B", "--orphan", "--conflict", "--pathspec-from-file"}
+        if opt_value(args, "--pathspec-from-file"):
+            raise GitUnknown("a pathspec read from a file")
+        if "--orphan" in args:
+            return out
+        create = opt_value(args, "-b", "-B")
+        opts, ops, tail = split_args(without_values(args, valued))
+        if create is not None:
+            if ops:
+                from_rev(need(ops[0]), [], True)
+            return out
+        has_dd = "--" in args
+        if has_dd:
+            if ops:
+                from_rev(need(ops[0]), tail, False)
+            else:
+                from_index(tail)
+        elif ops and (ops[0] == "-" or repo.rev(ops[0])):
+            r = "@{-1}" if ops[0] == "-" else ops[0]
+            if ops[1:]:
+                from_rev(need(r), ops[1:], False)
+            else:
+                from_rev(need(r), [], True)
+        elif ops:
+            from_index(ops)
+        return out
+    if verb == "switch":
+        if any(a == "--orphan" for a in args):
+            for rel in rels:
+                if repo.tracked(rel):
+                    out.append((rel, repo.current(rel), MISSING))
+            return out
+        start = None
+        if opt_value(args, "-c", "-C", "--create", "--force-create") is not None:
+            _, ops, _ = split_args(without_values(args, {"-c", "-C", "--create", "--force-create"}))
+            start = ops[0] if ops else None
+        else:
+            _, ops, _ = split_args(args)
+            start = ops[0] if ops else None
+            if start == "-":
+                start = "@{-1}"
+        if start:
+            from_rev(need(start), [], True)
+        return out
+    if verb == "restore":
+        staged = any(a in ("-S", "--staged") for a in args)
+        worktree = any(a in ("-W", "--worktree") for a in args)
+        if staged and not worktree:
+            return out
+        if opt_value(args, "--pathspec-from-file"):
+            raise GitUnknown("a pathspec read from a file")
+        src = opt_value(args, "--source", "-s")
+        _, ops, tail = split_args(without_values(args, {"-s", "--source", "--conflict"}))
+        specs = ops + tail
+        if src:
+            from_rev(need(src), specs, True)
+        else:
+            from_index(specs)
+        return out
+    if verb == "reset":
+        if not any(a in ("--hard", "--keep", "--merge") for a in args):
+            return out
+        _, ops, _ = split_args(args)
+        from_rev(need(ops[0] if ops else "HEAD"), [], True)
+        return out
+    if verb == "stash":
+        _, ops, tail = split_args(args)
+        sub = args[0] if args and not args[0].startswith("-") else "push"
+        if sub in ("list", "show", "drop", "clear", "create", "store"):
+            return out
+        if sub in ("pop", "apply", "branch"):
+            rest = ops[1:]
+            if sub == "branch":
+                rest = rest[1:]
+            ref = need(rest[0] if rest else "stash@{0}")
+            for rel in rels:
+                b, a = repo.blob(ref + "^1:" + rel), repo.blob(ref + ":" + rel)
+                untracked = repo.rev(ref + "^3")
+                if untracked and a == b:
+                    a = repo.blob(untracked + ":" + rel)
+                    if a is MISSING:
+                        continue
+                out.append((rel, b, a))
+            return out
+        # push, save, or a bare stash: tracked changes go back to HEAD (or the index with -k),
+        # untracked files go with -u, ignored ones too with -a.
+        specs = (ops[1:] if sub in ("push", "save") and args and args[0] == sub else ops) + tail
+        if sub == "save":
+            specs = []                                # save takes a message, not paths
+        keep = any(a in ("-k", "--keep-index") for a in args)
+        untracked = any(a in ("-u", "--include-untracked") for a in args)
+        everything = any(a in ("-a", "--all") for a in args)
+        head = repo.rev("HEAD")
+        for rel in rels:
+            if not in_scope(rel, specs, repo):
+                continue
+            cur = repo.current(rel)
+            if repo.tracked(rel):
+                src = repo.blob(":" + rel) if keep else (repo.blob(head + ":" + rel) if head else MISSING)
+                out.append((rel, cur, src))
+            elif cur is not MISSING and (everything or (untracked and not repo.ignored(rel))):
+                out.append((rel, cur, MISSING))
+        return out
+    if verb == "clean":
+        if not any(a.startswith("-") and not a.startswith("--") and "f" in a or a == "--force" for a in args):
+            return out                                # without -f git refuses (clean.requireForce)
+        x = any(a.startswith("-") and not a.startswith("--") and "x" in a for a in args)
+        only_ignored = any(a.startswith("-") and not a.startswith("--") and "X" in a for a in args)
+        _, ops, tail = split_args(without_values(args, {"-e", "--exclude"}))
+        for rel in rels:
+            if not in_scope(rel, ops + tail, repo) or repo.tracked(rel):
+                continue
+            cur = repo.current(rel)
+            if cur is MISSING:
+                continue
+            ign = repo.ignored(rel)
+            if (ign and (x or only_ignored)) or (not ign and not only_ignored):
+                out.append((rel, cur, MISSING))
+        return out
+    if verb == "merge":
+        valued = {"-s", "-X", "-m", "-F", "--strategy", "--strategy-option", "--file", "--into-name"}
+        _, ops, _ = split_args(without_values(args, valued))
+        for r in ops or ["@{upstream}"]:
+            target = need(r)
+            change(repo.merge_base("HEAD", target), target)
+        return out
+    if verb == "rebase":
+        if "--root" in args:
+            raise GitUnknown("a rebase with --root")
+        onto = opt_value(args, "--onto")
+        valued = {"--onto", "-s", "-X", "--strategy", "--strategy-option", "-x", "--exec"}
+        _, ops, _ = split_args(without_values(args, valued))
+        upstream = need(ops[0] if ops else "@{upstream}")
+        target = need(onto) if onto else upstream
+        change(repo.merge_base("HEAD", upstream), target)
+        if len(ops) > 1:
+            from_rev(need(ops[1]), [], True)
+        return out
+    if verb in ("cherry-pick", "revert"):
+        valued = {"-m", "--mainline", "-s", "-X", "--strategy", "--strategy-option"}
+        _, ops, _ = split_args(without_values(args, valued))
+        for r in ops:
+            if ".." in r:
+                a, _, b = r.partition("...") if "..." in r else r.partition("..")
+                lo, hi = need(a or "HEAD"), need(b or "HEAD")
+            else:
+                hi = need(r)
+                lo = repo.rev(r + "^")
+            if verb == "cherry-pick":
+                change(lo, hi)
+            else:
+                if lo is None:
+                    raise GitUnknown("a revert of a root commit")
+                change(hi, lo)
+        return out
+    if verb == "read-tree":
+        if not any(a == "-u" for a in args):
+            return out
+        if opt_value(args, "--prefix"):
+            raise GitUnknown("read-tree --prefix")
+        _, ops, _ = split_args(args)
+        if not ops:
+            raise GitUnknown("read-tree with no tree")
+        from_rev(need(ops[-1]), [], True)
+        return out
+    if verb == "rm":
+        _, ops, tail = split_args(args)
+        for rel in rels:
+            if in_scope(rel, ops + tail, repo) and repo.tracked(rel):
+                out.append((rel, repo.current(rel), MISSING))
+        return out
+    if verb == "checkout-index":
+        if "--stdin" in args:
+            raise GitUnknown("checkout-index --stdin reads its paths from a pipe")
+        _, ops, tail = split_args(args)
+        if any(a in ("-a", "--all") for a in args):
+            from_index([])
+        elif ops or tail:
+            from_index(ops + tail)
+        return out
+    return out
+
+
+# Verbs that move no ref, index entry or object a later tree verb on the same line would read.
+GIT_STILL = frozenset("status diff log show add ls-files rev-parse grep blame cat-file check-ignore config "
+                      "remote push describe shortlog whatchanged ls-tree ls-remote help version".split())
+GIT_KNOWN = TREE_VERBS | GIT_STILL | frozenset(
+    "pull fetch commit branch tag update-ref symbolic-ref hash-object update-index commit-tree mktree "
+    "fast-import replace notes init clone worktree submodule sparse-checkout mv am bisect gc fsck "
+    "maintenance reflog prune repack archive bundle format-patch send-email range-diff difftool "
+    "mergetool filter-branch".split())
+# Verbs that rewrite the tree in ways this guard does not model: denied when a guarded file is there.
+TREE_UNMODELLED = frozenset("sparse-checkout submodule filter-branch bisect am".split())
+
+
+def _where(args, g, base, strict=True):
+    """(directory, index of the subcommand) after git's global options. strict: a --git-dir or
+    --work-tree, which moves the tree out of this guard's sight, raises."""
+    where, i = base, 0
+    while i < len(args) and args[i].startswith("-"):
+        a = args[i]
+        if a in ("--git-dir", "--work-tree") or a.startswith(("--git-dir=", "--work-tree=")):
+            if strict:
+                raise GitUnknown("--git-dir or --work-tree")
+            i += 1 if "=" in a else 2
+            continue
+        if a == "-C" and i + 1 < len(args):
+            where = os.path.join(where, expand_vars(args[i + 1], g))
+            if "$" in where or "`" in where:
+                raise GitUnknown("a directory this guard cannot follow")
+            i += 2
+            continue
+        i += 2 if a in GIT_GLOBAL_VALUED else 1
+    return where, i
+
+
+PROGRAM_RUNNERS = frozenset("sh bash zsh dash ksh fish eval".split())
+GIT_WRAPPERS = frozenset("env command exec nohup nice time timeout sudo xargs stdbuf ionice caffeinate".split())
+
+
+def git_args(words):
+    """The words after `git` when the simple command runs git, through env, command, xargs, timeout and
+    the like (095 adversarial #2); else None."""
+    cw = command_word(words)
+    if not cw:
+        return None
+    i = words.index(cw)
+    while i < len(words):
+        base = words[i].rpartition("/")[2]
+        if base == "git":
+            return words[i + 1:]
+        if base not in GIT_WRAPPERS:
+            return None
+        i += 1
+        while i < len(words) and (words[i].startswith("-") or NAME_ASSIGN.match(words[i])
+                                  or re.fullmatch(r"[0-9.]+[smhd]?", words[i])):
+            i += 1
+    return None
+
+
+def git_verb(words, g, bases):
+    """(verb, args) for one git command, an alias resolved once (a one-shot `-c alias.x=…` first). A
+    shell alias is "!alias"."""
+    args = git_args(words)
+    one_shot = {}
+    for k, a in enumerate(args):
+        if a == "-c" and k + 1 < len(args) and args[k + 1].lower().startswith("alias."):
+            name, _, value = args[k + 1][6:].partition("=")
+            one_shot[name] = value
+    try:
+        where, i = _where(args, g, bases[0], strict=False)
+    except GitUnknown:
+        where, i = bases[0], len(args)
+    if i >= len(args):
+        return None, []
+    verb, rest = args[i], args[i + 1:]
+    if verb in one_shot or (verb not in GIT_KNOWN and os.path.isdir(where)):
+        if verb in one_shot:
+            rc, out = 0, one_shot[verb].encode()
+        else:
+            rc, out = run_git(where, "config", "--get", "alias." + verb)
+        if rc == 0 and out.strip():
+            value = out.decode("utf-8", "replace").strip()
+            if value.startswith("!"):
+                return "!alias", rest
+            try:
+                parts = shlex.split(value)
+            except ValueError:
+                raise GitUnknown("an alias this guard cannot read")
+            if parts:
+                return parts[0], parts[1:] + rest
+    return verb, rest
+
+
+def git_tree_verdict(words, verb, rest, g, bases, lost):
+    """(path, cause) for one git command (its verb resolved by git_verb) that writes the tree and
+    changes a guarded key, or None."""
+    if verb not in TREE_VERBS and verb not in TREE_UNMODELLED and verb != "pull":
+        return None
+    if lost:
+        raise GitUnknown("a directory this guard cannot follow")
+    args = git_args(words)
+    for base in bases:
+        where, _ = _where(args, g, base)
+        if not os.path.isdir(where):
+            continue
+        if verb in TREE_UNMODELLED:
+            repo = Repo(where, g)
+            if repo.top and repo.files:
+                raise GitUnknown("git " + verb + " is not modelled by this guard")
+            continue
+        if verb == "pull":
+            hit = judge_pull(rest, where, g)
+        else:
+            hit = judge_tree_write(verb, rest, where, g)
+        if hit:
+            return hit
+    return None
+
+
+def judge_pull(args, where, g):
+    """O3: a pull from a configured remote brings the shared history and is allowed. `git pull .
+    branch` is a merge of a local branch; a pull from a path or URL is not origin (threat model)."""
+    valued = {"-s", "-X", "--strategy", "--strategy-option", "--depth", "--upload-pack", "-j", "--jobs"}
+    _, ops, _ = split_args(without_values(args, valued))
+    if not ops:
+        return None
+    rc, out = run_git(where, "remote")
+    remotes = set(out.decode("utf-8", "replace").split()) if rc == 0 else set()
+    if ops[0] in remotes:
+        return None
+    if ops[0] == ".":
+        return judge_tree_write("merge", ops[1:] or ["HEAD"], where, g)
+    raise GitUnknown("a pull from something that is not a configured remote")
+
+
 def bash_verdict(cmd, g):
+    """The text judged twice, as the lexer reads it and with bash comments removed. Neither reading is
+    bash's: a `# '` pair hides a command from the first (095 adversarial #5), a quote inside "$( )"
+    hides one from the second (095 /security-review). A command either reading sees is judged."""
+    v = _bash_verdict(cmd, g, False)
+    return v if v[0] != "none" else _bash_verdict(cmd, g, True)
+
+
+def _bash_verdict(cmd, g, strip):
     # Read with quotes and backslashes gone and $'…' decoded, as bash reads it: `dot''glob` and
     # `$'\x64otglob'` turn the option on too (/security-review, spec 090). Any shopt or -O at all
     # counts, since the option name may come from a variable.
@@ -491,37 +1263,38 @@ def bash_verdict(cmd, g):
     parts = text.split("`")
     text = "".join(p + ("" if i == len(parts) - 1 else (" $( " if i % 2 == 0 else " ) "))
                    for i, p in enumerate(parts))
-    cmds = split_commands(text)
+    cmds = split_commands(text, strip)
     if cmds is None:
         low = cmd.lower()
         return ["settings-bash", "an unbalanced quote"] if ("settings" in low or ".claude" in low) else ["none"]
     bases = [g.cwd]
-    by_name = dots = False
+    by_name = dots = lost = False
     for d in dir_targets(cmds):
         d = expand_vars(d, g)
         if "$" in d or "`" in d or GLOBCH.search(d):
-            by_name = dots = True                     # somewhere this text cannot follow
+            by_name = dots = lost = True              # somewhere this text cannot follow
             continue
         for b in list(bases):
             full = os.path.join(b, d)
             if g.is_dir(full):
                 by_name = dots = True
             bases.append(full)
-    runs_text = False
     for words, _, _ in cmds:
         cw = command_word(words)
         if cw and cw.rpartition("/")[2] in TREE_COMMANDS:
             by_name = True
+    tainted = prelude_taints(cmds, text)
     for words, targets, in_subst in cmds:
         for t in targets:
             hit = word_hit(t, g, bases, by_name, dots)
             if hit:
                 return ["settings-bash", hit]
-        naming = [(i, word_hit(w, g, bases, by_name, dots)) for i, w in enumerate(words)]
+        pats = pattern_indices(words) if not dots else set()
+        naming = [(i, word_hit(w, g, bases, by_name and i not in pats, dots)) for i, w in enumerate(words)]
         naming = [(i, h) for i, h in naming if h]
         if not naming:
             continue
-        if not reads(words) or in_subst:
+        if not reads(words) or in_subst or tainted:
             return ["settings-bash", naming[0][1]]
         # A read whose output can reach a command that runs text: cat <path> | sh, echo <path> | xargs rm.
         others = [command_word(w) for w, _, _ in cmds if w is not words]
@@ -530,14 +1303,149 @@ def bash_verdict(cmd, g):
         for i, h in naming:
             if words[i].startswith("-") or (i > 0 and words[i - 1] in OUTPUT_OPTIONS):
                 return ["settings-bash", h]
+    # A program inside a word (bash -c '…', a heredoc body handed on) that runs git is judged as a
+    # command of its own (095 adversarial #2).
+    # Only a shell or eval runs the text: a heredoc handed to cat is data.
+    if g.depth < 3:
+        for words, _, _ in cmds:
+            if (command_word(words) or "").rpartition("/")[2] not in PROGRAM_RUNNERS:
+                continue
+            for w in words[1:]:
+                if re.search(r"\s", w) and re.search(r"\bgit\b", w):
+                    g.depth += 1
+                    try:
+                        v = bash_verdict(w, g)
+                    finally:
+                        g.depth -= 1
+                    if v[0] != "none":
+                        return v
+    return git_verdicts(cmds, g, bases, lost, text)
+
+
+def git_verdicts(cmds, g, bases, lost, text):
+    """R1 over every git command in the text."""
+    gits = [w for w, _, _ in cmds if git_args(w) is not None]
+    if not gits:
+        return ["none"]
+    try:
+        verbs = [git_verb(w, g, bases) for w in gits]
+        for k, (verb, _) in enumerate(verbs):
+            if verb not in TREE_VERBS and verb not in TREE_UNMODELLED and verb != "pull":
+                continue
+            # A ref, index or object moved earlier on the same line is read before it moves: `git
+            # update-ref refs/heads/x <evil> && git checkout x -- .` (threat model, 095).
+            if any(v not in TREE_VERBS and v not in GIT_STILL for v, _ in verbs[:k] if v):
+                raise GitUnknown("another git command earlier on the line moves what it would read")
+            # GIT_INDEX_FILE, GIT_DIR … set anywhere on the line point git at what this guard does not
+            # read: the guard's own git calls drop them (095 adversarial #3).
+            if re.search(r"\bGIT_[A-Z_]+", text):
+                raise GitUnknown("a GIT_ variable on the same line")
+        for words, (verb, rest) in zip(gits, verbs):
+            if verb in TREE_VERBS or verb in TREE_UNMODELLED or verb == "pull":
+                hit = git_tree_verdict(words, verb, rest, g, bases, lost)
+                if hit:
+                    return ["settings-git", hit[0], hit[1]]
+    except GitUnknown as exc:
+        return ["settings-git", "the working tree", str(exc)]
+    return ["none"]
+
+
+# ----------------------------------------------------------------------------- MCP tools (R3)
+# Spec 095 R3 (F116). An MCP or plugin tool names its file in a field of its own choosing (path,
+# destination, files: {path: text}), so every string is read: values and object keys, plus each
+# container's strings joined with "" and with "/" (a path split across fields). A string that looks
+# like a command (whitespace or a shell operator) is judged as a Bash command too, which covers an
+# execute_command tool handed `git checkout HEAD -- .`. A tool whose name says it only reads is left to
+# the read rules: the server's own name is the developer's configuration.
+MCP_MAX_DEPTH = 8
+MCP_MAX_STRINGS = 512
+MCP_READ_NAME = re.compile(r"^(read|get|list|search|view|stat|find|query|describe|show|head|tail|cat|grep)"
+                           r"(_|$)", re.I)
+# A read-named tool that also writes (find_and_replace, search_and_replace) is not a read (095 adversarial #10).
+MCP_WRITE_WORD = re.compile(r"replace|write|edit|move|copy|delete|remove|set|create|put|update|apply|patch|"
+                            r"save|rename|append|insert|exec|run", re.I)
+
+
+class McpTooBig(Exception):
+    pass
+
+
+def mcp_strings(v, depth=0, acc=None, groups=None):
+    acc = [] if acc is None else acc
+    groups = [] if groups is None else groups
+    if depth > MCP_MAX_DEPTH:
+        raise McpTooBig
+    if isinstance(v, str):
+        acc.append(v)
+    elif isinstance(v, dict):
+        mine = []
+        for k, x in v.items():
+            acc.append(k)
+            if isinstance(x, str):
+                mine.append(x)
+            mcp_strings(x, depth + 1, acc, groups)
+        groups.append(mine)
+    elif isinstance(v, list):
+        mine = [x for x in v if isinstance(x, str)]
+        for x in v:
+            mcp_strings(x, depth + 1, acc, groups)
+        groups.append(mine)
+    if len(acc) > MCP_MAX_STRINGS:
+        raise McpTooBig
+    return acc, groups
+
+
+def mcp_inputs(tool, ti):
+    """(path candidates, command strings) for an mcp__ call, or None for a tool whose name says it
+    reads. Shared with trust-anchor-guard, which judges the same two lists against its own stores.
+    Raises McpTooBig past the caps."""
+    name = tool.rsplit("__", 1)[-1]
+    if MCP_READ_NAME.match(name) and not MCP_WRITE_WORD.search(name):
+        return None
+    strings, groups = mcp_strings(ti)
+    cands = list(strings)
+    for grp in groups:                               # every run of 2-4 neighbouring strings
+        for i in range(len(grp)):
+            for j in range(i + 2, min(i + 4, len(grp)) + 1):
+                cands += ["".join(grp[i:j]), "/".join(grp[i:j])]
+    from urllib.parse import unquote
+    paths = []
+    for s in cands:
+        if s and "\n" not in s and len(s) <= 4096:
+            for p in {s, unquote(s)}:                  # file:///p/%2Eclaude/… (095 adversarial #10)
+                paths.append(re.sub(r"^file://(localhost)?", "", p))
+    commands = [s for s in strings if re.search(r"\s|[;&|<>`$]", s) and len(s) <= 65536]
+    return paths, commands
+
+
+def mcp_verdict(tool, ti, g, raw):
+    try:
+        found = mcp_inputs(tool, ti)
+    except McpTooBig:
+        low = raw.lower()
+        return ["settings-shell", "an MCP payload too large to read"] if ("sett" in low or ".cla" in low) else ["none"]
+    if found is None:
+        return ["none"]
+    paths, commands = found
+    for p in paths:
+        p = expand_vars(p, g)
+        hit = g.file_of(p) or (p if g.is_dir(p.rstrip("/") or "/") else None) or \
+            (g.glob_hit(p) if GLOBCH.search(p) else None)
+        if hit:
+            return ["settings-shell", hit]
+    for s in commands:
+        v = bash_verdict(s, g)
+        if v[0] != "none":
+            return v
     return ["none"]
 
 
 # ----------------------------------------------------------------------------- main
 
 def main():
+    raw = sys.stdin.read()
     try:
-        d = json.loads(sys.stdin.read())
+        d = json.loads(raw)
         if not isinstance(d, dict):
             raise ValueError
     except Exception:
@@ -551,7 +1459,9 @@ def main():
     g = Guarded(os.environ, cwd)
     tool = d.get("tool_name") or ""
     cmd = ti.get("command")
-    if tool == "Bash" or (isinstance(cmd, str) and not ti.get("file_path")):
+    if isinstance(tool, str) and tool.startswith("mcp__"):
+        v = mcp_verdict(tool, ti, g, raw)
+    elif tool == "Bash" or (isinstance(cmd, str) and not ti.get("file_path")):
         v = bash_verdict(cmd if isinstance(cmd, str) else "", g)
     else:
         v = edit_verdict(tool, ti, g)

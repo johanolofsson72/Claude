@@ -249,6 +249,10 @@ if answered >= min_q:
                   "decide denies. Fix the input it names, or report the crash against "
                   "scripts/acceptance_cases.py." % (type(exc).__name__, str(exc)[:300]))
     if reason is None:
+        import acceptance_cases
+        if acceptance_cases.ANNOUNCE:
+            print(json.dumps({"announce": acceptance_cases.ANNOUNCE[0]}))
+            sys.exit(95)
         sys.exit(0)
     print(json.dumps({"reason": reason}))
     sys.exit(96)
@@ -272,6 +276,13 @@ sys.exit(99)
 PY
 )
 RC=$?
+
+# 95 — the acceptance-case step allowed by failing open (a timed-out coverage scan, 080 O6), and says so
+# (spec 095 R5, developer O2).
+if [ "$RC" -eq 95 ]; then
+  guard_announce "spec-interview-guard" "$(guard_field .announce "$RESULT")"
+  exit 0
+fi
 
 # 96 — the interview is complete and the acceptance-case step (spec 080) denied. The reason text
 # comes from acceptance_cases.gate(), which names what is missing and how to fix it.

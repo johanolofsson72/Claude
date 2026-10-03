@@ -951,6 +951,38 @@ if want summary; then
   fi
 fi
 
+# --------------------------------------------------------------- 095-R9: the sed script word
+if want sed095; then
+  echo "FIXTURE sed095 — a sed -i script is a target only when it can write elsewhere (spec 095 R9, F145)"
+  ROOT=$(make_fixture sed095)
+  mkdir -p "$ROOT/tmp"; echo "x" > "$ROOT/tmp/f.txt"
+  expect_allow "095-R9 F145: a script that mentions .git/config, on a scratch file" \
+    "$(run_pre "$ROOT" "sed -i '' 's#\\.git/config#x#' tmp/f.txt")"
+  expect_allow "095-R9 the same with GNU -i and -e" \
+    "$(run_pre "$ROOT" "sed -i -e 's|.git/config|x|' tmp/f.txt")"
+  expect_deny "095-R9 an s///w flag writing into .git" \
+    "$(run_pre "$ROOT" "sed -i 's/a/b/w .git/config' tmp/f.txt")" ".git"
+  expect_deny "095-R9 a w command writing into .git" \
+    "$(run_pre "$ROOT" "sed -i '1w .git/hooks/pre-commit' tmp/f.txt")" ".git"
+  expect_deny "095-R9 control: the gated file is still a target" \
+    "$(run_pre "$ROOT" "sed -i '' 's#\\.git/config#x#' src/App.cs")" "src/App.cs"
+  expect_deny "095 adversarial #9: a w command writes without -i" \
+    "$(run_pre "$ROOT" "sed -n 'w .git/hooks/pre-commit' tmp/f.txt")" ".git"
+  expect_deny "095 threat model: --in-pl is --in-place" \
+    "$(run_pre "$ROOT" "sed --in-pl 's/a/b/' src/App.cs")" "src/App.cs"
+  MUT="$WORK/mutant-sed"; mkdir -p "$MUT"; cp "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/*.py "$MUT"/ 2>/dev/null
+  sed 's/^                pure = {s for s in scripts if sed_script_kind(s)}$/                pure = set()/' \
+    "$SCRIPT_DIR/bash_write_targets.py" > "$MUT/bash_write_targets.py"
+  if cmp -s "$SCRIPT_DIR/bash_write_targets.py" "$MUT/bash_write_targets.py"; then
+    bad "095-R9 sabotage target not found"
+  else
+    OUTM=$(jq -n --arg c "sed -i '' 's#\\.git/config#x#' tmp/f.txt" --arg w "$ROOT" '{tool_input:{command:$c}, cwd:$w}' \
+           | CLAUDE_PROJECT_DIR="$ROOT" bash "$MUT/bash-write-guard-hook.sh" 2>/dev/null)
+    if [ -n "$OUTM" ]; then ok "095-R9 sabotage: without the pure-script rule the scratch edit is denied again"
+    else bad "095-R9 sabotage: the mutant still allows, so the fixture does not test the rule"; fi
+  fi
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "PASS — $CHECKS/$CHECKS expectations met"

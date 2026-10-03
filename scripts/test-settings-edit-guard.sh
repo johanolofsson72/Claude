@@ -142,7 +142,7 @@ run "$GUARD" "$(write_p "$S" "$(jq -c . "$S")")"
 expect "089-AC-4 a re-indent (minified)" none
 run "$GUARD" "$(edit_p "$S" '"allow": ["Bash"]' '"allow": ["Bash", "Read(./docs/**)"]')"
 expect "089-AC-4 a permissions.allow entry" none
-run "$GUARD" "$(write_p "$S" "$(jq '. + {outputStyle: "Proactive"}' "$S")")"; expect "outputStyle" none
+run "$GUARD" "$(write_p "$S" "$(jq '. + {language: "english"}' "$S")")"; expect "language (outputStyle left the safe list in 095 TB2)" none
 run "$GUARD" "$(edit_p "$S" 'no such text' 'x')";                               expect "an Edit that would fail in the tool" none
 run "$GUARD" "$(write_p "$WORK/other/.claude/settings.json" '{"disableAllHooks":true}')"; expect "another project's settings (O1)" none
 run "$GUARD" "$(edit_p "$P/docs/guide.md" 'a' 'settings.json hooks')";         expect "a doc that mentions settings.json" none
@@ -327,6 +327,141 @@ open(p, "w").write(s.replace(old, '    return fnmatch.fnmatchcase(path, pat)\n' 
 PY
 run "$MG/settings-edit-guard-hook.sh" "$(bash_p "$PYHD")"; expect "sabotage: fnmatch across / denies the interpreter heredoc again" deny
 
+printf '\n[095-R2] every key outside the safe list is guarded  (095-AC-2)\n'
+SD="$P/.claude/settings.json"
+run "$GUARD" "$(write_p "$SD" "$(jq '. + {apiKeyHelper: "/tmp/k.sh"}' "$SD")")";             expect "095-AC-2 adding apiKeyHelper" deny
+case "$(reason)" in *apiKeyHelper*) ok "  the reason names the key" ;; *) bad "  the key is not named" ;; esac
+run "$GUARD" "$(write_p "$SD" "$(jq '. + {statusLine: {type: "command", command: "x"}}' "$SD")")"; expect "095-AC-2 adding statusLine" deny
+run "$GUARD" "$(write_p "$SD" "$(jq '. + {enabledPlugins: {"x@y": true}}' "$SD")")";          expect "095-AC-2 adding enabledPlugins" deny
+run "$GUARD" "$(write_p "$SD" "$(jq '.permissions.deny = ["Bash(rm -rf *)"]' "$SD")")";       expect "control: adding permissions.deny" deny
+run "$GUARD" "$(write_p "$SD" "$(jq '.permissions.deny = ["Bash(rm -rf *)"] | .permissions.allow += ["Read"]' "$SD")")"
+expect "095-AC-2 removing a permissions.deny entry (seen from a file that has one)" deny
+case "$(reason)" in *permissions.deny*) ok "  the reason names permissions.deny" ;; *) bad "  permissions.deny is not named" ;; esac
+run "$GUARD" "$(edit_p "$SD" '"allow": ["Bash"]' '"allow": ["Bash", "Read"]')";             expect "095-AC-2 adding a permissions.allow entry" none
+run "$GUARD" "$(write_p "$SD" "$(jq '. + {language: "swedish"}' "$SD")")";                    expect "095-AC-2 changing language" none
+run "$GUARD" "$(write_p "$SD" "$(jq '. + {outputStyle: "Explanatory"}' "$SD")")";             expect "TB2: outputStyle is guarded" deny
+run "$GUARD" "$(write_p "$SD" "$(jq '. + {cleanupPeriodDays: 0}' "$SD")")";                   expect "TB2: cleanupPeriodDays is guarded" deny
+run "$GUARD" "$(write_p "$SD" "$(jq '. + {attribution: {commit: ""}}' "$SD")")";             expect "TB2: attribution is guarded" deny
+run "$GUARD" "$(write_p "$SD" "$(jq '.permissions.defaultMode = "bypassPermissions"' "$SD")")"; expect "permissions.defaultMode is guarded" deny
+run "$GUARD" "$(write_p "$L" '{"enableAllProjectMcpServers":true}')";                        expect "settings.local.json enableAllProjectMcpServers" deny
+run "$GUARD" "$(write_p "$SD" "$(jq '.permissions = "x"' "$SD")")";                            expect "permissions replaced by a non-object" deny
+
+printf '\n[095-R7 R8] reads are trusted only in a clean command  (095-AC-5, settings half)\n'
+run "$GUARD" "$(bash_p "export GIT_EXTERNAL_DIFF=/tmp/x; git diff .claude/settings.json")"; expect "095-AC-5 an exported GIT_EXTERNAL_DIFF before git diff" deny
+run "$GUARD" "$(bash_p 'cat() { cp /tmp/x "$1"; }; cat .claude/settings.json')";             expect "095-AC-5 a function named cat before cat" deny
+run "$GUARD" "$(bash_p "PAGER=/tmp/x; git log .claude/settings.json")";                     expect "a bare assignment before a read" deny
+run "$GUARD" "$(bash_p "set -a; LESSOPEN='|/tmp/x %s'; less .claude/settings.json")";        expect "set -a then less" deny
+run "$GUARD" "$(bash_p "alias cat=/tmp/x; cat .claude/settings.json")";                     expect "an alias before cat" deny
+run "$GUARD" "$(bash_p "source /tmp/env.sh && jq . .claude/settings.json")";                expect "a sourced file before jq" deny
+run "$GUARD" "$(bash_p "./cat .claude/settings.json")";                                     expect "threat model: ./cat is the agent's program" deny
+run "$GUARD" "$(bash_p "/usr/bin/grep -n hooks .claude/settings.json")";                    expect "control: /usr/bin/grep reads" none
+run "$GUARD" "$(bash_p "sed -n 1,5p .claude/settings.json")";                               expect "095-AC-5 sed -n 1,5p reads" none
+run "$GUARD" "$(bash_p "sed 's/a/b/' .claude/settings.json | head")";                       expect "sed s/// to stdout reads" none
+run "$GUARD" "$(bash_p "sed --in-pl '/hooks/d' .claude/settings.json")";                    expect "threat model: --in-pl is GNU's --in-place" deny
+run "$GUARD" "$(bash_p "sed -n '1w .claude/settings.json' notes.txt")";                     expect "a sed w command naming the file" deny
+run "$GUARD" "$(bash_p "sed -n -f x.sed .claude/settings.json")";                           expect "a sed script from a file is not read" deny
+run "$GUARD" "$(bash_p "git diff -- scripts .claude/ | tail -5")";                          expect "F145: git diff -- scripts <settings-dir> | tail" none
+run "$GUARD" "$(bash_p "find scripts -name x | xargs grep -o '[a-z]*' | head")";            expect "F145: grep's pattern behind xargs is not a file name" none
+run "$GUARD" "$(bash_p "cd .claude && ls | grep 'sett.*' | xargs rm")";                    expect "control: inside .claude a pattern still counts" deny
+
+printf '\n[095-R1] git verbs that rewrite the tree  (095-AC-1)\n'
+GC="git -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false"
+printf '.claude/settings.local.json\n' > "$P/.gitignore"
+jq 'del(.hooks)' "$SD" > "$WORK/nohooks.json"
+cp "$SD" "$WORK/withhooks.json"
+cp "$WORK/nohooks.json" "$SD"
+(cd "$P" && git add .gitignore .claude/settings.json && $GC commit -qm old) || bad "fixture: first commit"
+REV=$(git -C "$P" rev-parse HEAD)
+cp "$WORK/withhooks.json" "$SD"
+(cd "$P" && git add .claude/settings.json && $GC commit -qm hooks) || bad "fixture: second commit"
+run "$GUARD" "$(bash_p "git checkout $REV -- .")";              expect "095-AC-1 git checkout REV -- ." deny
+case "$(reason)" in *"$SD"*) ok "  the reason names the settings file" ;; *) bad "  the file is not named: $(reason | head -1)" ;; esac
+run "$GUARD" "$(bash_p "git restore --source=$REV .")";         expect "095-AC-1 git restore --source=REV ." deny
+run "$GUARD" "$(bash_p "git apply $WORK/p.diff")"
+(cd "$P" && git diff "$REV" HEAD > "$WORK/p.diff")
+run "$GUARD" "$(bash_p "git apply $WORK/p.diff")";              expect "095-AC-1 git apply of a patch that touches the settings file" deny
+cp "$WORK/nohooks.json" "$SD"; (cd "$P" && $GC stash -q) || bad "fixture: stash"
+run "$GUARD" "$(bash_p "git stash pop")";                        expect "095-AC-1 git stash pop of a stash that removes the hook" deny
+run "$GUARD" "$(bash_p "git checkout HEAD -- .")";               expect "095-AC-1 git checkout HEAD -- . with an unchanged file" none
+[ -z "$OUT" ] && ok "  with no output" || bad "  the allow says something"
+run "$GUARD" "$(bash_p "git switch -c topic")";                  expect "095-AC-1 git switch -c topic" none
+run "$GUARD" "$(bash_p "git checkout $REV -- docs")";           expect "a pathspec that leaves .claude out" none
+run "$GUARD" "$(bash_p "git checkout $REV")";                   expect "a branch switch to REV" deny
+run "$GUARD" "$(bash_p "git reset --hard $REV")";               expect "git reset --hard REV" deny
+run "$GUARD" "$(bash_p "git reset $REV")";                      expect "control: a mixed reset writes only the index" none
+run "$GUARD" "$(bash_p "git restore --staged .")";              expect "restore --staged alone writes only the index" none
+run "$GUARD" "$(bash_p "git revert HEAD")";                     expect "git revert of the commit that added the hooks" deny
+run "$GUARD" "$(bash_p "git cherry-pick HEAD")";                expect "control: cherry-picking a change already there" none
+(cd "$P" && git branch -q old "$REV" && git checkout -q old 2>/dev/null && printf 'x\n' > "$P/docs/a.txt" && git add docs/a.txt && $GC commit -qm a && git checkout -q - 2>/dev/null) || bad "fixture: branch old"
+run "$GUARD" "$(bash_p "git merge old")";                       expect "control: merging a branch that did not change the file since the base" none
+(cd "$P" && git checkout -q old 2>/dev/null && jq '. + {env: {SPEC_ACCEPTANCE: "off"}}' "$WORK/nohooks.json" > "$SD" && git add .claude/settings.json && $GC commit -qm env && git checkout -q - 2>/dev/null) || bad "fixture: env on old"
+run "$GUARD" "$(bash_p "git merge old")";                       expect "git merge of a branch that adds env" deny
+run "$GUARD" "$(bash_p "git rebase old")";                      expect "git rebase onto it" deny
+run "$GUARD" "$(bash_p "git cherry-pick old")";                 expect "git cherry-pick of that commit" deny
+run "$GUARD" "$(bash_p "git merge --abort")";                   expect "control: merge --abort" none
+run "$GUARD" "$(bash_p "git pull . old")";                      expect "threat model: git pull . old is a local merge" deny
+run "$GUARD" "$(bash_p "git pull $WORK/forge main")";           expect "threat model: a pull from a path is not origin" deny
+git -C "$P" remote add origin "$WORK/origin.git" 2>/dev/null
+run "$GUARD" "$(bash_p "git pull origin main")";                expect "O3: a pull from a configured remote is allowed" none
+run "$GUARD" "$(bash_p "git pull")";                            expect "O3: a bare pull is allowed" none
+git -C "$P" config alias.co checkout
+run "$GUARD" "$(bash_p "git co $REV -- .")";                    expect "threat model: an alias for checkout" deny
+run "$GUARD" "$(bash_p "git update-ref refs/heads/safe $REV && git checkout safe -- .")"; expect "threat model: a ref moved on the same line" deny
+run "$GUARD" "$(bash_p "git --git-dir=$P/.git --work-tree=$P checkout $REV -- .")"; expect "threat model: --git-dir/--work-tree" deny
+run "$GUARD" "$(bash_p "GIT_WORK_TREE=$P git checkout $REV -- .")"; expect "threat model: a GIT_ prefix" deny
+run "$GUARD" "$(bash_p "git -C $P checkout $REV -- .")";        expect "git -C <project>" deny
+run "$GUARD" "$(bash_p "cd \$X && git checkout HEAD -- .")";    expect "a cd this guard cannot follow" deny
+run "$GUARD" "$(bash_p "git status && git log -1")";            expect "control: reads only" none
+printf '{"env":{"A":"1"}}\n' > "$L"
+run "$GUARD" "$(bash_p "git clean -fdx")";                      expect "git clean -fdx removes settings.local.json" deny
+run "$GUARD" "$(bash_p "git clean -fd")";                       expect "control: git clean -fd keeps an ignored file" none
+run "$GUARD" "$(bash_p "git clean -n -x")";                     expect "control: a dry run" none
+rm -f "$L"
+cp "$WORK/withhooks.json" "$SD"; jq '.hooks.Stop = []' "$WORK/withhooks.json" > "$SD"
+run "$GUARD" "$(bash_p "git stash")";                           expect "git stash reverts a hand edit to the hooks" deny
+run "$GUARD" "$(bash_p "git checkout -- .claude")";             expect "git checkout -- .claude restores the index copy over it" deny
+cp "$WORK/withhooks.json" "$SD"
+OUT=$(bash_p "git checkout $REV -- ." | (cd "$P" && CLAUDE_PROJECT_DIR="$P" SETTINGS_GUARD_GIT_TIMEOUT=0.000001 "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+expect "a git timeout denies" deny
+
+printf '\n[095 adversarial review] shapes the first pass let through\n'
+run "$GUARD" "$(bash_p "git merge --stat old")";                 expect "#1 git merge --stat is a merge" deny
+run "$GUARD" "$(bash_p "git cherry-pick -n old")";               expect "#1 cherry-pick -n still writes the tree" deny
+run "$GUARD" "$(bash_p "git -c alias.zz=checkout zz $REV -- .")"; expect "#2 a one-shot -c alias" deny
+run "$GUARD" "$(bash_p "env git checkout $REV -- .")";          expect "#2 env git" deny
+run "$GUARD" "$(bash_p "timeout 5 git checkout $REV -- .")";    expect "#2 timeout 5 git" deny
+run "$GUARD" "$(bash_p "bash -c 'git checkout $REV -- .'")";    expect "#2 git inside bash -c" deny
+run "$GUARD" "$(bash_p "$(printf 'bash <<X\ngit checkout %s -- .\nX' "$REV")")"; expect "#2 git inside a heredoc handed to bash" deny
+run "$GUARD" "$(bash_p "$(printf 'cat >> notes.md <<X\nprose about git rm x && git am y\nX' )")"; expect "control: a heredoc handed to cat is data, not a program" none
+run "$GUARD" "$(bash_p "export GIT_INDEX_FILE=/tmp/i; git checkout-index -a -f")"; expect "#3 an exported GIT_INDEX_FILE" deny
+run "$GUARD" "$(bash_p "printf x | git checkout-index -f --stdin")"; expect "#4 checkout-index --stdin" deny
+run "$GUARD" "$(bash_p "git am $WORK/p.mbox")";                  expect "#4 git am is not modelled" deny
+run "$GUARD" "$(bash_p "$(printf "echo # '\nsed -i s/model/hooks/ .claude/settings.json\n# '")")"; expect "#5 a comment that hides a quote" deny
+run "$GUARD" "$(bash_p "echo a#b; cat .claude/settings.json")"; expect "#5 control: a # inside a word is no comment" none
+run "$GUARD" "$(bash_p 'echo "$(echo " # ")"; rm .claude/settings.json')"; expect "/security-review: a quote inside \$( ) does not hide a later rm" deny
+run "$GUARD" "$(bash_p "echo \"\$(printf \" # \")\"; git checkout $REV -- .")"; expect "/security-review: nor a later git checkout" deny
+run "$GUARD" "$(bash_p "find . -name x | xargs grep -l settings.json .claude/settings.json | xargs rm")"; expect "/security-review hint: a grep pattern exemption never hides a direct path" deny
+run "$GUARD" "$(bash_p "git rm -rf .")";                         expect "#6 git rm -rf . deletes the settings file" deny
+run "$GUARD" "$(bash_p "git rm --cached -r .")";                 expect "#6 control: git rm --cached keeps the file" none
+run "$GUARD" "$(bash_p "git rm docs/a.txt && git commit -m x")"; expect "#6 control: a later commit does not taint an earlier verb" none
+run "$GUARD" "$(bash_p "git grep -O'sed -i x' -e model -- .claude/settings.json")"; expect "#8 git grep -O runs a program" deny
+run "$GUARD" "$(bash_p "git --git-dir=/tmp/e --work-tree=. diff .claude/settings.json")"; expect "#8 git --git-dir on a read" deny
+run "$GUARD" "$(mcp_p() { jq -cn --arg t "$1" --argjson i "$2" --arg w "$P" '{tool_name:$t,tool_input:$i,cwd:$w}'; }; mcp_p mcp__fs__find_and_replace "$(jq -cn --arg p "$SD" '{path:$p,find:"a",replace:"b"}')")"
+expect "#10 find_and_replace is not a read" deny
+run "$GUARD" "$(jq -cn --arg p "file://$P/%2Eclaude/settings.json" --arg w "$P" '{tool_name:"mcp__fs__write_file",tool_input:{path:$p,content:"x"},cwd:$w}')"
+expect "#10 a percent-encoded file URL" deny
+
+printf '\n[095-R3] MCP tools  (095-AC-3, settings half)\n'
+mcp_p() { jq -cn --arg t "$1" --argjson i "$2" --arg w "$P" '{tool_name:$t,tool_input:$i,cwd:$w}'; }
+run "$GUARD" "$(mcp_p mcp__fs__write_file "$(jq -cn --arg p "$SD" '{path:$p,content:"{}"}')")"; expect "095-AC-3 mcp__fs__write_file to settings.json" deny
+run "$GUARD" "$(mcp_p mcp__fs__write_file '{"path":"src/a.txt","content":"x"}')";             expect "095-AC-3 mcp__fs__write_file to src/a.txt" none
+run "$GUARD" "$(mcp_p mcp__fs__write_files "$(jq -cn --arg p "$SD" '{files:{($p):"{}"}}')")";  expect "threat model: the path as an object key" deny
+run "$GUARD" "$(mcp_p mcp__fs__write_file '{"dir":".cla","name":"ude/settings.json","content":"x"}')"; expect "threat model: a path split across fields" deny
+run "$GUARD" "$(mcp_p mcp__fs__write_file '{"path":"file://~/.claude/settings.json","content":"x"}')"; expect "a file:// URL under ~" deny
+run "$GUARD" "$(mcp_p mcp__shell__execute_command "$(jq -cn --arg c "git checkout $REV -- ." '{command:$c}')")"; expect "threat model: a command string is judged as Bash" deny
+run "$GUARD" "$(mcp_p mcp__fs__read_file "$(jq -cn --arg p "$SD" '{path:$p}')")";             expect "a read tool by name is left to the read rules" none
+run "$GUARD" "$(mcp_p mcp__plugin_x_fs__edit_file "$(jq -cn --arg p "$P/.claude" '{path:$p}')")"; expect "a plugin tool naming .claude" deny
+
 printf '\n[sabotage] each rule is what denies its attack\n'
 sabotage() { # sabotage <label> <old> <new> <payload>
   local m="$WORK/mut$PASS$FAIL"; mkdir -p "$m"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$m"/ 2>/dev/null
@@ -342,7 +477,7 @@ sabotage "sabotage: without the key comparison a hook removal passes" \
   'return ["settings-key", path, ",".join(keys)] if keys else ["none"]' 'return ["none"]' \
   "$(edit_p "$S" 'trust-anchor-guard-hook.sh' 'true.sh')"
 sabotage "sabotage: without the read list sed -i passes" \
-  'if not reads(words) or in_subst:' 'if False:' \
+  'if not reads(words) or in_subst or tainted:' 'if False:' \
   "$(bash_p "sed -i '' s/a/b/ .claude/settings.json")"
 sabotage "sabotage: without the redirect check printf > passes" \
   'hit = word_hit(t, g, bases, by_name, dots)' 'hit = None' \
@@ -350,6 +485,24 @@ sabotage "sabotage: without the redirect check printf > passes" \
 sabotage "sabotage: without the cd bases ../.claude passes" \
   'bases.append(full)' 'pass' \
   "$(bash_p "cd sub && rm ../.claude/settings.json")"
+sabotage "sabotage 095-R1: without the tree-write judge git checkout REV -- . passes" \
+  '    if verb == "apply":
+        if "--cached"' '    return None
+    if verb == "apply":
+        if "--cached"' \
+  "$(bash_p "git checkout $REV -- .")"
+sabotage "sabotage 095-R2: with apiKeyHelper on the safe list it passes" \
+  'SAFE_KEYS = frozenset(("$schema", "language", "model"))' 'SAFE_KEYS = frozenset(("$schema", "language", "model", "apiKeyHelper"))' \
+  "$(write_p "$SD" "$(jq '. + {apiKeyHelper: "/tmp/k.sh"}' "$SD")")"
+sabotage "sabotage 095-R7: without the prelude check an exported GIT_EXTERNAL_DIFF passes" \
+  'tainted = prelude_taints(cmds, text)' 'tainted = False' \
+  "$(bash_p "export GIT_EXTERNAL_DIFF=/tmp/x; git diff .claude/settings.json")"
+sabotage "sabotage 095-R3: without the MCP scan a write tool passes" \
+  '        v = mcp_verdict(tool, ti, g, raw)' '        v = ["none"]' \
+  "$(mcp_p mcp__fs__write_file "$(jq -cn --arg p "$SD" '{path:$p,content:"{}"}')")"
+sabotage "sabotage 095-R1: without the conflict rule a both-sides merge passes" \
+  'out.append((rel, h, t if h in (b, t) else CONFLICT))' 'out.append((rel, h, h))' \
+  "$(bash_p "git merge old")"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

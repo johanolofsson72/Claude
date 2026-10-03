@@ -154,6 +154,20 @@ OUT=$(PATH="$BIN:$PATH" FAKE_WRITE="$R/.claude/skills/z/run.sh|echo hi\n" \
 expect_eq       "R5 a new script under a skill is a review" "4" "$RC"
 expect_contains "R5 it says why" "not markdown" "$OUT"
 
+R=$(mkrepo rules095); mkdir -p "$R/.claude/rules"
+OUT=$(PATH="$BIN:$PATH" FAKE_WRITE="$R/.claude/rules/new-rule.md|# A rule\nAlways do x.\n" \
+      CLAUDE_ARGV="$TMP/argv.r95" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_eq       "095-R11 a changed rule is a review (exit 4)" "4" "$RC"
+expect_contains "095-R11 it is named as prompt text" "[REVIEW] .claude/rules/new-rule.md: prompt text" "$OUT"
+R=$(mkrepo docs095); mkdir -p "$R/.claude/docs"
+OUT=$(PATH="$BIN:$PATH" FAKE_WRITE="$R/.claude/docs/d.md|text\n" \
+      CLAUDE_ARGV="$TMP/argv.d95" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_contains "095-R11 a changed doc is named" "[REVIEW] .claude/docs/d.md" "$OUT"
+R=$(mkrepo claudemd095)
+OUT=$(PATH="$BIN:$PATH" FAKE_WRITE="$R/CLAUDE.md|# CLAUDE.md\nnew line\n" \
+      CLAUDE_ARGV="$TMP/argv.c95" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?
+expect_contains "095-R11 a changed CLAUDE.md is named" "[REVIEW] CLAUDE.md" "$OUT"
+
 R=$(mkrepo failed)
 OUT=$(PATH="$BIN:$PATH" FAKE_EXIT=3 FAKE_WRITE="$R/.claude/skills/x/SKILL.md|---\nhooks: {}\n---\n" \
       CLAUDE_ARGV="$TMP/argv.f" TMPDIR="$TMP" bash "$R/scripts/update-template.sh" 2>&1); RC=$?

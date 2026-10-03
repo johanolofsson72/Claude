@@ -28,6 +28,10 @@
 #       carries the option --trust at all (a copied or glob-named project-maintenance.sh still parses it)
 #   (e) spec 091 R2: a Bash git command that rewrites a remote, an upstream or a remote-tracking ref
 #       (destructive_command.classify_trust); R7: any write to .claude/workload-placement.tsv
+#   (f) spec 095: a persistent `git config` write to a key git runs as a program (core.hooksPath,
+#       core.fsmonitor, filter.*, credential.*, …, R10); an mcp__ tool whose strings name a store, a
+#       cases file or the placement table, or carry a command (R3). --trust counts as a shell word, not
+#       as prose inside a quoted argument (R8).
 #   (d) an AskUserQuestion whose tool_input already carries `answers`. An honest call never does at
 #       PreToolUse (measured 2026-10-01); the answers arrive after the developer picks them.
 #
@@ -56,6 +60,7 @@ INPUT=$(cat 2>/dev/null || true)
 TI=${INPUT#*\"tool_input\"}
 HIT=0
 [[ $INPUT =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\" ]] && HIT=1
+[[ $INPUT =~ \"tool_name\"[[:space:]]*:[[:space:]]*\"mcp__ ]] && HIT=1   # spec 095 R3: any field may name a store
 if [ "${#TI}" -gt 4096 ]; then
   HIT=1
 else
@@ -104,7 +109,7 @@ fi
 # The program is passed with -c and the payload on stdin: an environment string is capped at 128 KB on
 # Linux, and a large Write would have failed to start the parser and been denied (adversarial #8).
 PROG=$(cat <<'PY'
-import fnmatch, glob, json, os, re, sys
+import fnmatch, glob, json, os, re, shlex, sys
 
 sys.path.insert(0, sys.argv[1])
 from acceptance_cases import ACCEPTANCE_GLOBS, CONFIRMED_PREFIX as PREFIX   # the parser's own rules
@@ -236,27 +241,98 @@ def apply(text, e):
 if tool == "AskUserQuestion":
     print("answers" if ti.get("answers") else "none"); sys.exit(0)
 
-# (c) shell text
-cmd = ti.get("command")
-if isinstance(cmd, str):
+TRUST_RE = re.compile(r"(^|[\s=;&|(,\[\x27\x22])--trust(?![\w-])")
+PROGRAM_FLAGS = {"-c", "-e", "--eval", "--command", "-lc", "-ec", "-ic", "eval"}
+
+def trust_option(cmd):
+    """Spec 095 R8 (F121): --trust as a word the shell passes on, not as prose inside a quoted argument
+    (`finding.sh --add "… --trust …"`). It counts as its own word or an assignment's value
+    (`A=--trust; … $A`), inside a program string handed to -c, -e or eval, and anywhere on a line
+    that feeds a shell."""
+    text = ANSI_C.sub(ansi_c, cmd)
+    if not TRUST_RE.search(re.sub(r"[\"'\\]", "", text).lower()):
+        return False
+    from destructive_command import SHELLS, heredocs, pipelines, strip_redirects, tokens, word
+    if "<<<" in text:
+        return True                                      # a here-string handed to a program
+    # A heredoc body is data unless its line runs a shell or an interpreter: notes written with
+    # `cat >> f <<EOF` may quote the option (found 095).
+    kept, docs = heredocs(text)
+    lines = kept.split("\n")
+    runners = SHELLS | {"eval", "python", "python3", "perl", "ruby", "node", "xargs"}
+    fed = [body for idx, body in docs
+           if any(word(t) in runners for t in tokens(lines[idx] if idx < len(lines) else ""))]
+    text = "\n".join([kept] + fed)
+    if not TRUST_RE.search(re.sub(r"[\"'\\]", "", text).lower()):
+        return False
+    for line in text.split("\n"):
+        for pipe in pipelines(tokens(line)):
+            for seg in pipe[1:]:                         # echo x | sh: the text upstream is a program
+                ws = strip_redirects(seg)[0]
+                if ws and (word(ws[0]) in SHELLS or word(ws[0]) in ("eval", "xargs")):
+                    return True
+    try:
+        toks = shlex.split(text, posix=True)
+    except ValueError:
+        return True
+    program = False                  # a -c/-e cluster or eval seen: every later word may be the program
+    for t in toks:
+        tl = t.lower()
+        if (not re.search(r"\s", t) or program) and TRUST_RE.search(tl):
+            return True
+        if tl in PROGRAM_FLAGS or re.fullmatch(r"-[a-z]*[ce][a-z]*", tl) or tl.rpartition("/")[2] == "eval":
+            program = True               # bash -c -x '…', bash -c -- '…' (095 /security-review)
+    return False
+
+def shell_verdict(cmd):
     n = ANSI_C.sub(ansi_c, cmd)                              # $'\x63laude' -> claude (adversarial #2)
     n = re.sub(r"[\"'\\]", "", n).lower()
     if (re.search(r"claude-(trusted|developer)|trusted-comm|developer-word", n)
             or re.search(r"\.git/\S*[*?\[{]", n) or re.search(r"\.git\S*[*?\[{]\S*/", n)
             or re.search(r"claude-[^\s/]*[*?\[{]", n)):
-        print("bash-store"); sys.exit(0)
+        return "bash-store"
     if "maintenance_tty" in n or "claudecode" in n:
-        print("bash-tty"); sys.exit(0)
+        return "bash-tty"
     if ".git/worktrees" in n or "separate-git-dir" in n or re.search(r"\bln\b[^;&|]*acceptance\.md", n):
-        print("bash-gitdir"); sys.exit(0)
+        return "bash-gitdir"
     if "confirmed:**" in n:
-        print("bash-confirmed"); sys.exit(0)
-    if re.search(r"(^|[\s=;&|(])--trust(?![\w-])", n):
-        print("bash-trust"); sys.exit(0)
+        return "bash-confirmed"
+    if trust_option(cmd):
+        return "bash-trust"
     from destructive_command import classify_trust                            # git's word rules (spec 091 R2)
-    found = classify_trust(cmd)
-    if found:
-        print(found); sys.exit(0)
+    return classify_trust(cmd)
+
+# (c) shell text
+cmd = ti.get("command")
+if isinstance(cmd, str) and not tool.startswith("mcp__"):
+    print(shell_verdict(cmd) or "none"); sys.exit(0)
+
+# Spec 095 R3 (F116): an MCP or plugin tool names its file in a field of its own choosing. Every
+# string is read (values, object keys, runs of neighbouring strings), and a command-shaped string is
+# judged as shell text. A tool whose name says it reads is left alone, as the Read tool is.
+if tool.startswith("mcp__"):
+    from settings_guard import McpTooBig, mcp_inputs                         # one reading of the payload
+    try:
+        found = mcp_inputs(tool, ti)
+    except McpTooBig:
+        print("acceptance-shell" if re.search(r"\.git|acceptance|placement", json.dumps(ti).lower()) else "none")
+        sys.exit(0)
+    if found is None:
+        print("none"); sys.exit(0)
+    paths, commands = found
+    for q in paths:
+        q = os.path.expanduser(q)
+        q = q if os.path.isabs(q) else os.path.join(cwd, q)
+        if touches_git(q):
+            print("store"); sys.exit(0)
+        if path_hits(q, lambda ps: ps[-2:] == [".claude", "workload-placement.tsv"]):
+            print("placement"); sys.exit(0)
+        if is_acceptance(q):
+            print("acceptance-shell"); sys.exit(0)
+    for s in commands:
+        verdict = shell_verdict(s)
+        if verdict:
+            print(verdict); sys.exit(0)
     print("none"); sys.exit(0)
 
 # (a) (b) a path
@@ -303,7 +379,7 @@ VERDICT=$(printf '%s' "$INPUT" | python3 -c "$PROG" "$HOOK_DIR" 2>/dev/null) || 
 # The repair path (found 2026-10-01): a crash inside this verdict denied every call, its own repair
 # included. A crash still denies, except an Edit/Write of the files the verdict runs on. In a project
 # those are CORE, so core-machinery-guard still stands in front of them.
-if [ "$VERDICT" = crash ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*/scripts/(trust-anchor-guard-hook\.sh|acceptance_cases\.py|shell_glob\.py|guard-lib\.sh)\" ]]; then
+if [ "$VERDICT" = crash ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*/scripts/(trust-anchor-guard-hook\.sh|acceptance_cases\.py|shell_glob\.py|settings_guard\.py|destructive_command\.py|guard-lib\.sh)\" ]]; then
   guard_context "trust-anchor-guard crashed and ALLOWED this edit unchecked, because it is an edit of the guard's own code (${BASH_REMATCH[1]}): a guard that cannot run must not block its own repair. Fix the crash; every other call it would judge is denied until then."
   exit 0
 fi
@@ -346,6 +422,10 @@ Edit the cases themselves freely; changing a case un-confirms it, and that is th
     guard_deny "BLOCKED — a shell write to an acceptance.md, or to a glob that can match one (spec 088, R3).
 
 The shell route carries no bytes to this guard, so it cannot tell a case edit from a forged Confirmed line. Use the Edit tool for the cases (it is judged on the bytes), and scripts/acceptance-cases.sh --confirm for the Confirmed line. $HUMAN_ROUTES" ;;
+  git-config-exec)
+    guard_deny "BLOCKED — this git config write sets a key whose value git runs as a program, or a key spelled at runtime (spec 095, R10).
+
+core.hooksPath, core.fsmonitor, core.sshCommand, core.pager, core.editor, filter.*, credential.*, diff.*.textconv, merge.*.driver and the like run a command inside the developer's next git call, and inside every guard that calls git. They are the developer's to set. A one-shot \`git -c key=value <command>\` is not refused: it reaches only the command it prefixes. If the change is really needed, ask the developer to run it with ! in the prompt." ;;
   git-remote-write|git-config-trust|git-ref-write)
     guard_deny "BLOCKED — this git command changes a remote, an upstream or a remote-tracking ref (spec 091, R2).
 

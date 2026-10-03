@@ -531,11 +531,29 @@ def judge_git_trust(args: list[str]) -> str | None:
             words = words[1:]
         elif len(words) == 1 and not any(a in _CONFIG_WRITES for a in rest):
             return None                                   # `git config remote.origin.url` reads it
-        return "git-config-trust" if words and _TRUST_KEY.match(words[0]) else None
+        if not words:
+            return None
+        if _TRUST_KEY.match(words[0]):
+            return "git-config-trust"
+        # Spec 095 R10 (F135): a persistent key that runs a program runs it in the developer's next
+        # git command, and in every guard that calls git. A key spelled at runtime may be one.
+        if _EXEC_KEY.match(words[0]) or re.search(r"[$`*?\[]", words[0]):
+            return "git-config-exec"
+        return None
     return None
 
 
-TRUST_VERDICTS = ("git-remote-write", "git-ref-write", "git-config-trust")
+# Spec 095 R10: keys whose value git runs as a program, or that move where git reads hooks, templates or
+# attributes from. A one-shot `git -c` of these stays allowed: it reaches only the command it prefixes.
+_EXEC_KEY = re.compile(
+    r"^(core\.(fsmonitor|hookspath|sshcommand|pager|editor|askpass|gitproxy|alternaterefscommand|worktree"
+    r"|attributesfile)|sequence\.editor|diff\.external|gpg\.program|gpg\.[^.]+\.program"
+    r"|gpg\.ssh\.defaultkeycommand|uploadpack\.packobjectshook|init\.templatedir|interactive\.difffilter"
+    r"|sendemail\.(smtpserver|tocmd|cccmd)|filter\.|credential\.|pager\.|diff\..+\.(textconv|command)$"
+    r"|merge\..+\.driver$|difftool\..+\.(cmd|path)$|mergetool\..+\.(cmd|path)$|trailer\..+\.cmd$"
+    r"|submodule\..+\.update$|gpg\..+\.program$)", re.I)
+
+TRUST_VERDICTS = ("git-remote-write", "git-ref-write", "git-config-trust", "git-config-exec")
 
 
 def classify_trust(cmd: str) -> str | None:

@@ -319,6 +319,69 @@ expect "R7 the template's table (CORE, scripts/) is not this rule's" none
 run "$GUARD" "$(bash_p "cat .claude/workload-placement.tsv")"
 expect "R7 reading it is fine" none
 
+printf '\n[095-R3] MCP tools  (095-AC-3, trust half)\n'
+mcp_p() { jq -cn --arg t "$1" --argjson i "$2" --arg w "$P" '{tool_name:$t,tool_input:$i,cwd:$w}'; }
+run "$GUARD" "$(mcp_p mcp__fs__write_file "$(jq -cn --arg p "$P/.git/claude-developer-words" '{path:$p,content:"x"}')")"
+expect "095-AC-3 mcp__fs__write_file to .git/claude-developer-words" deny
+run "$GUARD" "$(mcp_p mcp__fs__write_file '{"path":"src/a.txt","content":"x"}')";        expect "095-AC-3 mcp__fs__write_file to src/a.txt" none
+run "$GUARD" "$(mcp_p mcp__fs__edit_file "$(jq -cn --arg p "$ACC" '{path:$p,edits:[{oldText:"a",newText:"b"}]}')")"; expect "an MCP edit of an acceptance.md" deny
+run "$GUARD" "$(mcp_p mcp__fs__move_file '{"source":"x","destination":".git/hooks/pre-commit"}')"; expect "an MCP move into .git" deny
+run "$GUARD" "$(mcp_p mcp__shell__run '{"command":"bash scripts/project-maintenance.sh --trust --yes"}')"; expect "a command string is judged as shell text" deny
+run "$GUARD" "$(mcp_p mcp__fs__read_file "$(jq -cn --arg p "$P/.git/claude-developer-words" '{path:$p}')")"; expect "a read tool by name is left alone" none
+
+printf '\n[095-R8] --trust counts as a word, not as prose  (095-AC-5, trust half)\n'
+run "$GUARD" "$(bash_p 'bash scripts/finding.sh --add "the maintenance prompt takes --trust from a pty" --spec 095 --kind gap')"
+expect "095-AC-5 finding.sh prose naming --trust" none
+run "$GUARD" "$(bash_p 'A=--trust; bash scripts/project-maintenance.sh $A')";            expect "an assignment carrying --trust" deny
+run "$GUARD" "$(bash_p 'bash -c "scripts/project-maintenance.sh --trust"')";             expect "--trust inside a bash -c program" deny
+run "$GUARD" "$(bash_p 'eval "scripts/project-maintenance.sh --trust"')";                expect "--trust inside eval" deny
+run "$GUARD" "$(bash_p 'echo "scripts/project-maintenance.sh --trust" | sh')";           expect "--trust on a line piped into sh" deny
+run "$GUARD" "$(bash_p 'bash scripts/project-maintenance.sh --trust=1')";                expect "--trust=1" deny
+run "$GUARD" "$(bash_p "bash -xc 'bash scripts/project-maintenance.sh --trust'")";      expect "adversarial #10: a -xc cluster" deny
+run "$GUARD" "$(bash_p "$(printf "cat >> notes.md <<'X'\nbash -c 'x' and later --trust in prose\nX")")"; expect "a heredoc handed to cat is data, even after -c" none
+run "$GUARD" "$(bash_p "$(printf "bash <<'X'\nscripts/project-maintenance.sh --trust\nX")")"; expect "control: a heredoc handed to bash is a program" deny
+run "$GUARD" "$(bash_p "bash -c -x 'bash scripts/project-maintenance.sh --trust'")";   expect "/security-review: bash -c -x" deny
+run "$GUARD" "$(bash_p "bash -c -- 'bash scripts/project-maintenance.sh --trust'")";   expect "/security-review: bash -c --" deny
+run "$GUARD" "$(bash_p 'sh <<< "scripts/project-maintenance.sh --trust"')";             expect "adversarial #10: a here-string" deny
+run "$GUARD" "$(bash_p "python3 -c \"import subprocess; subprocess.run(['bash','scripts/project-maintenance.sh','--trust'])\"")"; expect "adversarial #10: a list form" deny
+run "$GUARD" "$(bash_p 'git config diff.x.y.textconv sh')";                              expect "adversarial #7: a dotted subsection" deny
+run "$GUARD" "$(bash_p 'git config difftool.x.path /tmp/x')";                            expect "adversarial #7: difftool.*.path" deny
+
+printf '\n[095-R10] git config keys that run a program  (095-AC-5)\n'
+run "$GUARD" "$(bash_p 'git config core.hooksPath /tmp/h')";       expect "095-AC-5 git config core.hooksPath" deny
+case "$(reason)" in *"spec 095"*) ok "  the reason cites 095" ;; *) bad "  the reason does not cite 095" ;; esac
+for k in core.fsmonitor core.sshCommand filter.lfs.smudge credential.helper diff.x.textconv merge.x.driver init.templateDir core.worktree; do
+  run "$GUARD" "$(bash_p "git config $k /tmp/x")";                 expect "git config $k" deny
+done
+run "$GUARD" "$(bash_p 'git config --global core.editor vim')";    expect "a --global exec key" deny
+run "$GUARD" "$(bash_p 'git config --unset core.hooksPath')";      expect "--unset of an exec key" deny
+run "$GUARD" "$(bash_p 'git config "$k" /tmp/x')";                 expect "threat model: a key spelled at runtime" deny
+run "$GUARD" "$(bash_p 'git -c core.fsmonitor=false status')";     expect "095-AC-5 a one-shot git -c stays allowed" none
+run "$GUARD" "$(bash_p 'git config --get core.hooksPath')";        expect "reading an exec key" none
+run "$GUARD" "$(bash_p 'git config user.name t')";                 expect "control: an ordinary key" none
+
+printf '\n[095] sabotage\n'
+MUT2="$WORK/mut095"; mkdir -p "$MUT2"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT2"/ 2>/dev/null
+python3 - "$MUT2/destructive_command.py" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+old = 'if _EXEC_KEY.match(words[0]) or re.search(r"[$`*?\\[]", words[0]):'
+assert old in s, "sabotage target not found"
+open(p, "w").write(s.replace(old, 'if False:'))
+PY
+run "$MUT2/trust-anchor-guard-hook.sh" "$(bash_p 'git config core.hooksPath /tmp/h')"
+expect "sabotage 095-R10: without the exec-key rule core.hooksPath passes" none
+MUT3="$WORK/mut095b"; mkdir -p "$MUT3"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT3"/ 2>/dev/null
+python3 - "$MUT3/trust-anchor-guard-hook.sh" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+old = '        if touches_git(q):\n            print("store"); sys.exit(0)\n'
+assert old in s, "sabotage target not found"
+open(p, "w").write(s.replace(old, ''))
+PY
+run "$MUT3/trust-anchor-guard-hook.sh" "$(mcp_p mcp__fs__write_file "$(jq -cn --arg p "$P/.git/claude-developer-words" '{path:$p,content:"x"}')")"
+expect "sabotage 095-R3: without the MCP path scan the store write passes" none
+
 printf '\n[R3] sabotage: without the Confirmed-line rule the forged Edit passes\n'
 MUT="$WORK/mut"; mkdir -p "$MUT"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT"/ 2>/dev/null
 python3 - "$MUT/trust-anchor-guard-hook.sh" <<'PY'

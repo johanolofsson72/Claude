@@ -97,6 +97,12 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from shell_glob import sed_args, sed_script_kind   # sed's own rules (spec 095 R9)
+except ImportError:                                    # copied alone: every sed word stays a target
+    sed_args = None
+
 # A shell word: double-quoted, single-quoted, or bare. The bare form deliberately
 # stops at the metacharacters that end a word, so `>f;ls` yields "f" and not "f;ls".
 QUOTED = r"""(?:"([^"]+)"|'([^']+)'|([^\s;|&<>()]+))"""
@@ -403,15 +409,34 @@ def extract(cmd: str) -> list[tuple[str, int]]:
     #     segment: the script word (`s/x/y/`) survives here but is dropped
     #     downstream, because it has no source-code extension and so every guard
     #     allows it.
+    #     Spec 095 R9 (F145): the script word is dropped when shell_glob can read it as s, y and
+    #     print commands with no w, W or e: `sed -i '' 's#\.git/config#x#' f` named .git/config as a
+    #     target. Any other script, a -f file, or text the parser cannot read keeps today's behaviour.
+    #     `--in-pl` is GNU's --in-place too (any unambiguous prefix, threat model 095).
     for seg, start in segments:
         if not re.search(r"\bsed\b", seg):
             continue
-        if not re.search(r"\s-i\b|\s--in-place\b|\s-[a-hj-zA-Z]*i[a-zA-Z]*\b", seg):
-            continue
+        # A w or W command writes whether or not -i is given: `sed -n 'w <file>' x` (095 adversarial #9).
         for m in re.finditer(QUOTED, seg):
-            t = _pick(m, 1)
-            if t and not t.startswith("-") and t != "sed":
+            t = _pick(m, 1) or ""
+            if re.search(r"\s", t) or t[:1].isdigit() or t[:1] in "/$":
+                for w_file in re.findall(r"(?:^|[\s;}/0-9$!])[wW][ \t]*([^\s;}][^\n;}]*)", t):
+                    targets.append((w_file.strip(), start))
+        if not re.search(r"\s-i\b|\s--in?(-(p(l(a(ce?)?)?)?)?)?(?![\w-])|\s--in-place\b|\s-[a-hj-zA-Z]*[iI][a-zA-Z]*\b", seg):
+            continue
+        words = [w for w in (_pick(m, 1) for m in re.finditer(QUOTED, seg)) if w is not None]
+        pure = set()
+        if "sed" in words and sed_args is not None:
+            _ip, scripts, _files = sed_args(words[words.index("sed") + 1:])
+            if scripts is not None:
+                pure = {s for s in scripts if sed_script_kind(s)}
+        for t in words:
+            if t and not t.startswith("-") and t != "sed" and t not in pure:
                 targets.append((t, start))
+                # A w or W command, or s///w, writes the file named after it: `s/a/b/w .git/config`
+                # as one word named no .git component. Over-matching only adds harmless targets.
+                for w_file in re.findall(r"(?:^|[\s;}/0-9$!])[wW][ \t]*([^\s;}][^\n;}]*)", t):
+                    targets.append((w_file.strip(), start))
 
     # (c) tee [-a] FILE...
     for m in re.finditer(r"\btee\b((?:\s+-\w+)*)((?:\s+" + QUOTED + r")+)", text):

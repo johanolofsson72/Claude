@@ -118,5 +118,46 @@ sed -e 's/cd -P -- "\$seg"/cd -L -- "$seg"/' -e 's/out=\$(_guard_pwd)/out=$(pwd 
 V=$(bash -c '. "$0"; guard_canon "$1"' "$SAB" "$WORK/s/a.sh")
 [ "$V" != "$WANT" ] && ok "a canon that does not resolve symlinks lands elsewhere (${V#$WORK})" || bad "sabotage 3 not observable"
 
+printf '\n[095-R6] a register stands in for a missing language marker  (095-AC-4)\n'
+IG="$(cd "$(dirname "$0")" && pwd)/spec-interview-guard-hook.sh"
+mkproj() { # mkproj <dir> [origin-url]: a git repo with a register naming an active full spec, no interview
+  mkdir -p "$1/specs/001-demo" "$1/src"; git init -q "$1"
+  printf '# Spec register\n\n## Specs\n\n- [/] 001 — demo — full track — demo\n' > "$1/specs/INDEX.md"
+  printf '# 001\n' > "$1/specs/001-demo/spec.md"
+  [ -n "${2:-}" ] && git -C "$1" remote add origin "$2"
+  git -C "$1" add -A && git -C "$1" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm init
+}
+ask_ig() { # ask_ig <project> <file> -> deny|allow
+  local out
+  out=$(jq -cn --arg p "$2" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}' \
+        | (cd "$1" && CLAUDE_PROJECT_DIR="$1" bash "$IG") 2>/dev/null)
+  case "$out" in *'"deny"'*) echo deny ;; *) echo allow ;; esac
+}
+R6="$WORK/r6"; mkproj "$R6"
+[ "$(ask_ig "$R6" "$R6/src/app.ts")" = deny ] && ok "095-AC-4 no marker, a register: the spec-interview guard denies" || bad "095-AC-4 no marker turned the guard off"
+: > "$R6/package.json"
+[ "$(ask_ig "$R6" "$R6/src/app.ts")" = deny ] && ok "control: with package.json it denies too" || bad "control with package.json"
+R6I="$WORK/r6i"; mkproj "$R6I" "https://github.com/johanolofsson72/Claude.git"
+[ "$(ask_ig "$R6I" "$R6I/src/app.ts")" = deny ] && ok "an impostor (the template's URL, another history) is guarded" || bad "an impostor turned the guard off"
+R6S="$WORK/r6s"; mkdir -p "$R6S/src" "$R6S/.claude"; git init -q "$R6S"; : > "$R6S/.claude/.template-sync"
+OUT6=$(jq -cn --arg p "$R6S/src/app.ts" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}' \
+       | (cd "$R6S" && CLAUDE_PROJECT_DIR="$R6S" bash "$(dirname "$IG")/spec-register-guard-hook.sh") 2>/dev/null)
+case "$OUT6" in *'"deny"'*) ok "threat model: a synced project with neither marker nor register owes a register" ;; *) bad "the sync stamp did not stand in" ;; esac
+case "$OUT6" in *".claude/.template-sync"*) ok "  and the reason names the sync stamp as the marker" ;; *) bad "  the reason names the wrong stand-in" ;; esac
+TROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$(dirname "$IG")/template-identity.sh"
+if [ "$(template_identity "$TROOT")" = template ]; then
+  [ "$(ask_ig "$TROOT" "$TROOT/src/app.ts")" = allow ] && ok "095-AC-4 the template repository itself stays unguarded" || bad "095-AC-4 the template is now guarded"
+else
+  ok "095-AC-4 (template half skipped: this checkout is not the template by history)"
+fi
+SAB6="$WORK/sab6"; mkdir -p "$SAB6"; cp "$(dirname "$IG")"/*.sh "$(dirname "$IG")"/*.py "$SAB6"/ 2>/dev/null
+sed 's/^  if \[ -z "\$GUARD_LANG_MARKER" \] && \[ -n "\$GUARD_GIT_ROOT" \] \\$/  if false \\/' "$(dirname "$IG")/guard-lib.sh" > "$SAB6/guard-lib.sh"
+if cmp -s "$(dirname "$IG")/guard-lib.sh" "$SAB6/guard-lib.sh"; then bad "095-R6 sabotage target not found"; else
+  OUTS=$(jq -cn --arg p "$R6/src/app.ts" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}' \
+         | (rm -f "$R6/package.json"; cd "$R6" && CLAUDE_PROJECT_DIR="$R6" bash "$SAB6/spec-interview-guard-hook.sh") 2>/dev/null)
+  case "$OUTS" in *'"deny"'*) bad "095-R6 sabotage: the mutant still denies" ;; *) ok "095-R6 sabotage: without the stand-in, no marker turns the guard off again" ;; esac
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

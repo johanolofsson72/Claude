@@ -466,8 +466,24 @@ expect "a garbage cache file is ignored" "$P/src/app.ts" deny "080-AC-1"
 P=$(mk_project tmo 080 "full track")
 write_cases "$P" 080 3
 confirm "$P" 080
-expect "a scan timeout fails open" "$P/src/app.ts" allow "" ACCEPTANCE_SCAN_TIMEOUT=0.000001
+expect "095-R5 (O2): a timeout in the Confirmed-line backing check denies" "$P/src/app.ts" deny "git timed out" ACCEPTANCE_SCAN_TIMEOUT=0.000001
 expect "a nonsense timeout falls back to the default" "$P/src/app.ts" deny "080-AC-1" ACCEPTANCE_SCAN_TIMEOUT=abc
+# Only the coverage scan (git grep) is slow: a git wrapper that sleeps on grep.
+SLOW="$TMP/slowgit"; mkdir -p "$SLOW"; REALGIT=$(command -v git)
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = grep ] && sleep 3; done\nexec "%s" "$@"\n' "$REALGIT" > "$SLOW/git"; chmod +x "$SLOW/git"
+OUT95=$(guard_out "$P/src/app.ts" PATH="$SLOW:$PATH" ACCEPTANCE_SCAN_TIMEOUT=1)
+case "$(hook_verdict "$OUT95")" in deny) fail "095-R5 (O2): a coverage-scan timeout should still allow (080 O6)" ;; *) ok "095-R5 (O2): a coverage-scan timeout still allows (080 O6)" ;; esac
+case "$OUT95" in *"ALLOWED"*"080-AC-n"*) ok "095-R5 and says so through guard_announce" ;; *) fail "095-R5 the fail-open is silent: $OUT95" ;; esac
+echo "095-R5 — git's redirect variables do not reach the gate"
+P=$(mk_project genv 080 "full track")
+write_cases "$P" 080 3
+confirm "$P" 080
+printf '// 080-AC-1 080-AC-2 080-AC-3\n' > "$P/tests/a.test.ts"
+DECOY="$TMP/decoy"; mkdir -p "$DECOY"; git -C "$DECOY" init -q
+expect "095-R5 control: named cases allow" "$P/src/app.ts" allow
+rm -rf "$P/.claude/state/acceptance"
+rm "$P/tests/a.test.ts"
+expect "095-R5 GIT_DIR pointing at a decoy repository does not change the answer" "$P/src/app.ts" deny "080-AC-1" GIT_DIR="$DECOY/.git" GIT_WORK_TREE="$DECOY"
 
 echo "routes"
 P=$(mk_project rte 080 "full track")
