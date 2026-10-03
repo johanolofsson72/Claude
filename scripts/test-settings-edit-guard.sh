@@ -10,6 +10,7 @@
 #             jq, git add, grep reads are allowed
 #   089-AC-4  a re-indent and a permissions.allow entry are allowed
 #   089-AC-5  bash-write-guard hands a tee write and a python3 -c naming the file to this guard
+#   095a-AC-1..4  a mod (a plugin folder) is refused on every write route and open to reads
 #
 # Every arm runs the real hook with the payload Claude Code sends and reads the verdict the way the CLI
 # does (hook-verdict.sh). Sabotage arms replace one rule of the verdict and require the attack it
@@ -461,6 +462,155 @@ run "$GUARD" "$(mcp_p mcp__fs__write_file '{"path":"file://~/.claude/settings.js
 run "$GUARD" "$(mcp_p mcp__shell__execute_command "$(jq -cn --arg c "git checkout $REV -- ." '{command:$c}')")"; expect "threat model: a command string is judged as Bash" deny
 run "$GUARD" "$(mcp_p mcp__fs__read_file "$(jq -cn --arg p "$SD" '{path:$p}')")";             expect "a read tool by name is left to the read rules" none
 run "$GUARD" "$(mcp_p mcp__plugin_x_fs__edit_file "$(jq -cn --arg p "$P/.claude" '{path:$p}')")"; expect "a plugin tool naming .claude" deny
+
+printf '\n[095a-R1 R2] a mod path is refused to the Edit tools, wherever it is  (095a-AC-1, AC-2)\n'
+# HOME is $WORK/home, so ~/.claude is the fixture's config directory.
+CF="$HOME/.claude"
+mkdir -p "$CF/skills/plain" "$CF/plugins/cache/m/p/1" "$CF/dev-mods/s1/x"
+printf -- '---\nname: plain\n---\n' > "$CF/skills/plain/SKILL.md"
+MX="$P/mods/x"; MY="$P/mods/y"
+mkdir -p "$MX/hooks" "$MX/lib" "$MY" "$P/.claude/skills/tla"
+printf '{ "modules": ["./register.ts"] }\n' > "$MX/hooks/hooks.json"
+printf 'export const register = () => {}\n' > "$MX/hooks/register.ts"
+printf -- '---\nname: tla\n---\nbody\n' > "$P/.claude/skills/tla/SKILL.md"
+nb_p() { jq -cn --arg p "$1" --arg w "$P" '{tool_name:"NotebookEdit",tool_input:{notebook_path:$p,new_source:"x"},cwd:$w}'; }
+run "$GUARD" "$(write_p "$CF/skills/probe/.claude-plugin/plugin.json" '{"name":"probe"}')"; expect "095a-AC-1 Write of skills/probe/.claude-plugin/plugin.json" deny
+case "$(reason)" in *"$CF/skills/probe/.claude-plugin/plugin.json"*) ok "  the reason names the path" ;; *) bad "  the path is not named: $(reason | head -1)" ;; esac
+case "$(reason)" in *"past every hook"*) ok "  and says a loaded mod allows past every hook" ;; *) bad "  the reason does not say why: $(reason | head -2)" ;; esac
+run "$GUARD" "$(edit_p "$MX/hooks/register.ts" 'export' 'export ')";       expect "095a-AC-2 Edit of mods/x/hooks/register.ts" deny
+run "$GUARD" "$(write_p "$MX/lib/util.ts" 'export const a = 1')";          expect "095a-AC-2 Write of mods/x/lib/util.ts (inside a plugin folder)" deny
+run "$GUARD" "$(write_p "$MY/hooks/hooks.json" '{"modules":["./r.ts"]}')"; expect "095a-AC-2 Write of mods/y/hooks/hooks.json (makes a plugin folder)" deny
+run "$GUARD" "$(write_p "$MY/notes.md" 'notes')";                          expect "095a-AC-2 Write of mods/y/notes.md" none
+[ -z "$OUT" ] && ok "  with no output" || bad "  the allow says something"
+run "$GUARD" "$(edit_p "$P/.claude/skills/tla/SKILL.md" 'body' 'body2')";  expect "095a-AC-4 Edit of .claude/skills/tla/SKILL.md" none
+run "$GUARD" "$(write_p "$CF/skills/plain/reference.md" 'x')";             expect "a reference file in an ordinary user skill" none
+run "$GUARD" "$(write_p "$P/.claude/skills/z/hooks/register.ts" 'x')";     expect "R1(e) a module under a skill's hooks/" deny
+run "$GUARD" "$(write_p "$CF/plugins/cache/m/p/1/hooks/hooks.json" '{}')"; expect "R1(d) the installed-plugin cache" deny
+run "$GUARD" "$(write_p "$CF/plugins/known_marketplaces.json" '{}')";      expect "R1(d) known_marketplaces.json" deny
+run "$GUARD" "$(write_p "$CF/dev-mods/s1/x/notes.md" 'x')";                expect "R1(d) anything under dev-mods (M2)" deny
+run "$GUARD" "$(multi_p "$MX/hooks/hooks.json" '[{"old_string":"register","new_string":"evil"}]')"; expect "R2 MultiEdit in a plugin folder" deny
+run "$GUARD" "$(nb_p "$MX/hooks/n.ipynb")";                                 expect "R2 NotebookEdit in a plugin folder" deny
+run "$GUARD" "$(write_p "$P/a/b/.claude-plugin/x.json" '{}')";             expect "R1(a) a .claude-plugin component anywhere" deny
+run "$GUARD" "$(write_p "$P/deep/hooks/hooks.json" '{}')";                 expect "R1(b) hooks/hooks.json anywhere" deny
+run "$GUARD" "$(write_p "$P/deep/hook/hooks.json" '{}')";                  expect "near miss: hook/hooks.json" none
+run "$GUARD" "$(write_p "$P/deep/hooks/hooks.jsonc" '{}')";                expect "near miss: hooks/hooks.jsonc" none
+run "$GUARD" "$(write_p "$P/deep/claude-plugin/x.json" '{}')";             expect "near miss: claude-plugin without the dot" none
+run "$GUARD" "$(write_p "$P/mods/x2/hooks/../../x/hooks/r2.ts" 'x')";      expect "a .. segment back into a plugin folder" deny
+ln -s "$MX" "$P/innocent"
+run "$GUARD" "$(write_p "$P/innocent/hooks/register.ts" 'x')";             expect "a symlink into a plugin folder" deny
+run "$GUARD" "$(write_p "$P/innocent2/r.ts" 'x')";                         expect "control: a sibling of the symlink" none
+if [ "$(uname)" = Darwin ]; then
+  run "$GUARD" "$(write_p "$P/mods/y/.Claude-Plugin/plugin.json" '{}')";    expect "a case variant on a folding file system" deny
+fi
+run "$GUARD" "$(write_p "$MX" 'x')";                                        expect "the plugin folder itself" deny
+run "$GUARD" "$(jq -cn --arg p "$P/mods/x/hooks/*.ts" --arg w "$P" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"; expect "a glob file_path into a plugin folder" deny
+mkdir -p "$WORK/pd"; printf '{}\n' > "$WORK/pd/a.ts"
+run "$GUARD" "$(write_p "$WORK/pd/a.ts" 'x')";                              expect "control: a folder not on CLAUDE_CODE_PLUGIN_DIRS" none
+OUT=$(write_p "$WORK/pd/a.ts" 'x' | (cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDE_CODE_PLUGIN_DIRS="/nonexistent:$WORK/pd" "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+expect "R1(d) a folder on CLAUDE_CODE_PLUGIN_DIRS (environment)" deny
+jq --arg d "$WORK/pd" '. + {env: {CLAUDE_CODE_PLUGIN_DIRS: $d}}' "$CF/settings.json" > "$WORK/cf.json" && cp "$CF/settings.json" "$WORK/cf.bak" && cp "$WORK/cf.json" "$CF/settings.json"
+run "$GUARD" "$(write_p "$WORK/pd/a.ts" 'x')";                              expect "R1(d) a folder on CLAUDE_CODE_PLUGIN_DIRS (user settings env)" deny
+cp "$WORK/cf.bak" "$CF/settings.json"
+D="$P/d"; i=0; while [ $i -lt 70 ]; do D="$D/d"; i=$((i+1)); done
+run "$GUARD" "$(write_p "$D/f.txt" 'x')";                                   expect "R1(c) past 64 ancestor levels fails closed" deny
+python3 - "$P" "$SELF_DIR" <<'PY' && ok "R1 property: 400 generated paths classify as the rules say" || bad "R1 property test"
+import os, random, sys
+proj, sd = sys.argv[1], sys.argv[2]
+sys.path.insert(0, sd)
+import settings_guard as sg
+g = sg.Guarded(dict(os.environ, CLAUDE_PROJECT_DIR=proj), proj)
+rnd = random.Random(95)
+parts = ["a", "src", "hooks", "lib", "x.ts", "hooks.json", ".claude-plugin", "claude-plugin", ".claude", "skills", "plain", "notes.md"]
+for _ in range(400):
+    comps = [rnd.choice(parts) for _ in range(rnd.randint(1, 6))]
+    p = os.path.join("/nonexistent-095a", *comps)
+    want = (".claude-plugin" in comps) or comps[-2:] == ["hooks", "hooks.json"]
+    for i in range(len(comps) - 1):
+        if comps[i] == ".claude" and comps[i + 1] == "skills":
+            rest = comps[i + 2:]
+            want = want or len(rest) <= 1 or rest[1] == "hooks"
+    got = g.mod_of(p) is not None
+    if got != want:
+        print("mismatch", p, "want", want, "got", got)
+        sys.exit(1)
+PY
+
+printf '\n[095a-R3] the shell may read a plugin folder and not write one  (095a-AC-1, AC-4)\n'
+run "$GUARD" "$(bash_p "$(printf 'mkdir -p %s/skills/probe/hooks && cat > %s/skills/probe/hooks/hooks.json <<EOF\n{"modules":["./r.ts"]}\nEOF' "$CF" "$CF")")"; expect "095a-AC-1 a heredoc into skills/probe/hooks/hooks.json" deny
+run "$GUARD" "$(bash_p "cp -r /tmp/m $CF/skills/probe")";                   expect "095a-AC-1 cp -r of a prepared folder into the user skills root" deny
+run "$GUARD" "$(bash_p "mv /tmp/s .claude/skills/tla")";                    expect "095a-AC-4 mv /tmp/s .claude/skills/tla replaces a skill folder" deny
+run "$GUARD" "$(bash_p "cat mods/x/hooks/register.ts")";                    expect "095a-AC-2 cat of a module reads" none
+run "$GUARD" "$(bash_p "ls ~/.claude/plugins")";                            expect "095a-AC-4 ls ~/.claude/plugins" none
+run "$GUARD" "$(bash_p "git add .claude/skills/tla/SKILL.md")";             expect "095a-AC-4 git add of a SKILL.md" none
+run "$GUARD" "$(bash_p "printf x > mods/x/hooks/register.ts")";             expect "a redirection into a module" deny
+run "$GUARD" "$(bash_p "echo x | tee mods/x/lib/u.ts")";                    expect "tee into a plugin folder" deny
+run "$GUARD" "$(bash_p "ln -s $WORK/m $CF/skills/evil")";                   expect "ln -s into the skills root" deny
+run "$GUARD" "$(bash_p "tar -xf /tmp/m.tar -C $CF/skills")";               expect "tar -x -C the skills root" deny
+run "$GUARD" "$(bash_p "rsync -a /tmp/m/ ~/.claude/dev-mods/s/m/")";        expect "rsync into dev-mods" deny
+run "$GUARD" "$(bash_p "git clone https://example.invalid/m.git ~/.claude/skills/m")"; expect "git clone into the skills root" deny
+run "$GUARD" "$(bash_p "cd mods/x && printf x > hooks/register.ts")";      expect "cd into a plugin folder, then a relative write" deny
+run "$GUARD" "$(bash_p "sed -i '' s/a/b/ .claude/skills/tla/SKILL.md")";   expect "control: sed -i on a SKILL.md" none
+run "$GUARD" "$(bash_p "rm mods/x/hooks/hooks.json")";                      expect "rm of a hooks.json (a removal is a write)" deny
+run "$GUARD" "$(bash_p "export X=1; cat mods/x/hooks/register.ts")";       expect "a read on a tainted line" deny
+run "$GUARD" "$(bash_p "grep -rn modules ~/.claude/skills")";               expect "control: grep -r over the skills root" none
+
+printf '\n[095a-R4] git cannot bring a mod into the tree  (095a-AC-3)\n'
+MR="$WORK/mrepo"; mkdir -p "$MR"; git init -q "$MR"
+printf 'readme\n' > "$MR/README.md"
+(cd "$MR" && git add README.md && $GC commit -qm base) || bad "fixture: mrepo base"
+mkdir -p "$MR/.claude/skills/z/hooks"; printf '{"modules":["./r.ts"]}\n' > "$MR/.claude/skills/z/hooks/hooks.json"
+(cd "$MR" && git add .claude && $GC commit -qm mod) || bad "fixture: mrepo mod"
+MREV=$(git -C "$MR" rev-parse HEAD)
+(cd "$MR" && git reset -q --hard HEAD~1) || bad "fixture: back to base"
+mbash_p() { jq -cn --arg c "$1" --arg w "$MR" '{tool_name:"Bash",tool_input:{command:$c},cwd:$w}'; }
+run "$GUARD" "$(mbash_p "git checkout $MREV -- .")";                       expect "095a-AC-3 git checkout REV -- ." deny
+case "$(reason)" in *hooks.json*) ok "  the reason names the mod file" ;; *) bad "  the mod file is not named: $(reason | head -1)" ;; esac
+run "$GUARD" "$(mbash_p "git restore --source=$MREV .")";                  expect "095a-AC-3 git restore --source=REV ." deny
+run "$GUARD" "$(mbash_p "git checkout HEAD -- README.md")";                expect "095a-AC-3 git checkout HEAD -- README.md" none
+[ -z "$OUT" ] && ok "  with no output" || bad "  the allow says something"
+run "$GUARD" "$(mbash_p "git reset --hard $MREV")";                        expect "git reset --hard REV" deny
+run "$GUARD" "$(mbash_p "git checkout $MREV -- README.md")";               expect "a pathspec that leaves the mod out" none
+run "$GUARD" "$(mbash_p "git cherry-pick $MREV")";                         expect "cherry-pick of the commit that adds it" deny
+run "$GUARD" "$(mbash_p "git read-tree -u -m $MREV")";                     expect "read-tree -u" deny
+BLOB=$(printf '{}\n' | git -C "$MR" hash-object -w --stdin)
+git -C "$MR" update-index --add --cacheinfo "100644,$BLOB,mods/q/hooks/hooks.json" || bad "fixture: index entry"
+run "$GUARD" "$(mbash_p "git checkout -- .")";                             expect "plumbing: an index entry checked out" deny
+(cd "$MR" && git rm -q --cached mods/q/hooks/hooks.json) || bad "fixture: drop index entry"
+git -C "$MR" remote add origin "$WORK/origin.git" 2>/dev/null
+run "$GUARD" "$(mbash_p "git pull origin main")";                          expect "M3: a pull from a configured remote" none
+OUT=$(mbash_p "git checkout $MREV -- ." | (cd "$MR" && CLAUDE_PROJECT_DIR="$MR" SETTINGS_GUARD_GIT_TIMEOUT=0.000001 "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+expect "Q20: a git timeout denies" deny
+run "$GUARD" "$(mbash_p "git checkout HEAD -- .")";                        expect "control: checkout HEAD -- . changes nothing" none
+(cd "$MR" && git diff HEAD "$MREV" > "$WORK/mod.diff")
+run "$GUARD" "$(mbash_p "git apply $WORK/mod.diff")";                      expect "git apply of a patch that adds a hooks.json" deny
+
+printf '\n[095a-R5] MCP tools  (095a-AC-1)\n'
+run "$GUARD" "$(mcp_p mcp__fs__write_file "$(jq -cn --arg p "$CF/skills/probe/hooks/register.ts" '{path:$p,content:"x"}')")"; expect "095a-AC-1 mcp__fs__write_file to skills/probe/hooks/register.ts" deny
+run "$GUARD" "$(mcp_p mcp__fs__write_file "$(jq -cn --arg d "$MX" '{dir:$d,name:"lib/u.ts",content:"x"}')")"; expect "a path split across fields" deny
+run "$GUARD" "$(mcp_p mcp__fs__write_file "$(jq -cn --arg p "file://$MX/hooks/register.ts" '{path:$p,content:"x"}')")"; expect "a file:// URL" deny
+run "$GUARD" "$(mcp_p mcp__shell__execute_command '{"command":"printf x > mods/x/hooks/register.ts"}')"; expect "a command string" deny
+run "$GUARD" "$(mcp_p mcp__fs__read_file "$(jq -cn --arg p "$MX/hooks/register.ts" '{path:$p}')")"; expect "control: a read tool" none
+
+printf '\n[095a-R10] the claude binary may not install or load a plugin\n'
+run "$GUARD" "$(bash_p "claude -p hi --plugin-dir /tmp/m")";                expect "claude --plugin-dir" deny
+run "$GUARD" "$(bash_p "claude plugin install x@y")";                       expect "claude plugin install" deny
+run "$GUARD" "$(bash_p "claude plugin marketplace add /tmp/mk")";           expect "claude plugin marketplace add" deny
+run "$GUARD" "$(bash_p "claude plugins enable x")";                         expect "claude plugins enable" deny
+run "$GUARD" "$(bash_p "claude --settings /tmp/s.json -p hi")";             expect "claude --settings" deny
+run "$GUARD" "$(bash_p "claude --setting-sources=user -p hi")";             expect "claude --setting-sources=" deny
+run "$GUARD" "$(bash_p "CLAUDE_CODE_PLUGIN_DIRS=/tmp/m claude -p hi")";     expect "CLAUDE_CODE_PLUGIN_DIRS as a prefix" deny
+run "$GUARD" "$(bash_p "export CLAUDE_CODE_PLUGIN_DIRS=/tmp/m")";           expect "export CLAUDE_CODE_PLUGIN_DIRS" deny
+run "$GUARD" "$(bash_p "env FOO=1 ~/.local/share/claude/versions/2.1.288 plugin install x")"; expect "the versioned binary behind env" deny
+run "$GUARD" "$(bash_p "claude plugin list")";                              expect "control: claude plugin list" none
+run "$GUARD" "$(bash_p "claude plugin validate mods/y")";                   expect "control: claude plugin validate" none
+run "$GUARD" "$(bash_p "claude -p 'summarise the plugin docs'")";           expect "control: claude -p with a prompt" none
+
+printf '\n[095a-R6 R7] the hook wakes for a mod path and says so\n'
+run "$GUARD" "$(write_p "$MX/lib/zz.ts" 'x')";                              expect "R6 an innocent name inside a plugin folder wakes the verdict" deny
+case "$(reason)" in *"no override"*) ok "  the reason says there is no override" ;; *) bad "  no 'no override' in: $(reason | head -3)" ;; esac
+case "$(reason)" in *'!'*) ok "  and names the ! route" ;; *) bad "  no ! route in the reason" ;; esac
+run "$GUARD" "$(jq -cn --arg w "$MX/lib" '{tool_name:"Bash",tool_input:{command:"printf x > zz.ts"},cwd:$w}')"; expect "R6 a cwd inside a plugin folder" deny
+run "$GUARD" "$(write_p "$P/src/ordinary.ts" 'x')";                         expect "control: an ordinary file still never wakes it" none
 
 printf '\n[sabotage] each rule is what denies its attack\n'
 sabotage() { # sabotage <label> <old> <new> <payload>

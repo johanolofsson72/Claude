@@ -1,0 +1,140 @@
+-- allium: 3
+--
+-- 095a — mod-loading guard.
+--
+-- A loaded mod (a plugin folder whose hooks/hooks.json names a module) can allow any tool call past
+-- every settings hook and runs code of its own, so the agent may not create or change one. Rules cite
+-- R1..R10 (spec.md) and the developer's overflow answers M1..M3 (interview.md). The template keeps no
+-- scenario map; tests name the acceptance cases 095a-AC-n.
+
+enum Verdict { allow | deny }
+
+enum Route { edit_tool | shell | git | mcp | claude_cli }
+
+enum ModRule { plugin_component | hooks_json | inside_plugin_folder | load_root | skills_folder | none }
+
+config {
+    ancestor_cap: Integer = 64                  -- R1 (c): past this many levels the path counts as a mod path
+    git_timeout_seconds: Integer = 5            -- GUARD_GIT_TIMEOUT, as 095
+}
+
+-- ----------------------------------------------------------------------------- the mod path (R1, M1)
+
+entity PathOnDisk {
+    has_plugin_component: Boolean               -- a component `.claude-plugin`, after realpath + NFC + fold
+    ends_in_hooks_json: Boolean                 -- the last two components are hooks/hooks.json
+    in_existing_plugin_folder: Boolean          -- itself or an ancestor D has D/.claude-plugin or D/hooks/hooks.json
+    depth_over_cap: Boolean
+    under_load_root: Boolean                    -- <config>/plugins, <config>/dev-mods, ~/.claude twins,
+                                                -- each CLAUDE_CODE_PLUGIN_DIRS folder (env, user settings env)
+    is_skills_root_or_child: Boolean            -- <x>/.claude/skills, <config>/skills, or one level below
+    under_skill_child_hooks: Boolean            -- <skills root>/<name>/hooks/...
+    mod_rule: ModRule?
+}
+
+rule ClassifyPath {
+    when: PathClassified(p)
+    ensures:
+        if p.has_plugin_component:
+            p.mod_rule = plugin_component
+        else:
+            if p.ends_in_hooks_json:
+                p.mod_rule = hooks_json
+            else:
+                if p.in_existing_plugin_folder or p.depth_over_cap:
+                    p.mod_rule = inside_plugin_folder
+                else:
+                    if p.under_load_root:
+                        p.mod_rule = load_root
+                    else:
+                        if p.is_skills_root_or_child or p.under_skill_child_hooks:
+                            p.mod_rule = skills_folder
+                        else:
+                            p.mod_rule = none
+}
+
+-- ----------------------------------------------------------------------------- one tool call
+
+entity GuardCall {
+    route: Route
+    names_mod_path: Boolean                     -- some path the call writes, or names, has mod_rule != none
+    is_read: Boolean                            -- shell: a read command on an untainted line (095 R7);
+                                                -- edit_tool and mcp writes are never reads
+    output_into_mod_path: Boolean               -- a redirection, or an output option, naming one
+    git_changes_mod_path: Boolean               -- R4: plan() finds current != after for a candidate in scope
+    git_answered: Boolean
+    git_is_pull_from_remote: Boolean
+    cli_loads_or_installs: Boolean              -- R10: --plugin-dir, --settings, --setting-sources,
+                                                -- a plugin subcommand other than list/validate,
+                                                -- or CLAUDE_CODE_PLUGIN_DIRS assigned in the text
+    verdict: Verdict?
+}
+
+rule JudgeEditTool {
+    when: GuardCallJudged(call)
+    requires: call.route = edit_tool or call.route = mcp
+    ensures:
+        if call.names_mod_path:
+            call.verdict = deny                 -- R2, R5: nothing is compared, a module is code
+        else:
+            call.verdict = allow
+}
+
+rule JudgeShell {
+    when: GuardCallJudged(call)
+    requires: call.route = shell
+    ensures:
+        if call.output_into_mod_path:
+            call.verdict = deny                 -- R3
+        else:
+            if call.names_mod_path and not call.is_read:
+                call.verdict = deny             -- R3
+            else:
+                call.verdict = allow
+}
+
+rule JudgeGit {
+    when: GuardCallJudged(call)
+    requires: call.route = git
+    ensures:
+        if call.git_is_pull_from_remote:
+            call.verdict = allow                -- M3, as 095 O3
+        else:
+            if not call.git_answered:
+                call.verdict = deny             -- Q20: a timeout denies
+            else:
+                if call.git_changes_mod_path:
+                    call.verdict = deny         -- R4
+                else:
+                    call.verdict = allow
+}
+
+rule JudgeClaudeCli {
+    when: GuardCallJudged(call)
+    requires: call.route = claude_cli
+    ensures:
+        if call.cli_loads_or_installs:
+            call.verdict = deny                 -- R10
+        else:
+            call.verdict = allow
+}
+
+-- ----------------------------------------------------------------------------- invariants
+
+-- No agent route writes a mod path: an allowed call either names no mod path or only reads it.
+invariant NoAgentWriteToMod {
+    for call in GuardCalls:
+        call.verdict = allow implies
+            (call.route != edit_tool or not call.names_mod_path)
+            and (call.route != mcp or not call.names_mod_path)
+            and (call.route != shell or not call.output_into_mod_path)
+            and (call.route != shell or not call.names_mod_path or call.is_read)
+            and (call.route != claude_cli or not call.cli_loads_or_installs)
+}
+
+-- Reads are never refused for naming a mod path (R1 Q12): the guard is about writes.
+invariant ReadsStayOpen {
+    for call in GuardCalls:
+        (call.route = shell and call.is_read and not call.output_into_mod_path and call.names_mod_path)
+            implies call.verdict = allow
+}

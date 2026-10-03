@@ -83,12 +83,12 @@ MISSING = object()
 
 def norm(p):
     p = unicodedata.normalize("NFC", os.path.realpath(p))
-    return p.lower() if FOLD else p
+    return p.casefold() if FOLD else p   # casefold: APFS opens hook\u017f as hooks (095a TM-1)
 
 
 def norm_pattern(p):
     p = unicodedata.normalize("NFC", os.path.normpath(p))
-    return p.lower() if FOLD else p
+    return p.casefold() if FOLD else p   # casefold: APFS opens hook\u017f as hooks (095a TM-1)
 
 
 def shell_glob_match(path, pat):
@@ -108,6 +108,104 @@ def shell_glob_match(path, pat):
     return True
 
 
+# ----------------------------------------------------------------------------- mod paths (spec 095a)
+# A plugin folder whose hooks/hooks.json names a module is a mod. A loaded mod's tool.call hook can allow
+# a call past every settings hook, and the module runs code of its own, so no agent tool may create or
+# change one (R1, developer decision M1: anywhere on disk, not only where Claude Code loads from).
+#
+#   hard  any write is refused: a .claude-plugin component, a hooks/hooks.json, anything at or under a
+#         folder that already holds either, anything under a load root, the user's skills root and its
+#         children, and a hooks/ folder inside any skill
+#   soft  a project's <dir>/.claude/skills or one of its skill folders: only verbs that place a folder
+#         there (cp, mv, ln, rsync, tar, …) are refused, so SKILL.md work, find and rm stay open
+ANCESTOR_CAP = 64
+PLACING = frozenset("cp mv ln rsync tar unzip ditto install bsdtar gtar cpio".split())
+PLUGIN_MARK = ".claude-plugin"
+
+
+def plugin_dirs_value(env, settings_files):
+    """Every folder CLAUDE_CODE_PLUGIN_DIRS names: the hook's environment, and the env block of each
+    settings file (the user's is the one Claude Code reads; the project's two are read too, TM-16)."""
+    vals = [env.get("CLAUDE_CODE_PLUGIN_DIRS") or ""]
+    for f in settings_files:
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            v = d.get("env", {}).get("CLAUDE_CODE_PLUGIN_DIRS") if isinstance(d, dict) else None
+            if isinstance(v, str):
+                vals.append(v)
+        except Exception:
+            pass
+    out = []
+    for v in vals:
+        for part in v.split(os.pathsep):
+            part = part.strip()
+            if part:
+                out.append(os.path.expanduser(part))
+    return out
+
+
+class ModZones:
+    def __init__(self, env, conf, settings_files):
+        home = os.path.join(os.path.expanduser("~"), ".claude")
+        confs = {conf, home}
+        roots = [os.path.join(c, n) for c in confs for n in ("plugins", "dev-mods")]
+        roots += plugin_dirs_value(env, settings_files)
+        self.roots = {f for r in roots for f in (norm(r), norm_pattern(r))}
+        self.user_skills = {f for c in confs for f in (norm(os.path.join(c, "skills")),
+                                                       norm_pattern(os.path.join(c, "skills")))}
+        self._marked = {}
+
+    def _has_mark(self, d):
+        if d not in self._marked:
+            self._marked[d] = (os.path.lexists(os.path.join(d, PLUGIN_MARK))
+                               or os.path.lexists(os.path.join(d, "hooks", "hooks.json")))
+        return self._marked[d]
+
+    def in_plugin_folder(self, p):
+        """True when p or one of its ancestors holds a plugin marker; past the cap, True (fails closed)."""
+        d = p
+        for _ in range(ANCESTOR_CAP):
+            if self._has_mark(d):
+                return True
+            parent = os.path.dirname(d)
+            if parent == d:
+                return False
+            d = parent
+        return True
+
+    def kind(self, p):
+        """"hard", "soft" or None for an absolute path."""
+        forms = (norm(p), norm_pattern(p))
+        mark = PLUGIN_MARK.casefold() if FOLD else PLUGIN_MARK
+        hooks = "hooks", "hooks.json"
+        soft = False
+        for f in forms:
+            comps = f.split("/")
+            if mark in comps or tuple(comps[-2:]) == hooks:
+                return "hard"
+            for r in self.roots:
+                if f == r or f.startswith(r.rstrip("/") + "/"):
+                    return "hard"
+            for r in self.user_skills:
+                if f == r or f.startswith(r + "/"):
+                    rest = f[len(r):].strip("/").split("/") if f != r else []
+                    if len(rest) <= 1 or rest[1] == "hooks":
+                        return "hard"
+            for i in range(len(comps) - 1):
+                if comps[i] == ".claude" and comps[i + 1] in ("plugins", "dev-mods"):
+                    return "hard"
+                if comps[i] == ".claude" and comps[i + 1] == "skills":
+                    rest = comps[i + 2:]
+                    if len(rest) >= 2 and rest[1] == "hooks":
+                        return "hard"
+                    if len(rest) <= 1:
+                        soft = True
+        if self.in_plugin_folder(os.path.realpath(p)) or self.in_plugin_folder(os.path.normpath(p)):
+            return "hard"
+        return "soft" if soft else None
+
+
 class Guarded:
     def __init__(self, env, cwd):
         self.cwd = cwd
@@ -124,6 +222,8 @@ class Guarded:
         # Unresolved spellings too: a pattern is matched against both.
         self.file_forms = set(self.file_keys) | {norm_pattern(f) for f in self.files}
         self.dir_forms = set(self.dir_keys) | {norm_pattern(d) for d in self.dirs}
+        self.mods = ModZones(env, self.conf, self.files)
+        self.mod_hits = {}                            # path -> "hard" | "soft", for the verdict word
 
     def absolute(self, p):
         return p if os.path.isabs(p) else os.path.join(self.cwd, p)
@@ -141,6 +241,15 @@ class Guarded:
                         return f
         except OSError:
             pass
+        return self.mod_of(p)
+
+    def mod_of(self, p):
+        """p (absolute) when it is a mod path (spec 095a R1), else None. The kind goes to mod_hits."""
+        p = self.absolute(p)
+        kind = self.mods.kind(p)
+        if kind:
+            self.mod_hits[p] = kind
+            return p
         return None
 
     def is_dir(self, p):
@@ -164,7 +273,8 @@ class Guarded:
                     return m
         except Exception:
             pass
-        return None
+        # A pattern that matches nothing yet still spells where it would write (095a TM-12).
+        return self.mod_of(pattern)
 
 
 # ----------------------------------------------------------------------------- the Edit route
@@ -244,10 +354,14 @@ def edit_verdict(tool, ti, g):
         return ["none"]
     if GLOBCH.search(fp):
         hit = g.glob_hit(fp)
+        if hit in g.mod_hits:
+            return ["mod-file", hit] if g.mod_hits[hit] == "hard" else ["none"]
         return ["settings-shell", hit] if hit else ["none"]
     path = g.file_of(fp)
     if not path:
         return ["none"]
+    if path in g.mod_hits:                            # 095a R2: a module is code, nothing is compared
+        return ["mod-file", path] if g.mod_hits[path] == "hard" else ["none"]
     if tool == "NotebookEdit" or "notebook_path" in ti:
         return ["settings-shell", path]
     if not any(k in ti for k in ("content", "old_string", "new_string", "edits")):
