@@ -58,7 +58,7 @@
         ]
       },
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|AskUserQuestion",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|AskUserQuestion|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -67,7 +67,7 @@
         ]
       },
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*",
         "hooks": [
           {
             "type": "command",

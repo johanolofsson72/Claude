@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.
+
 - 2026-10-01 — rows 080 and 081 added from approved proposals F075/F076 (tech-lead review: developer-owned acceptance cases, context budget).
 - 2026-09-30 — 050 ticked: the hint lint works from allium 3.3.0; the hook flags an older CLI once, the skill teaches `-- see:` and names the F089 trigger.
 - 2026-09-30 — 049 ticked: --spec takes a register id at any status, so a held or ticked row's run log is writable again. Implicit failures name the flag.

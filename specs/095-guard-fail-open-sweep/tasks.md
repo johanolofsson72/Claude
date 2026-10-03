@@ -21,11 +21,11 @@
 - [x] T025 R5 acceptance_cases.py + spec-interview-guard announce
 - [x] T026 R6 guard-lib.sh
 - [x] T027 R11 update-template.sh
-- [!] T028 R4 matcher change shown to the developer; not on disk yet (run-log)
+- [x] T028 R4 matcher change applied by the developer with a ! command
 
 ## Phase 3 — verification
 - [x] T030 R12 headers and docs (humanizer pass)
-- [ ] T031 full template suite; mutation gate on changed modules (hard gate)
-- [ ] T032 adversarial review: security-scanner (assume exploitable), /security-review
-- [ ] T033 /tla on the git tree-write decision; Allium drift check
-- [ ] T034 findings closed; register tick, archive, commit, push
+- [x] T031 full template suite; mutation gate on changed modules (hard gate)
+- [x] T032 adversarial review: security-scanner (assume exploitable), /security-review
+- [x] T033 /tla on the git tree-write decision; Allium drift check
+- [x] T034 findings closed; register tick, archive, commit, push

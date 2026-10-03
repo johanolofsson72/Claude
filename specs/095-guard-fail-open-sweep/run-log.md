@@ -9,3 +9,4 @@ Append-only, deduped, capped. NOT pipeline input — read the tail, never the wh
 - 2026-10-03T08:26Z · specify · spec.md written
 - 2026-10-03T08:47Z · Adversarial review (security-scanner, code-read only): 10 shapes fixed with fixtures (#1-#10 in the guard self-tests); nested-program check limited to shells/eval after it flagged a heredoc to cat
 - 2026-10-03T09:15Z · allium:elicit · spec.allium written
+- 2026-10-03T09:33Z · R4 applied by the developer (! python one-liner); test-hook-channels 50/50; suite otherwise 93/94 green before it

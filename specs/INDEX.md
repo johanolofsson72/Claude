@@ -108,7 +108,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 093 — maintenance-reports-what-it-measured — spec-only — section 5 misreads the bash runner, a suite timeout reads as FAIL, the mutation budget is unknown to the nightly, SIGPIPE leaks, CDPATH-relative cd. F087 F109–F111 F113
 - [x] 094 — mutation-sandbox-isolation — spec-only — mutation copies keep the real HOME, so a mutant can fetch or push from the real template clone; plus suite section 14 reads permissionDecision without hookEventName. F117 F128
 - [x] H5 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 090–094.
-- [ ] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
+- [x] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
 - [ ] 096 — guard-notice-mod — light track — a Claude Code mod shows the developer guard fail-open notices and denies (today model-only, F144) and the register state (next row, checkpoint, maintenance due). — approved F148
 - [ ] 097 — prompt-audit-cleanup — spec-only — apply the Opus 5.5 prompt audit: CLAUDE.md self-contradictions, the stale wizard CLAUDE.md, two stop lists, ui-ux-pro-max path, language wording. — approved F149
 
@@ -121,4 +121,3 @@ Order of execution. Tick when done. Append new rows to the end.
 - 2026-10-02 — finding review decided 31: F078 fixed, F086 F088 F089 dropped, 27 folded into 089–093 (+ H4 after 089).
 - 2026-10-01 — added 088 guard-trust-anchors from the H3 checkpoint (approved F098).
 - 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).
-- 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.

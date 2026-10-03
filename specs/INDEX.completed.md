@@ -1365,3 +1365,11 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 094 — mutation-sandbox-isolation
 
 - [x] 094 — mutation-sandbox-isolation — spec-only — mutation copies keep the real HOME, so a mutant can fetch or push from the real template clone; plus suite section 14 reads permissionDecision without hookEventName. F117 F128
+
+## H5 — integration-hardening
+
+- [x] H5 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 090–094.
+
+## 095 — guard-fail-open-sweep
+
+- [x] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
