@@ -1377,3 +1377,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 095a — mod-loading-guard
 
 - [x] 095a — mod-loading-guard — full track [hardened] — a function-hooks mod answering classic.PreToolUse with allow skips every settings guard (proven 2026-10-03); refuse agent writes of plugin manifests, hooks.json and hooks modules in skills/plugin folders; verify interactive auto-load. — carved by 096 (d1)
+
+## 096 — guard-notice-mod
+
+- [x] 096 — guard-notice-mod — light track — a Claude Code mod shows the developer guard fail-open notices and denies (today model-only, F144) and the register state (next row, checkpoint, maintenance due). — approved F148
