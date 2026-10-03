@@ -33,6 +33,24 @@
 #   mcp__* tools          every string in the input, as a path and as a command (095 R3, F116); the
 #                         matcher in settings.json must list mcp__.* for this to run (R4)
 #
+# MODS (spec 095a). A plugin folder whose hooks/hooks.json names a module is a mod; a loaded one can
+# answer allow to any tool call before a settings hook runs, and its module runs code of its own. So
+# no agent tool writes a mod path (settings_guard.ModZones): a .claude-plugin component, a
+# hooks/hooks.json, anything in a folder holding either (anywhere, developer decision M1), anything
+# under a load root (<config>/plugins, <config>/dev-mods, <any>/.claude/plugins|dev-mods, each folder on
+# CLAUDE_CODE_PLUGIN_DIRS from the environment or any of the three settings files), the user's skills
+# root and its children, and a skill's hooks/ folder. A project's .claude/skills and its skill folders
+# are refused only to verbs that place a folder (cp, mv, ln, rsync, tar, git clone, find -exec …).
+# Git verbs compare every mod path in the index, the named revisions and the untracked files (M3).
+# The claude CLI's plugin subcommands other than list/validate, --plugin-dir, --plugin-url, --settings,
+# --setting-sources, and CLAUDE_CODE_PLUGIN_DIRS / CLAUDE_CONFIG_DIR / HOME set for claude, are writes.
+# The pre-check wakes on plugin, hooks, mods, skills, on any write-capable shell construct, on a
+# file_path or cwd inside a plugin folder, and on every call while CLAUDE_CODE_PLUGIN_DIRS is set.
+# Bounds (spec 095a threat model): a plugin-shaped folder staged outside every root and loaded later by
+# the developer, a folder the developer makes a plugin between an allowed check and the write landing
+# (/tla GAP-1, ModGuard.tla), a hard link made earlier, git filters and hooks, parallel calls racing a symlink, the
+# claude binary under another name, and a CLAUDE_CODE_PLUGIN_DIRS export in a shell startup file (F080).
+#
 # THE ROUTES THAT STAY OPEN (developer O3, O4). No override variable, no template exemption. The
 # developer edits the file by hand, or runs a command with the `!` prefix: that runs outside the
 # agent's tools, so no PreToolUse hook sees it. The SessionStart autosync wires project hooks as a hook
@@ -57,6 +75,23 @@ set -u
 
 INPUT=$(cat 2>/dev/null || true)   # mutant-equivalent: cat on a pipe does not fail; the || only guards a closed stdin
 [ -z "$INPUT" ] && exit 0
+
+# Spec 095a R6: is <path>, or a folder above it, a plugin folder (a .claude-plugin entry or a
+# hooks/hooks.json)? Past 64 levels it answers yes: the verdict decides, and it fails closed too.
+in_plugin_folder() {
+  local d=$1 n=0
+  while [ "$n" -lt 64 ]; do
+    if [ -e "$d/.claude-plugin" ] || [ -L "$d/.claude-plugin" ] || [ -e "$d/hooks/hooks.json" ]; then
+      return 0
+    fi
+    case "$d" in /|.|"") return 1 ;; esac
+    case "$d" in */*) d=${d%/*}; [ -n "$d" ] || d=/ ;; *) d=. ;; esac
+    n=$((n + 1))
+  done
+  return 0
+}
+
+has_non_ascii() { local LC_ALL=C; [[ $1 == *[$'\x80'-$'\xff']* ]]; }
 
 # Cheapest exit first: only the tool call is matched, from "tool_input" on, so the harness fields
 # (transcript_path, cwd) never wake the verdict.
@@ -95,6 +130,69 @@ else
         [ -f "$_s" ] && [ "$_fp" -ef "$_s" ] && { HIT=1; break; }
       done
     fi
+  fi
+  # Spec 095a R6: a mod path names no settings file. The mod words wake the verdict, and so does, in a
+  # command, any construct that can write (a write into a plugin folder outside every root names none).
+  shopt -s nocasematch
+  case "$N" in *plugin*|*hooks*|*mods*|*skills*) HIT=1 ;; esac
+  shopt -u nocasematch
+  _writer='(>|(^|[^A-Za-z0-9_.-]|\\[nt])(tee|cp|mv|ln|rm|sed|install|rsync|tar|unzip|patch|touch|dd|ditto|python[0-9.]*|node|perl|ruby|sh|bash|zsh|claude)([^A-Za-z0-9_.-]|$))'
+  case "$TI" in *\"command\"*) [[ $TI =~ $_writer ]] && HIT=1 ;; esac
+  # A folder on CLAUDE_CODE_PLUGIN_DIRS is a load root under any name: while one is set, every call
+  # goes to the verdict.
+  [ -n "${CLAUDE_CODE_PLUGIN_DIRS:-}" ] && HIT=1
+  if [ "$HIT" -eq 0 ]; then
+    _cfg="${CLAUDE_CONFIG_DIR:-${HOME:-/nonexistent}/.claude}"
+    for _s in "$_cfg/settings.json" "${CLAUDE_PROJECT_DIR:-.}/.claude/settings.json" "${CLAUDE_PROJECT_DIR:-.}/.claude/settings.local.json"; do
+      [ -f "$_s" ] && [[ $(<"$_s") == *CLAUDE_CODE_PLUGIN_DIRS* ]] && { HIT=1; break; }
+    done
+  fi
+  # A non-ASCII spelling (hookſ opens as hooks on APFS) slips past every wake word; the verdict
+  # casefolds it (adversarial review #4). Only the command and the path are read: prose in a Write's
+  # content is not a path.
+  if [ "$HIT" -eq 0 ]; then
+    case "$TI" in *\"command\"*) has_non_ascii "$TI" && HIT=1 ;; esac
+    [[ $TI =~ \"(file_path|notebook_path)\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && has_non_ascii "${BASH_REMATCH[2]}" && HIT=1
+  fi
+  # A write into an existing plugin folder outside every root by a program not on the writer list
+  # (curl -o, wget -O): every path-shaped word of a command is walked (adversarial review #3).
+  # The walk below resolves words against the payload cwd only, and cannot expand a variable: a command
+  # that moves (cd, pushd, -C) or holds any $ goes to the verdict, which follows both. A path with a JSON
+  # escape (a quote in a folder name cuts the match short) or a .. segment does too (/security-review).
+  if [ "$HIT" -eq 0 ]; then
+    case "$TI" in *\"command\"*)
+      _mv='(^|[^A-Za-z0-9_.-]|\\[nt])(cd|pushd)([[:space:]]|$)|[[:space:]]-C[[:space:]]'
+      case "$TI" in *'$'*) HIT=1 ;; esac
+      [[ $TI =~ $_mv ]] && HIT=1 ;;
+    esac
+    _pv='"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+    if [[ $TI =~ $_pv ]]; then
+      case "${BASH_REMATCH[2]}" in *\\*|*/..|*/../*|../*|..) HIT=1 ;; esac
+    fi
+  fi
+  if [ "$HIT" -eq 0 ]; then
+    case "$TI" in *\"command\"*)
+      _cwd=.
+      [[ $INPUT =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && _cwd="${BASH_REMATCH[1]}"
+      _n=0
+      set -f
+      for _t in ${N//[,:\{\}=\(\)\;\&\|\<\>]/ }; do
+        case "$_t" in */*) ;; *) continue ;; esac
+        _n=$((_n + 1))
+        [ "$_n" -gt 64 ] && { HIT=1; break; }
+        case "$_t" in "~"/*) _t="${HOME:-/nonexistent}${_t#\~}" ;; /*) ;; *) _t="$_cwd/$_t" ;; esac
+        in_plugin_folder "$_t" && { HIT=1; break; }
+      done
+      set +f ;;
+    esac
+  fi
+  if [ "$HIT" -eq 0 ]; then
+    _cands=()
+    [[ $TI =~ \"(file_path|notebook_path)\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && _cands+=("${BASH_REMATCH[2]}")
+    [[ $INPUT =~ \"cwd\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && _cands+=("${BASH_REMATCH[1]}")
+    for _c in ${_cands[@]+"${_cands[@]}"}; do
+      in_plugin_folder "$_c" && { HIT=1; break; }
+    done
   fi
 fi
 [ "$HIT" -eq 1 ] || exit 0
@@ -160,6 +258,17 @@ $ROUTES" ;;
 A git verb that writes the working tree (checkout, restore, switch, reset --hard, stash, clean, apply, am, merge, rebase, cherry-pick, revert, read-tree) is judged by the content it would leave. It passes when the settings files keep their hooks, env and other guarded keys, and is refused when they change or when git cannot answer. A pull from a configured remote is not judged.
 
 $ROUTES" ;;
+  mod-file|mod-bash|mod-git)
+    case "$KIND" in
+      mod-file) _how="this call writes" ;;
+      mod-bash) _how="this shell command writes, or may write," ;;
+      *)        _how="this git command would add, change or remove" ;;
+    esac
+    guard_deny "BLOCKED — ${_how} a Claude Code mod: ${TARGET}${KEYS:+ (${KEYS})} (spec 095a).
+
+A plugin folder whose hooks/hooks.json names a module is a mod. Once loaded, its function hook can allow any tool call past every hook, settings guards included, and its module runs code of its own. So no agent tool creates or changes one: not a file in a folder that holds .claude-plugin or hooks/hooks.json, not anything under ~/.claude/plugins, ~/.claude/dev-mods or a folder on CLAUDE_CODE_PLUGIN_DIRS, not a skill folder in ~/.claude/skills, not a skill's hooks/ folder. The claude CLI's plugin install, --plugin-dir and --settings count as writes too.
+
+Reading stays open: the Read tool, or cat / grep / ls in the shell. To install or change a mod, show the developer the files you want and ask them to put them in place in their editor or with a command they run with the \`!\` prefix (it runs outside the agent's tools). A mod staged under a name that does not load can be installed by a script the developer runs that way (row 096). There is no override." ;;
   crash)
     guard_deny "BLOCKED — settings-edit-guard crashed (python3 missing, or an error in scripts/settings_guard.py) on a call that names a settings file. It does not allow what it could not judge (spec 089). Its own files (scripts/settings-edit-guard-hook.sh, settings_guard.py, guard-lib.sh) stay editable with the Edit tool so it can be repaired." ;;
   *)

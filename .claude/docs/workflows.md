@@ -116,6 +116,10 @@ See `.claude/docs/skills.md` for LSP plugins (C#, TypeScript, PHP) and installat
 /plugin update <name>@<marketplace>                    # Update
 ```
 
+### Mods (function-hook plugins) are the developer's to install
+
+A mod is a plugin whose `hooks/hooks.json` names a module of function hooks (the `plugin-authoring` skill writes one). A loaded mod can allow a tool call past every settings hook, so `settings-edit-guard` refuses any agent write into a plugin folder, a load location or `~/.claude/skills/<name>`, and refuses `claude plugin install`, `--plugin-dir` and `--plugin-url` (spec 095a). The agent writes a mod's source under a name that does not load, with no `.claude-plugin/` and no `hooks/hooks.json`, and the developer installs it with a script they run with the `!` prefix. `/plugin install` typed by the developer is not an agent tool call and is unaffected. Details: `.claude/docs/security.md`.
+
 ## Hooks (deterministic rules)
 
 Consider Claude Code hooks (`.claude/settings.json`) for rules that MUST be followed without exception. Unlike CLAUDE.md instructions which are advisory, hooks are deterministic and guaranteed.

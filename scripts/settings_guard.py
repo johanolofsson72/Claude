@@ -12,6 +12,10 @@ Reads a PreToolUse payload on stdin and prints one line: a verdict word, then ta
     settings-bash <path>              a shell command that writes, or might write, a guarded file
     settings-git <path> <cause>       a git verb that would rewrite a guarded key, or that git
                                       cannot answer for (spec 095 R1)
+    mod-file <path>                   an Edit, Write or MCP write of a mod path (spec 095a R2, R5)
+    mod-bash <path or reason>         a shell command that writes a mod path, or the claude CLI
+                                      installing or loading a plugin (R3, R10)
+    mod-git <path> <cause>            a git verb that adds, changes or removes a mod file (R4)
     unparseable                       the payload is not a JSON object
 
 WHICH FILES (R1, developer O1). The three that this session and the next one load:
@@ -228,8 +232,8 @@ class Guarded:
     def absolute(self, p):
         return p if os.path.isabs(p) else os.path.join(self.cwd, p)
 
-    def file_of(self, p):
-        """The guarded file p is, or None."""
+    def file_of(self, p, mods=True):
+        """The guarded file p is, or None. mods: a mod path (spec 095a R1) counts too."""
         p = self.absolute(p)
         hit = self.file_keys.get(norm(p))
         if hit:
@@ -241,7 +245,7 @@ class Guarded:
                         return f
         except OSError:
             pass
-        return self.mod_of(p)
+        return self.mod_of(p) if mods else None
 
     def mod_of(self, p):
         """p (absolute) when it is a mod path (spec 095a R1), else None. The kind goes to mod_hits."""
@@ -255,7 +259,7 @@ class Guarded:
     def is_dir(self, p):
         return norm(self.absolute(p)) in self.dir_keys
 
-    def glob_hit(self, pattern):
+    def glob_hit(self, pattern, mods=True):
         """A guarded file or directory a glob pattern can match, or None."""
         pat = norm_pattern(self.absolute(pattern))
         for form in self.file_forms | self.dir_forms:
@@ -269,12 +273,12 @@ class Guarded:
                 return form
         try:
             for m in glob.glob(self.absolute(pattern)):
-                if self.file_of(m) or self.is_dir(m):
+                if self.file_of(m, mods) or self.is_dir(m):
                     return m
         except Exception:
             pass
         # A pattern that matches nothing yet still spells where it would write (095a TM-12).
-        return self.mod_of(pattern)
+        return self.mod_of(pattern) if mods else None
 
 
 # ----------------------------------------------------------------------------- the Edit route
@@ -441,7 +445,11 @@ def attach_heredocs(text):
                 if delim and cand == delim:      # no delimiter parsed: the rest of the text is the body
                     break
                 body.append(lines[i - 1])
-            words = [w for w in PATHISH.findall("\n".join(body)) if INTERESTING.search(w)]
+            # A body an interpreter runs is a program: every path in it is judged, so a write into a
+            # plugin folder by name only (no settings word) is seen (095a adversarial review #2).
+            runs = re.search(r"(^|[\s;&|(])(python[0-9.]*|node|perl|ruby|php|bash|sh|zsh|dash|ksh)\b",
+                             line[:m.start()])
+            words = [w for w in PATHISH.findall("\n".join(body)) if INTERESTING.search(w) or (runs and "/" in w)]
             if re.search(r"\bgit\b", "\n".join(body)):
                 words.append("\n".join(body))       # judged as a program of its own (095 adversarial #2)
             extra.append((m.end(), " ".join(shlex.quote(w) for w in words)))
@@ -496,6 +504,11 @@ def word_hit(word, g, bases, by_name, dots):
                     for b in bases:
                         if g.is_dir(os.path.join(b, head)):
                             return os.path.join(b, head)
+                # 095a TM-6: `$D/skills/x` cannot be resolved, so its literal tail decides, and so does
+                # its literal head: `~/.claude/skills/$n` and `~/.claude/$D/m` (adversarial review #1).
+                if mod_tail(w) or mod_head(w, g, bases):
+                    g.mod_hits[w] = "hard"
+                    return w
                 continue
             for b in bases:
                 p = os.path.join(b, w)
@@ -513,6 +526,63 @@ def word_hit(word, g, bases, by_name, dots):
                     if b == n or fnmatch.fnmatchcase(n, b):
                         return w
     return None
+
+
+MOD_WORDS = frozenset(("skills", "plugins", "dev-mods"))
+MOD_TEXT = re.compile(r"claude-plugin|hooks|skills|plugins|dev-mods")
+
+
+def mod_tail(w):
+    """Does the literal part after a word's last expansion spell a mod path or a load location?"""
+    tail = re.split(r"[$`]", w)[-1].partition("/")[2]  # the first component is the variable's own name
+    comps = [c.casefold() for c in tail.split("/") if c]
+    return (PLUGIN_MARK in comps or comps[-2:] == ["hooks", "hooks.json"]
+            or any(c in MOD_WORDS for c in comps))
+
+
+def mod_head(w, g, bases):
+    """Is the literal part before a word's first expansion a mod zone, or a .claude or config folder
+    whose unresolved child could be skills, plugins or dev-mods?"""
+    head = re.split(r"[$`]", w)[0]
+    if not head.endswith("/"):
+        head = head.rpartition("/")[0] + "/" if "/" in head else ""
+    if not head:
+        return False
+    for b in bases:
+        d = os.path.join(b, head).rstrip("/") or "/"
+        if g.mods.kind(os.path.join(d, "x")) == "hard":
+            return True
+        if os.path.basename(d).casefold() == ".claude" or norm(d) == norm(g.conf):
+            return True
+    return False
+
+
+def placing_target(words, i):
+    """095a TM-36..38: does words[i] name where a verb puts a folder? Only that writes a project skill
+    folder: the destination of cp, mv, ln, rsync, install, ditto, git clone/worktree/submodule; any path
+    of an extracting tar, unzip or cpio; any path of find with an action (adversarial review #9)."""
+    cw = command_word(words)
+    if not cw:
+        return False
+    at = words.index(cw)
+    base = cw.rpartition("/")[2]
+    args = words[at + 1:]
+    positional = [k for k in range(at + 1, len(words)) if not words[k].startswith("-")]
+    if base == "git":
+        return any(w in ("clone", "worktree", "submodule") for w in args) and i == positional[-1]
+    if base in ("find", "fd"):
+        return any(w in ("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fls") or w.startswith("-fprint")
+                   for w in args)
+    if base in ("tar", "bsdtar", "gtar"):
+        first = args[0] if args else ""
+        return any(w in ("-x", "--extract", "--get") or (w.startswith("-") and not w.startswith("--") and "x" in w)
+                   for w in args) or (bool(first) and not first.startswith("-") and "x" in first)
+    if base in ("unzip", "cpio"):
+        return True
+    if base in PLACING:
+        return (i > 0 and words[i - 1] in ("-t", "--target-directory")) \
+            or words[i].startswith("--target-directory=") or (bool(positional) and i == positional[-1])
+    return False
 
 
 DIR_OPTIONS = ("-C", "--work-tree", "--directory", "--git-dir")
@@ -810,7 +880,7 @@ def run_git(where, *args):
 
 
 class Repo:
-    def __init__(self, where, g):
+    def __init__(self, where, g, args=()):
         rc, out = run_git(where, "rev-parse", "--show-toplevel")
         if rc != 0:
             self.top = None                           # not a repository: the verb writes nothing
@@ -826,12 +896,52 @@ class Repo:
                 self.files[rel] = f
         self._revs = {}
         self._tracked = {}
+        self.mod_rels = set()
+        self._add_mods(g, args)
+
+    def _add_mods(self, g, args):
+        """Spec 095a R4: every mod path git could write here joins the compared files. The candidates are
+        the index, each revision the arguments name (plus HEAD, @{-1}, @{upstream} and the stashes), and
+        the untracked files; any difference between a candidate's current and after content is a write."""
+        names = set()
+        for listing in (("ls-files", "-z"), ("ls-files", "-z", "--others", "--exclude-standard")):
+            rc, out = run_git(self.top, *listing)
+            if rc != 0:
+                raise GitUnknown("git could not list the files")
+            names.update(x for x in out.decode("utf-8", "replace").split("\0") if x)
+        revs = ["HEAD", "@{-1}", "@{upstream}"]
+        for a in args:
+            a = a.split("=", 1)[1] if a.startswith("-") and "=" in a else a
+            if a and not a.startswith("-"):
+                revs += [x for x in re.split(r"\.\.\.?", a) if x]
+        rc, out = run_git(self.top, "stash", "list", "--format=%H")
+        if rc == 0:
+            for h in out.decode().split():
+                revs += [h, h + "^3"]
+        for r in revs:
+            c = self.rev(r)
+            if c is None:
+                continue
+            rc, out = run_git(self.top, "ls-tree", "-r", "-z", "--name-only", c)
+            if rc != 0:
+                raise GitUnknown("git could not list " + r)
+            names.update(x for x in out.decode("utf-8", "replace").split("\0") if x)
+        for rel in names:
+            full = os.path.join(self.top, rel)
+            if rel not in self.files and g.mod_of(full) and g.mod_hits.get(full) == "hard":
+                self.files[rel] = full
+                self.mod_rels.add(rel)
 
     def rev(self, r):
-        """The commit r names, or None when it names none. Any other failure raises."""
+        """The commit r names, else the tree (`git write-tree` output, 095a TM-24), or None when it names
+        neither. Any other failure raises."""
         if r not in self._revs:
-            rc, out = run_git(self.top, "rev-parse", "--verify", "--quiet", "--end-of-options", r + "^{commit}")
-            self._revs[r] = out.decode().strip() if rc == 0 and out.strip() else None
+            self._revs[r] = None
+            for peel in ("^{commit}", "^{tree}"):
+                rc, out = run_git(self.top, "rev-parse", "--verify", "--quiet", "--end-of-options", r + peel)
+                if rc == 0 and out.strip():
+                    self._revs[r] = out.decode().strip()
+                    break
         return self._revs[r]
 
     def blob(self, spec):
@@ -862,7 +972,9 @@ class Repo:
 
     def current(self, rel):
         try:
-            with open(self.files[rel], "r", encoding="utf-8", newline="") as fh:
+            # A mod file is compared as text whatever its bytes, the way blob() reads git's side.
+            errors = "replace" if rel in self.mod_rels else "strict"
+            with open(self.files[rel], "r", encoding="utf-8", errors=errors, newline="") as fh:
                 return fh.read()
         except FileNotFoundError:
             return MISSING
@@ -985,8 +1097,12 @@ def judge_tree_write(verb, args, where, g):
             for n in names:
                 if n.rpartition("/")[2].lower() in SETTINGS_NAMES:
                     return (n, "patches a settings file")
+                for m in (n, n.partition("/")[2]):    # a/… and b/… prefixes, or none (-p0)
+                    full = os.path.join(where, m)
+                    if m and g.mod_of(full) and g.mod_hits.get(full) == "hard":
+                        return (full, "patches a mod file")
         return None
-    repo = Repo(where, g)
+    repo = Repo(where, g, args)
     if repo.top is None or not repo.files:
         return None
     try:
@@ -994,6 +1110,10 @@ def judge_tree_write(verb, args, where, g):
     except NoSuchRev:
         return None
     for rel, before, after in pairs:
+        if rel in repo.mod_rels:                      # 095a R4: a module is code, any change is a write
+            if before != after:
+                return (repo.files[rel], "adds, changes or removes a mod file")
+            continue
         cause = compare(before, after)
         if cause:
             return (repo.files[rel], cause)
@@ -1280,6 +1400,54 @@ def git_args(words):
     return None
 
 
+# Spec 095a R10. The claude CLI writes plugin folders and load lists itself, so `claude plugin install`
+# names no mod path while it installs one, and `--plugin-dir` loads a folder for a child session.
+CLAUDE_LOAD_FLAGS = ("--plugin-dir", "--plugin-url", "--settings", "--setting-sources")
+CLAUDE_LOAD_ENV = frozenset(("CLAUDE_CODE_PLUGIN_DIRS", "CLAUDE_CONFIG_DIR", "HOME", "XDG_CONFIG_HOME"))
+CLAUDE_PLUGIN_READS = frozenset(("list", "validate"))
+ASSIGNERS = frozenset("export declare typeset readonly local env".split())
+CLAUDE_WRAPPERS = GIT_WRAPPERS | frozenset(("arch", "doas", "script", "unbuffer", "watch"))
+
+
+def is_claude(w):
+    return w.rpartition("/")[2] == "claude" or "/claude/versions/" in w
+
+
+def claude_cli_verdict(words):
+    """A reason when the simple command loads or installs a plugin through the claude CLI, or sets
+    CLAUDE_CODE_PLUGIN_DIRS; else None."""
+    cw = command_word(words)
+    if not cw:
+        return None
+    lead = words[:words.index(cw)]
+    if any(w.split("=", 1)[0] == "CLAUDE_CODE_PLUGIN_DIRS" for w in lead):
+        return "sets CLAUDE_CODE_PLUGIN_DIRS"
+    i = words.index(cw)
+    if cw.rpartition("/")[2] in ASSIGNERS and any(
+            w.split("=", 1)[0] == "CLAUDE_CODE_PLUGIN_DIRS" for w in words[i + 1:]):
+        return "sets CLAUDE_CODE_PLUGIN_DIRS"
+    if not is_claude(cw):
+        # env FOO=1 claude …, env -u FOO claude …, sudo -u u claude …: behind a wrapper, the first word
+        # that is the binary, whatever option values come between (adversarial review #6).
+        if cw.rpartition("/")[2] not in CLAUDE_WRAPPERS:
+            return None
+        i = next((k for k in range(i + 1, len(words)) if is_claude(words[k])), len(words))
+    if i >= len(words):
+        return None
+    if any(w.split("=", 1)[0] in CLAUDE_LOAD_ENV for w in words[:i] if NAME_ASSIGN.match(w)):
+        return "points claude at another configuration"
+    args = words[i + 1:]
+    for a in args:
+        if any(a == f or a.startswith(f + "=") for f in CLAUDE_LOAD_FLAGS):
+            return "loads settings or a plugin folder (" + a.split("=", 1)[0] + ")"
+    for k, a in enumerate(args):
+        if a in ("plugin", "plugins"):
+            sub = next((x for x in args[k + 1:] if not x.startswith("-")), "")
+            if sub not in CLAUDE_PLUGIN_READS:
+                return "runs claude plugin " + (sub or "with no subcommand")
+    return None
+
+
 def git_verb(words, g, bases):
     """(verb, args) for one git command, an alias resolved once (a one-shot `-c alias.x=…` first). A
     shell alias is "!alias"."""
@@ -1323,11 +1491,13 @@ def git_tree_verdict(words, verb, rest, g, bases, lost):
         raise GitUnknown("a directory this guard cannot follow")
     args = git_args(words)
     for base in bases:
-        where, _ = _where(args, g, base)
+        where, at = _where(args, g, base)
         if not os.path.isdir(where):
             continue
+        if verb == "pull" and any(a in ("-c", "--config-env") or a.startswith("--config-env=") for a in args[:at]):
+            raise GitUnknown("a pull with configuration on the command line (url.*.insteadOf)")
         if verb in TREE_UNMODELLED:
-            repo = Repo(where, g)
+            repo = Repo(where, g, rest)
             if repo.top and repo.files:
                 raise GitUnknown("git " + verb + " is not modelled by this guard")
             continue
@@ -1345,11 +1515,17 @@ def judge_pull(args, where, g):
     branch` is a merge of a local branch; a pull from a path or URL is not origin (threat model)."""
     valued = {"-s", "-X", "--strategy", "--strategy-option", "--depth", "--upload-pack", "-j", "--jobs"}
     _, ops, _ = split_args(without_values(args, valued))
-    if not ops:
-        return None
     rc, out = run_git(where, "remote")
     remotes = set(out.decode("utf-8", "replace").split()) if rc == 0 else set()
-    if ops[0] in remotes:
+    if not ops or ops[0] in remotes:
+        # 095a TM-14: `git remote set-url origin /tmp/evil && git pull` is a pull from a path. The URL is
+        # read after insteadOf; a local path, file:// or ext:: is not the shared history.
+        rc, out = run_git(where, "ls-remote", "--get-url", *ops[:1])
+        url = out.decode("utf-8", "replace").strip() if rc == 0 else ""
+        if not url and not ops:
+            return None                               # no remote at all: git pull refuses
+        if not url or url.startswith(("/", ".", "~", "file:", "ext::")) or not re.search(r"[:@]", url):
+            raise GitUnknown("a pull from a remote whose URL is a local path")
         return None
     if ops[0] == ".":
         return judge_tree_write("merge", ops[1:] or ["HEAD"], where, g)
@@ -1380,13 +1556,19 @@ def _bash_verdict(cmd, g, strip):
     cmds = split_commands(text, strip)
     if cmds is None:
         low = cmd.lower()
-        return ["settings-bash", "an unbalanced quote"] if ("settings" in low or ".claude" in low) else ["none"]
+        if "settings" in low or ".claude" in low:
+            return ["settings-bash", "an unbalanced quote"]
+        return ["mod-bash", "an unbalanced quote"] if MOD_TEXT.search(low) else ["none"]
     bases = [g.cwd]
-    by_name = dots = lost = False
+    by_name = dots = lost = lost_mod = False
     for d in dir_targets(cmds):
         d = expand_vars(d, g)
         if "$" in d or "`" in d or GLOBCH.search(d):
             by_name = dots = lost = True              # somewhere this text cannot follow
+            # 095a TM-6: a lost directory that spells a mod location (`cd $X/skills`, `cd ~/.claude/${D}ugins`).
+            # Only the target's own text counts: `cd "$(git rev-parse --show-toplevel)" && bash
+            # scripts/validate-hooks.sh` is ordinary (adversarial review #8).
+            lost_mod = lost_mod or bool(re.search(r"(?i)\.claude|skills|plugin|hooks|mods", d))
             continue
         for b in list(bases):
             full = os.path.join(b, d)
@@ -1398,14 +1580,26 @@ def _bash_verdict(cmd, g, strip):
         if cw and cw.rpartition("/")[2] in TREE_COMMANDS:
             by_name = True
     tainted = prelude_taints(cmds, text)
+    # 095a TM-5: in a mod zone (the payload cwd, a cd or -C target) a write names no path at all:
+    # `cd ~/.claude/skills && git clone URL`, `tar xf m.tar`.
+    mod_base = next((b for b in bases if not GLOBCH.search(b) and g.mods.kind(g.absolute(b)) == "hard"), None)
     for words, targets, in_subst in cmds:
+        why = claude_cli_verdict(words)
+        if why:
+            return ["mod-bash", "the claude CLI " + why]
         for t in targets:
             hit = word_hit(t, g, bases, by_name, dots)
-            if hit:
+            if hit and g.mod_hits.get(hit) != "soft":
                 return ["settings-bash", hit]
+        if (mod_base or lost_mod) and words and not reads(words) \
+                and (command_word(words) or "").rpartition("/")[2] not in ("cd", "pushd", "popd"):
+            return ["mod-bash", mod_base or "a directory this guard cannot follow, in a command naming a mod location"]
         pats = pattern_indices(words) if not dots else set()
         naming = [(i, word_hit(w, g, bases, by_name and i not in pats, dots)) for i, w in enumerate(words)]
-        naming = [(i, h) for i, h in naming if h]
+        # A cd into a mod zone writes nothing; what runs there is judged by mod_base above.
+        moves = (command_word(words) or "").rpartition("/")[2] in ("cd", "pushd")
+        naming = [(i, h) for i, h in naming if h and not (moves and h in g.mod_hits)
+                  and (g.mod_hits.get(h) != "soft" or placing_target(words, i))]
         if not naming:
             continue
         if not reads(words) or in_subst or tainted:
@@ -1425,7 +1619,7 @@ def _bash_verdict(cmd, g, strip):
             if (command_word(words) or "").rpartition("/")[2] not in PROGRAM_RUNNERS:
                 continue
             for w in words[1:]:
-                if re.search(r"\s", w) and re.search(r"\bgit\b", w):
+                if re.search(r"\s", w) and re.search(r"\b(git|claude)\b", w):
                     g.depth += 1
                     try:
                         v = bash_verdict(w, g)
@@ -1543,9 +1737,13 @@ def mcp_verdict(tool, ti, g, raw):
     paths, commands = found
     for p in paths:
         p = expand_vars(p, g)
-        hit = g.file_of(p) or (p if g.is_dir(p.rstrip("/") or "/") else None) or \
-            (g.glob_hit(p) if GLOBCH.search(p) else None)
-        if hit:
+        # 095a TM-31: prose that mentions a plugin file is no path; a spaced string that exists, or whose
+        # folder does, is one: "/Users/x/Dev Stuff/plug/mod.ts" (adversarial review #5).
+        mods = not re.search(r"\s", p) or (os.path.isabs(p) and (
+            os.path.lexists(p) or os.path.isdir(os.path.dirname(p))))
+        hit = g.file_of(p, mods) or (p if g.is_dir(p.rstrip("/") or "/") else None) or \
+            (g.glob_hit(p, mods) if GLOBCH.search(p) else None)
+        if hit and g.mod_hits.get(hit) != "soft":
             return ["settings-shell", hit]
     for s in commands:
         v = bash_verdict(s, g)
@@ -1579,7 +1777,17 @@ def main():
         v = bash_verdict(cmd if isinstance(cmd, str) else "", g)
     else:
         v = edit_verdict(tool, ti, g)
-    print("\t".join(v))
+    print("\t".join(mod_kind(v, g)))
+
+
+MOD_KINDS = {"settings-shell": "mod-file", "settings-bash": "mod-bash", "settings-git": "mod-git"}
+
+
+def mod_kind(v, g):
+    """A settings verdict whose target is a mod path takes the mod word, so the hook says why (095a R7)."""
+    if v[0] in MOD_KINDS and len(v) > 1 and v[1] in g.mod_hits:
+        return [MOD_KINDS[v[0]]] + v[1:]
+    return v
 
 
 if __name__ == "__main__":

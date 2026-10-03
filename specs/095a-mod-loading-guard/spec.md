@@ -200,6 +200,9 @@ treats `hookſ` (U+017F) as `hooks`.
   that names a mod path", not "no plugin folder can exist".
 - 10: deleting an ancestor of a plugin folder outside the roots. It removes a mod, it cannot add one.
 - 20: parallel calls racing a symlink swap; the 089 GAP-1 class.
+- TLA+ GAP-1 (`ModGuard.tla`, developer: defer): a write allowed while its folder holds no marker lands
+  after the developer makes the folder a plugin. Holds with a write-time recheck (`MarkerRecheck`),
+  which no harness hook offers. Only the developer can create a marker. F165.
 - 28: git filters and hooks writing after an allowed checkout; command text only.
 - 35: `~user` and other rare spellings.
 - 40: wake words cost latency on many commands.
@@ -209,3 +212,27 @@ treats `hookſ` (U+017F) as `hooks`.
 ### Already covered by the design
 
 2, 4, 11 (probed), 13, 17, 19, 22, 23, 27, 30, 33, 34, 41.
+
+## Adversarial review (2026-10-03)
+
+`security-scanner` in "assume exploitable" mode (read only, nothing observed) and `/security-review`
+(two payloads observed against the real judges). Every item was confirmed against
+`settings_guard.py` and the hook before it was fixed; each fix has an arm in `[095a adversarial
+review]` or `[095a /security-review]`.
+
+| # | Shape | Disposition |
+|---|---|---|
+| 1 | an unresolved name under a load or skills root (`~/.claude/skills/$n`, `~/.claude/$D/m`) | fixed: `mod_head` judges the literal head |
+| 2 | an interpreter heredoc body writing into a plugin folder by path only | fixed: every path word of a body that python, node, a shell … runs is judged |
+| 3 | `curl -o` into an existing plugin folder: the verdict denied, the pre-check never woke | fixed: every path-shaped word of a command is walked |
+| 4 | a `ſ` spelling with no wake word | fixed: non-ASCII in a command or a path wakes the verdict |
+| 5 | an MCP path with a space | fixed: a spaced string that exists, or whose folder does, is a path |
+| 6 | `env -u FOO claude …`, `sudo -u u claude …` | fixed: behind a wrapper, the first word that is the binary |
+| 7 | a commit-message heredoc naming a mod (claimed false positive) | dismissed: observed `none` |
+| 8 | a lost `cd` plus `hooks` anywhere in the text denied ordinary scripts | fixed: only the lost target's own text counts |
+| 9 | copying or archiving a project skill out was denied | fixed: `placing_target` counts only where the verb puts a folder |
+| SR-1 | `cd <dir> && curl -o <rel>`, `"$HOME"/…`: pre-check fail-open | fixed: any `$`, `cd`, `pushd`, `-C` in a command wakes the verdict; an unknown variable stays the 089 bound (F162) |
+| SR-2 | a `"` in a folder name cut the pre-check's path match | fixed: a path with a JSON escape or a `..` segment wakes the verdict |
+
+Recorded, not fixed here: F162 (unknown-variable paths), F163 (child claude under another name or
+`--bare`), F164 (prose quoting a mod path is denied, like settings paths since 089).
