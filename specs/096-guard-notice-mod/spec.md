@@ -93,8 +93,6 @@ script answers).
 | maintenance parse | two due, none due ("nothing"), garbage, empty, non-zero exit | 5 |
 | installer | fresh install, re-install over own folder, foreign folder refused, uninstall own, uninstall foreign refused, `--target` with a space, missing staged file | 7 |
 | R6 refusal | `bash scripts/install-…-mod.sh`, `./scripts/…`, `sh …`, behind `env`; a `cat` of it is a read | 5 |
-</content>
-</invoke>
 
 ## Clarifications
 

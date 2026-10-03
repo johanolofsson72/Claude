@@ -50,4 +50,4 @@ Editing production code for a multi-file feature without `/speckit-specify`. Ski
 
 ## When to stop
 
-Only for genuine ambiguity (`AskUserQuestion`), a hard blocker outside your control, or Allium/TLA+ findings. Otherwise keep going.
+Only at a legitimate stop (`.claude/rules/continuous-execution.md` lists them). Otherwise keep going.

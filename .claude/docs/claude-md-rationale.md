@@ -127,7 +127,7 @@ If tests cannot be run (missing infrastructure), say so explicitly.
 - Use `/clear` between unrelated tasks — never mix unrelated tasks in the same session.
 - Use `/compact <focus>` for controlled compaction, e.g., `/compact Focus on the API changes`.
 - Break down large tasks into discrete subtasks — never request 5+ features in one step.
-- After 2 failed fixes of the same problem: `/clear` and write a better prompt from scratch.
+- Repeated failure is one rule, in Execution mode: max 3 attempts per problem (`repeat-failure-guard-hook.sh`, `ATTEMPT_LIMIT=3`), then `/clear` and a different strategy. Until spec 097 this section also said "after 2 failed fixes", which contradicted it.
 
 ### Commands
 

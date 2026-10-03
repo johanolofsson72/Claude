@@ -90,5 +90,3 @@ side.
 **A (auto):** `<config>/skills/guard-notice`: measured to load in 2.1.288 with no flag and documented in
 the plugin reference. `--target` for a folder the developer loads with `--plugin-dir` or
 `CLAUDE_CODE_PLUGIN_DIRS` instead.
-</content>
-</invoke>

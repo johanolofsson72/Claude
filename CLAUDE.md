@@ -25,7 +25,7 @@ Long form (the reasoning behind each line below): `.claude/docs/claude-md-ration
 - **Max 3 attempts per problem**, then `/clear` and try a different strategy. `scripts/repeat-failure-guard-hook.sh` enforces this.
 - **Anti-stall:** with no clear task, pick the most likely one and act.
 - **Hook feedback:** acknowledge it, handle it (fix it, or explain why it does not apply), and keep working. Never stop silently.
-- **Larger features:** interview the developer (`AskUserQuestion`), then write a spec before coding.
+- **Larger features:** a spec first, with its interview (AUTO by default, `.claude/rules/spec-interview.md`).
 
 ## Priority order
 
@@ -37,7 +37,7 @@ A **template repo for Claude Code configuration**: rules, agents, hooks and skil
 
 ## Language
 
-Conversation, commits and docs in **English**. Code, identifiers and comments in **English**.
+Conversation, commits and docs in **English**. Code, identifiers and comments in **English**. Source: `language` in `.claude/settings.json`.
 
 ## Tech stack
 
@@ -53,7 +53,7 @@ Docker Swarm on Azure (live4.se). → `.claude/docs/deployment.md`
 
 ## Workflow
 
-Trivial (one file, obvious) → do it. Medium (2–5 files) → brief plan, then do it. Complex → explore and plan first.
+Trivial (one file, obvious; say so) → do it. Anything else → the pipeline (`.claude/rules/feature-pipeline.md`).
 Explore → Plan → Implement → Verify (all tests) → Commit `<type>: <description>` (→ `.claude/docs/git.md`).
 
 ## Definition of "implemented"
@@ -75,7 +75,6 @@ If tests cannot be run, say so explicitly.
 
 - On compaction, keep the modified files, verbatim error messages, debugging steps and test commands.
 - Use subagents for exploration. `/clear` between unrelated tasks. `/compact <focus>` for controlled compaction.
-- After 2 failed fixes of the same problem: `/clear` and write a better prompt.
 
 ## Commands
 

@@ -535,7 +535,7 @@ verifying compliance with these principles.
 
 If `CLAUDE.md` already exists, use the Edit tool to surgically update the `<!-- PROJECT-SPECIFIC -->` or `# PROJECT-SPECIFIC` section. Do NOT overwrite the rest of the file.
 
-If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established pattern from the user's other projects. Use the hireflow CLAUDE.md as the reference template — it is the most up-to-date version. The structure MUST include ALL of these sections:
+If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established pattern from the user's other projects. The reference is this template repository's own `CLAUDE.md` (Phase -1's sync brought it in; else https://raw.githubusercontent.com/johanolofsson72/Claude/main/CLAUDE.md). Where it and the skeleton below differ, the template's `CLAUDE.md` wins for every section outside `# PROJECT-SPECIFIC`. The skeleton has these sections:
 
 > **STACK-AWARE TESTING (READ THIS BEFORE FILLING THE TEMPLATE BELOW).** The template below is written for a web/.NET project where "tests" = Playwright browser tests + `dotnet test`. If the frontend answer (Q13) or the native-mobile answer (Q22) makes this a **native mobile** project — **React Native / Expo OR Flutter** — a browser does not exist, so Playwright/browser-test wording is wrong and will produce a project that can never satisfy its own Definition of Done. In that case, everywhere the template says "browser tests / Playwright" you MUST substitute the native equivalents for the chosen framework:
 > - **React Native / Expo:** Maestro flows (E2E) + React Native Testing Library (component) on the `jest-expo` runner. Commands: `npx tsc --noEmit`, `npm test`, `maestro test .maestro/`.
@@ -556,39 +556,44 @@ If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established 
 
 ## Critical rules (READ FIRST)
 
-- **ALWAYS** read the code first — base ALL conclusions on evidence from the codebase, not assumptions.
-- **ALWAYS** verify with [BUILD COMMAND] and [TEST COMMAND] before claiming anything is "done".
-- **ALWAYS** use the Edit tool for surgical changes — never copy entire files.
-- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, or React Native / Flutter widgets — design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** follow existing patterns in the codebase — look at similar components first.
-- **ALWAYS** test **100% of implemented functions** in [browser tests (Playwright) | Maestro flows + React Native Testing Library — pick per the stack-aware note above]. [Adapt testing rules based on interview answers about testing strategy]
+**(BLOCKING)** rules are enforced by hooks and by the Definition of Done. The rest are strong defaults.
+
+- Read the code first. Base conclusions on evidence, and read the relevant files before answering about the codebase.
+- Use Edit for surgical changes. Follow existing patterns. Verify with [BUILD COMMAND] + [TEST COMMAND] before claiming done.
+- **(BLOCKING)** Non-trivial work runs the full pipeline as one task, with no permission stops between phases. → `.claude/rules/feature-pipeline.md`
+- **(BLOCKING)** Every spec gets a 15–25 question interview in `<spec-dir>/interview.md` before `clarify`, AUTO-answered by default. → `.claude/rules/spec-interview.md`
+- **(BLOCKING)** Before feature work, consult `specs/INDEX.md` and work the next unchecked spec end to end. → `.claude/rules/spec-register.md`
+- **(BLOCKING)** A finding is recorded, not rowed (`scripts/finding.sh --add`). → `.claude/rules/carve-budget.md`
+- **(BLOCKING)** Keep the scenario map `specs/SCENARIOS.md` current; a gap starts a scenario interview. → `.claude/rules/scenarios.md`
+- **(BLOCKING)** Invoke the `frontend-design` skill before writing any UI code (HTML, CSS, JS, React Native or Flutter widgets).
+- **(BLOCKING)** Run generated human-facing text (docs, commits, PRs, email, README) through the `humanizer` skill.
+- **(BLOCKING)** Test 100% of implemented functions in [browser tests (Playwright) | Maestro flows + React Native Testing Library — pick per the stack-aware note above], with a destructive suite sized per function. [Adapt testing rules based on interview answers about testing strategy]
 
 ## Execution mode
 
-### Autonomous mode (NON-INTERACTIVE)
+### Autonomous mode
 
 - Act immediately without waiting for confirmation.
 - Missing information is not a blocker — make reasonable assumptions and continue.
 - Errors should be handled and fixed independently.
-- Questions are allowed ONLY for architecture decisions or requirement interpretations that cannot reasonably be assumed.
+- Ask only about architecture or requirement interpretations that cannot reasonably be assumed.
 - **Max 3 attempts per problem** — if the same approach fails 3 times, run `/clear` and try a completely different strategy with a better prompt.
 
 ### Anti-stall rule
 
-If no clear task is found — pick the most likely task and act. Stagnation is treated as failure.
+With no clear task, pick the most likely one and act.
 
 ### Hook recovery rule
 
-When a hook stops continuation or provides feedback: acknowledge the feedback, handle it (fix the issue OR explain why it's not applicable), and **continue working autonomously**. Never stop and wait silently after hook feedback — that is treated as stalling.
+When a hook stops continuation or gives feedback: acknowledge it, handle it (fix it, or explain why it does not apply), and keep working. Never stop silently.
 
 ### Interview pattern
 
-For larger features: interview the developer with `AskUserQuestion` before implementation. Ask about technical implementation, edge cases, and tradeoffs. Then write a spec before coding begins.
+Larger features get a spec before coding, with its interview (AUTO by default; the developer answers only escalated and overflow questions, `.claude/rules/spec-interview.md`).
 
 ## Priority order
 
-1. **Security** — never compromise
+1. **Security**
 2. **Correctness** — the code must do the right thing
 3. **Simplicity** — minimum necessary complexity
 4. **Readability** — clear code over clever code
@@ -610,7 +615,7 @@ Core flow: **[primary user flow from interview]**
 - [Problem 3]
 - Build for real-world use, not theoretical perfection
 
-### Design principles (non-negotiable)
+### Design principles
 
 1. **[Principle 1]** — [one-line summary from constitution]
 2. **[Principle 2]** — [one-line summary]
@@ -643,9 +648,8 @@ Core flow: **[primary user flow from interview]**
 
 ### Complexity assessment
 
-- **Trivial** (one file, obvious fix) → execute immediately
-- **Medium** (2-5 files, clear scope) → brief planning, then execute
-- **Complex** (architecture impact, unclear requirements) → full exploration and plan first
+- **Trivial** (one file, obvious fix) → do it, and say so in the first sentence
+- **Anything that touches 2+ files, adds a function or changes behaviour** → the pipeline (`.claude/rules/feature-pipeline.md`), which explores and plans first
 
 ### Plan → Implement → Verify
 
@@ -659,13 +663,13 @@ Core flow: **[primary user flow from interview]**
 
 > Giving Claude ways to verify its own work is the single most important measure for quality. — Anthropic Best Practices
 
-- **IMPORTANT:** ALWAYS read relevant files BEFORE answering about the codebase. NEVER guess.
+- Read the relevant files before answering about the codebase.
 - Run tests after every implementation.
 - Run individual tests over the full suite for faster feedback.
 
 ### Definition of "implemented"
 
-NEVER say something is "implemented" or "done" until:
+Never say something is "implemented" or "done" until:
 
 1. This spec's scenarios are in `specs/SCENARIOS.md` and marked `✓ validated` — observed actually working at runtime (real behaviour, not a stub), all four states proven: success, a specific visible error message (never silent), empty, loading. Validate prerequisite scenarios first; a broken prerequisite is a hard stop. A gap starts a scenario interview (`.claude/rules/scenarios.md`).
 2. **Unit + integration tests** pass (`[TEST COMMAND]`) — both layers; integration is where AI code most often breaks. **Property-based tests** for wide-input logic.
@@ -680,12 +684,11 @@ If tests cannot be run (missing infrastructure), clearly inform about this.
 
 ## Context management
 
-- During compaction: ALWAYS preserve modified files, error messages verbatim, debugging steps, and test commands.
+- On compaction, keep the modified files, verbatim error messages, debugging steps and test commands.
 - Use subagents for exploration and research — keep the main context clean.
 - Use `/clear` between unrelated tasks.
 - Use `/compact <focus>` for controlled compaction.
 - Break down large tasks into discrete subtasks.
-- After 2 failed fixes of the same problem: `/clear` and write a better prompt from scratch.
 
 ## Commands
 
@@ -714,7 +717,7 @@ Adapt these based on the chosen tech stack:
 
 ## Reference files (loaded on demand)
 
-Read these files WHEN you need them — do not load everything upfront:
+Read these when you need them, never all upfront:
 
 - **New project start** or architecture questions → `.claude/docs/project-template.md`
 - **Code style, naming, forbidden patterns** → `.claude/docs/conventions.md`
@@ -878,7 +881,7 @@ Before delivering any UI code, verify:
 If the `ui-ux-pro-max` skill is available, also run the design system generator to get data-driven recommendations:
 
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "[product type] [industry] [style keywords from Q25]" --design-system --persist -p "[Project Name]"
+python3 .claude/skills/ui-ux-pro-max/scripts/search.py "[product type] [industry] [style keywords from Q25]" --design-system --persist -p "[Project Name]"
 ```
 
 Merge its output into the MASTER.md, using the interview answers as overrides where they conflict with the automated recommendations.
@@ -1218,7 +1221,7 @@ The project DNA is now in place. Every Claude session in this project will know 
 9. If the project idea is fundamentally flawed, say so diplomatically and suggest pivots.
 10. Track all answers internally so nothing is lost between conversation turns.
 11. The constitution is the most important output. Each principle must be concrete, actionable, and use MUST/SHOULD/MAY language. Vague principles like "write clean code" are worthless — be specific.
-12. CLAUDE.md must match the user's established patterns. The hireflow CLAUDE.md is the gold standard reference.
+12. CLAUDE.md must match this template repository's own `CLAUDE.md`, which is the reference (Phase 3B).
 13. If `CLAUDE.md` already exists, use the Edit tool to surgically update only the project-specific section. Do NOT overwrite the rest of the file.
 14. The constitution version always starts at 1.0.0 for a new project.
 15. All dates in generated files must use the actual current date, not placeholders.
