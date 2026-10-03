@@ -1,6 +1,7 @@
 {
   "name": "guard-notice",
   "version": "0.1.0",
+  "author": { "name": "Johan Olofsson" },
   "description": "Shows this template's guard denies and fail-open notices as toasts, and the spec register's next row above the prompt",
   "types": "./types/index.d.ts"
 }
