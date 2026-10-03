@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-10-01 — added 088 guard-trust-anchors from the H3 checkpoint (approved F098).
+
 - 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).
 
 - 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.
