@@ -110,7 +110,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] H5 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 090–094.
 - [x] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
 - [x] 095a — mod-loading-guard — full track [hardened] — settings guard refuses agent writes of Claude Code mods on every route (long form: INDEX.completed.md) — carved by 096 (d1)
-- [ ] 096 — guard-notice-mod — light track — a Claude Code mod shows the developer guard fail-open notices and denies (today model-only, F144) and the register state (next row, checkpoint, maintenance due). — approved F148
+- [x] 096 — guard-notice-mod — light track — a Claude Code mod shows the developer guard fail-open notices and denies (today model-only, F144) and the register state (next row, checkpoint, maintenance due). — approved F148
 - [ ] 097 — prompt-audit-cleanup — spec-only — apply the Opus 5.5 prompt audit: CLAUDE.md self-contradictions, the stale wizard CLAUDE.md, two stop lists, ui-ux-pro-max path, language wording. — approved F149
 
 ## Register history (newest first)

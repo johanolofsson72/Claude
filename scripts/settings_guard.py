@@ -530,6 +530,7 @@ def word_hit(word, g, bases, by_name, dots):
 
 MOD_WORDS = frozenset(("skills", "plugins", "dev-mods"))
 MOD_TEXT = re.compile(r"claude-plugin|hooks|skills|plugins|dev-mods")
+MOD_INSTALLER = re.compile(r"^install-.*-mod\.sh$", re.I)
 
 
 def mod_tail(w):
@@ -1587,6 +1588,11 @@ def _bash_verdict(cmd, g, strip):
         why = claude_cli_verdict(words)
         if why:
             return ["mod-bash", "the claude CLI " + why]
+        # Spec 096 R6: a mod installer (scripts/install-guard-notice-mod.sh) names no mod path while it
+        # writes one, so running it is a write; reading it (cat, git add) is not.
+        installer = next((w for w in words if MOD_INSTALLER.search(w.rpartition("/")[2])), None)
+        if installer and not reads(words):
+            return ["mod-bash", "a mod installer (" + installer.rpartition("/")[2] + "), which is the developer's to run with !"]
         for t in targets:
             hit = word_hit(t, g, bases, by_name, dots)
             if hit and g.mod_hits.get(hit) != "soft":

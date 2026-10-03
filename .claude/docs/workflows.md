@@ -120,6 +120,8 @@ See `.claude/docs/skills.md` for LSP plugins (C#, TypeScript, PHP) and installat
 
 A mod is a plugin whose `hooks/hooks.json` names a module of function hooks (the `plugin-authoring` skill writes one). A loaded mod can allow a tool call past every settings hook, so `settings-edit-guard` refuses any agent write into a plugin folder, a load location or `~/.claude/skills/<name>`, and refuses `claude plugin install`, `--plugin-dir` and `--plugin-url` (spec 095a). The agent writes a mod's source under a name that does not load, with no `.claude-plugin/` and no `hooks/hooks.json`, and the developer installs it with a script they run with the `!` prefix. `/plugin install` typed by the developer is not an agent tool call and is unaffected. Details: `.claude/docs/security.md`.
 
+The template ships one such mod, `mods/guard-notice/` (spec 096). It turns a guard's deny or fail-open note into a toast you can see, since until now only the model read them, and it keeps the register's next row and the maintenance that is due in a dim line above the prompt. Install or update it with `! bash scripts/install-guard-notice-mod.sh`. That puts it in `~/.claude/skills/guard-notice`, which loads at the next session start; `--target DIR` installs it somewhere else for `--plugin-dir`. `Hide` on the band hides it for the session, and `--uninstall` removes it. The agent cannot run the installer. Edit the staged files in `mods/guard-notice/` and test them with `bash scripts/test-guard-notice-mod.sh`.
+
 ## Hooks (deterministic rules)
 
 Consider Claude Code hooks (`.claude/settings.json`) for rules that MUST be followed without exception. Unlike CLAUDE.md instructions which are advisory, hooks are deterministic and guaranteed.

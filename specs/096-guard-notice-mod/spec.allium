@@ -1,0 +1,73 @@
+-- allium: 3
+--
+-- 096 — guard-notice mod. Rules cite R1..R7 (spec.md).
+
+enum Notice { fail_open | deny | none }
+
+entity HookResult {
+    deny_text: String?
+    context_lines: Integer                       -- how many context entries the result carries
+    has_fail_open_line: Boolean                  -- a context entry with "could not decide and ALLOWED"
+                                                 -- or "crashed and ALLOWED"
+    deny_is_guard: Boolean                       -- deny_text starts "BLOCKED —"
+    key_seen: Boolean                            -- this guard+cause, or this first line, was toasted
+    toasted: Notice?
+    passed_on_unchanged: Boolean
+}
+
+rule ToastOnResult {
+    when: ToolCallFinished(r)
+    ensures:
+        r.passed_on_unchanged = true             -- Q7: the mod never alters or blocks a call
+        if r.has_fail_open_line and not r.key_seen:
+            r.toasted = fail_open                -- R2
+        else:
+            if r.deny_is_guard and not r.key_seen:
+                r.toasted = deny                 -- R3
+            else:
+                r.toasted = none
+}
+
+entity Band {
+    register_exists: Boolean
+    active_row_found: Boolean                    -- first [/], else first [ ], never [!]
+    maintenance_known: Boolean
+    maintenance_due_count: Integer
+    hidden: Boolean
+    drawn: Boolean
+}
+
+rule DrawBand {
+    when: PromptRendered(b)
+    ensures:
+        b.drawn = (b.register_exists and b.active_row_found and not b.hidden)   -- R4
+}
+
+entity Installer {
+    run_by_agent: Boolean
+    target_has_own_marker: Boolean
+    target_exists: Boolean
+    installed: Boolean
+}
+
+rule Install {
+    when: InstallRequested(i)
+    ensures:
+        if i.run_by_agent:
+            i.installed = false                  -- R6: the settings guard denies it
+        else:
+            if i.target_exists and not i.target_has_own_marker:
+                i.installed = false              -- R5: never overwrite a folder it did not install
+            else:
+                i.installed = true
+}
+
+invariant ModNeverChangesACall {
+    for r in HookResults:
+        r.passed_on_unchanged
+}
+
+invariant AgentNeverInstalls {
+    for i in Installers:
+        i.run_by_agent implies not i.installed
+}

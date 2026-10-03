@@ -134,7 +134,7 @@ else
   # Spec 095a R6: a mod path names no settings file. The mod words wake the verdict, and so does, in a
   # command, any construct that can write (a write into a plugin folder outside every root names none).
   shopt -s nocasematch
-  case "$N" in *plugin*|*hooks*|*mods*|*skills*) HIT=1 ;; esac
+  case "$N" in *plugin*|*hooks*|*mods*|*skills*|*-mod.sh*) HIT=1 ;; esac   # -mod.sh: spec 096 R6
   shopt -u nocasematch
   _writer='(>|(^|[^A-Za-z0-9_.-]|\\[nt])(tee|cp|mv|ln|rm|sed|install|rsync|tar|unzip|patch|touch|dd|ditto|python[0-9.]*|node|perl|ruby|sh|bash|zsh|claude)([^A-Za-z0-9_.-]|$))'
   case "$TI" in *\"command\"*) [[ $TI =~ $_writer ]] && HIT=1 ;; esac

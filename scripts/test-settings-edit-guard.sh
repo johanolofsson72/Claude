@@ -684,6 +684,16 @@ run "$GUARD" "$(write_p "$WORK/q\"/../outside/plug/register.ts" 'x')";    expect
 run "$GUARD" "$(write_p "$WORK/outside/notes/../plug/register.ts" 'x')";   expect "SR-2 a .. segment alone into a plugin folder" deny
 run "$GUARD" "$(bash_p "curl -so $WORK/outside/notes.txt https://example.invalid/x")"; expect "control: curl to an ordinary file" none
 
+printf '\n[096-R6] a mod installer is the developer'"'"'s to run\n'
+run "$GUARD" "$(bash_p "bash scripts/install-guard-notice-mod.sh")";          expect "096-R6 bash scripts/install-guard-notice-mod.sh" deny
+case "$(reason)" in *'!'*) ok "  the reason names the ! route" ;; *) bad "  no ! route: $(reason | head -1)" ;; esac
+run "$GUARD" "$(bash_p "./scripts/install-guard-notice-mod.sh --target /tmp/gn")"; expect "096-R6 run directly" deny
+run "$GUARD" "$(bash_p "sh scripts/install-guard-notice-mod.sh")";            expect "096-R6 sh" deny
+run "$GUARD" "$(bash_p "env X=1 bash scripts/install-guard-notice-mod.sh --uninstall")"; expect "096-R6 behind env" deny
+run "$GUARD" "$(bash_p "cat scripts/install-guard-notice-mod.sh")";           expect "control: cat of the installer reads" none
+run "$GUARD" "$(bash_p "git add scripts/install-guard-notice-mod.sh")";       expect "control: git add of the installer" none
+run "$GUARD" "$(bash_p "bash scripts/test-guard-notice-mod.sh")";             expect "control: its test script is not an installer" none
+
 printf '\n[sabotage] each rule is what denies its attack\n'
 sabotage() { # sabotage <label> <old> <new> <payload>
   local m="$WORK/mut$PASS$FAIL"; mkdir -p "$m"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$m"/ 2>/dev/null
@@ -743,6 +753,9 @@ sabotage "sabotage 095a-R4: without mod candidates git checkout REV -- . passes"
 sabotage "sabotage 095a-R10: without the claude CLI check plugin install passes" \
   'why = claude_cli_verdict(words)' 'why = None' \
   "$(bash_p "claude plugin install x@y")"
+sabotage "sabotage 096-R6: without the installer rule the agent installs a mod" \
+  'if installer and not reads(words):' 'if False:' \
+  "$(bash_p "bash scripts/install-guard-notice-mod.sh")"
 sabotage "sabotage 095a-TM-14: without the URL check a pull from a local remote passes" \
   'raise GitUnknown("a pull from a remote whose URL is a local path")' 'return None' \
   "$(bash_p "git pull local main")"
