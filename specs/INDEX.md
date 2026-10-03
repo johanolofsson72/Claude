@@ -19,7 +19,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 006 — nothing-checks-the-design-gate-exists — spec-only — the bare name RESOLVES to the plugin cache, so the naming half is refuted. What stands: nothing verifies the plugin is installed, so a BLOCKING gate fails silent without it. Diagnosis + spec: `specs/INDEX.completed.md`.
 - [x] 007 — traceability-gate-is-three-defects-in-one-script — full track — the two SC- namespaces split by digit WIDTH, not magnitude (a floor is useless on a map starting at SC-001); duplicates get exit 6. msroute 13 dangling → 0. Detalj: specs/INDEX.completed.md
 - [x] 074 — measure-where-maintenance-should-run — spec-only — no maintenance run records its duration, peak memory or host, so local-vs-cloud placement would be a guess. Ledger per run + a placement report. Developer request 2026-09-29.
-- [x] 077 — row-proposals-carry-their-need — spec-only [hardened] — the freeze chosen 2026-09-29 needs teeth: a freeze line the hooks read, and row proposals recorded with evidence of need, checked (duplicate, stale citation) and put to the developer to approve or decline. Developer request 2026-09-29.
+- [x] 077 — row-proposals-carry-their-need — spec-only [hardened] — the freeze chosen 2026-09-29 needs teeth: a freeze line the hooks read; row proposals carry their need and go to the developer.
 - [x] 008 — scenarios-map-canary-unheeded — spec-only — the canary gave a map INDEX.md remedies and recorded nothing: 17 map files over 25 KB, 4 named here. project-maintenance now records each in the project's FINDINGS.md with a remedy for its role.
 - [x] 009 — held-rows-have-no-archive — spec-only — the archiver told you to write a pending entry by hand and nobody did, so rocky ran 47 over-budget open rows. `--write-pending` makes the advice executable; rocky 131→39 KB. Detalj: specs/INDEX.completed.md
 
@@ -62,7 +62,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 049 — a-held-row-cannot-be-written-to — spec-only — `--spec` takes a register id at any status (`--spec 049`), so a held or ticked row's run log is writable; implicit failures name the flag. Verbatim in `INDEX.completed.md`.
 - [x] 050 — allium-cli-warns-on-every-spec-it-has — spec-only — the lint was fixed upstream in 3.3.0; the hook now notes an older CLI once per session and the skill teaches `-- see:` and the F089 cause. Verbatim in `INDEX.completed.md`.
 - [x] 051 — maintenance-suite-blind-to-standalone-node-tests — spec-only — `--suite` runs a declared `.claude/.suite-command` first; a green `dotnet test` beside a nested jest suite is a finding, not a stamp; `--full` names a missing mutation runner. Verbatim in `INDEX.completed.md`.
-- [x] 046 — hooks-shout-at-the-developer-and-whisper-to-the-model — full track — every advisory hook emits `systemMessage` ("Warning shown to user in UI" per the CLI's own reference), so reminders addressed to the model land as red warnings in the transcript; and 42 hooks — including all four wired UserPromptSubmit pipeline reminders — emit top-level `additionalContext`, which Claude Code silently ignores. Both channels are backwards.
+- [x] 046 — hooks-shout-at-the-developer-and-whisper-to-the-model — full track — model reminders went out as user-facing `systemMessage`, and 42 hooks emitted top-level `additionalContext`, which is ignored. Both channels were backwards.
 - [x] 045 — unlisted-predicate-denies-a-tick-it-cannot-clear — full track — four defects in the CORE-ownership machinery, each already recorded and never landed. Detalj: specs/INDEX.completed.md
 - [x] 052 — maintenance-runs-what-it-finds — spec-only — `project-maintenance.sh` runs no `check-*.sh` ratchet, and `--suite`/`--full` build whatever .sln is at the root: a dead one turned a green project red. From ighweld-2026. Diagnosis: `specs/INDEX.pending.md`
 - [x] 053 — stryker-tmp-outlives-its-run — spec-only — abandoned `.stryker-tmp` sandboxes stay in the tree, so four consumers (project-freshness, project-maintenance, vitest, eslint) each exclude it. Stop it existing instead. From msroute. Diagnosis: `specs/INDEX.pending.md`
@@ -87,7 +87,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 072 — security-rule-says-secrets-in-env-and-1password — spec-only — rules/security.md says production secrets go in environment variables; Swarm secret files are the safer shape (docker inspect shows env). From teach F061. Diagnosis: `specs/INDEX.pending.md`
 - [x] 073 — pipeline-refresh-2026-09 — spec-only — one sync engine for wizard/update/sync-template, spec-kit pinned, zsh + GNU fixes, supply-chain cooldowns, context diet, hook latency; then roll out to 15 projects. Folds 037, 022. User-requested 2026-09-28.
 - [x] 076 — malformed-id-deny-blames-a-healthy-register — spec-only — both PreToolUse guards deny a malformed active id (`7-x`) with the "resolver missing / register unparsable" text. Own exit 97 + text naming token and grammar. Found as consultpilot H7ai / Q2.
-- [x] 079 — traceability-loses-the-second-id-in-a-chain — spec-only — `grep -o` is non-overlapping, so `SCNNN_SCNNN_Name` in a C# method read as one id and the second row was reported uncovered. 8 of agentcrm's 58 "uncovered" rows were this, each with a passing test. Pattern takes `(...)+`, `tr` splits; case46 asserts both forms. Found as agentcrm H6 / F391. — approved F061
+- [x] 079 — traceability-loses-the-second-id-in-a-chain — spec-only — `grep -o` is non-overlapping, so `SCNNN_SCNNN_Name` lost its second id (8 of agentcrm's 58 "uncovered"). — approved F061
 - [x] 078 — autosync-tests-miss-ten-of-twelve-mutants — spec-only — H1 sampled 12 operator mutants in template-autosync.sh; the 16 suites that run it killed 2. Add a surgical arm per survivor (list in specs/H1-integration-hardening/checkpoint.md). — carved by H1 — approved F050
 - [x] H2 — integration-hardening — checkpoint — full-system regression + security sweep + mutation spot-check over the ~30 rows ticked since H1 (043–079).
 - [x] 080 — developer-authored-acceptance-cases — full track [hardened] — the developer confirms 3-5 Given/When/Then cases before code on full/hardened specs; guard blocks until then; each AC-n gets a test written first — approved F075
@@ -106,13 +106,14 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 091 — trust-residuals — full track [hardened] — trust still rests on what the repo or agent can write: origin-URL template exemption, fork-network pins, claude -p writes outside the repo, suite hash, cloud stamps, laundered confirms. F079 F080 F092 F095 F097 F104 F107
 - [x] 092 — kill-surviving-mutants — full track — no .csproj/.sln-only fixture, no suite asserts a guard's exit code, and the sampled survivors in autosync, maintenance, traceability and freshness. F099–F102 F108
 - [x] 093 — maintenance-reports-what-it-measured — spec-only — section 5 misreads the bash runner, a suite timeout reads as FAIL, the mutation budget is unknown to the nightly, SIGPIPE leaks, CDPATH-relative cd. F087 F109–F111 F113
+- [ ] 094 — mutation-sandbox-isolation — spec-only — mutation copies keep the real HOME, so a mutant can fetch or push from the real template clone; plus suite section 14 reads permissionDecision without hookEventName. F117 F128
+- [ ] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
 
 ## Register history (newest first)
+
+- 2026-10-03 — finding review (approved sort): 094 + 095 added; F119 F133 F134 F137 dropped; F130–F132 kept as debt; mutation survivors wait for the next run.
 
 - 2026-10-02 — finding review decided 31: F078 fixed, F086 F088 F089 dropped, 27 folded into 089–093 (+ H4 after 089).
 - 2026-10-01 — added 088 guard-trust-anchors from the H3 checkpoint (approved F098).
 - 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).
 - 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.
-- 2026-10-01 — rows 080 and 081 added from approved proposals F075/F076 (tech-lead review: developer-owned acceptance cases, context budget).
-- 2026-09-30 — 050 ticked: the hint lint works from allium 3.3.0; the hook flags an older CLI once, the skill teaches `-- see:` and names the F089 trigger.
-- 2026-09-30 — 049 ticked: --spec takes a register id at any status, so a held or ticked row's run log is writable again. Implicit failures name the flag.

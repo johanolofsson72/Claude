@@ -3,6 +3,10 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-10-01 — rows 080 and 081 added from approved proposals F075/F076 (tech-lead review: developer-owned acceptance cases, context budget).
+- 2026-09-30 — 050 ticked: the hint lint works from allium 3.3.0; the hook flags an older CLI once, the skill teaches `-- see:` and names the F089 trigger.
+- 2026-09-30 — 049 ticked: --spec takes a register id at any status, so a held or ticked row's run log is writable again. Implicit failures name the flag.
+
 - 2026-09-30 — 048 ticked: SC ids grow past 999 without re-padding; the width discriminator measures the narrowest id and now has a test.
 
 - 2026-09-30 — 047 ticked: mutate patterns that match nothing or count characters are findings; Stryker beside a build is refused.
