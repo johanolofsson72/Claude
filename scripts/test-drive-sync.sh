@@ -230,7 +230,12 @@ echo "=== H. a sandbox that contains this repository is not a sandbox ==="
 OWNREPO=$(cd "$PWD" && pwd -P)
 refuses "AC-33 the repo itself as sandbox"   "contains this repository" drive_sync "$P" "$OWNREPO"
 refuses "AC-34 the repo's parent as sandbox" "contains this repository" drive_sync "$P" "$(cd .. && pwd -P)"
-refuses "AC-35 \$HOME as sandbox"            "contains this repository" drive_sync "$P" "$HOME"
+# AC-35 is an ancestor further up, the role $HOME plays on a developer machine. Not $HOME itself:
+# under the mutation gate HOME is the copy's own sandbox home and contains nothing (spec 094).
+UPTWO=$(cd ../.. && pwd -P)
+refuses "AC-35 an ancestor two levels up"    "contains this repository" drive_sync "$P" "$UPTWO"
+case "$OWNREPO/" in "$(cd "$HOME" 2>/dev/null && pwd -P)"/*)
+  refuses "AC-35b \$HOME, which holds this repository" "contains this repository" drive_sync "$P" "$HOME" ;; esac
 # …and the ordinary case is untouched, or the check would be a blanket refusal wearing a reason.
 ( . "$HELPER"; DRIVE_SYNC_SCRIPT="$STUB" drive_sync "$P" "$SBX" >/dev/null 2>&1 )
 same "AC-36 a real throwaway sandbox still runs" "$?" "0"
@@ -338,7 +343,7 @@ arm "script missing"    '/sync script not found/d'                       "sync s
 arm "readonly gate"     '/is for the query modes only/d'                       "none is in these arguments" drive_sync_readonly "$P" --force
 # Not armed in consultpilot: the contains-this-repository refusal (added after its arms were written)
 # and the template's widened mode list. Deleting the refusal line leaves an empty, valid `case`.
-arm "contains repo"     '/contains this repository/d'                    "contains this repository" drive_sync "$P" "$HOME"
+arm "contains repo"     '/contains this repository/d'                    "contains this repository" drive_sync "$P" "$UPTWO"
 # Spec 011's review added three checks; each gets an arm, or it is a claim.
 ARM_SCRIPT=scripts/stub.sh \
 arm "relative script"   '/sync script is relative/d'                     "sync script is relative" drive_sync "$P" "$SBX"

@@ -26,7 +26,11 @@
 # its sandbox by location; an absolute path that is not $HOME and not near the repository), run
 # every module's tests once unmutated, then the mutants. The copies share nothing with the real
 # repository: no remote, no hooks, no .git link (security review, spec 085). Tests run without
-# SSH_AUTH_SOCK, GH_TOKEN, GITHUB_TOKEN and the askpass helpers.
+# SSH_AUTH_SOCK, GH_TOKEN, GITHUB_TOKEN, the askpass helpers, CLAUDE_TEMPLATE_DIR, XDG_CONFIG_HOME
+# and GIT_CONFIG_GLOBAL, and with HOME set to <copy>.home: a neutral git identity and the https,
+# http, ssh and git transports refused (spec 094, F117). What they still share with the developer:
+# the system git config, PATH and the passwd entry. A test that sets its own HOME drops the
+# transport block along with the developer's home.
 #
 # A red or timed-out baseline is UNMEASURED: no score, exit 2, the test is named. Every test run is
 # bounded by max(MUTATION_MIN_LIMIT=60, MUTATION_LIMIT_FACTOR=3 x its baseline seconds). A timeout
@@ -445,6 +449,13 @@ while [ "$w" -lt "$JOBS" ]; do
   ( cd "$RUN/wt$w" && git init -q . && git -c core.hooksPath=/dev/null add -A . &&
       git -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -qm "mutation snapshot" ) >/dev/null 2>&1 ||
     die "could not prepare the copy $RUN/wt$w"
+  # Spec 094 (F117): the copy's own home. A test that kept the developer's would find the real
+  # template clone through template_candidates() and push with the developer's credentials. The
+  # protocol block lives here, not in GIT_CONFIG_COUNT: self-test-env.sh unsets that on line one.
+  mkdir "$RUN/wt$w.home" && printf '%s\n' '[user]' '	name = mutation' '	email = mutation@invalid' \
+      '[commit]' '	gpgsign = false' '[protocol "https"]' '	allow = never' '[protocol "http"]' '	allow = never' \
+      '[protocol "ssh"]' '	allow = never' '[protocol "git"]' '	allow = never' > "$RUN/wt$w.home/.gitconfig" ||
+    die "could not prepare the sandbox home $RUN/wt$w.home"
   w=$((w + 1))
 done
 unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
@@ -475,6 +486,7 @@ run_test() { # run_test <copy> <limit> <test> -> echoes "<rc> <seconds> <0 ran |
   [ -d "$1" ] && [ -f "$1/$3" ] || { echo "0 0 2"; return; }
   _s=$SECONDS
   ( cd "$1" && env -u CLAUDE_PROJECT_DIR -u SSH_AUTH_SOCK -u GH_TOKEN -u GITHUB_TOKEN -u GIT_ASKPASS -u SSH_ASKPASS \
+      -u CLAUDE_TEMPLATE_DIR -u XDG_CONFIG_HOME -u GIT_CONFIG_GLOBAL HOME="$1.home" \
       "$TO" -k 5 "$2" bash -- "$3" </dev/null >/dev/null 2>&1 )
   _rc=$?
   _e=$(( SECONDS - _s ))

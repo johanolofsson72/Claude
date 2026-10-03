@@ -41,7 +41,10 @@ S8@@safe_path() { case "$1" in /*|*..*|@@safe_path() { case "$1" in *.never-a-pa
 S9@@    [ -L "$1/$_p" ] && return 1@@    false && return 1@@arm_hostile_paths
 S10@@  //|"$HOME_P/"|"$ROOT"/*) die@@  //) die@@arm_hostile_paths
 S12@@  //|"$HOME_P/"|"$ROOT"/*) die@@  "$HOME_P/"|"$ROOT"/*) die@@arm_hostile_paths
-S11@@  [ -d "$1" ] && [ -f "$1/$3" ] || { echo "0 0 2"; return; }@@  :@@arm_infra_is_not_a_kill'
+S11@@  [ -d "$1" ] && [ -f "$1/$3" ] || { echo "0 0 2"; return; }@@  :@@arm_infra_is_not_a_kill
+S13@@-u GIT_CONFIG_GLOBAL HOME="$1.home"@@-u GIT_CONFIG_GLOBAL@@arm_sandbox_home
+S14@@'"'"'[protocol "https"]'"'"'@@'"'"'[protocol "x-https"]'"'"'@@arm_sandbox_home
+S15@@      -u CLAUDE_TEMPLATE_DIR -u XDG_CONFIG_HOME@@      -u XDG_CONFIG_HOME@@arm_sandbox_home'
 
 if [ "${1:-}" = "--sabotage" ]; then
   RED=0; STILL=""; STALE=""
@@ -286,8 +289,35 @@ arm_seed_reproduces() {
   same "two runs with one seed agree" "$a" "$b"
 }
 
+arm_sandbox_home() {
+  echo "-- 094 (F117): a test sees its own home, no template dir, no network transport"
+  # The probe unsets what self-test-env.sh unsets, so it sees what a real self-test sees.
+  cat > scripts/test-probe.sh <<EOF
+unset GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL GIT_SSH_COMMAND
+{ echo "home=\$HOME"; echo "tdir=\${CLAUDE_TEMPLATE_DIR:-unset}"
+  echo "https=\$(git config --get protocol.https.allow)"; echo "ssh=\$(git config --get protocol.ssh.allow)"
+  LC_ALL=C git ls-remote https://example.invalid/x 2>&1 | head -1
+  git commit -q --allow-empty -m probe && echo commit=ok; } > "$TMP/probe" 2>&1
+[ "\$(bash scripts/calc.sh 0 | head -1)" = zero ]
+EOF
+  printf 'scripts/calc.sh scripts/test-probe.sh\n' > "$TMP/probe-targets"
+  rm -f "$TMP/probe"
+  CLAUDE_TEMPLATE_DIR="$HOME/repos/Claude" MUTATION_TARGETS="$TMP/probe-targets" MUTATION_WORKDIR="$WORK" \
+    bash "$RUNNER" --jobs 1 --lines scripts/calc.sh:3 >/dev/null 2>&1
+  p=$(cat "$TMP/probe" 2>/dev/null)
+  case "$p" in *"home=$HOME"$'\n'*|"") bad "SC-A: the test ran with the caller's HOME (or never ran): $p" ;;
+               *home=*/wt0.home*) ok "SC-A: HOME is the copy's own home" ;;
+               *) bad "SC-A: unexpected HOME: $p" ;; esac
+  has "SC-B: CLAUDE_TEMPLATE_DIR from the caller is gone" "$p" "tdir=unset"
+  has "SC-C: https is refused" "$p" "https=never"
+  has "SC-C: ssh is refused" "$p" "ssh=never"
+  has "SC-C: git itself refuses the transport" "$p" "transport 'https' not allowed"
+  has "SC-C: a test can still commit" "$p" "commit=ok"
+}
+
 for a in arm_score_and_report arm_timeout_is_not_a_kill arm_red_baseline_is_unmeasured arm_leaves_nothing \
-         arm_only_live_code arm_arguments arm_hostile_paths arm_infra_is_not_a_kill arm_maintenance_stamps arm_seed_reproduces; do
+         arm_only_live_code arm_arguments arm_hostile_paths arm_infra_is_not_a_kill arm_maintenance_stamps arm_seed_reproduces \
+         arm_sandbox_home; do
   want "$a" && "$a"
 done
 
