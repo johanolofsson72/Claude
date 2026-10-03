@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).
+
 - 2026-10-01 — 020 unheld and ticked: Ollama re-enabled on this 64 GB machine (loopback); 13 of 15 quality-gate hooks measured nightly-worthy.
 
 - 2026-10-01 — rows 080 and 081 added from approved proposals F075/F076 (tech-lead review: developer-owned acceptance cases, context budget).

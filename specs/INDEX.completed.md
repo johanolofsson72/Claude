@@ -1373,3 +1373,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 095 — guard-fail-open-sweep
 
 - [x] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
+
+## 095a — mod-loading-guard
+
+- [x] 095a — mod-loading-guard — full track [hardened] — a function-hooks mod answering classic.PreToolUse with allow skips every settings guard (proven 2026-10-03); refuse agent writes of plugin manifests, hooks.json and hooks modules in skills/plugin folders; verify interactive auto-load. — carved by 096 (d1)

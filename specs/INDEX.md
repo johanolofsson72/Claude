@@ -109,7 +109,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 094 — mutation-sandbox-isolation — spec-only — mutation copies keep the real HOME, so a mutant can fetch or push from the real template clone; plus suite section 14 reads permissionDecision without hookEventName. F117 F128
 - [x] H5 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 090–094.
 - [x] 095 — guard-fail-open-sweep — full track [hardened] — guards that allow instead of refusing: pathless git verbs, unguarded settings keys, MCP write tools, git timeout, missing marker, exported env, git config denylist. F114–F116 F118 F120 F121 F135
-- [/] 095a — mod-loading-guard — full track [hardened] — a function-hooks mod answering classic.PreToolUse with allow skips every settings guard (proven 2026-10-03); refuse agent writes of plugin manifests, hooks.json and hooks modules in skills/plugin folders; verify interactive auto-load. — carved by 096 (d1)
+- [x] 095a — mod-loading-guard — full track [hardened] — settings guard refuses agent writes of Claude Code mods on every route (long form: INDEX.completed.md) — carved by 096 (d1)
 - [ ] 096 — guard-notice-mod — light track — a Claude Code mod shows the developer guard fail-open notices and denies (today model-only, F144) and the register state (next row, checkpoint, maintenance due). — approved F148
 - [ ] 097 — prompt-audit-cleanup — spec-only — apply the Opus 5.5 prompt audit: CLAUDE.md self-contradictions, the stale wizard CLAUDE.md, two stop lists, ui-ux-pro-max path, language wording. — approved F149
 
@@ -122,4 +122,3 @@ Order of execution. Tick when done. Append new rows to the end.
 
 - 2026-10-02 — finding review decided 31: F078 fixed, F086 F088 F089 dropped, 27 folded into 089–093 (+ H4 after 089).
 - 2026-10-01 — added 088 guard-trust-anchors from the H3 checkpoint (approved F098).
-- 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).

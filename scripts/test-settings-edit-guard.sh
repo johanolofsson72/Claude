@@ -613,6 +613,9 @@ run "$GUARD" "$(write_p "$MX/lib/zz.ts" 'x')";                              expe
 case "$(reason)" in *"no override"*) ok "  the reason says there is no override" ;; *) bad "  no 'no override' in: $(reason | head -3)" ;; esac
 case "$(reason)" in *'!'*) ok "  and names the ! route" ;; *) bad "  no ! route in the reason" ;; esac
 run "$GUARD" "$(jq -cn --arg w "$MX/lib" '{tool_name:"Bash",tool_input:{command:"printf x > zz.ts"},cwd:$w}')"; expect "R6 a cwd inside a plugin folder" deny
+# cwd first, as Claude Code sends it: the pre-check reads the call from "tool_input" on.
+mkdir -p "$WORK/plainplug/.claude-plugin" "$WORK/plainplug/lib"
+run "$GUARD" "$(jq -cn --arg w "$WORK/plainplug/lib" '{cwd:$w,tool_name:"Bash",tool_input:{command:"wget -q example.invalid"}}')"; expect "R6 only the cwd is in a plugin folder (no writer word, no path)" deny
 run "$GUARD" "$(write_p "$P/src/ordinary.ts" 'x')";                         expect "control: an ordinary file still never wakes it" none
 
 printf '\n[095a threat model] the shapes the STRIDE pass adopted\n'

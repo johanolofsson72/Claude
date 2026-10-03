@@ -20,7 +20,7 @@
 
 ## Phase 3 — verification
 - [x] T030 R9 headers and docs (humanizer pass)
-- [ ] T031 full template suite; mutation gate on the changed lines (hard gate)
+- [x] T031 full template suite; mutation gate on the changed lines (hard gate)
 - [x] T032 adversarial review: security-scanner (assume exploitable), /security-review
 - [x] T033 /tla on the verdict; Allium drift check
-- [ ] T034 findings recorded; register tick, archive, commit, push
+- [x] T034 findings recorded; register tick, archive, commit, push
