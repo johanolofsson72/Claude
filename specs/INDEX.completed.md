@@ -1385,3 +1385,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 097 — prompt-audit-cleanup
 
 - [x] 097 — prompt-audit-cleanup — spec-only — apply the Opus 5.5 prompt audit: CLAUDE.md self-contradictions, the stale wizard CLAUDE.md, two stop lists, ui-ux-pro-max path, language wording. — approved F149
+
+## 098 — guard-hole-sweep-2
+
+- [x] 098 — guard-hole-sweep-2 — full track [hardened] — close the allow paths H5 and 095 found: symlinked dir into .git, refs/remotes trust, silent missing-file exits, git with no timeout, mutant env leak, notice stamp, bash false deny, mcp matcher. F139–F144 F155 F159

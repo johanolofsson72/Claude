@@ -112,7 +112,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 095a — mod-loading-guard — full track [hardened] — settings guard refuses agent writes of Claude Code mods on every route (long form: INDEX.completed.md) — carved by 096 (d1)
 - [x] 096 — guard-notice-mod — light track — a Claude Code mod shows the developer guard fail-open notices and denies (today model-only, F144) and the register state (next row, checkpoint, maintenance due). — approved F148
 - [x] 097 — prompt-audit-cleanup — spec-only — apply the Opus 5.5 prompt audit: CLAUDE.md self-contradictions, the stale wizard CLAUDE.md, two stop lists, ui-ux-pro-max path, language wording. — approved F149
-- [/] 098 — guard-hole-sweep-2 — full track [hardened] — close the allow paths H5 and 095 found: symlinked dir into .git, refs/remotes trust, silent missing-file exits, git with no timeout, mutant env leak, notice stamp, bash false deny, mcp matcher. F139–F144 F155 F159
+- [x] 098 — guard-hole-sweep-2 — full track [hardened] — close the allow paths H5 and 095 found: symlinked dir into .git, refs/remotes trust, silent missing-file exits, git with no timeout, mutant env leak, notice stamp, bash false deny, mcp matcher. F139–F144 F155 F159
 - [ ] 099 — maintenance-script-fixes — light track — project-maintenance false RATCHET failures, carve-excess acknowledgement, context budget over cap in synced projects, archive-completed-rows honesty. F166–F169
 - [ ] H6 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 095–099.
 - [ ] 100 — kill-surviving-mutants-2 — spec-only — arm guard allow cases with rc==0, then kill the H4/H5/090/091/095 survivors; mark equivalents. F123–F125 F129 F136 F138 F150–F152 F160
