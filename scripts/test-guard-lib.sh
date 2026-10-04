@@ -228,6 +228,15 @@ NG="$WORK/nogitdir"; mkdir -p "$NG"
 V=$(bash -c '. "$0"; hn_session_id "$1"' "$(dirname "$IG")/hook-notice.sh" '{"session_id":"real","tool_input":{"session_id":"old"}}')
 [ "$V" = real ] && ok "098 review R6-2: the top-level session_id wins over a nested one" || bad "session id read as [$V]"
 [ "${#K}" -eq 40 ] && [ "$(sk "guard-announce:g:c2")" = "$K" ] && ok "098 review R6-1: the stamp name is a SHA-256 prefix, not a CRC" || bad "stamp name [$K]"
+V=$(bash -c 'set -e; . "$0"; hn_session_id "{}"; echo "rc=$?"' "$(dirname "$IG")/hook-notice.sh")
+[ "$V" = "rc=0" ] && ok "a payload with no session_id returns 0 (a hook under set -e lives)" || bad "no session id read as [$V]"
+NOHASH="$WORK/nohash"; mkdir -p "$NOHASH"
+for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
+  [ -d "$d" ] || continue
+  for x in "$d"/*; do b=${x##*/}; case "$b" in sha256sum|shasum) continue ;; esac; [ -e "$NOHASH/$b" ] || ln -s "$x" "$NOHASH/$b" 2>/dev/null; done
+done
+annp() { local out; out=$(PATH="$NOHASH" CLAUDE_PROJECT_DIR="$1" INPUT="{\"session_id\":\"$2\"}" bash -c '. "$0"; guard_announce g "$1"' "$LIB" "$3"); [ -n "$out" ] && echo 1 || echo 0; }
+[ "$(annp "$P6" "$SID6" c6)$(annp "$P6" "$SID6" c6)" = 11 ] && ok "nothing to hash with: said every time, never silenced" || bad "no hasher silenced the notice"
 SAB6B="$WORK/sab6b"; mkdir -p "$SAB6B"; cp "$(dirname "$IG")"/*.sh "$SAB6B"/
 sed 's/hn_first_time "\$sid" "guard-announce:\$guard:\$cause" "\$base"/hn_first_time "$sid" "guard-announce:$guard:$cause"/' "$LIB" > "$SAB6B/guard-lib.sh"
 if cmp -s "$LIB" "$SAB6B/guard-lib.sh"; then bad "098-R6 sabotage target not found"; else
