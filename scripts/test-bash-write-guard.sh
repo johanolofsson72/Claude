@@ -229,7 +229,9 @@ fi
 # --------------------------------------------------------------- QUIET (SC-1439)
 if want quiet; then
   echo "FIXTURE quiet — a read-only command, an allowlisted path, a non-source extension: no output"
-  ROOT=$(make_fixture quiet)
+  # A register makes the fixture a synced project, so it carries its sync script: without one the CORE
+  # guards deny every scripts/ and specs/ write (spec 098 R3, developer O2).
+  ROOT=$(make_core_fixture quiet) || ROOT=$(make_fixture quiet)
   expect_allow "read-only grep"        "$(run_pre "$ROOT" "grep -rn TODO src/")"
   expect_allow "read-only build"       "$(run_pre "$ROOT" "dotnet build 2>&1 | tail -5")"
   expect_allow "write under scripts/"  "$(run_pre "$ROOT" "echo x > scripts/thing.sh")"
