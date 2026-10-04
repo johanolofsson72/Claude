@@ -70,19 +70,22 @@ mutant tests. F155 is a guard refusing a harmless command.
 ### Notices
 
 - **R6 (F144).** `guard_announce` keeps its once-per-session stamp only where the agent's tools cannot
-  write: under the project's git dir (`$CLAUDE_PROJECT_DIR/.git/claude-hook-notices/<sid>/`), which
-  trust-anchor-guard denies by its rule (a). When `$CLAUDE_PROJECT_DIR/.git` is not a directory (a
-  linked worktree, no project dir), the announcement is said every time. Other `notice_once` reminders
+  write: under the project's git dir (`<git dir>/claude-hook-notices/<sid>/`), which trust-anchor-guard
+  denies by its rule (a). The git dir is found upward from the project dir and through a `.git` file's
+  `gitdir:` line, so a linked worktree dedupes in its own git dir (threat model #8; Allium drift
+  decision 2026-10-04). When no git dir is found, the announcement is said every time. Other `notice_once` reminders
   keep the TMPDIR stamp: a lost reminder there costs a nudge, not a guard. `harness-state-gc.sh` sweeps
   the new directory too (stamp directories older than two days).
 
 ### Shell reads
 
-- **R7 (F155).** A read of a guarded file counts as a write because of a runner (`EXEC_COMMANDS`) only
-  when the runner is in the same pipeline as the read, or when any command on the line sends output
-  to a file (a redirect to anything but a descriptor, `-` or `/dev/null|stdout|stderr|tty`, or a
-  `tee`). Then a later command could read the name from that file. A runner in a separate list
-  element (`;`, `&&`, `||`, `&`, newline) of a line that writes no file does not count.
+- **R7 (F155).** A pipe mate of the read that is not a bare stdout filter always counts. A runner
+  (`EXEC_COMMANDS`) in another list element (`;`, `&&`, `||`, `&`, newline) counts only when the line
+  is unplain, or when the read's own pipeline writes a file: a redirect to anything but
+  `/dev/null|stdout|stderr|tty` (a dup like `>&2` is no file, `> 2` is), or an output option
+  (`--output=f`). Unplain is judged on the raw text: a group, a subshell, `coproc`, `exec`, a
+  here-string, a descriptor above 2, or any `$`, backtick or backslash. Verified by `tla/ReadFlow.tla`
+  (adversarial review and Allium drift decision, 2026-10-04).
 
 ### Hook wiring
 

@@ -11,7 +11,7 @@ enum Verdict { allow | deny | announce_allow }
 
 enum GuardKind { pipeline | core | trust_anchor }
 
-enum GitOutcome { answered | missing | timed_out | unbounded }
+enum GitOutcome { answered | missing | timed_out | unbounded | no_answer }   -- no_answer: an rc other than 0 1 128 129
 
 enum MutantOutcome { killed | survived | timeout | infra }
 
@@ -21,6 +21,8 @@ entity AnchorWrite {
     names_trigger_word: Boolean                 -- the raw payload already wakes the parser
     some_component_is_link: Boolean             -- any component from the file up to the project dir
     precheck_library_loaded: Boolean            -- guard-precheck.sh sourced
+    project_git_is_file: Boolean                -- .git names a git dir kept elsewhere (TB1, review R1-1)
+    -- file_path and notebook_path are both judged (review R1-2)
     resolves_into_git_dir: Boolean              -- realpath has a .git component
     verdict: Verdict?
 }
@@ -28,7 +30,8 @@ entity AnchorWrite {
 rule TrustAnchorLooksThroughLinks {
     when: AnchorWriteJudged(w)
     ensures:
-        if w.names_trigger_word or w.some_component_is_link or not w.precheck_library_loaded:
+        if w.names_trigger_word or w.some_component_is_link or not w.precheck_library_loaded
+                or w.project_git_is_file:
             if w.resolves_into_git_dir:
                 w.verdict = deny                -- 098-AC-1
             else:
@@ -43,6 +46,8 @@ entity ConfirmedLine {
     digest_matches: Boolean
     answer_recorded_here: Boolean               -- this clone's answer store holds the quote for the digest
     on_upstream: Boolean                        -- no longer consulted (O1)
+    spec_dir_inside_root: Boolean               -- realpath stays under the project root (TB2 #11)
+    git_answered: Boolean                       -- the strict store lookup got an answer in time
     verdict: Verdict?
 }
 
@@ -50,7 +55,7 @@ rule BackingIsTheLocalAnswerOnly {
     when: ConfirmedLineChecked(c)
     requires: c.digest_matches
     ensures:
-        if c.answer_recorded_here:
+        if c.answer_recorded_here and c.spec_dir_inside_root and c.git_answered:
             c.verdict = allow
         else:
             c.verdict = deny                    -- 098-AC-2, whatever on_upstream says
@@ -63,6 +68,7 @@ entity CoreEdit {
     has_claude_dir: Boolean
     has_sync_stamp: Boolean                     -- .claude/.template-sync
     has_register: Boolean                       -- specs/INDEX.md at the sync root
+    hook_installed_in_root: Boolean             -- the running hook is the root's scripts/ copy (TB3 #4)
     has_sync_script: Boolean                    -- scripts/template-autosync.sh
     verdict: Verdict?
 }
@@ -72,7 +78,8 @@ rule CoreGuardMissingSync {
     requires: not e.is_template
     requires: not e.has_sync_script
     ensures:
-        if e.has_claude_dir and (e.has_sync_stamp or e.has_register):
+        if (e.has_claude_dir or e.hook_installed_in_root)
+                and (e.has_sync_stamp or e.has_register or e.hook_installed_in_root):
             e.verdict = deny                    -- 098-AC-3
         else:
             e.verdict = allow                   -- not a template project: no opinion, no word
@@ -139,7 +146,7 @@ rule ClassifyMutantRun {
 
 entity Announcement {
     has_session_id: Boolean
-    project_git_dir_is_directory: Boolean       -- $CLAUDE_PROJECT_DIR/.git is a directory
+    git_dir_found: Boolean                      -- upward from the project dir, through a .git file's gitdir: (TB6 #8)
     stamp_in_git_dir: Boolean                   -- this session already announced this cause
     stamp_in_tmpdir: Boolean                    -- no longer consulted for guard_announce
     spoken: Boolean
@@ -148,7 +155,7 @@ entity Announcement {
 rule AnnounceOncePerSessionBehindTheGitDir {
     when: GuardAnnounced(a)
     ensures:
-        if a.has_session_id and a.project_git_dir_is_directory and a.stamp_in_git_dir:
+        if a.has_session_id and a.git_dir_found and a.stamp_in_git_dir:
             a.spoken = false
         else:
             a.spoken = true                     -- 098-AC-4, a TMPDIR stamp silences nothing
@@ -158,22 +165,25 @@ rule AnnounceOncePerSessionBehindTheGitDir {
 
 entity ShellRead {
     names_guarded_file: Boolean
-    runner_in_same_pipeline: Boolean            -- sh, xargs, eval … downstream or upstream through |
-    runner_elsewhere_on_line: Boolean
-    line_spills_to_file: Boolean                -- a redirect to a real file, or tee
-    line_has_grouping: Boolean                  -- { }, ( ), coproc, exec: the pipeline cannot be read
+    pipeline_has_non_filter: Boolean            -- a mate that is not a bare stdout filter (sh, dd, ./grep)
+    pipeline_writes_file: Boolean               -- in the read's own pipeline: a redirect to a file (a dup
+                                                -- like >&2 is not one), or an output option (--output=f)
+    line_unplain: Boolean                       -- ( ) { } coproc exec <<< a high fd, or $ ` \ anywhere in
+                                                -- the raw text, quotes included (review R7-2/R7-3)
+    runner_elsewhere_on_line: Boolean           -- never weaker than the pre-098 test (review R7-4)
     verdict: Verdict?
 }
 
 rule ReadReachesRunner {
+    -- Verified by tla/ReadFlow.tla over every line shape; the pre-review rule fails it.
     when: ShellReadJudged(s)
     requires: s.names_guarded_file
     ensures:
-        if s.runner_in_same_pipeline:
+        if s.pipeline_has_non_filter:
             s.verdict = deny
         else:
-            if s.runner_elsewhere_on_line and (s.line_spills_to_file or s.line_has_grouping):
-                s.verdict = deny                -- the name can reach the runner through a file or a group
+            if s.runner_elsewhere_on_line and (s.line_unplain or s.pipeline_writes_file):
+                s.verdict = deny                -- the name can reach the runner through a file or a construct
             else:
                 s.verdict = allow               -- 098-AC-5, F155
 }
@@ -183,7 +193,10 @@ rule ReadReachesRunner {
 entity GuardWiring {
     hook_is_settings_or_trust_guard: Boolean
     event_is_pretooluse: Boolean
-    matcher_matches_mcp_write: Boolean          -- re.fullmatch against mcp__x__write_file
+    some_group_covers_mcp: Boolean              -- *, empty, or a fullmatch of both mcp__x__write_file and
+                                                -- mcp__y__edit, in any PreToolUse group of the project's
+                                                -- shared or local settings (TB8 #14); a matcher that does
+                                                -- not compile covers nothing and is named
     reported: Boolean
 }
 
@@ -191,7 +204,7 @@ rule AuditMcpMatcher {
     when: HooksAudited(w)
     requires: w.hook_is_settings_or_trust_guard and w.event_is_pretooluse
     ensures:
-        if w.matcher_matches_mcp_write:
+        if w.some_group_covers_mcp:
             w.reported = false
         else:
             w.reported = true                   -- [HOOKS] finding with the |mcp__.* fix
