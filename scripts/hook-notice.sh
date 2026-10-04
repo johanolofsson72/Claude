@@ -136,8 +136,12 @@ _hn_state_dir() {
 }
 
 # hn_session_id <raw stdin json>
+# The leftmost key: the harness writes the top-level session_id first, and a nested one (an MCP tool's
+# input is an object the agent fills) comes later. Taking the last let the agent pick the session whose
+# stamps already exist (098 review R6-2). Builtins only.
 hn_session_id() {
-  sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<< "${1:-}" | sed -n 1p
+  [[ ${1:-} =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]] && printf '%s\n' "${BASH_REMATCH[1]}"
+  return 0
 }
 
 # hn_first_time <session_id> <key> [base]  → 0 the first time, 1 afterwards. base replaces
@@ -146,7 +150,11 @@ hn_session_id() {
 hn_first_time() {
   local sid="$1" key="$2" dir stamp
   dir=$(_hn_state_dir "$sid" "${3:-}") || return 0     # no session id → always "first"
-  stamp=$(printf '%s' "$key" | cksum | tr -d ' ' | cut -c1-24)
+  # SHA-256, not cksum: the key holds a file name the agent picks, and a CRC32 collision is cheap to
+  # build, so one announced file could silence another (098 review R6-1).
+  if command -v sha256sum >/dev/null 2>&1; then stamp=$(printf '%s' "$key" | sha256sum | cut -c1-40)
+  elif command -v shasum >/dev/null 2>&1; then stamp=$(printf '%s' "$key" | shasum -a 256 | cut -c1-40)
+  else return 0; fi                            # nothing to hash with: always "first"
   [ -z "$stamp" ] && return 0
   mkdir -p "$dir" 2>/dev/null || return 0     # cannot record → always "first"
   if [ -e "$dir/$stamp" ]; then

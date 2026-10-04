@@ -389,6 +389,8 @@ case "$(reason)" in *"inside a git directory"*) ok "  as a write inside a git di
 run "$GUARD" "$(write_p "$P/gd/description" "x")";     expect "098-AC-1 Write gd/description is denied" deny
 run "$GUARD" "$(write_p "gd/config" "x")";             expect "a relative gd/config, resolved against the payload's cwd, is denied" deny
 run "$GUARD" "$(write_p "$P/docs/notes.md" "x")";      expect "098-AC-1 Write docs/notes.md in the same project passes" none
+run "$GUARD" "$(jq -cn --arg p "$P/gd/info/x.ipynb" --arg w "$P" '{tool_name:"NotebookEdit",tool_input:{notebook_path:$p,new_source:"x"},cwd:$w}')"
+expect "098 review R1-2: a NotebookEdit through gd -> .git is denied" deny
 for c in 'chmod 000 .git' 'chmod -R 000 .git/objects' 'mv .git .git2' 'chown nobody "$PWD/.git"' 'setfacl -m u:x:0 ./.git'; do
   run "$GUARD" "$(bash_p "$c")"; expect "threat #6: [$c] changes the git dir and is refused" deny
 done
@@ -403,6 +405,11 @@ expect "TB1 a Write into a git dir kept elsewhere is denied" deny
 ln -s "$WORK/sepgd" "$Q/sg"
 runq "$(jq -cn --arg p "$Q/sg/hooks/pre-commit" --arg w "$Q" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"
 expect "TB1 and through a link to it" deny
+# 098 review R1-1: the git dir spelled through .. or // is still the git dir.
+for sp in "$Q/../sepgd/hooks/post-checkout" "$WORK//sepgd/config" "$WORK/./sepgd/info/exclude"; do
+  runq "$(jq -cn --arg p "$sp" --arg w "$Q" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"
+  expect "098 review R1-1: ${sp#$WORK/} is denied" deny
+done
 runq "$(jq -cn --arg p "$Q/src.txt" --arg w "$Q" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"
 expect "TB1 an ordinary file in that project passes" none
 MUT1="$WORK/mut1"; mkdir -p "$MUT1"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT1"/

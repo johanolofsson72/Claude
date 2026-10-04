@@ -176,6 +176,9 @@ T0=$SECONDS
 V=$(PATH="$SLOW:$PATH" GUARD_GIT_TIMEOUT=1 bash -c '. "$0"; _guard_git rev-parse --git-dir; echo "rc=$? u=[$GUARD_GIT_UNSURE]"' "$LIB")
 case "$V" in "rc=125 u=[git did not answer within 1s]") ok "a git that hangs is cut off and unsure" ;; *) bad "a hanging git read as [$V]" ;; esac
 [ $((SECONDS - T0)) -lt 8 ] && ok "  within the bound ($((SECONDS - T0)) s)" || bad "  took $((SECONDS - T0)) s"
+KILLED="$WORK/killedgit"; mkdir -p "$KILLED"; printf '#!/bin/sh\nkill -TERM $$\n' > "$KILLED/git"; chmod +x "$KILLED/git"
+V=$(PATH="$KILLED:$PATH" bash -c '. "$0"; _guard_git rev-parse --git-dir; echo "rc=$? u=[$GUARD_GIT_UNSURE]"' "$LIB")
+case "$V" in "rc=125 u=[git exited 143, which is no answer]") ok "098 review R4-1: a git killed by SIGTERM is unsure, not an answer" ;; *) bad "a killed git read as [$V]" ;; esac
 V=$(GIT_DIR=/nonexistent bash -c '. "$0"; _guard_git -C "$1" rev-parse --is-inside-work-tree; echo "rc=$?"' "$LIB" "$(cd "$(dirname "$0")/.." && pwd)")
 case "$V" in *"rc=0"*) ok "GIT_DIR in the environment does not reach git" ;; *) bad "GIT_DIR leaked: [$V]" ;; esac
 P4="$WORK/p4"; mkdir -p "$P4/src"; git init -q "$P4"
@@ -210,20 +213,25 @@ ann() { # ann <project-dir> <sid> <cause> [lib] -> 1 when the notice was said, 0
   [ -n "$out" ] && echo 1 || echo 0
 }
 SID6="t098-$$"
+sk() { printf '%s' "$1" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-40; }   # hn_first_time's stamp name
 [ "$(ann "$P6" "$SID6" c1)$(ann "$P6" "$SID6" c1)" = 10 ] && ok "said once, then deduplicated" || bad "dedupe broken"
 [ -n "$(ls -A "$P6/.git/claude-hook-notices/$SID6" 2>/dev/null)" ] && ok "  the stamp is under .git/claude-hook-notices" || bad "  no stamp in the git dir"
-K=$(printf '%s' "guard-announce:g:c2" | cksum | tr -d ' ' | cut -c1-24)
+K=$(sk "guard-announce:g:c2")
 mkdir -p "${TMPDIR:-/tmp}/claude-hook-notices/$SID6" && : > "${TMPDIR:-/tmp}/claude-hook-notices/$SID6/$K"
 [ "$(ann "$P6" "$SID6" c2)" = 1 ] && ok "098-AC-4 a stamp planted under TMPDIR silences nothing" || bad "098-AC-4 a TMPDIR stamp silenced the notice"
 [ "$(ann "$P6/pkg/a" "$SID6" c3)$(ann "$P6/pkg/a" "$SID6" c3)" = 10 ] && ok "threat #8: a package directory finds the git dir above it" || bad "a monorepo package directory repeats the notice"
 NG="$WORK/nogitdir"; mkdir -p "$NG"
 [ "$(ann "$NG" "$SID6" c4)$(ann "$NG" "$SID6" c4)" = 11 ] && ok "no git dir: said every time" || bad "no git dir was deduplicated"
-[ -e "${TMPDIR:-/tmp}/claude-hook-notices/$SID6/$(printf '%s' "guard-announce:g:c4" | cksum | tr -d ' ' | cut -c1-24)" ] \
+[ -e "${TMPDIR:-/tmp}/claude-hook-notices/$SID6/$(sk "guard-announce:g:c4")" ] \
   && bad "  …and it fell back to a TMPDIR stamp" || ok "  and never through a TMPDIR stamp"
+# 098 review R6-1/R6-2: the leftmost session_id is the session; a nested one (MCP input) is not.
+V=$(bash -c '. "$0"; hn_session_id "$1"' "$(dirname "$IG")/hook-notice.sh" '{"session_id":"real","tool_input":{"session_id":"old"}}')
+[ "$V" = real ] && ok "098 review R6-2: the top-level session_id wins over a nested one" || bad "session id read as [$V]"
+[ "${#K}" -eq 40 ] && [ "$(sk "guard-announce:g:c2")" = "$K" ] && ok "098 review R6-1: the stamp name is a SHA-256 prefix, not a CRC" || bad "stamp name [$K]"
 SAB6B="$WORK/sab6b"; mkdir -p "$SAB6B"; cp "$(dirname "$IG")"/*.sh "$SAB6B"/
 sed 's/hn_first_time "\$sid" "guard-announce:\$guard:\$cause" "\$base"/hn_first_time "$sid" "guard-announce:$guard:$cause"/' "$LIB" > "$SAB6B/guard-lib.sh"
 if cmp -s "$LIB" "$SAB6B/guard-lib.sh"; then bad "098-R6 sabotage target not found"; else
-  K5=$(printf '%s' "guard-announce:g:c5" | cksum | tr -d ' ' | cut -c1-24); : > "${TMPDIR:-/tmp}/claude-hook-notices/$SID6/$K5"
+  K5=$(sk "guard-announce:g:c5"); : > "${TMPDIR:-/tmp}/claude-hook-notices/$SID6/$K5"
   [ "$(ann "$P6" "$SID6" c5 "$SAB6B/guard-lib.sh")" = 0 ] && ok "098-R6 sabotage: a TMPDIR stamp silences the old code" || bad "098-R6 sabotage: the mutant still speaks"
 fi
 rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID6"

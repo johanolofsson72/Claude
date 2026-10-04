@@ -210,8 +210,9 @@ MCP server lying about tool names. STRIDE pass by the `security-scanner` agent o
 - *Adopted (#8):* the git dir is found from `CLAUDE_PROJECT_DIR` upward (a monorepo package directory),
   through a `.git` file's `gitdir:` line, with builtins. No git dir: said every time, never a TMPDIR
   stamp (sabotage arm).
-- *Bound (#8):* `hn_session_id` takes the last `session_id` in the payload; a forced empty or rotating
-  id makes the guard speak every time, which is noise, not silence.
+- *Bound (#8):* `hn_session_id` takes the leftmost `session_id`, the top-level key the harness writes
+  first (the adversarial review showed the last one was an MCP input's to choose); a forced empty or
+  rotating id makes the guard speak every time, which is noise, not silence.
 
 ### TB7 — shell text to a runner (R7)
 - *Adopted (#1–#3):* the narrower rule applies only to a plain line: no `(`, `)`, `{`, `}`, `coproc`,
@@ -228,3 +229,23 @@ MCP server lying about tool names. STRIDE pass by the `security-scanner` agent o
   (`mcp__x__write_file`, `mcp__y__edit`) as an anchored regular expression; one that does not compile
   is reported as such. A pass in any PreToolUse group wiring the hook, in `settings.json` or
   `settings.local.json`, is enough.
+
+## Adversarial review (2026-10-04)
+
+`security-scanner` (assume exploitable) and `/security-review` on commit 95b25ee. Each flag, decided:
+
+- *Fixed:* R7-1, a redirect to a file named `2` or `-` read as a descriptor (`grep -l hooks <S> > 7 ;
+  xargs rm < 7` allowed, a regression from the old rule). `split_commands` now drops only a dup target
+  (`>&2`, `>&-`). An output option (`--output=f`) counts as a spill too.
+- *Fixed:* R7-2/R7-3, `$_`, a quote pair hiding `exec`, `e\xec`. The plain test reads the raw text,
+  and `$`, a backtick or a backslash makes the line unplain.
+- *Fixed:* R7-4 in part. `runs_text` is never weaker than the pre-098 test, and after a wrapper any
+  runner name counts (`sudo -u root bash`). R7-6: a pipeline filter must be a bare name.
+- *Fixed:* R4-1. Only rev-parse's own codes (0, 1, 128, 129) are answers, so a git killed by SIGTERM
+  is unsure.
+- *Fixed:* R6-1, a SHA-256 stamp name instead of CRC32. R6-2, the leftmost `session_id`.
+- *Fixed:* R1-1, a project whose `.git` is a file sends every path to the parser. R1-2, the pre-check
+  reads `notebook_path`.
+- *Dismissed:* R1-3. `bash-write-guard` already refuses `ln -s .git gd` in every spelling tried.
+- *Recorded:* F175 (pre-098 runner gaps), F176 (PATH shims), F177 (`$(git rev-parse --git-dir)`
+  one-liner), F178 (`check` subcommand, `_grandfathered`).

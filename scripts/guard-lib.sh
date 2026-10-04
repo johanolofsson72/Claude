@@ -485,10 +485,14 @@ _guard_git() {
   rc=$?
   GUARD_GIT_OUT=${GUARD_GIT_OUT%x}
   # 124: timeout/gtimeout ran out. 142: perl's alarm (SIGALRM). 137: timeout's own KILL.
+  # Only rev-parse's own answers count: 0, 1 (-q --verify), 128 (not a repository), 129 (usage). Any
+  # other code, a git killed from outside (143, a pkill loop) among them, is no answer (098 review R4-1).
   case "$rc" in
-    124|137|142) GUARD_GIT_UNSURE="git did not answer within ${GUARD_GIT_TIMEOUT:-5}s"; return 125 ;;
+    0|1|128|129) return "$rc" ;;
+    124|137|142) GUARD_GIT_UNSURE="git did not answer within ${GUARD_GIT_TIMEOUT:-5}s" ;;
+    *) GUARD_GIT_UNSURE="git exited $rc, which is no answer" ;;
   esac
-  return "$rc"
+  return 125
 }
 
 _guard_linked_worktree() {   # $1 = dir whose .git is a file

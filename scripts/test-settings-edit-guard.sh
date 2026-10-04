@@ -771,8 +771,24 @@ for c in "cat $S | sh" "echo $S | xargs rm" "cat $S > f; sh f" "cat $S | tee f; 
          "cat $S | pbcopy; pbpaste | sh" "exec 3> >(sh); cat $S >&3" "ls $S > l; xargs rm < l"; do
   run "$GUARD" "$(bash_p "$c")"; expect "098-AC-5 denied: ${c//$P\//}" deny
 done
+# Adversarial review: a file named 2 or - is a file, an output option writes one, a quote, an escape
+# or an expansion makes the line unplain, and a filter is a bare name.
+for c in "grep -l hooks $S > 7 ; xargs rm < 7" "grep -l hooks $S >| 7 ; xargs rm < 7" \
+         "grep -l hooks $S &> 7 ; xargs rm < 7" "ls $S > - ; xargs rm < -" "echo 'echo x >> $S' > 5 ; sh 5" \
+         "echo 'echo x >> $S' 1> 5 && sh 5" "git diff --output=7 $S ; sh 7" "cat $S; bash -c 'rm \"\$0\"' \"\$_\"" \
+         "echo \\' ; exec >f ; echo $S ; xargs -a f rm ; echo \\'" "e\\xec >f; echo $S; xargs -a f rm" \
+         "echo $S | ./grep x; sh f" "ls $S >& f; sh f" "cat $S > f; sudo -u root bash f" \
+         "cat $S > f; timeout -s KILL 9 sh f" "cat $S > f; stdbuf -o L sh f"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "098-R7 review denied: ${c//$P\//}" deny
+done
+for c in "grep hooks $S 2>&1 ; bash scripts/test-x.sh" "grep hooks $S >&2 ; bash scripts/test-x.sh"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "098-R7 review allowed: ${c//$P\//}" none
+done
+sabotage "sabotage 098-R7: a target after > read as a descriptor lets > 7; xargs rm < 7 pass" \
+  'if not (pending_dup and (tok.isdigit() or tok == "-")):' 'if not (tok.isdigit() or tok == "-"):' \
+  "$(bash_p "grep -l hooks $S > 7 ; xargs rm < 7")"
 sabotage "sabotage 098-R7: if any pipe mate may run, cat | sh passes" \
-  'return True                                   # | sh, | dd of=f, | pbcopy, | command sh' 'pass' \
+  'return True                                   # | sh, | dd of=f, | pbcopy, | command sh, | ./grep' 'pass' \
   "$(bash_p "cat $S | sh")"
 sabotage "sabotage 098-R7: without the spill rule cat > f; sh f passes" \
   'return spills and any(runners[j] for j in others)' 'return False' \

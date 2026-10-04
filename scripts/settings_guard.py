@@ -76,6 +76,7 @@ GIT_READ = frozenset(
 # A command that finds files by name below a directory: after it, a bare `settings.json` may be one.
 TREE_COMMANDS = frozenset("find fd xargs rsync tar zip".split())
 OUTPUT_OPTIONS = frozenset(("-o", "--output", "--output-file", "--output-directory"))
+OUTPUT_PREFIXES = ("--output=", "--output-file=", "--output-directory=")   # git diff --output=f (098 review)
 EXEC_COMMANDS = frozenset(
     "sh bash zsh dash ksh fish eval source . exec xargs env python python3 perl ruby node php awk "
     "osascript parallel at batch crontab busybox".split())
@@ -701,7 +702,7 @@ def split_commands(text, strip=False, flow=None):
     lex.whitespace_split = True
     out = []
     words, targets = [], []
-    pending_redirect = False
+    pending_redirect = pending_dup = False
     depth = 0                                         # inside $( ), >( ), <( ): output flows on
     group = 0
     def flush():
@@ -729,6 +730,7 @@ def split_commands(text, strip=False, flow=None):
                     continue
                 if ">" in tok or "<" in tok:
                     pending_redirect = ">" in tok
+                    pending_dup = tok.endswith("&") and not tok.startswith("&")   # >&2, not &> f
                     if words and words[-1].isdigit():     # 2>&1: the 2 is a descriptor, not a word
                         words.pop()
                     continue
@@ -739,8 +741,9 @@ def split_commands(text, strip=False, flow=None):
                     group += 1
                 continue
             if pending_redirect:
-                targets.append(tok)
-                pending_redirect = False
+                if not (pending_dup and (tok.isdigit() or tok == "-")):
+                    targets.append(tok)               # >&2 and >&- name a descriptor; > 2 is a file (098 review)
+                pending_redirect = pending_dup = False
             else:
                 words.append(tok)
     except ValueError:
@@ -756,8 +759,12 @@ def split_commands(text, strip=False, flow=None):
 # a descriptor above 2) keeps the old rule (threat model #1, #2).
 STDOUT_FILTERS = frozenset("grep egrep fgrep wc head tail cut tr nl column jq cat".split())
 RUN_WRAPPERS = frozenset("! time command builtin nice nohup stdbuf setsid timeout gtimeout caffeinate sudo doas { exec".split())
-UNPLAIN = re.compile(r"[(){}]|<<<|\bcoproc\b|\bexec\b|[<>]&\s*(?:[3-9]|\d\d|\$|-)|\d{2,}[<>]")
-SAFE_TARGET = re.compile(r"^(?:\d|-|/dev/(?:null|stdout|stderr|tty))$")
+# Judged on the raw text, quotes included: a quoted exec still reads as unplain, and a line with an
+# expansion ($_, $OLDPWD, $(…)), a backtick or a backslash (e\xec) is never plain (098 review, R7-2/R7-3).
+UNPLAIN = re.compile(r"[(){}`$\\]|<<<|\bcoproc\b|\bexec\b|[<>]&\s*(?:[3-9]|\d\d|-)|\d{2,}[<>]")
+# Only file targets reach here: split_commands drops a descriptor duplication (>&2), so `> 2` and `> -`
+# are files named 2 and - (098 review, R7-1).
+SAFE_TARGET = re.compile(r"^/dev/(?:null|stdout|stderr|tty)$")
 
 
 def blank_quotes(text):
@@ -766,7 +773,14 @@ def blank_quotes(text):
 
 
 def runs_text(words):
-    """The command, past wrappers (`command sh`, `timeout 9 bash`, `nice -n 5 sh`), is a runner."""
+    """The command, past wrappers (`command sh`, `timeout 9 bash`, `nice -n 5 sh`), is a runner. Never
+    less than the pre-098 test (command_word); after a wrapper, any runner name counts, so an option
+    value (`sudo -u root bash`, `timeout -s KILL 9 sh`) cannot hide one (098 review R7-4)."""
+    if (command_word(words) or "").rpartition("/")[2] in EXEC_COMMANDS:
+        return True
+    if words and words[0].rpartition("/")[2] in RUN_WRAPPERS \
+            and any(w.rpartition("/")[2] in EXEC_COMMANDS for w in words[1:]):
+        return True
     for i, w in enumerate(words):
         b = w.rpartition("/")[2]
         if NAME_ASSIGN.match(w) or b in RUN_WRAPPERS or (i > 0 and (w.startswith("-") or re.fullmatch(r"[\d.]+[smhd]?", w))):
@@ -782,9 +796,10 @@ def read_flows(k, cmds, flow, plain, runners):
     if not plain:
         return any(runners[j] for j in others)
     mates = [j for j in others if flow[j] == flow[k]]
-    if any((command_word(cmds[j][0]) or "").rpartition("/")[2] not in STDOUT_FILTERS for j in mates):
-        return True                                   # | sh, | dd of=f, | pbcopy, | command sh
-    spills = any(not SAFE_TARGET.match(t) for j in mates + [k] for t in cmds[j][1])
+    if any((command_word(cmds[j][0]) or "") not in STDOUT_FILTERS for j in mates):
+        return True                                   # | sh, | dd of=f, | pbcopy, | command sh, | ./grep
+    spills = any(not SAFE_TARGET.match(t) for j in mates + [k] for t in cmds[j][1]) \
+        or any(w in OUTPUT_OPTIONS or w.startswith(OUTPUT_PREFIXES) for j in mates + [k] for w in cmds[j][0])
     return spills and any(runners[j] for j in others)
 
 
@@ -1628,7 +1643,7 @@ def _bash_verdict(cmd, g, strip):
         if cw and cw.rpartition("/")[2] in TREE_COMMANDS:
             by_name = True
     tainted = prelude_taints(cmds, text)
-    plain = len(flow) == len(cmds) and not UNPLAIN.search(blank_quotes(text))
+    plain = len(flow) == len(cmds) and not UNPLAIN.search(text)
     runners = [runs_text(w) for w, _, _ in cmds]
     # 095a TM-5: in a mod zone (the payload cwd, a cd or -C target) a write names no path at all:
     # `cd ~/.claude/skills && git clone URL`, `tar xf m.tar`.

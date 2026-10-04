@@ -88,8 +88,9 @@ else
   shopt -u nocasematch
   # A file_path that is a symlink may land on a store under an innocent name, and a glob (a shell write
   # bash-write-guard delegates unexpanded) may match an acceptance.md under any spelling.
-  if [ "$HIT" -eq 0 ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
-    _fp="${BASH_REMATCH[1]}"
+  # notebook_path too: NotebookEdit writes as much as Write does (098 review R1-2).
+  if [ "$HIT" -eq 0 ] && [[ $TI =~ \"(file_path|notebook_path)\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+    _fp="${BASH_REMATCH[2]}"
     case "$_fp" in *[*?{[]*) HIT=1 ;; esac
     # Spec 098 R1 (F139): a link at ANY component, not only the last: with gd -> .git in the tree,
     # gd/info/exclude names no trigger word. The shared ancestor walk (spec 090 R2(b)) reads the
@@ -100,13 +101,9 @@ else
       HIT=1
     fi
     # Spec 098 TB1: a .git FILE at the project root may name a git dir kept elsewhere, which has no
-    # .git component; a path under it is a write into the git dir.
-    if [ "$HIT" -eq 0 ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.git" ] && IFS= read -r _gl < "$CLAUDE_PROJECT_DIR/.git"; then
-      case "$_gl" in
-        "gitdir: "*) _gd=${_gl#gitdir: }; case "$_gd" in /*) ;; *) _gd="$CLAUDE_PROJECT_DIR/$_gd" ;; esac
-                     case "$_fp" in "${_gd%/}"|"${_gd%/}"/*) HIT=1 ;; esac ;;
-      esac
-    fi
+    # .git component. A text prefix test missed $P/../gd/hooks/x and gd//hooks (098 review R1-1), so
+    # such a project sends every path to the parser, which compares resolved paths.
+    [ -f "${CLAUDE_PROJECT_DIR:-}/.git" ] && HIT=1
     # A hard link to an acceptance.md under another name (/security-review, spec 088): -ef compares
     # device and inode, as a builtin.
     if [ "$HIT" -eq 0 ] && [ -f "$_fp" ]; then
