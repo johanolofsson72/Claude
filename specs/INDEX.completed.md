@@ -1389,3 +1389,139 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 098 — guard-hole-sweep-2
 
 - [x] 098 — guard-hole-sweep-2 — full track [hardened] — close the allow paths H5 and 095 found: symlinked dir into .git, refs/remotes trust, silent missing-file exits, git with no timeout, mutant env leak, notice stamp, bash false deny, mcp matcher. F139–F144 F155 F159
+
+## 006 — nothing-checks-the-design-gate-exists
+
+- [x] 006 — nothing-checks-the-design-gate-exists — spec-only — the bare name RESOLVES to the plugin cache, so the naming half is refuted. What stands: nothing verifies the plugin is installed, so a BLOCKING gate fails silent without it. Diagnosis + spec: `specs/INDEX.completed.md`.
+
+## 077 — row-proposals-carry-their-need
+
+- [x] 077 — row-proposals-carry-their-need — spec-only [hardened] — the freeze chosen 2026-09-29 needs teeth: a freeze line the hooks read; row proposals carry their need and go to the developer.
+
+## 010 — autosync-test-writes-to-the-repo-it-tests
+
+- [x] 010 — autosync-test-writes-to-the-repo-it-tests — full track [hardened] — consultpilot H7bm never landed. template-autosync.sh now refuses to write outside a declared CLAUDE_TEMPLATE_SYNC_SANDBOX; six drivers declare, a gate checks them.
+
+## 075 — place-heavy-jobs-local-or-cloud
+
+- [x] 075 — place-heavy-jobs-local-or-cloud — light track [hardened] — placement table + `--placed` + cloud half (`cloud-maintenance.sh`, results on `claude/maintenance-results`). All jobs local: Stryker ~17 GB at Mac concurrency. Detalj: specs/INDEX.completed.md
+
+## 031 — dotnet-test-prints-passed-over-an-aborted-run
+
+- [x] 031 — dotnet-test-prints-passed-over-an-aborted-run — spec-only — `Passed!` over an aborted run fooled 3 call sites; scripts/run-verdict.sh reads the abort line first. Diagnosis: `specs/INDEX.completed.md`
+
+## 032 — spec-dir-absent-leaves-both-guards-inert
+
+- [x] 032 — spec-dir-absent-leaves-both-guards-inert — spec-only — found:false was never the hole (both guards deny it); 016a passed via a dropped pre-046 deny and .html/.css outside SOURCE_EXTS, now guarded. Long form: `specs/INDEX.completed.md`
+
+## 033 — portability-check-fails-open-and-says-nothing
+
+- [x] 033 — portability-check-fails-open-and-says-nothing — spec-only — section 6c now reports a missing portability script as [SETUP] and a run that could not run as a finding, never clean. Long form: `specs/INDEX.completed.md`
+
+## 036 — index-tally-cannot-express-a-decorated-status
+
+- [x] 036 — index-tally-cannot-express-a-decorated-status — spec-only — the split index's tally regex knew `✓ *` but not `✓ int`. Found by ighweld-2026 spec 180; long form in INDEX.completed.md.
+
+## 038 — freshness-calls-a-scan-error-a-verified-secret
+
+- [x] 038 — freshness-calls-a-scan-error-a-verified-secret — spec-only — trufflehog exit 1 (could not scan) read as a verified secret. Now 0/183/other branch: other is `[WARN]` + NOT SCANNED. Verbatim in `INDEX.completed.md`.
+
+## 042 — needs-clause-swallows-a-null-dependency
+
+- [x] 042 — needs-clause-swallows-a-null-dependency — spec-only — `lane_status.py`: a digit-less `needs` entry (`inget`) no longer blocks; an unknown id still does, and is named. Verbatim in `INDEX.completed.md`.
+
+## 043 — mutation-gate-reports-a-headline-only
+
+- [x] 043 — mutation-gate-reports-a-headline-only — spec-only — maintenance §5 reads this run's Stryker JSON reports, merged per mutant, and lists every module under the limit; no report = module gate unmeasured. Verbatim in `INDEX.completed.md`.
+
+## 044 — traceability-gate-cannot-tell-zero-from-broken
+
+- [x] 044 — traceability-gate-cannot-tell-zero-from-broken — spec-only — a scan that finds no id while the map claims rows now refuses (exit 4, roots + file counts); a partial read names its refused rows. Verbatim in `INDEX.completed.md`.
+
+## 047 — stryker-spans-fail-silently-and-score-well
+
+- [x] 047 — stryker-spans-fail-silently-and-score-well — spec-only [hardened] — dead mutate patterns and valid char spans are findings every pass; --full and a PreToolUse guard refuse Stryker beside a build. Verbatim in `INDEX.completed.md`
+
+## 048 — sc-id-space-is-three-digits-and-full
+
+- [x] 048 — sc-id-space-is-three-digits-and-full — spec-only — SC ids are three digits minimum and grow past 999; the fixture gate lost its 4-digit cap; the width line is pinned by case48 + two sabotage arms. Verbatim in `INDEX.completed.md`.
+
+## 049 — a-held-row-cannot-be-written-to
+
+- [x] 049 — a-held-row-cannot-be-written-to — spec-only — `--spec` takes a register id at any status (`--spec 049`), so a held or ticked row's run log is writable; implicit failures name the flag. Verbatim in `INDEX.completed.md`.
+
+## 050 — allium-cli-warns-on-every-spec-it-has
+
+- [x] 050 — allium-cli-warns-on-every-spec-it-has — spec-only — the lint was fixed upstream in 3.3.0; the hook now notes an older CLI once per session and the skill teaches `-- see:` and the F089 cause. Verbatim in `INDEX.completed.md`.
+
+## 051 — maintenance-suite-blind-to-standalone-node-tests
+
+- [x] 051 — maintenance-suite-blind-to-standalone-node-tests — spec-only — `--suite` runs a declared `.claude/.suite-command` first; a green `dotnet test` beside a nested jest suite is a finding, not a stamp; `--full` names a missing mutation runner. Verbatim in `INDEX.completed.md`.
+
+## 046 — hooks-shout-at-the-developer-and-whisper-to-the-model
+
+- [x] 046 — hooks-shout-at-the-developer-and-whisper-to-the-model — full track — model reminders went out as user-facing `systemMessage`, and 42 hooks emitted top-level `additionalContext`, which is ignored. Both channels were backwards.
+
+## 045 — unlisted-predicate-denies-a-tick-it-cannot-clear
+
+- [x] 045 — unlisted-predicate-denies-a-tick-it-cannot-clear — full track — four defects in the CORE-ownership machinery, each already recorded and never landed. Detalj: specs/INDEX.completed.md
+
+## 052 — maintenance-runs-what-it-finds
+
+- [x] 052 — maintenance-runs-what-it-finds — spec-only — `project-maintenance.sh` runs no `check-*.sh` ratchet, and `--suite`/`--full` build whatever .sln is at the root: a dead one turned a green project red. From ighweld-2026. Diagnosis: `specs/INDEX.pending.md`
+
+## 053 — stryker-tmp-outlives-its-run
+
+- [x] 053 — stryker-tmp-outlives-its-run — spec-only — abandoned `.stryker-tmp` sandboxes stay in the tree, so four consumers (project-freshness, project-maintenance, vitest, eslint) each exclude it. Stop it existing instead. From msroute. Diagnosis: `specs/INDEX.pending.md`
+
+## 054 — finding-ids-collide-across-lanes
+
+- [x] 054 — finding-ids-collide-across-lanes — spec-only — `finding.sh` numbers by COUNTING the local ledger, so two lanes mint the same F-id and a resolved row lets the next reuse a number. agentcrm: F141–F143 named six findings. Verbatim in `INDEX.completed.md`.
+
+## 060 — sc-ids-have-no-allocator
+
+- [x] 060 — sc-ids-have-no-allocator — full track — rows have `next-register-id.sh`; scenario ids have nothing, so every parallel merge collides. agentcrm: 47 collisions, 26 from two lanes taking one range. Verbatim in `INDEX.completed.md`.
+
+## 065 — nightly-cron-line-runs-blind
+
+- [x] 065 — nightly-cron-line-runs-blind — spec-only — the line install-nightly-maintenance.sh writes has cron's bare PATH (no dotnet/node/docker/timeout), and a line that fails to parse writes no log at all. From fundit F084/F086. Verbatim in `INDEX.completed.md`.
+
+## 066 — allocator-cannot-make-a-carved-suffix
+
+- [x] 066 — allocator-cannot-make-a-carved-suffix — spec-only — next-register-id.sh has no form for the NNNa ids carved rows use (002a, 015a); --alpha 005 returns 0051, so carved ids are still picked by eye. From fundit F095. Diagnosis: `specs/INDEX.pending.md`
+
+## 067 — traceability-walk-races-test-results
+
+- [x] 067 — traceability-walk-races-test-results — spec-only — a reference walk that reported any error (vanished or unreadable path) now refuses with exit 4 instead of a partial coverage number; Playwright blob-report and report dirs pruned. From fundit F116. Verbatim in `INDEX.completed.md`.
+
+## 068 — checkpoint-cadence-counts-checkpoints
+
+- [x] 068 — checkpoint-cadence-counts-checkpoints — spec-only — the every-5 checkpoint now counts feature specs since the last ticked checkpoint (H, carved and standing rows excluded), due at ≥5 not a multiple; one engine, `checkpoint-cadence.sh`, for both readers.
+
+## 069 — tlc-cleanup-kills-the-run-it-guards
+
+- [x] 069 — tlc-cleanup-kills-the-run-it-guards — spec-only — tlc-cleanup.sh `pkill -f` from PostToolUse/Stop hooks killed live TLC runs and hook shells (144). Now: java-only, runs past the 320 s bound; `--all` manual. From ekofak 005. Diagnosis: `specs/INDEX.completed.md`
+
+## 070 — freshness-audits-npm-only
+
+- [x] 070 — freshness-audits-npm-only — spec-only — freshness never named a Maven/Gradle/Cargo/Go/pip manifest nothing audited. Now pass 6 lists each as osv-covered or `[SKIP] no auditor`, and unchecked is NOT SCANNED. From ekofak H1. Diagnosis: `specs/INDEX.completed.md`
+
+## 071 — testing-doc-prescribes-js-screenshot-api
+
+- [x] 071 — testing-doc-prescribes-js-screenshot-api — spec-only — testing.md's .NET VRT example called ToHaveScreenshotAsync (JS runner only). Now ScreenshotAsync + SkiaSharpCompare, per-OS baselines, run-verified; guard test. From teach F007. Diagnosis: `specs/INDEX.completed.md`
+
+## 079 — traceability-loses-the-second-id-in-a-chain
+
+- [x] 079 — traceability-loses-the-second-id-in-a-chain — spec-only — `grep -o` is non-overlapping, so `SCNNN_SCNNN_Name` lost its second id (8 of agentcrm's 58 "uncovered"). — approved F061
+
+## 088 — guard-trust-anchors
+
+- [x] 088 — guard-trust-anchors — full track [hardened] — gates no longer trust state Claude can write: root walk, nightly trust, grandfathering, self-confirm. F090 F091 F093 F094 — approved F098
+
+## 095a — mod-loading-guard
+
+- [x] 095a — mod-loading-guard — full track [hardened] — settings guard refuses agent writes of Claude Code mods on every route (long form: INDEX.completed.md) — carved by 096 (d1)
+
+## 099 — maintenance-script-fixes
+
+- [x] 099 — maintenance-script-fixes — light track — project-maintenance false RATCHET failures, carve-excess acknowledgement, context budget over cap in synced projects, archive-completed-rows honesty. F166–F169
