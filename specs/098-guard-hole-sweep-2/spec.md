@@ -252,3 +252,19 @@ MCP server lying about tool names. STRIDE pass by the `security-scanner` agent o
 - *Dismissed:* R1-3. `bash-write-guard` already refuses `ln -s .git gd` in every spelling tried.
 - *Recorded:* F175 (pre-098 runner gaps), F176 (PATH shims), F177 (`$(git rev-parse --git-dir)`
   one-liner), F178 (`check` subcommand, `_grandfathered`).
+
+## Verification (2026-10-04)
+
+- **Suite:** 95 of 95 self-tests green on an idle machine. `test-bash-write-guard.sh` needed its
+  quiet fixture to carry a sync script: R3 now denies a synced project without one.
+- **Mutation, Python modules:** 20 hand mutants on the R2, R7 and R8 code; 19 killed, 1 equivalent
+  (a backtick in UNPLAIN: the parser already treats a backtick as a substitution, shown by a probe
+  where real and mutant guard gave the same verdict on six backtick-only lines).
+- **Mutation, shell modules:** every mutable site on the lines 098 changed, 76 of 82 killed (92.7%),
+  every module at 80% or above. Survivors: core-machinery 127 and core-owed-tick 218 (`exit 0` on a
+  silent allow, the F151 class left to row 100); guard-lib 133, 446, 447 and run-mutation-gate 453,
+  equivalent (each caller's next step, or the `pushInsteadOf = $ROOT` prefix, gives the same result).
+- **SC-2:** `bench-hooks.sh --runs 9` against b7dc552 shows no added latency; the medians moved
+  within run-to-run noise in both directions.
+- **TLA+:** `tla/ReadFlow.tla` (R7, 1080 states, the pre-review rule as a failing control) and
+  `tla/GitUnsure.tla` (R4, 72 states), both clean.

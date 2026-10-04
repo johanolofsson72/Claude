@@ -19,8 +19,8 @@
 - [x] T026 R5 run-mutation-gate.sh
 
 ## Phase 3 — verification
-- [ ] T030 R9 headers and docs (humanizer pass)
-- [ ] T031 full template suite; bench-hooks (SC-2); mutation gate on changed modules (hard gate)
-- [ ] T032 adversarial review: security-scanner (assume exploitable), /security-review
-- [ ] T033 /tla on the R7 flow decision and the R4 split; Allium drift check
-- [ ] T034 findings closed; register tick, archive, commit, push
+- [x] T030 R9 headers and docs (humanizer pass)
+- [x] T031 full template suite; bench-hooks (SC-2); mutation gate on changed modules (hard gate)
+- [x] T032 adversarial review: security-scanner (assume exploitable), /security-review
+- [x] T033 /tla on the R7 flow decision and the R4 split; Allium drift check
+- [x] T034 findings closed; register tick, archive, commit, push
