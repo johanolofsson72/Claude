@@ -259,6 +259,24 @@ V=$(GUARD_GIT_UNSURE="git is not on PATH" bash -c '. "$0"; guard_unsure_deny g >
 [ "$V" = "rc=0" ] && ok "guard_unsure_deny returns 0 once it has denied" || bad "guard_unsure_deny read as [$V]"
 V=$(bash -c '. "$0"; unset GUARD_GIT_UNSURE; out=$(guard_unsure_deny g); echo "rc=$? out=[$out]"' "$LIB")
 [ "$V" = "rc=1 out=[]" ] && ok "  and 1, silently, when the walk was sure" || bad "  a sure walk read as [$V]"
+# 091 R6 through _guard_git (098 mutation survivors): a project inside an outer repository whose own
+# .git is a FILE counts as the root only when git accepts it as a repository of its own.
+O="$WORK/outer"; mkdir -p "$O"; git init -q "$O"
+anchor_root() { # anchor_root <project> -> the root guard_walk settles on for <project>/src/a.ts
+  mkdir -p "$1/src"
+  CLAUDE_PROJECT_DIR="$1" bash -c '. "$0"; guard_walk "$1/src/a.ts"; printf "%s" "$GUARD_GIT_ROOT"' "$LIB" "$1"
+}
+OR=$(cd -P "$O" && pwd)
+mkdir -p "$O/p1"; echo "junk" > "$O/p1/.git"
+[ "$(anchor_root "$O/p1")" = "$OR" ] && ok "a junk .git file does not make the project a root" || bad "a junk .git file counted"
+mkdir -p "$O/p2"; echo "gitdir: $WORK/nowhere2" > "$O/p2/.git"
+[ "$(anchor_root "$O/p2")" = "$OR" ] && ok "a dangling gitdir: does not make the project a root" || bad "a dangling gitdir counted"
+mkdir -p "$O/p3" "$WORK/emptygd"; echo "gitdir: $WORK/emptygd" > "$O/p3/.git"
+[ "$(anchor_root "$O/p3")" = "$OR" ] && ok "a gitdir: git rejects does not make the project a root" || bad "a git-rejected gitdir counted"
+git init -q --separate-git-dir="$WORK/p4gd" "$O/p4"
+git -C "$O/p4" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm i --allow-empty
+P4R=$(cd -P "$O/p4" && pwd)
+[ "$(anchor_root "$O/p4")" = "$P4R" ] && ok "a --separate-git-dir repository of its own is the root (review #7)" || bad "a real separate-git-dir repository did not count"
 SAB6B="$WORK/sab6b"; mkdir -p "$SAB6B"; cp "$(dirname "$IG")"/*.sh "$SAB6B"/
 sed 's/hn_first_time "\$sid" "guard-announce:\$guard:\$cause" "\$base"/hn_first_time "$sid" "guard-announce:$guard:$cause"/' "$LIB" > "$SAB6B/guard-lib.sh"
 if cmp -s "$LIB" "$SAB6B/guard-lib.sh"; then bad "098-R6 sabotage target not found"; else

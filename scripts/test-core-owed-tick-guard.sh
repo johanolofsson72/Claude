@@ -407,6 +407,22 @@ if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; th
 fi
 
 printf '\n%s\n' "----------------------------------------"
+# Spec 098 R4: a root walk that cannot ask git announces and allows, with exit 0, so the notice is read.
+W4=$(make_project w4)
+git -C "$W4" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm init --allow-empty
+if git -C "$W4" worktree add -q "$W4/.claude/worktrees/wt" 2>/dev/null; then
+  NOGIT="$WORK/nogit"; mkdir -p "$NOGIT" "$W4/.claude/worktrees/wt/specs"
+  for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
+    [ -d "$d" ] || continue
+    for x in "$d"/*; do b=${x##*/}; [ "$b" = git ] || [ -e "$NOGIT/$b" ] || ln -s "$x" "$NOGIT/$b" 2>/dev/null; done
+  done
+  OUT=$(run_hook "$W4/.claude/worktrees/wt/specs/INDEX.md" "$TICK" PATH="$NOGIT" CLAUDE_PROJECT_DIR="$W4/.claude/worktrees/wt")
+  case "$OUT" in *"could not ask git"*) ok "098-R4 the tick guard allows aloud when git cannot answer" ;; *) bad "098-R4 no announcement from the tick guard"; info "$OUT" ;; esac
+else
+  info "skip: git worktree add failed here"
+fi
+mkdir -p "$WORK/norepo/specs"
+[ -z "$(run_hook "$WORK/norepo/specs/INDEX.md" "$TICK" CLAUDE_PROJECT_DIR="$WORK/norepo")" ] && ok "a register under no git root: silent" || bad "a register under no git root spoke"
 [ -s "$WORK/nonzero-exits" ] && bad "the hook exited non-zero (a deny would be read as an allow): $(head -3 "$WORK/nonzero-exits")" \
   || ok "every run of the hook exited 0"
 printf 'pass: %d   fail: %d\n' "$PASS" "$FAIL"

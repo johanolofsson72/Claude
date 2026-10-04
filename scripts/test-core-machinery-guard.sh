@@ -390,11 +390,16 @@ if [ -d "$W4/.claude/worktrees/wt" ]; then
   OUT2=$(printf '{"session_id":"%s","tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$SID" "$W4/.claude/worktrees/wt/scripts/spec_active.py" \
         | (cd "$W4/.claude/worktrees/wt" && env PATH="$NOGIT" CLAUDE_PROJECT_DIR="$W4/.claude/worktrees/wt" TMPDIR="${TMPDIR:-/tmp}" bash "$HOOK") 2>/dev/null)
   [ -z "$OUT2" ] && ok "  the second call in the session is deduplicated (by the git-dir stamp)" || bad "  the second call repeated the notice"
+  printf '{"tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$W4/.claude/worktrees/wt/scripts/spec_active.py" \
+    | (cd "$W4/.claude/worktrees/wt" && env PATH="$NOGIT" CLAUDE_PROJECT_DIR="$W4/.claude/worktrees/wt" bash "$HOOK") >/dev/null 2>&1
+  [ $? -eq 0 ] && ok "  and exits 0, so the announcement is read" || bad "  the announce path exited non-zero"
 else
   info "skip: git worktree add failed here"
 fi
 rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID"
 
+mkdir -p "$WORK/norepo/scripts"
+[ -z "$(run_hook "$WORK/norepo/scripts/x.sh" CLAUDE_PROJECT_DIR="$WORK/norepo")" ] && ok "a file under no git root: silent" || bad "a file under no git root spoke"
 [ -s "$WORK/nonzero-exits" ] && { bad "the hook exited non-zero (a deny would be read as an allow)"; info "$(head -5 "$WORK/nonzero-exits")"; } \
   || ok "every run of the hook exited 0"
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
