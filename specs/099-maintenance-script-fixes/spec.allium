@@ -1,0 +1,98 @@
+-- allium: 3
+--
+-- 099 — maintenance-script-fixes. Rules cite R1..R4 (spec.md).
+
+enum RatchetVerdict { passed | failed | timed_out | skipped_marker | skipped_precondition | not_run_untrusted }
+
+entity RatchetRun {
+    has_skip_marker: Boolean
+    trusted: Boolean
+    unattended: Boolean
+    exit_code: Integer?
+    verdict: RatchetVerdict
+    is_finding: Boolean
+}
+
+rule ClassifyRatchet {
+    when: RatchetFinished(r)
+    ensures:
+        if r.has_skip_marker:
+            r.verdict = skipped_marker
+        else:
+            if r.unattended and not r.trusted:
+                r.verdict = not_run_untrusted
+            else:
+                if r.exit_code = 0:
+                    r.verdict = passed
+                else:
+                    if r.exit_code = 124:
+                        r.verdict = timed_out
+                    else:
+                        if r.exit_code = 77:
+                            r.verdict = skipped_precondition    -- R1
+                        else:
+                            r.verdict = failed
+        r.is_finding = r.verdict = failed or r.verdict = timed_out or r.verdict = not_run_untrusted
+}
+
+entity CarveParent {
+    carves: Integer
+    budget: Integer
+    accepted_count: Integer?          -- from a parsed `Carve accepted:` line
+    over: Boolean
+    accepted: Boolean
+}
+
+rule JudgeCarveBudget {
+    when: CarveAudited(p)
+    ensures:
+        if p.carves > p.budget:
+            if p.accepted_count != null and p.carves <= p.accepted_count:
+                p.accepted = true                            -- R2
+                p.over = false
+            else:
+                p.accepted = false
+                p.over = true
+        else:
+            p.accepted = false
+            p.over = false
+}
+
+entity AcceptanceLine {
+    parses: Boolean
+    fails_audit: Boolean
+}
+
+rule MalformedAcceptanceFails {
+    when: AcceptanceRead(l)
+    ensures: l.fails_audit = not l.parses                    -- Q10
+}
+
+entity TickedRow {
+    text_in_archive: Boolean          -- byte-equal line present in INDEX.completed.md
+    heading_in_archive: Boolean
+    appended: Boolean
+    counted_archived: Boolean
+}
+
+rule ArchiveByText {
+    when: ArchiverRan(r)
+    ensures:
+        r.appended = not r.text_in_archive                   -- R4: a heading alone is not enough
+        r.counted_archived = r.text_in_archive or r.appended
+}
+
+entity BudgetRun {
+    synced: Boolean
+    total: Integer
+    cap: Integer
+    over: Boolean
+    names_template_share: Boolean
+}
+
+rule SyncedOverBudget {
+    when: BudgetMeasured(b)
+    ensures:
+        b.over = b.total > b.cap
+        b.names_template_share = b.over and b.synced         -- R3
+}

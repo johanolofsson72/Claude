@@ -148,3 +148,27 @@ This rule governs **PR ceremony only**. `PRs=no` / solo / direct-push does **not
 - Re-asking the questions every session once answered.
 - Any PR nudge when `PRs=no`.
 - Asking the questions pre-emptively mid-task before a PR moment is actually load-bearing.
+
+---
+
+## The rule as it stood before spec 099
+
+Spec 099 shortened `.claude/rules/project-workflow.md` so the template's always-loaded rules fit 23,552 bytes and a synced project keeps room for its own CLAUDE.md (ighweld F168). Its full text on 2026-10-04 follows, word for word, headings demoted one level.
+
+## Project workflow rule (solo vs team, PR usage)
+
+Before suggesting a pull request or any PR-based flow, know whether the project is **solo or team** and whether it **uses PRs**. Long form (memory template, the full pre-081 text): `.claude/docs/project-workflow-rationale.md`.
+
+### The check (BLOCKING — before any PR suggestion)
+
+1. Read `project_workflow.md` in the project memory and follow it.
+2. If it is missing, ask **once** with one `AskUserQuestion` holding two questions: staffing (`Solo` / `Team` / `Mixed`) and PRs (`No — direct push` / `Yes — always` / `Sometimes`).
+3. Save the answer as memory `project_workflow.md` and add a pointer line to `MEMORY.md`.
+
+### Acting on it
+
+`PRs=no` → never mention, offer or nudge toward PRs. Commit and push directly (`commit-commands:commit` + `git push`, never `commit-push-pr`). `PRs=yes` → the standard PR flow. `PRs=sometimes` → ask per change. Re-ask only when the user says the workflow changed.
+
+### Scope
+
+This governs PR ceremony only. Direct push never authorizes skipping a pipeline phase, a non-PR hook, validation, or the register's per-spec stop. It means "push without a PR after the spec is done".

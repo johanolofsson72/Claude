@@ -31,8 +31,32 @@ for rid, line in rows.items():
     else:
         unresolved.append((rid, pid))
 
+# Row 099 (ighweld F167): a decided excess is recorded by the developer as a header line,
+#   Carve accepted: 064=3, 097=3 · 2026-10-03 · pre-measurement, all shipped
+# The count binds the decision to what was decided: a fourth carve is over again. Budget only --
+# section 3 has no depth exception. A line that starts like one but does not parse fails the audit,
+# because ignoring it would look like a decision that was never recorded.
+ACCEPT_ANY = re.compile(r"^\W*carve accepted\b", re.I)
+ACCEPT = re.compile(r"^Carve accepted: (.+?) · (\d{4}-\d{2}-\d{2}) · \S.*$")
+PAIR = re.compile(r"^([A-Za-z]?[0-9][0-9A-Za-z.]*)=([0-9]+)$")
+accepted, malformed = {}, []
+for no, line in enumerate(reg.split("\n"), 1):
+    if not ACCEPT_ANY.match(line):
+        continue
+    m = ACCEPT.match(line)
+    pairs = [PAIR.match(p.strip()) for p in m.group(1).split(",")] if m else [None]
+    if not all(pairs):
+        malformed.append((no, line))
+        continue
+    for p in pairs:
+        accepted[p.group(1)] = (int(p.group(2)), m.group(2))
+
 kids = collections.Counter(parent.values())
-over = sorted(((n, p) for p, n in kids.items() if n > budget), reverse=True)
+def allowed(pid):
+    return max(budget, accepted[pid][0]) if pid in accepted else budget
+
+over = sorted(((n, p) for p, n in kids.items() if n > allowed(p)), reverse=True)
+waived = sorted((p, n) for p, n in kids.items() if budget < n <= allowed(p))
 
 def depth(rid):
     seen, d = set(), 0
@@ -55,7 +79,18 @@ if over:
     print(f"[CARVE BUDGET] {len(over)} row(s) carved more than {budget} (carve-budget.md section 2):")
     for n, pid in over[:10]:
         ks = sorted(k for k, v in parent.items() if v == pid)
-        print(f"  {pid} produced {n}: {' '.join(ks[:12])}")
+        was = f" (accepted {accepted[pid][0]} on {accepted[pid][1]}, now {n})" if pid in accepted else ""
+        print(f"  {pid} produced {n}{was}: {' '.join(ks[:12])}")
+    print("  A decided excess is recorded with a header line in specs/INDEX.md:"
+          " 'Carve accepted: <id>=<n> · <YYYY-MM-DD> · <why>'.")
+if malformed:
+    bad += 1
+    print(f"[CARVE ACCEPTANCE] {len(malformed)} line(s) do not parse as"
+          f" 'Carve accepted: <id>=<n>[, <id>=<n>] · <YYYY-MM-DD> · <why>':")
+    for no, line in malformed[:10]:
+        print(f"  line {no}: {line[:120]}")
+for pid, n in waived:
+    print(f"carve budget: {pid} produced {n}, accepted on {accepted[pid][1]} (Carve accepted line).")
 if deep:
     bad += 1
     print(f"[CARVE DEPTH] {len(deep)} row(s) past depth 2 (section 3 — there is no depth 3):")

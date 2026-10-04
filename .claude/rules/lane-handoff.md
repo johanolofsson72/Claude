@@ -1,6 +1,6 @@
 # Lane handoff rule (two machines, one file — never a person as the transport)
 
-**Inert on a single-lane project.** It applies only where two or more developers share one register (owner tags; `.claude/rules/spec-register.md` "Two lanes"). Read `.claude/docs/lane-handoff-rationale.md` before acting on a multi-lane project.
+**Inert on a single-lane project.** It applies only where two or more developers share one register (`— @name` owner tags, `SPEC_OWNER` per machine). Read `.claude/docs/lane-handoff-rationale.md` before acting on a multi-lane project.
 
 ## Where a cross-lane finding belongs (BLOCKING, multi-lane only)
 

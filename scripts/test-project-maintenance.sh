@@ -1137,6 +1137,25 @@ OUT=$(run "$D"); RC=$?
 expect_contains "C93 reasonless skip — it ran and failed"        "[RATCHET] scripts/check-lazy.sh failed (exit 1)" "$OUT"
 expect_contains "C93 the note says the marker was ignored"       "scripts/check-lazy.sh: skip marker has no reason — ignored" "$OUT"
 
+# --- 099-R1: exit 77 is "precondition absent", a listed skip, never a finding (ighweld F166) ---------
+D=$(mkfix r099a); mkratchet "$D" check-api-up.sh 'echo "probing :5175"; echo "API not up on :5175"; echo; exit 77'
+OUT=$(run "$D"); RC=$?
+expect_absent   "099-R1 exit 77 — no RATCHET finding"            "[RATCHET]" "$OUT"
+expect_contains "099-R1 exit 77 — listed as precondition absent" "ratchets skipped, precondition absent (exit 77):" "$OUT"
+expect_contains "099-R1 the reason is its last output line"      "scripts/check-api-up.sh — API not up on :5175" "$OUT"
+expect_rc       "099-R1 exit 77 alone — verdict is green" 0 "$RC"
+D=$(mkfix r099b); mkratchet "$D" check-quiet.sh 'exit 77'
+OUT=$(run "$D")
+expect_contains "099-R1 exit 77 with no output says so"          "scripts/check-quiet.sh — (no output)" "$OUT"
+# control: any other non-zero is still a failure, and its text names both ways out
+D=$(mkfix r099c); mkratchet "$D" check-usage.sh 'echo "usage: $0 <service> <digest>" >&2; exit 3'
+OUT=$(run "$D"); RC=$?
+expect_contains "099-R1 exit 3 is still a failure"               "[RATCHET] scripts/check-usage.sh failed (exit 3)" "$OUT"
+expect_contains "099-R1 the failure names exit 77"               "exit 77 when that is absent" "$OUT"
+expect_contains "099-R1 the failure names the skip marker"       "maintenance: skip <why>" "$OUT"
+expect_absent   "099-R1 a failure is not listed as absent"       "precondition absent (exit 77)" "$OUT"
+expect_rc       "099-R1 exit 3 — verdict is red" 1 "$RC"
+
 # --- C94: no ratchets, no ratchet output (AC6) — and a non-.sh check file is not one -----------------
 D=$(mkfix c94); printf '12\n' > "$D/scripts/check-e2e-typecheck.floor"
 OUT=$(run "$D"); RC=$?

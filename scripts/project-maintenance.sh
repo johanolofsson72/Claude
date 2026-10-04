@@ -55,7 +55,8 @@
 # against whichever sits at the root (row 052).
 #
 # Every pass also runs each scripts/check-*.sh ratchet from the root (row 052); a non-zero exit is a
-# finding. A ratchet opts out with `# maintenance: skip <reason>` in its first 30 lines.
+# finding. A ratchet opts out with `# maintenance: skip <reason>` in its first 30 lines, or exits 77
+# when its precondition is absent on this pass (listed as skipped, not a finding; row 099).
 # MAINTENANCE_RATCHET_TIMEOUT=N  seconds per ratchet (default 300; needs timeout or gtimeout).
 #
 # --full also runs every CORE self-test scripts/core-gates.sh names (spec 086), in a synced project
@@ -1647,12 +1648,17 @@ fi
 # `# maintenance: skip <reason>` in its first 30 lines; the reason is required and printed, so a
 # skip is never silent. Output goes to a file, not a pipe: a timed-out ratchet's orphaned children
 # would hold a pipe open and the pass would wait for them anyway.
+# Row 099 (ighweld F166): some ratchets can run only when something is up (an API on a port, a
+# deploy target). A permanent skip drops them on the days they could run, so a ratchet that exits 77
+# (the automake/TAP SKIP code) says "my precondition is absent here": it is listed with its last
+# output line as the reason, never a finding. The ratchet decides; this never runs a probe for it.
 RATCHET_LIMIT=${MAINTENANCE_RATCHET_TIMEOUT:-300}
 case "$RATCHET_LIMIT" in (''|*[!0-9]*) RATCHET_LIMIT=300 ;; esac
 RATCHET_TIMEOUT=""
 command -v timeout >/dev/null 2>&1 && RATCHET_TIMEOUT=timeout
 [ -z "$RATCHET_TIMEOUT" ] && command -v gtimeout >/dev/null 2>&1 && RATCHET_TIMEOUT=gtimeout
 RATCHET_SKIPS=""
+RATCHET_ABSENT=""
 RATCHET_UNBOUNDED=0
 for ratchet in scripts/check-*.sh; do
   [ -f "$ratchet" ] || continue
@@ -1693,15 +1699,23 @@ for ratchet in scripts/check-*.sh; do
     add "[RATCHET] $ratchet timed out after ${RATCHET_LIMIT}s — it did not finish, so it neither passed nor failed.
   Raise MAINTENANCE_RATCHET_TIMEOUT, or mark it \`# maintenance: skip <why>\` if it cannot run here.
 $(tail -8 "$ratchet_out" | sed 's/^/  /')"
+  elif [ "$ratchet_rc" -eq 77 ]; then
+    RATCHET_ABSENT="${RATCHET_ABSENT}  $ratchet — $(awk 'NF { l = $0 } END { print (l == "" ? "(no output)" : l) }' "$ratchet_out")
+"
   elif [ "$ratchet_rc" -ne 0 ]; then
     add "[RATCHET] $ratchet failed (exit $ratchet_rc):
-$(tail -12 "$ratchet_out" | sed 's/^/  /')"
+$(tail -12 "$ratchet_out" | sed 's/^/  /')
+  If it cannot run without something this pass lacks, exit 77 when that is absent (listed as skipped);
+  if it can never run here, mark it \`# maintenance: skip <why>\`."
   fi
   rm -f "$ratchet_out"
   [ "$ratchet_exec" != "$ratchet" ] && rm -f "$ratchet_exec"
 done
 [ -n "$RATCHET_SKIPS" ] && note "[note] ratchets skipped by their own marker:
 ${RATCHET_SKIPS%
+}"
+[ -n "$RATCHET_ABSENT" ] && note "[note] ratchets skipped, precondition absent (exit 77):
+${RATCHET_ABSENT%
 }"
 [ "$RATCHET_UNBOUNDED" -eq 1 ] && note "[note] ratchets ran unbounded — neither timeout nor gtimeout is installed, so a hung one hangs this pass."
 

@@ -37,3 +37,6 @@ __pycache__/
 scripts/.trusted-*
 CLAUDE.local.md
 # <<< claude-code harness <<<
+
+# TLC run directories (spec 099: 098 committed five)
+specs/*/tla/states/

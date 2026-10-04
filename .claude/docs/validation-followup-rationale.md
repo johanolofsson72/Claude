@@ -126,3 +126,29 @@ All three satisfy this rule; only the third grows the register. "Defer (track in
 - One vague question ("want me to address the issues?") instead of a decision per finding.
 
 **Scope:** every Allium or TLA+ run, however triggered (manual, automatic hook, inside `/feature-dev`), even if the user did not ask to see findings.
+
+---
+
+## The rule as it stood before spec 099
+
+Spec 099 shortened `.claude/rules/validation-followup.md` so the template's always-loaded rules fit 23,552 bytes and a synced project keeps room for its own CLAUDE.md (ighweld F168). Its full text on 2026-10-04 follows, word for word, headings demoted one level.
+
+## Validation follow-up rule (Allium + TLA+)
+
+After `/allium`, `/allium:elicit`, `/allium:distill` or `/tla` reports, the findings are the deliverable. Long form (examples, the full pre-081 text): `.claude/docs/validation-followup-rationale.md`.
+
+### The contract (BLOCKING — after every run, however triggered)
+
+The very next response does exactly one of these:
+
+1. **Findings exist:** list every one as a numbered item, then call `AskUserQuestion` once with one question per finding. Each question states the finding exactly as reported, cites the source (file, line, rule, counterexample step), and offers `Fix now` / `Defer (track in spec)` / `Dismiss (with reason)`, plus a bespoke option when one fits.
+2. **No findings:** say verbatim "Allium/TLA+ run complete. Zero drift, zero gaps, zero open questions, zero ambiguities."
+3. **Run failed or inconclusive:** say so, and ask whether to retry, fix the blocker, or skip.
+
+**A finding is** any of these: drift (specified-not-built, built-not-specified, behavioural), an `open question`, an `-- AMBIGUITY:`, a `deferred`, a TLA+ `GAP-N`, a counterexample, a MISSING TEST row, a TLC error or deadlock, a "consider implementation change", or a "too vague to formalize".
+
+Surfacing is not rowing (`.claude/rules/carve-budget.md`). The default disposition is a fix inside the spec, then `finding.sh --add`. An immediate row is the exception.
+
+### Forbidden
+
+"Looks good overall" summaries. Silently fixing the easy ones. Leaving markers for the user to find. Moving on with findings undecided. One vague question instead of one per finding.

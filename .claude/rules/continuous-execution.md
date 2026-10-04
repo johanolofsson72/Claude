@@ -1,10 +1,10 @@
 # Continuous execution rule
 
-A multi-phase plan is **one task, not N tasks**. Phases are chapter headings, not permission gates. Long form (the anti-pattern list, the full pre-081 text): `.claude/docs/continuous-execution-rationale.md`.
+A multi-phase plan is **one task, not N tasks**. Phases are chapter headings, not permission gates. Long form (the anti-pattern list, the full pre-081 and pre-099 text): `.claude/docs/continuous-execution-rationale.md`.
 
 ## The contract (BLOCKING)
 
-Once the work is authorized, run it to completion without stopping between phases, todos, files or `tasks.md` items. Never ask "Phase 1 complete, should I continue?", "ready for the tests?" or "want me to proceed?". Never relay spec-kit's "Some checklists have unchecked items… proceed anyway?". Judge the items and record the gaps instead.
+Once the work is authorized, run it to completion without stopping between phases, todos, files or `tasks.md` items. Never ask "Phase 1 complete, should I continue?", "ready for the tests?" or "want me to proceed?", and never relay spec-kit's checklist stop.
 
 ## Legitimate stops
 
@@ -16,4 +16,4 @@ Once the work is authorized, run it to completion without stopping between phase
 6. A register-rewrite proposal.
 7. A convergence stop (`.claude/rules/carve-budget.md`).
 
-Before composing any other stop, check whether the next step is already in the plan. If it is, continue. The `Stop` hook `scripts/continuous-execution-hook.sh` refuses phase-continuation questions. The fix is to stop asking, not to rephrase.
+Before any other stop, check whether the next step is already in the plan; if it is, continue. `scripts/continuous-execution-hook.sh` refuses phase-continuation questions: stop asking, don't rephrase.

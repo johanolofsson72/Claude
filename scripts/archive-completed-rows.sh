@@ -62,8 +62,9 @@
 #
 # Safe by construction:
 #   - Archived VERBATIM, including the "- [x]" marker, under a "## <id> — <slug>"
-#     heading. That heading is the idempotency key: a row already present is
-#     re-confirmed, never duplicated.
+#     heading. The row's text, as one whole line of the archive, is the
+#     idempotency key: a row already present is re-confirmed, never duplicated,
+#     and a heading over different text does not count (row 099).
 #   - Never rewrites INDEX.md. The only file this script writes is the archive.
 #   - Reversible — everything is git-tracked; `git diff` shows what moved.
 #
@@ -251,16 +252,30 @@ def sections(path):
         return set()
     return set(re.findall(r"^##\s+(\S+)\s+—", open(path, encoding="utf-8").read(), re.M))
 
+def archive_lines(path):
+    """Every line of an archive, for verbatim membership."""
+    if not os.path.isfile(path):
+        return set()
+    return set(open(path, encoding="utf-8").read().split("\n"))
+
 in_completed = sections(completed)
 in_pending = sections(pending)
+completed_lines = archive_lines(completed)
 
 # --- archive completed rows -------------------------------------------------
-# Idempotent by '## <id>' membership. An archived row that was later EDITED
-# inline is reported, never re-archived: the archive is the record of what the
-# row said when it was ticked, and silently updating it loses the thing it exists
-# to hold. Inline drift afterwards (a typo fix, a cross-reference) is legitimate,
-# which is why membership is on presence, not on text equality.
-to_archive = [r for r in rows if r["status"] == "x" and r["id"] not in in_completed]
+# Membership is the row's CURRENT TEXT as a whole line of the archive (row 099,
+# ighweld F169). It used to be a '## <id>' heading, and a heading proves only
+# that somebody once wrote about that id: ighweld had 22 ticked rows whose
+# heading held the pre-tick `- [/]` form or a hand summary, the report said "all
+# archived", and shortening them would have lost what they said. So a row whose
+# text is not there verbatim is appended again under its own heading, even when
+# one exists. That includes a row shortened after it was archived: its long form
+# is already kept, and appending the pointer once costs one short entry where
+# telling a shortened pointer from a lost diagnosis would need a guess. The
+# archive stays append-only; earlier entries are never edited.
+to_archive = [r for r in rows if r["status"] == "x" and r["text"] not in completed_lines]
+new_ids = [r["id"] for r in to_archive if r["id"] not in in_completed]
+changed_ids = [r["id"] for r in to_archive if r["id"] in in_completed]
 
 if to_archive and not dry_run:
     if not os.path.isfile(completed):
@@ -271,14 +286,19 @@ if to_archive and not dry_run:
         body += f"\n\n## {r['id']} — {r['slug']}\n\n{r['text']}"
     open(completed, "w", encoding="utf-8").write(body + "\n")
     in_completed |= {r["id"] for r in to_archive}
+    completed_lines |= {r["text"] for r in to_archive}
 
 if to_archive:
     verb = "would archive" if dry_run else "archived"
-    print(f"{verb} {len(to_archive)} completed row(s) to {os.path.basename(completed)}: "
-          + ", ".join(r["id"] for r in to_archive))
+    kinds = []
+    if new_ids:
+        kinds.append(f"{len(new_ids)} new ({', '.join(new_ids)})")
+    if changed_ids:
+        kinds.append(f"{len(changed_ids)} whose text is not in their existing entry ({', '.join(changed_ids)})")
+    print(f"{verb} {len(to_archive)} completed row(s) to {os.path.basename(completed)}: " + "; ".join(kinds))
 else:
     print(f"{os.path.basename(completed)}: up to date "
-          f"({sum(1 for r in rows if r['status'] == 'x')} completed rows, all archived)")
+          f"({sum(1 for r in rows if r['status'] == 'x')} completed rows, all archived verbatim)")
 
 # --- budget report ----------------------------------------------------------
 over = []
@@ -323,8 +343,13 @@ if write_pending and not dry_run:
 if over:
     print(f"\n{len(over)} row(s) over {max_bytes} bytes in {os.path.basename(index)}:")
     for r in over:
-        preserved = r["id"] in in_completed or r["id"] in in_pending
-        where = "INDEX.completed.md" if r["id"] in in_completed else "INDEX.pending.md"
+        # A ticked row is preserved only by its own text (row 099); an open row's
+        # pending entry is written by hand, so its heading is what can be checked.
+        if r["status"] == "x":
+            preserved = r["text"] in completed_lines
+        else:
+            preserved = r["id"] in in_completed or r["id"] in in_pending
+        where = "INDEX.completed.md" if r["status"] == "x" or r["id"] in in_completed else "INDEX.pending.md"
         if preserved:
             note = f"shortenable — diagnosis is in {where}"
         elif r["status"] == "x":

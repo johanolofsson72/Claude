@@ -111,3 +111,29 @@ If none of (1)–(7) apply: do not stop. Before composing a stop message, check:
 ### Backstop
 
 A `Stop` hook (`scripts/continuous-execution-hook.sh`) detects phase-continuation questions ("should I continue with...", "want me to proceed...", "ready for the next phase...") and refuses the stop. The fix is not to rephrase the question — stop asking and continue the work.
+
+---
+
+## The rule as it stood before spec 099
+
+Spec 099 shortened `.claude/rules/continuous-execution.md` so the template's always-loaded rules fit 23,552 bytes and a synced project keeps room for its own CLAUDE.md (ighweld F168). Its full text on 2026-10-04 follows, word for word, headings demoted one level.
+
+## Continuous execution rule
+
+A multi-phase plan is **one task, not N tasks**. Phases are chapter headings, not permission gates. Long form (the anti-pattern list, the full pre-081 text): `.claude/docs/continuous-execution-rationale.md`.
+
+### The contract (BLOCKING)
+
+Once the work is authorized, run it to completion without stopping between phases, todos, files or `tasks.md` items. Never ask "Phase 1 complete, should I continue?", "ready for the tests?" or "want me to proceed?". Never relay spec-kit's "Some checklists have unchecked items… proceed anyway?". Judge the items and record the gaps instead.
+
+### Legitimate stops
+
+1. Genuine ambiguity the plan does not cover (`AskUserQuestion`).
+2. A hard blocker: missing credentials or infrastructure, a failing external dependency, conflicting requirements.
+3. The plan is fully complete and verified.
+4. Allium/TLA+ findings (`.claude/rules/validation-followup.md`).
+5. The end of a spec when a register exists: the status summary (`.claude/rules/spec-register.md`).
+6. A register-rewrite proposal.
+7. A convergence stop (`.claude/rules/carve-budget.md`).
+
+Before composing any other stop, check whether the next step is already in the plan. If it is, continue. The `Stop` hook `scripts/continuous-execution-hook.sh` refuses phase-continuation questions. The fix is to stop asking, not to rephrase.

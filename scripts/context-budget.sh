@@ -9,6 +9,9 @@
 #   bash scripts/context-budget.sh [--root DIR] [--max-bytes N]
 #
 # Exit 0 within the cap · 1 over it · 2 cannot measure (missing root, missing @-import, bad cap).
+# A `rules … · CLAUDE.md …` line splits the total. In a synced project (.claude/.template-sync) the
+# rules are the template's: a sync overwrites a local trim, so over the cap says what is left for the
+# project's own files instead of "move rationale to docs" (row 099, ighweld F168).
 # CLAUDE.local.md is shown on its own line and not counted: it is personal and never shipped.
 # Bytes, not tokens: deterministic and tool-free; a token is roughly 4 bytes of English.
 
@@ -71,19 +74,30 @@ if [ -d "$ROOT/.claude/rules" ]; then
 fi
 
 TOTAL=0
+RULES=0
 while IFS="$(printf '\t')" read -r n name; do
-  [ -n "$n" ] && TOTAL=$((TOTAL + n))
+  [ -n "$n" ] || continue
+  TOTAL=$((TOTAL + n))
+  case "$name" in .claude/rules/*) RULES=$((RULES + n)) ;; esac
 done < "$LIST"
 
 sort -t "$(printf '\t')" -k1,1nr -k2,2 "$LIST" | while IFS="$(printf '\t')" read -r n name; do
   printf '%8s  %s\n' "$n" "$name"
 done
 [ -f "$ROOT/CLAUDE.local.md" ] && printf '%8s  %s\n' "$(size_of "$ROOT/CLAUDE.local.md")" "CLAUDE.local.md (personal, not counted)"
+printf 'rules %8s bytes · CLAUDE.md and imports %s bytes\n' "$RULES" "$((TOTAL - RULES))"
 printf 'total %8s bytes (~%s tokens) · cap %s\n' "$TOTAL" "$((TOTAL / 4))" "$CAP"
 
 [ "$STATUS" -ne 0 ] && exit "$STATUS"
 if [ "$TOTAL" -gt "$CAP" ]; then
-  echo "over budget: $((TOTAL - CAP)) bytes over. Move rationale to .claude/docs/ and leave a pointer (spec 081)."
+  if [ -f "$ROOT/.claude/.template-sync" ]; then
+    room=$((CAP - RULES)); [ "$room" -lt 0 ] && room=0
+    echo "over budget: $((TOTAL - CAP)) bytes over. The $RULES bytes of rules are synced from the template: a local"
+    echo "trim is overwritten, so file the excess there. This project's CLAUDE.md and imports are $((TOTAL - RULES)) bytes,"
+    echo "and $room fit beside the rules: move their rationale to .claude/docs/ and leave a pointer."
+  else
+    echo "over budget: $((TOTAL - CAP)) bytes over. Move rationale to .claude/docs/ and leave a pointer (spec 081)."
+  fi
   exit 1
 fi
 echo "within budget"

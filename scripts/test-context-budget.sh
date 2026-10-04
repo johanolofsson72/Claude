@@ -91,6 +91,24 @@ bytes 12 > "$F/CLAUDE.md"; bytes 8 > "$F/.claude/rules/a b.md"
 got=$(total_of "$F")
 [ "$got" = "20" ] && ok "paths with spaces" || fail "spaces: $got"
 
+echo "099-R3: the split, and who owns the bytes"
+F="$TMP/f6"; mkdir -p "$F/.claude/rules"
+bytes 290 > "$F/CLAUDE.md"; bytes 10 > "$F/.claude/CLAUDE.md"; bytes 700 > "$F/.claude/rules/r.md"
+out=$(bash "$BUDGET" --root "$F" --max-bytes 900 2>&1); rc=$?
+grep -qE '^rules +700 bytes · CLAUDE.md and imports 300 bytes$' <<< "$out" && ok "the split line names rules and CLAUDE.md bytes" || fail "split: $out"
+grep -q 'Move rationale to .claude/docs/' <<< "$out" && ! grep -q 'synced from the template' <<< "$out" \
+  && ok "an unsynced project keeps the move-rationale advice" || fail "unsynced over text: $out"
+: > "$F/.claude/.template-sync"
+out=$(bash "$BUDGET" --root "$F" --max-bytes 900 2>&1); rc=$?
+[ "$rc" -eq 1 ] && ok "a synced project over the cap still exits 1" || fail "synced over rc $rc"
+grep -q 'The 700 bytes of rules are synced from the template' <<< "$out" && ok "a synced project is told the rules are the template's" || fail "synced text: $out"
+grep -q 'CLAUDE.md and imports are 300 bytes,' <<< "$out" && grep -q 'and 200 fit beside the rules' <<< "$out" \
+  && ok "it names the project's share and the room left" || fail "synced share: $out"
+out=$(bash "$BUDGET" --root "$F" --max-bytes 600 2>&1)
+grep -q 'and 0 fit beside the rules' <<< "$out" && ok "rules alone over the cap leave no room, not a negative" || fail "negative room: $out"
+out=$(bash "$BUDGET" --root "$F" --max-bytes 5000 2>&1)
+grep -q 'synced from the template' <<< "$out" && fail "within the cap, a synced project got the over text" || ok "within the cap, no over text"
+
 echo "template ratchet"
 is_template=1
 for m in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile pom.xml pubspec.yaml; do
@@ -107,6 +125,11 @@ else
       || fail "template total $total is over the cap: bash scripts/context-budget.sh"
     if [ "$total" -le "$base" ]; then ok "template total $total ≤ baseline $base"
     else fail "template total $total grew past the baseline $base — move the new text to a doc, or raise the baseline in a reviewed diff"; fi
+    # 099-R3: a synced project's own CLAUDE.md needs room beside the rules the template ships. ighweld's
+    # is 17,053 bytes; 23,552 for the rules leaves it under the 40,960 cap (F168).
+    rules=$(bash "$BUDGET" --root "$REPO" 2>/dev/null | sed -n 's/^rules[[:space:]]\{1,\}\([0-9]\{1,\}\) bytes.*/\1/p')
+    if [ -n "$rules" ] && [ "$rules" -le 23552 ]; then ok "template rules $rules ≤ 23552 (room for a project's CLAUDE.md)"
+    else fail "template rules ${rules:-unmeasured} over 23552 — a synced project cannot fit its own CLAUDE.md (099-R3)"; fi
     if [ $((base - total)) -gt 1024 ]; then
       echo "    note: $((base - total)) bytes under the baseline; lower it: bash scripts/context-budget.sh --root . | sed -n 's/^total *\\([0-9]*\\).*/\\1/p' > scripts/context-budget.baseline"
     fi ;;

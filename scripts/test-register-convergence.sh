@@ -164,6 +164,35 @@ cv "over budget"               1 "[CARVE BUDGET]" "carve shape: clean" "$(cvrows
 - [ ] 013 — a — carved by 001
 - [ ] 014 — b — carved by 001
 - [ ] 015 — c — carved by 001"
+# 099-R2 (ighweld F167): a decided excess is accepted by a header line that binds the count.
+THREE="- [ ] 013 — a — carved by 001
+- [ ] 014 — b — carved by 001
+- [ ] 015 — c — carved by 001"
+cv "099-R2 accepted excess"     0 "001 produced 3, accepted on 2026-10-03" "[CARVE BUDGET]" "Carve accepted: 001=3 · 2026-10-03 · pre-measurement, all shipped
+$(cvrows 12 0)
+$THREE"
+cv "099-R2 carving past the accepted count" 1 "001 produced 4 (accepted 3 on 2026-10-03, now 4)" "accepted on 2026-10-03 (Carve" "Carve accepted: 001=3 · 2026-10-03 · decided
+$(cvrows 12 0)
+$THREE
+- [ ] 016 — d — carved by 001"
+cv "099-R2 two pairs on one line" 0 "002 produced 3, accepted" "[CARVE" "Carve accepted: 001=3, 002=3 · 2026-10-03 · both shipped
+$(cvrows 12 0)
+$THREE
+- [ ] 016 — d — carved by 002
+- [ ] 017 — e — carved by 002
+- [ ] 018 — f — carved by 002"
+cv "099-R2 malformed acceptance fails" 1 "[CARVE ACCEPTANCE] 1 line(s)" "accepted on" "Carve accepted: 001 three · yesterday
+$(cvrows 12 0)
+$THREE"
+cv "099-R2 acceptance without a reason fails" 1 "[CARVE ACCEPTANCE]" "accepted on" "Carve accepted: 001=3 · 2026-10-03
+$(cvrows 12 0)
+$THREE"
+cv "099-R2 a malformed line fails on its own" 1 "[CARVE ACCEPTANCE]" "[CARVE BUDGET]" "Carve accepted: 001=two · 2026-10-03 · decided
+$(cvrows 12 0)
+- [ ] 013 — a — carved by 001"
+cv "099-R2 an inert acceptance prints nothing" 0 "carve shape: clean" "accepted on" "Carve accepted: 001=3 · 2026-10-03 · decided
+$(cvrows 12 0)
+- [ ] 013 — a — carved by 001"
 cv "none attributed, 10+ ticked" 3 "carve shape: unmeasurable — 0 attributed row(s) of 12 (10 ticked)" "clean" "$(cvrows 10 2)"
 cv "none attributed, young"    0 "too young to measure" "clean" "$(cvrows 9 5)"
 cv "only unresolved, 10+ ticked" 3 "1 cite a row this register does not hold" "clean" "$(cvrows 10 0)

@@ -251,8 +251,9 @@ run "$d" >/dev/null
 if [ "$before" = "$(cat "$d/specs/INDEX.pending.md")" ]; then pass "FR-10 INDEX.pending.md is never written"
 else fail "FR-10 INDEX.pending.md is never written"; fi
 
-# ------------------------------------------------------- Q19: no re-archiving
-# A row archived, then edited inline, must not overwrite its archived entry.
+# ------------------------------------------------------- Q19: append-only
+# A row archived, then edited inline, keeps its archived entry untouched, and the
+# edited text is appended as a second entry (row 099: archived means verbatim).
 d="$TMP/q19"; mk "$d" "$SHORT_ROW" ""
 run "$d" >/dev/null
 python3 - "$d" <<'PY'
@@ -260,13 +261,48 @@ import sys, pathlib
 p = pathlib.Path(sys.argv[1]) / "specs" / "INDEX.md"
 p.write_text(p.read_text().replace("short goal.", "EDITED INLINE."))
 PY
-run "$d" >/dev/null
+out="$(run "$d")"
 arch="$(cat "$d/specs/INDEX.completed.md")"
-if grep -qF -- "short goal." <<< "$arch" && ! grep -qF -- "EDITED INLINE." <<< "$arch"; then
-  pass "Q19 an inline edit does not rewrite the archived entry"
-else fail "Q19 an inline edit does not rewrite the archived entry"; fi
+if grep -qxF -- "$SHORT_ROW" <<< "$arch" && grep -qxF -- "- [x] 001 — alpha — spec-only track — EDITED INLINE." <<< "$arch"; then
+  pass "Q19 an inline edit keeps the old entry and appends the new text"
+else fail "Q19 an inline edit keeps the old entry and appends the new text"; fi
+if grep -qF '1 whose text is not in their existing entry (001)' <<< "$out"; then
+  pass "Q19 the report says the text changed since its entry"
+else fail "Q19 the report says the text changed since its entry: $out"; fi
 # negative control: the archive really does contain findable text
 if grep -qF -- "no-such-text-anywhere" <<< "$arch"; then defect "Q19"; else pass "Q19 control: grep over the archive can miss"; fi
+before="$(cat "$d/specs/INDEX.completed.md")"; run "$d" >/dev/null
+if [ "$before" = "$(cat "$d/specs/INDEX.completed.md")" ]; then pass "Q19 the next run appends nothing"
+else fail "Q19 the next run appends nothing"; fi
+
+# ------------------------------------------- 099-R4: a heading is not a copy
+# ighweld F169: the heading held the pre-tick `- [/]` form, so the ticked row had
+# no verbatim copy, and the old report still said "all archived".
+PRE='- [/] 004 — delta — light — the pre-tick wording, longer and different.'
+TICKED='- [x] 004 — delta — light — Shipped: the ticked wording.'
+d="$TMP/r4"; mk "$d" "$TICKED" "$(printf '\n## 004 — delta (ticked 2026-08-30)\n\nRow as it read at tick time:\n\n%s\n' "$PRE")"
+out="$(run "$d" --dry-run)"
+if ! grep -q 'all archived' <<< "$out" && grep -q 'would archive 1 completed row' <<< "$out"; then
+  pass "099-R4 dry-run does not call a heading-only row archived"
+else fail "099-R4 dry-run does not call a heading-only row archived: $out"; fi
+run "$d" >/dev/null
+arch="$(cat "$d/specs/INDEX.completed.md")"
+if grep -qxF -- "$TICKED" <<< "$arch" && grep -qxF -- "$PRE" <<< "$arch"; then
+  pass "099-R4 the ticked text is appended and the pre-tick entry kept"
+else fail "099-R4 the ticked text is appended and the pre-tick entry kept"; fi
+out="$(run "$d")"
+if grep -q 'all archived verbatim' <<< "$out"; then pass "099-R4 'all archived' only once every row is verbatim"
+else fail "099-R4 'all archived' only once every row is verbatim: $out"; fi
+# negative control: a longer line that holds the row as a substring is not a copy
+d="$TMP/r4c"; mk "$d" "$TICKED" "$(printf '\n## 004 — delta\n\n%s (and more)\n' "$TICKED")"
+out="$(run "$d" --dry-run)"
+if grep -q 'all archived' <<< "$out"; then defect "099-R4 substring"; else pass "099-R4 control: a longer line holding the row is not a copy"; fi
+# shortenable needs the text: an over-budget ticked row under a heading with other text
+d="$TMP/r4s"; mk "$d" "- [x] 005 — eps — light — $LONG" "$(printf '\n## 005 — eps\n\n- [/] 005 — eps — light — before.\n')"
+out="$(run "$d" --dry-run)"
+if grep -q 'archive first' <<< "$out" && ! grep -q 'shortenable' <<< "$out"; then
+  pass "099-R4 a heading-only ticked row is 'archive first', not shortenable"
+else fail "099-R4 a heading-only ticked row is 'archive first', not shortenable: $out"; fi
 
 # ------------------------------------------------------------- exit precedence
 # 3 BEATS 4: a refused register reports the refusal, not the byte count.
