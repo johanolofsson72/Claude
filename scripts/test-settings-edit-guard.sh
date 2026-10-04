@@ -778,7 +778,8 @@ for c in "grep -l hooks $S > 7 ; xargs rm < 7" "grep -l hooks $S >| 7 ; xargs rm
          "echo 'echo x >> $S' 1> 5 && sh 5" "git diff --output=7 $S ; sh 7" "cat $S; bash -c 'rm \"\$0\"' \"\$_\"" \
          "echo \\' ; exec >f ; echo $S ; xargs -a f rm ; echo \\'" "e\\xec >f; echo $S; xargs -a f rm" \
          "echo $S | ./grep x; sh f" "ls $S >& f; sh f" "cat $S > f; sudo -u root bash f" \
-         "cat $S > f; timeout -s KILL 9 sh f" "cat $S > f; stdbuf -o L sh f"; do
+         "cat $S > f; timeout -s KILL 9 sh f" "cat $S > f; stdbuf -o L sh f" \
+         "cat $S; bash -c \"\`cat x\`\""; do
   run "$GUARD" "$(bash_p "$c")"; expect "098-R7 review denied: ${c//$P\//}" deny
 done
 for c in "grep hooks $S 2>&1 ; bash scripts/test-x.sh" "grep hooks $S >&2 ; bash scripts/test-x.sh"; do

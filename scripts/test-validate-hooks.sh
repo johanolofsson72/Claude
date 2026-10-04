@@ -118,6 +118,14 @@ m8 m3 'Edit|mcp__x__.*'; rc "threat #14: one server's tools only is a finding" 1
 m8 m4 'Edit|mcp__('; rc "threat #14: a matcher that does not compile is a finding" 1; has "  said as such" "does not compile"
 m8 m5 '*'; rc "'*' covers everything" 0
 m8 m6 'Edit|Bash' 'mcp__.*'; rc "a covering group in settings.local.json is enough" 0
+m8 m7 'Write|Edit|mcp__'; rc "threat #14: a prefix that only a search would accept is a finding (fullmatch)" 1
+no_matcher() { case "$OUT" in *MATCHER*) bad "$1" "$OUT" ;; *) ok "$1" ;; esac; }
+# Not judged: the user's settings, and a wiring on any event but PreToolUse (clarification R8).
+G2="$(cmdhook 'bash "$HOME/scripts/trust-anchor-guard-hook.sh"'),$(cmdhook 'bash "$HOME/scripts/settings-edit-guard-hook.sh"')"
+D9=$(fix m9); settings "$D9/home/.claude/settings.json" PreToolUse 'Edit|Bash' "$G2"
+audit "$D9"; no_matcher "098-R8 a user-level wiring is not judged"
+D10=$(fix m10); settings "$D10/proj/.claude/settings.json" PostToolUse 'Edit|Bash' "$G2"
+audit "$D10"; no_matcher "098-R8 a PostToolUse wiring is not judged"
 SAB8="$T/sab8"; mkdir -p "$SAB8"
 sed 's/    findings.extend(mcp_matcher_findings(docs))/    pass/' "$AUDIT" > "$SAB8/hook_audit.py"
 if cmp -s "$AUDIT" "$SAB8/hook_audit.py"; then bad "098-R8 sabotage target not found"; else
