@@ -27,6 +27,10 @@
 # their headers, but they now say so (guard_announce). No guard may allow without a word when it
 # could not decide.
 #
+# Spec 098 carried that to the root walk: git runs bounded (_guard_git), and a walk that needed git
+# and got no answer sets GUARD_GIT_UNSURE. The pipeline guards deny on it (guard_unsure_deny), the
+# CORE guards announce. The announce stamp lives in the git dir, where the agent cannot plant one.
+#
 # Callers set INPUT to the raw payload before calling guard_field without a second argument.
 
 # hook-notice.sh owns the per-session "say this once" state; reused, not copied.
@@ -116,15 +120,41 @@ guard_context() {
 # guard_announce <guard> <cause>: a fail-open guard could not decide. Once per session per cause, so
 # a broken machine is heard without every tool call repeating it. Without a session id (a test, an
 # old harness) it is said every time.
+#
+# Spec 098 R6 (F144, developer O4): the once-per-session stamp lives in the project's git dir, which
+# trust-anchor-guard keeps the agent's tools out of. Under $TMPDIR its path was predictable, and a
+# stamp made first silenced the notice for the model and the developer's toast (096). No git dir found
+# means no stamp at all: the notice is said every time, never kept under $TMPDIR.
 guard_announce() {
-  local guard="$1" cause="$2" sid text
+  local guard="$1" cause="$2" sid text base
   text="$guard could not decide and ALLOWED this call: $cause. It fails open by design (see its header), so this edit or command was not checked by it. Fix the cause to restore the check."
   sid=""
   if command -v hn_session_id >/dev/null 2>&1; then sid=$(hn_session_id "${INPUT:-}"); fi
-  if command -v hn_first_time >/dev/null 2>&1 && [ -n "$sid" ]; then
-    hn_first_time "$sid" "guard-announce:$guard:$cause" || return 0
+  if command -v hn_first_time >/dev/null 2>&1 && [ -n "$sid" ] && base=$(_guard_notice_base); then
+    hn_first_time "$sid" "guard-announce:$guard:$cause" "$base" || return 0
   fi
   guard_context "$text"
+}
+
+# _guard_notice_base: <git dir>/claude-hook-notices for CLAUDE_PROJECT_DIR, found upward (a monorepo
+# package directory has no .git of its own) and through a .git file's gitdir: line. Builtins only.
+# Exit 1 when there is none.
+_guard_notice_base() {
+  local d="${CLAUDE_PROJECT_DIR:-}" g
+  [ -n "$d" ] || return 1
+  d="${d%/}"
+  while [ -n "$d" ]; do
+    if [ -d "$d/.git" ] && [ ! -L "$d/.git" ]; then printf '%s/.git/claude-hook-notices' "$d"; return 0; fi
+    if [ -f "$d/.git" ]; then
+      _guard_gitdir_of "$d" || return 1
+      g=$GUARD_GITDIR
+      [ -d "$g" ] || return 1
+      printf '%s/claude-hook-notices' "${g%/}"; return 0
+    fi
+    [ -e "$d/.git" ] && return 1            # a symlinked or odd .git: no stamp, say it every time
+    d="${d%/*}"
+  done
+  return 1
 }
 
 # guard_cause <rc>: the words for a guard_field failure.
@@ -408,8 +438,19 @@ _guard_fold_match() {
   return $rc
 }
 
+# _guard_gitdir_of <dir>: GUARD_GITDIR = the target of <dir>/.git's `gitdir:` line, made absolute.
+# Exit 1 when <dir>/.git is not such a file. Builtins only.
+_guard_gitdir_of() {
+  local line
+  GUARD_GITDIR=""
+  IFS= read -r line < "$1/.git" 2>/dev/null || return 1
+  case "$line" in "gitdir: "*) GUARD_GITDIR="${line#gitdir: }" ;; *) return 1 ;; esac
+  case "$GUARD_GITDIR" in /*) ;; *) GUARD_GITDIR="$1/$GUARD_GITDIR" ;; esac
+}
+
 guard_anchor_for() {
   GUARD_ANCHOR=""
+  GUARD_GIT_UNSURE=""                   # both walks start here (spec 098 R4)
   local a="${CLAUDE_PROJECT_DIR:-}"
   [ -n "$a" ] || return 0
   a=$(_guard_realdir "$a") || return 0
@@ -418,16 +459,48 @@ guard_anchor_for() {
   return 0
 }
 
+# _guard_git <args…>: git for the root walk (spec 098 R4, F142). The output lands in GUARD_GIT_OUT and
+# git's own exit code is returned: 128 "not a repository" is an answer. Not an answer: no git on PATH,
+# nothing to bound the call with, or no reply within GUARD_GIT_TIMEOUT seconds (default 5). Each of
+# those sets GUARD_GIT_UNSURE to the cause and returns 125, so the walk reads "not a worktree" as before
+# but the guard knows its root is a guess (developer O3: pipeline guards deny, CORE guards announce).
+# Called directly, never inside $( ): the flag has to reach the caller's shell. Every GIT_ variable is
+# dropped, as in acceptance_cases._git_env (spec 095 R5).
+_guard_git() {
+  local to rc
+  GUARD_GIT_OUT=""
+  command -v git >/dev/null 2>&1 || { GUARD_GIT_UNSURE="git is not on PATH"; return 125; }
+  if [ -z "${_GUARD_GIT_TO:-}" ]; then              # chosen once per process
+    if command -v timeout >/dev/null 2>&1; then _GUARD_GIT_TO=timeout
+    elif command -v gtimeout >/dev/null 2>&1; then _GUARD_GIT_TO=gtimeout
+    elif command -v perl >/dev/null 2>&1; then _GUARD_GIT_TO=perl
+    else GUARD_GIT_UNSURE="neither timeout, gtimeout nor perl is on PATH to bound git"; return 125; fi
+  fi
+  to=$_GUARD_GIT_TO
+  GUARD_GIT_OUT=$(
+    for _v in $(compgen -e -X '!GIT_*'); do unset "$_v"; done
+    if [ "$to" = perl ]; then perl -e 'alarm shift; exec @ARGV' "${GUARD_GIT_TIMEOUT:-5}" git "$@" 2>/dev/null
+    else "$to" "${GUARD_GIT_TIMEOUT:-5}" git "$@" 2>/dev/null; fi
+    rc=$?; printf x; exit $rc)
+  rc=$?
+  GUARD_GIT_OUT=${GUARD_GIT_OUT%x}
+  # 124: timeout/gtimeout ran out. 142: perl's alarm (SIGALRM). 137: timeout's own KILL.
+  case "$rc" in
+    124|137|142) GUARD_GIT_UNSURE="git did not answer within ${GUARD_GIT_TIMEOUT:-5}s"; return 125 ;;
+  esac
+  return "$rc"
+}
+
 _guard_linked_worktree() {   # $1 = dir whose .git is a file
   local line target back common
   [ -f "$1/.git" ] || return 1
-  IFS= read -r line < "$1/.git" 2>/dev/null || return 1
-  case "$line" in "gitdir: "*) target="${line#gitdir: }" ;; *) return 1 ;; esac
-  case "$target" in /*) ;; *) target="$1/$target" ;; esac
+  _guard_gitdir_of "$1" || return 1
+  target=$GUARD_GITDIR
   # The link must point into THIS project's own git dir, at <common>/worktrees/<one name>: a back-link
   # placed anywhere else (`git init --separate-git-dir=/tmp/worktrees/x`) is no worktree of ours
   # (/security-review, spec 088).
-  common=$(git -C "$GUARD_ANCHOR" rev-parse --git-common-dir 2>/dev/null) || return 1
+  _guard_git -C "$GUARD_ANCHOR" rev-parse --git-common-dir || return 1
+  common=${GUARD_GIT_OUT%$'\n'}
   case "$common" in /*) ;; *) common="$GUARD_ANCHOR/$common" ;; esac
   common=$(_guard_realdir "$common") || return 1
   target=$(_guard_realdir "$target") || return 1
@@ -455,18 +528,16 @@ _guard_anchor_git_counts() {
   # rev-parse accepts (threat model #2).
   if [ -f "$1/.git" ]; then
     local line target up
-    IFS= read -r line < "$1/.git" 2>/dev/null || return 1
-    case "$line" in "gitdir: "*) target="${line#gitdir: }" ;; *) return 1 ;; esac
-    case "$target" in /*) ;; *) target="$1/$target" ;; esac
-    target=$(_guard_realdir "$target") || return 1
+    _guard_gitdir_of "$1" || return 1
+    target=$(_guard_realdir "$GUARD_GITDIR") || return 1
     up="$d"
     while [ -n "$up" ]; do
       [ -d "$up/.git" ] && _guard_is "$target" "$(_guard_realdir "$up/.git")" && return 1
       up="${up%/*}"
     done
   fi
-  top=$(unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
-        git -C "$1" rev-parse --show-toplevel -q --verify HEAD 2>/dev/null)
+  _guard_git -C "$1" rev-parse --show-toplevel -q --verify HEAD || return 1
+  top=${GUARD_GIT_OUT%$'\n'}
   case "$top" in *$'\n'?*) top=${top%%$'\n'*} ;; *) return 1 ;; esac
   _guard_is "$top" "$1"
 }
@@ -554,6 +625,24 @@ guard_walk() {
 }
 
 _guard_has_match() { local f; for f in "$@"; do { [ -e "$f" ] || [ -L "$f" ]; } && return 0; done; return 1; }
+
+# guard_core_synced <sync-root> <hook-dir>: 0 when the root shows it was synced from the template: the
+# stamp, a register, or the running hook installed in its scripts/ (spec 098 R3, threat model #4).
+guard_core_synced() {
+  [ -f "$1/.claude/.template-sync" ] || [ -f "$1/specs/INDEX.md" ] || [ "$2" -ef "$1/scripts" ]
+}
+
+# guard_unsure_deny <guard>: spec 098 R4 (F142, developer O3) for the three pipeline guards. When the
+# walk needed git and git could not answer, the root (and every exemption anchored at it) is a guess,
+# so the guard denies before its exemptions. Prints the deny and returns 0; returns 1 when the walk
+# was sure. The CORE guards announce instead (guard_announce), keyed by file (threat model #7).
+guard_unsure_deny() {
+  [ -n "${GUARD_GIT_UNSURE:-}" ] || return 1
+  guard_deny "BLOCKED — $1 could not find this project's root: $GUARD_GIT_UNSURE (spec 098).
+
+The walk from the edited file up to the git root asks git whether a .git file is a linked worktree of this project, or whether the session's own .git is the real one. Without an answer the root, and the scripts/ specs/ .claude/ exemptions anchored at it, would be a guess. Put git on PATH or make it answer (GUARD_GIT_TIMEOUT, default 5 s), then retry. This is not something an edit can fix."
+  return 0
+}
 
 # guard_core_root <canonical-file>: the two roots the CORE guards need (spec 090, adversarial #1).
 #   GUARD_CORE_ROOT  the boundary the file is relative to (REL for --is-core)

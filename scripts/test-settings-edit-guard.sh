@@ -760,5 +760,34 @@ sabotage "sabotage 095a-TM-14: without the URL check a pull from a local remote 
   'raise GitUnknown("a pull from a remote whose URL is a local path")' 'return None' \
   "$(bash_p "git pull local main")"
 
+printf '\n[098-R7] a read reaches a runner only through its pipeline or a file  (098-AC-5)\n'
+for c in "grep hooks $S ; bash scripts/test-x.sh" "grep -c hooks $S && bash scripts/test-x.sh" \
+         "jq .hooks $S | head -5; sh scripts/x.sh" "cat $S | grep hooks | wc -l" \
+         "grep hooks $S 2>/dev/null; bash scripts/test-x.sh"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "098-AC-5 allowed: ${c//$P\//}" none
+done
+for c in "cat $S | sh" "echo $S | xargs rm" "cat $S > f; sh f" "cat $S | tee f; bash f" "{ cat $S; } | bash" \
+         "(cat $S) | sh" "cat $S |& sh" "cat $S | command sh" "cat $S | timeout 9 bash" "cat $S | dd of=f; sh f" \
+         "cat $S | pbcopy; pbpaste | sh" "exec 3> >(sh); cat $S >&3" "ls $S > l; xargs rm < l"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "098-AC-5 denied: ${c//$P\//}" deny
+done
+sabotage "sabotage 098-R7: if any pipe mate may run, cat | sh passes" \
+  'return True                                   # | sh, | dd of=f, | pbcopy, | command sh' 'pass' \
+  "$(bash_p "cat $S | sh")"
+sabotage "sabotage 098-R7: without the spill rule cat > f; sh f passes" \
+  'return spills and any(runners[j] for j in others)' 'return False' \
+  "$(bash_p "cat $S > f; sh f")"
+# The other direction: the pre-098 rule refuses F155's command again.
+M7="$WORK/mut7"; mkdir -p "$M7"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$M7"/
+python3 - "$M7/settings_guard.py" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+old = "    mates = [j for j in others if flow[j] == flow[k]]"
+assert old in s
+open(p, "w").write(s.replace(old, "    return any(runs_text(cmds[j][0]) for j in others)\n" + old, 1))
+PY
+run "$M7/settings-edit-guard-hook.sh" "$(bash_p "grep hooks $S ; bash scripts/test-x.sh")"
+expect "sabotage 098-R7: the line-wide rule refuses F155's command again" deny
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

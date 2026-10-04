@@ -315,9 +315,43 @@ EOF
   has "SC-C: a test can still commit" "$p" "commit=ok"
 }
 
+arm_sandbox_env() {
+  echo "-- 098 R5 (F143): an environment allowlist, no push by path to the real repository, SIGKILL is not a kill"
+  # Unlike the 094 probe, this one unsets nothing: whatever the runner passes, it sees.
+  _root=$(pwd -P)
+  cat > scripts/test-probe.sh <<EOF
+{ echo "ssh=\${GIT_SSH_COMMAND:-unset}"; echo "count=\${GIT_CONFIG_COUNT:-unset}"; echo "aws=\${AWS_SECRET_ACCESS_KEY:-unset}"
+  echo "nosystem=\${GIT_CONFIG_NOSYSTEM:-unset}"; echo "tmp=\$TMPDIR"
+  case ":\$PATH:" in *:.:*|*::*|*:bin:*) echo path=relative ;; *) echo path=absolute ;; esac
+  git push -q "$_root" HEAD:refs/heads/mutant-probe >/dev/null 2>&1 && echo push-root=done || echo push-root=refused
+  git init -q --bare "\$TMPDIR/fixture.git" && git push -q "\$TMPDIR/fixture.git" HEAD:refs/heads/x >/dev/null 2>&1 \
+    && echo push-fixture=done || echo push-fixture=refused; } > "$TMP/probe" 2>&1
+[ "\$(bash scripts/calc.sh 0 | head -1)" = zero ]
+EOF
+  printf 'scripts/calc.sh scripts/test-probe.sh\n' > "$TMP/probe-targets"
+  rm -f "$TMP/probe"
+  GIT_SSH_COMMAND="ssh -i /stolen" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0=x \
+    AWS_SECRET_ACCESS_KEY=sekrit PATH=".:bin::$PATH" MUTATION_TARGETS="$TMP/probe-targets" MUTATION_WORKDIR="$WORK" \
+    bash "$RUNNER" --jobs 1 --lines scripts/calc.sh:3 >/dev/null 2>&1
+  p=$(cat "$TMP/probe" 2>/dev/null)
+  has "098-R5 GIT_SSH_COMMAND does not reach a test" "$p" "ssh=unset"
+  has "098-R5 GIT_CONFIG_COUNT does not reach a test" "$p" "count=unset"
+  has "098-R5 a cloud token does not reach a test" "$p" "aws=unset"
+  has "098-R5 the system git config is off" "$p" "nosystem=1"
+  has "098-R5 TMPDIR is the copy's own" "$p" ".tmp"
+  has "098-R5 PATH keeps absolute entries only" "$p" "path=absolute"
+  has "098-R5 a push by path to the real repository is refused" "$p" "push-root=refused"
+  has "098-R5 a push to a fixture inside the run still works" "$p" "push-fixture=done"
+  same "  and the real repository got no branch" "$(git branch --list mutant-probe | wc -l | tr -d ' ')" 0
+  printf 'kill -9 $$\n' > scripts/test-probe.sh
+  out=$(MUTATION_TARGETS="$TMP/probe-targets" MUTATION_WORKDIR="$WORK" bash "$RUNNER" --jobs 1 --lines scripts/calc.sh:3 2>&1); rc=$?
+  same "098-R5 a test killed by SIGKILL under the limit leaves the run unmeasured" "$rc" 2
+  has  "  as infrastructure, not as a red test" "$out" "could not be started (exit 137)"
+}
+
 for a in arm_score_and_report arm_timeout_is_not_a_kill arm_red_baseline_is_unmeasured arm_leaves_nothing \
          arm_only_live_code arm_arguments arm_hostile_paths arm_infra_is_not_a_kill arm_maintenance_stamps arm_seed_reproduces \
-         arm_sandbox_home; do
+         arm_sandbox_home arm_sandbox_env; do
   want "$a" && "$a"
 done
 

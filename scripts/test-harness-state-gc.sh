@@ -48,5 +48,12 @@ OLD="$P/.claude/state/bash-write/old-marker"; : > "$OLD"; touch -t 202001010000 
 run_gc "$P" --dry-run
 [ -e "$OLD" ] && ok "--dry-run keeps the stale marker" || bad "--dry-run removed a marker"
 
+# Spec 098 R6: guard_announce stamps live under the git dir, one directory per session.
+GN="$P/.git/claude-hook-notices"; mkdir -p "$GN/old-session" "$GN/new-session"
+touch -t 202001010000 "$GN/old-session"
+run_gc "$P"
+[ ! -e "$GN/old-session" ] && ok "098-R6 a stale stamp directory in the git dir is swept" || bad "098-R6 the git-dir stamps are never collected"
+[ -d "$GN/new-session" ] && [ -d "$GN" ] && ok "  a fresh one, and the base, stay" || bad "  the sweep removed a fresh session or the base"
+
 printf '\npassed %d, failed %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -124,8 +124,11 @@ notice_both() {
 _hn_state_dir() {
   local sid="${1:-}"
   [ -z "$sid" ] && return 1
-  local base="${TMPDIR:-/tmp}"
-  base="${base%/}/claude-hook-notices"
+  local base="${2:-}"
+  if [ -z "$base" ]; then
+    base="${TMPDIR:-/tmp}"
+    base="${base%/}/claude-hook-notices"
+  fi
   # Session ids come from the harness, but this path is built from one, so it is
   # reduced to characters that cannot climb out of the directory.
   sid=$(printf '%s' "$sid" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-64)
@@ -137,10 +140,12 @@ hn_session_id() {
   sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<< "${1:-}" | sed -n 1p
 }
 
-# hn_first_time <session_id> <key>  → 0 the first time, 1 afterwards
+# hn_first_time <session_id> <key> [base]  → 0 the first time, 1 afterwards. base replaces
+# $TMPDIR/claude-hook-notices: guard_announce keeps its stamps in the git dir, where the agent's tools
+# cannot plant one (spec 098 R6, F144).
 hn_first_time() {
   local sid="$1" key="$2" dir stamp
-  dir=$(_hn_state_dir "$sid") || return 0     # no session id → always "first"
+  dir=$(_hn_state_dir "$sid" "${3:-}") || return 0     # no session id → always "first"
   stamp=$(printf '%s' "$key" | cksum | tr -d ' ' | cut -c1-24)
   [ -z "$stamp" ] && return 0
   mkdir -p "$dir" 2>/dev/null || return 0     # cannot record → always "first"

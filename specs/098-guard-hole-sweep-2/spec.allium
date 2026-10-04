@@ -1,0 +1,198 @@
+-- allium: 3
+--
+-- 098 — guard hole sweep 2.
+--
+-- Each rule closes one place where a guard allowed what its header says it refuses, allowed without a
+-- word (R1–R4, R6, R8), let the developer's environment into mutant tests (R5), or refused a harmless
+-- call (R7). Rules cite R1..R10 (spec.md) and the developer's overflow answers O1..O4 (interview.md).
+-- The template keeps no scenario map; tests name the acceptance cases 098-AC-n.
+
+enum Verdict { allow | deny | announce_allow }
+
+enum GuardKind { pipeline | core | trust_anchor }
+
+enum GitOutcome { answered | missing | timed_out | unbounded }
+
+enum MutantOutcome { killed | survived | timeout | infra }
+
+-- ----------------------------------------------------------------------------- R1 trust-anchor pre-check
+
+entity AnchorWrite {
+    names_trigger_word: Boolean                 -- the raw payload already wakes the parser
+    some_component_is_link: Boolean             -- any component from the file up to the project dir
+    precheck_library_loaded: Boolean            -- guard-precheck.sh sourced
+    resolves_into_git_dir: Boolean              -- realpath has a .git component
+    verdict: Verdict?
+}
+
+rule TrustAnchorLooksThroughLinks {
+    when: AnchorWriteJudged(w)
+    ensures:
+        if w.names_trigger_word or w.some_component_is_link or not w.precheck_library_loaded:
+            if w.resolves_into_git_dir:
+                w.verdict = deny                -- 098-AC-1
+            else:
+                w.verdict = allow
+        else:
+            w.verdict = allow                   -- nothing names or reaches a store
+}
+
+-- ----------------------------------------------------------------------------- R2 acceptance backing (O1)
+
+entity ConfirmedLine {
+    digest_matches: Boolean
+    answer_recorded_here: Boolean               -- this clone's answer store holds the quote for the digest
+    on_upstream: Boolean                        -- no longer consulted (O1)
+    verdict: Verdict?
+}
+
+rule BackingIsTheLocalAnswerOnly {
+    when: ConfirmedLineChecked(c)
+    requires: c.digest_matches
+    ensures:
+        if c.answer_recorded_here:
+            c.verdict = allow
+        else:
+            c.verdict = deny                    -- 098-AC-2, whatever on_upstream says
+}
+
+-- ----------------------------------------------------------------------------- R3 CORE guards, sync gone (O2)
+
+entity CoreEdit {
+    is_template: Boolean                        -- template_identity of the sync root
+    has_claude_dir: Boolean
+    has_sync_stamp: Boolean                     -- .claude/.template-sync
+    has_register: Boolean                       -- specs/INDEX.md at the sync root
+    has_sync_script: Boolean                    -- scripts/template-autosync.sh
+    verdict: Verdict?
+}
+
+rule CoreGuardMissingSync {
+    when: CoreEditJudged(e)
+    requires: not e.is_template
+    requires: not e.has_sync_script
+    ensures:
+        if e.has_claude_dir and (e.has_sync_stamp or e.has_register):
+            e.verdict = deny                    -- 098-AC-3
+        else:
+            e.verdict = allow                   -- not a template project: no opinion, no word
+}
+
+-- ----------------------------------------------------------------------------- R4 root walk and git (O3)
+
+entity RootWalk {
+    needed_git: Boolean                         -- a .git file, or a repository above the anchor
+    git: GitOutcome
+    guard: GuardKind
+    verdict: Verdict?
+}
+
+rule WalkThatCannotAskGit {
+    when: RootWalked(r)
+    requires: r.needed_git
+    requires: r.git != answered
+    ensures:
+        if r.guard = pipeline:
+            r.verdict = deny                    -- before the root-anchored exemptions (clarification)
+        else:
+            r.verdict = announce_allow          -- 098-AC-4, CORE guards fail open aloud
+}
+
+rule WalkThatNeverAsksGitIsUnchanged {
+    when: RootWalked(r)
+    requires: not r.needed_git
+    ensures: r.git = answered                   -- the common checkout pays nothing new (SC-2)
+}
+
+-- ----------------------------------------------------------------------------- R5 mutation sandbox
+
+entity MutantRun {
+    rc: Integer
+    seconds: Integer
+    limit: Integer
+    outcome: MutantOutcome?
+}
+
+config {
+    killed_by_signal_rc: Integer = 137
+    timeout_rc: Integer = 124
+    guard_git_timeout_seconds: Integer = 5
+    stamp_sweep_days: Integer = 2
+}
+
+rule ClassifyMutantRun {
+    when: MutantTestFinished(m)
+    ensures:
+        if (m.rc = config.timeout_rc or m.rc = config.killed_by_signal_rc) and m.seconds >= m.limit:
+            m.outcome = timeout
+        else:
+            if m.rc = config.killed_by_signal_rc or m.rc = 125 or m.rc = 126:
+                m.outcome = infra               -- an OOM or external kill says nothing about the mutant
+            else:
+                if m.rc != 0:
+                    m.outcome = killed
+                else:
+                    m.outcome = survived
+}
+
+-- ----------------------------------------------------------------------------- R6 announce stamp (O4)
+
+entity Announcement {
+    has_session_id: Boolean
+    project_git_dir_is_directory: Boolean       -- $CLAUDE_PROJECT_DIR/.git is a directory
+    stamp_in_git_dir: Boolean                   -- this session already announced this cause
+    stamp_in_tmpdir: Boolean                    -- no longer consulted for guard_announce
+    spoken: Boolean
+}
+
+rule AnnounceOncePerSessionBehindTheGitDir {
+    when: GuardAnnounced(a)
+    ensures:
+        if a.has_session_id and a.project_git_dir_is_directory and a.stamp_in_git_dir:
+            a.spoken = false
+        else:
+            a.spoken = true                     -- 098-AC-4, a TMPDIR stamp silences nothing
+}
+
+-- ----------------------------------------------------------------------------- R7 read fed to a runner
+
+entity ShellRead {
+    names_guarded_file: Boolean
+    runner_in_same_pipeline: Boolean            -- sh, xargs, eval … downstream or upstream through |
+    runner_elsewhere_on_line: Boolean
+    line_spills_to_file: Boolean                -- a redirect to a real file, or tee
+    line_has_grouping: Boolean                  -- { }, ( ), coproc, exec: the pipeline cannot be read
+    verdict: Verdict?
+}
+
+rule ReadReachesRunner {
+    when: ShellReadJudged(s)
+    requires: s.names_guarded_file
+    ensures:
+        if s.runner_in_same_pipeline:
+            s.verdict = deny
+        else:
+            if s.runner_elsewhere_on_line and (s.line_spills_to_file or s.line_has_grouping):
+                s.verdict = deny                -- the name can reach the runner through a file or a group
+            else:
+                s.verdict = allow               -- 098-AC-5, F155
+}
+
+-- ----------------------------------------------------------------------------- R8 hook matcher audit
+
+entity GuardWiring {
+    hook_is_settings_or_trust_guard: Boolean
+    event_is_pretooluse: Boolean
+    matcher_matches_mcp_write: Boolean          -- re.fullmatch against mcp__x__write_file
+    reported: Boolean
+}
+
+rule AuditMcpMatcher {
+    when: HooksAudited(w)
+    requires: w.hook_is_settings_or_trust_guard and w.event_is_pretooluse
+    ensures:
+        if w.matcher_matches_mcp_write:
+            w.reported = false
+        else:
+            w.reported = true                   -- [HOOKS] finding with the |mcp__.* fix
+}

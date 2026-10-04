@@ -258,9 +258,25 @@ fi
 NOSYNC=$(make_project nosync)
 printf 'edited\n' > "$NOSYNC/scripts/spec_active.py"
 rm -f "$NOSYNC/scripts/template-autosync.sh"
+# Spec 098 R3 (F141, developer O2): this used to pass silently, so deleting one file turned the guard
+# off. A register being ticked is evidence the project is synced; the tick is denied with the route.
 OUT=$(run_hook "$NOSYNC/specs/INDEX.md" "$TICK")
-[ -z "$OUT" ] && ok "no template-autosync.sh: no sync is coming, so nothing is owed" \
-              || { bad "the guard fired with no sync present"; info "$(reason "$OUT")"; }
+if [ "$(decision "$OUT")" = "deny" ]; then
+  ok "098-AC-3 no template-autosync.sh in a synced project: the tick is denied"
+  case "$(reason "$OUT")" in *"template-autosync.sh is missing"*"! git checkout HEAD -- scripts/template-autosync.sh"*)
+      ok "  the reason names the file and the developer's route" ;;
+    *) bad "  the reason lacks the file or the route"; info "$(reason "$OUT")" ;; esac
+else
+  bad "098-AC-3 the guard went silent with the sync deleted"; info "$OUT"
+fi
+OUT=$(run_hook "$NOSYNC/specs/INDEX.md" "$TICK" ALLOW_TICK_WITH_CORE_OWED=1)
+[ "$(decision "$OUT")" = "deny" ] && bad "the developer's override no longer works" || ok "  ALLOW_TICK_WITH_CORE_OWED=1 still lets the developer through"
+SAB3="$WORK/sab3"; mkdir -p "$SAB3"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$SAB3"/
+sed 's/^  if guard_core_synced .*then$/  if false; then/' "$HOOK" > "$SAB3/core-owed-tick-guard-hook.sh"
+if cmp -s "$HOOK" "$SAB3/core-owed-tick-guard-hook.sh"; then bad "098-R3 sabotage target not found"; else
+  OUT=$(HOOK="$SAB3/core-owed-tick-guard-hook.sh" run_hook "$NOSYNC/specs/INDEX.md" "$TICK")
+  [ "$(decision "$OUT")" = "deny" ] && bad "098-R3 sabotage: the mutant still denies" || ok "098-R3 sabotage: without the rule a deleted sync lets the tick through again"
+fi
 
 # ---- an unanswerable sync -------------------------------------------------------
 # The one that matters most. A broken classifier must be indistinguishable from "nothing owed" —

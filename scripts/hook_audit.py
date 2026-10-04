@@ -228,6 +228,50 @@ def hooks_of(settings):
                     yield event, g.get("matcher", ""), h
 
 
+# Spec 098 R8 (F159): spec 095 R4 added |mcp__.* to the PreToolUse matchers of the two guards that keep
+# MCP writes off the settings files and the trust stores. A project that never synced keeps the old
+# matcher, and MCP writes skip both guards with no signal. A matcher counts as covering MCP only when it
+# is "*", empty, or matches both probe names as an anchored regular expression (threat model #14: the
+# stricter reading, so a pass here is a pass under any reading). One covering group per guard is enough.
+MCP_GUARDS = ("settings-edit-guard-hook.sh", "trust-anchor-guard-hook.sh")
+MCP_PROBES = ("mcp__x__write_file", "mcp__y__edit")
+
+
+def matcher_covers_mcp(matcher):
+    """(covers, why-not)."""
+    if not isinstance(matcher, str):
+        return False, "the matcher is not a string"
+    if matcher in ("", "*"):
+        return True, ""
+    try:
+        rx = re.compile(matcher)
+    except re.error as e:
+        return False, "the matcher does not compile (%s)" % e
+    missed = [p for p in MCP_PROBES if not rx.fullmatch(p)]
+    return (not missed), ("it does not match %s" % ", ".join(missed) if missed else "")
+
+
+def mcp_matcher_findings(docs):
+    seen = {}
+    for label, _, d in docs:
+        if not label.startswith("project"):
+            continue
+        for event, matcher, h in hooks_of(d):
+            cmd = h.get("command") if isinstance(h.get("command"), str) else ""
+            for guard in MCP_GUARDS:
+                if event == "PreToolUse" and guard in cmd:
+                    seen.setdefault(guard, []).append((label, matcher) + matcher_covers_mcp(matcher))
+    out = []
+    for guard, rows in sorted(seen.items()):
+        if any(covers for _, _, covers, _ in rows):
+            continue
+        for label, matcher, _, why in rows:
+            out.append("MATCHER %s PreToolUse[%s]: %s does not run for MCP tools: %s. Add |mcp__.* to "
+                       "that matcher (the developer edits it, or the next template sync carries it)."
+                       % (label, matcher, guard, why))
+    return out
+
+
 def inside(path, root):
     try:
         rp, rr = os.path.realpath(path), os.path.realpath(root)
@@ -306,6 +350,7 @@ def main(argv):
                 for why in channel_defects(script):
                     findings.append("CHANNEL %s: %s %s" % (where, os.path.relpath(script, root), why))
 
+    findings.extend(mcp_matcher_findings(docs))
     for err in unreadable:
         findings.append("UNREADABLE %s" % err)
     for f in findings:

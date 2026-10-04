@@ -92,6 +92,7 @@ guard_is_source "$FILE" || exit 0      # the extension NTFS reads (spec 090 R3)
 # One walk for the three pipeline guards (guard-lib.sh, guard_walk, spec 090); a linked worktree without
 # its own register inherits the project's (R7).
 guard_walk "$FILE"
+guard_unsure_deny spec-register-guard && exit 0      # spec 098 R4: git could not answer, the root is a guess
 GIT_ROOT=$GUARD_GIT_ROOT; LANG_MARKER=$GUARD_LANG_MARKER; REGISTER=$GUARD_REGISTER
 
 # Not in a git repo OR no language marker in this repo → silent (template/scratch)

@@ -98,6 +98,33 @@ D=$(fix v13)
 OUT=$(HOOK_AUDIT_HOME="$D/home" bash "$SD/validate-hooks.sh" "$SD/.." 2>&1); RC=$?
 rc "V13 every hook in the template's settings.json resolves" 0
 
+echo "[098-R8] the two MCP guards' matchers"
+m8() { # m8 <name> <matcher> [local-matcher]: a project wiring both guards under <matcher>
+  local d; d=$(fix "$1")
+  printf '#!/bin/bash\nexit 0\n' > "$d/proj/scripts/settings-edit-guard-hook.sh"
+  printf '#!/bin/bash\nexit 0\n' > "$d/proj/scripts/trust-anchor-guard-hook.sh"
+  settings "$d/proj/.claude/settings.json" PreToolUse "$2" \
+    "$(cmdhook 'bash "$CLAUDE_PROJECT_DIR/scripts/trust-anchor-guard-hook.sh"'),$(cmdhook 'bash "$CLAUDE_PROJECT_DIR/scripts/settings-edit-guard-hook.sh"')"
+  [ -n "${3:-}" ] && settings "$d/proj/.claude/settings.local.json" PreToolUse "$3" \
+    "$(cmdhook 'bash "$CLAUDE_PROJECT_DIR/scripts/trust-anchor-guard-hook.sh"'),$(cmdhook 'bash "$CLAUDE_PROJECT_DIR/scripts/settings-edit-guard-hook.sh"')"
+  audit "$d" HOOK_AUDIT_CORE="$(printf 'settings-edit-guard-hook.sh\ntrust-anchor-guard-hook.sh\n')"
+}
+m8 m1 'Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*'; rc "098-R8 the template's matcher is clean" 0
+m8 m2 'Edit|Write|MultiEdit|NotebookEdit|Bash'; rc "098-R8 a matcher without mcp__ is a finding" 1
+has "  named, with the guard" "MATCHER project PreToolUse[Edit|Write|MultiEdit|NotebookEdit|Bash]: trust-anchor-guard-hook.sh does not run for MCP tools"
+has "  and the settings guard too" "settings-edit-guard-hook.sh does not run for MCP tools"
+has "  with the fix" "Add |mcp__.* to"
+m8 m3 'Edit|mcp__x__.*'; rc "threat #14: one server's tools only is a finding" 1; has "  naming the probe it missed" "does not match mcp__y__edit"
+m8 m4 'Edit|mcp__('; rc "threat #14: a matcher that does not compile is a finding" 1; has "  said as such" "does not compile"
+m8 m5 '*'; rc "'*' covers everything" 0
+m8 m6 'Edit|Bash' 'mcp__.*'; rc "a covering group in settings.local.json is enough" 0
+SAB8="$T/sab8"; mkdir -p "$SAB8"
+sed 's/    findings.extend(mcp_matcher_findings(docs))/    pass/' "$AUDIT" > "$SAB8/hook_audit.py"
+if cmp -s "$AUDIT" "$SAB8/hook_audit.py"; then bad "098-R8 sabotage target not found"; else
+  D8="$T/m2"; OUT=$(env HOOK_AUDIT_HOME="$D8/home" HOOK_AUDIT_CORE="$(printf 'settings-edit-guard-hook.sh\ntrust-anchor-guard-hook.sh\n')" python3 "$SAB8/hook_audit.py" "$D8/proj" 2>&1); RC=$?
+  rc "098-R8 sabotage: without the check the bare matcher passes" 0
+fi
+
 # V14 — the wrapper refuses a root that is not there, rather than calling it clean
 OUT=$(bash "$SD/validate-hooks.sh" "$T/nope" 2>&1); RC=$?
 rc "V14 a missing root is exit 2" 2

@@ -329,6 +329,68 @@ OUT=$(run_tool Edit "$EI")
 [ "$(decision "$OUT")" = "deny" ] && ok "SC-039-12 an Edit on a missing file is denied" \
                                   || { bad "SC-039-12 an Edit with no current content was allowed"; info "$OUT"; }
 
+# ---- spec 098 R3 (F141): a synced project whose sync script is gone ------------
+printf '\n[098-R3] the sync script deleted from a synced project  (098-AC-3)\n'
+S3=$(make_project s3); rm -f "$S3/scripts/template-autosync.sh"; : > "$S3/.claude/.template-sync"
+OUT=$(run_hook "$S3/scripts/project-specific-thing.sh")
+if [ "$(decision "$OUT")" = "deny" ]; then
+  ok "098-AC-3 the stamp present, the sync gone: a scripts/ edit is denied"
+  R=$(reason "$OUT")
+  case "$R" in *"template-autosync.sh is missing"*) ok "  the reason names the missing file" ;; *) bad "  the reason does not name the file"; info "$R" ;; esac
+  case "$R" in *"! git checkout HEAD -- scripts/template-autosync.sh"*) ok "  and the developer's route" ;; *) bad "  no route in the reason" ;; esac
+else bad "098-AC-3 the guard went silent with the sync deleted"; info "$OUT"; fi
+S3R=$(make_project s3r); rm -f "$S3R/scripts/template-autosync.sh"; mkdir -p "$S3R/specs"; : > "$S3R/specs/INDEX.md"
+[ "$(decision "$(run_hook "$S3R/.claude/rules/sqlite.md")")" = "deny" ] && ok "a register is evidence too" || bad "a register did not count as evidence"
+# Threat model #4: delete the stamp and the register as well; the hook running from the project's own
+# scripts/ is evidence nothing in the tree can take away without disabling the guard.
+S3H=$(make_project s3h); rm -f "$S3H/scripts/template-autosync.sh"
+for f in "$SELF_DIR"/*.sh "$SELF_DIR"/*.py; do case "$f" in */template-autosync.sh) ;; *) cp "$f" "$S3H/scripts/" ;; esac; done
+OUT=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$S3H/scripts/project-specific-thing.sh" | bash "$S3H/scripts/core-machinery-guard-hook.sh" 2>/dev/null)
+[ "$(decision "$OUT")" = "deny" ] && ok "threat #4: no stamp, no register, the guard installed here: denied" || { bad "threat #4: a project-installed guard went silent"; info "$OUT"; }
+OUT=$(run_hook "$NOSYNC/scripts/project-specific-thing.sh")
+[ -z "$OUT" ] && ok "098-AC-3 a .claude/ with no stamp and no register stays silent (A6 unchanged)" || { bad "an unrelated .claude/ repo is now guarded"; info "$OUT"; }
+if [ -n "${TPL:-}" ] && template_history "$TPL" 2>/dev/null; then
+  rm -f "$TPL/scripts/template-autosync.sh"; : > "$TPL/.claude/.template-sync"
+  OUT=$(run_hook "$TPL/scripts/spec_active.py")
+  [ -z "$OUT" ] && ok "098-AC-3 the template stays exempt with its sync gone" || { bad "098-AC-3 the template is denied"; info "$OUT"; }
+else
+  info "skip: the template half needs this clone's template history"
+fi
+SAB3="$WORK/sab3"; mkdir -p "$SAB3"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$SAB3"/
+sed 's/^  if guard_core_synced .*then$/  if false; then/' "$HOOK" > "$SAB3/core-machinery-guard-hook.sh"
+if cmp -s "$HOOK" "$SAB3/core-machinery-guard-hook.sh"; then bad "098-R3 sabotage target not found"; else
+  OUT=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$S3/scripts/project-specific-thing.sh" | bash "$SAB3/core-machinery-guard-hook.sh" 2>/dev/null)
+  [ -z "$OUT" ] && ok "098-R3 sabotage: without the rule the deleted sync silences the guard again" || bad "098-R3 sabotage: the mutant still speaks"
+fi
+
+# ---- spec 098 R4 (F142): the root walk cannot ask git ------------------------------
+printf '\n[098-R4] a linked worktree on a PATH without git  (098-AC-4)\n'
+W4=$(make_project w4)
+git -C "$W4" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm init --allow-empty
+git -C "$W4" worktree add -q "$W4/.claude/worktrees/wt" 2>/dev/null
+NOGIT="$WORK/nogit"; mkdir -p "$NOGIT"
+for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
+  [ -d "$d" ] || continue
+  for x in "$d"/*; do b=${x##*/}; [ "$b" = git ] || [ -e "$NOGIT/$b" ] || ln -s "$x" "$NOGIT/$b" 2>/dev/null; done
+done
+# The stamp the pre-098 code would have read for exactly this notice, planted first (098-AC-4).
+SID="s098-$$"; F4="$(cd -P "$W4" && pwd)/.claude/worktrees/wt/scripts/spec_active.py"
+KEY=$(printf '%s' "guard-announce:core-machinery-guard:the root walk could not ask git (git is not on PATH), so $F4 was not checked" | cksum | tr -d ' ' | cut -c1-24)
+mkdir -p "${TMPDIR:-/tmp}/claude-hook-notices/$SID" && : > "${TMPDIR:-/tmp}/claude-hook-notices/$SID/$KEY"
+OUT=$(printf '{"session_id":"%s","tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$SID" "$W4/.claude/worktrees/wt/scripts/spec_active.py" \
+      | (cd "$W4/.claude/worktrees/wt" && env PATH="$NOGIT" CLAUDE_PROJECT_DIR="$W4/.claude/worktrees/wt" bash "$HOOK") 2>/dev/null)
+if [ -d "$W4/.claude/worktrees/wt" ]; then
+  case "$OUT" in *"could not ask git"*"git is not on PATH"*) ok "098-AC-4 the CORE guard allows aloud, naming git, past a planted TMPDIR stamp" ;; *) bad "098-AC-4 no announcement"; info "$OUT" ;; esac
+  [ "$(decision "$OUT")" = "deny" ] && bad "  …but it denied" || ok "  and it does not deny (fail open, O3)"
+  [ -n "$(ls -A "$W4/.git/worktrees/wt/claude-hook-notices/$SID" 2>/dev/null)" ] && ok "  its stamp is in the worktree's git dir" || bad "  no stamp in the git dir"
+  OUT2=$(printf '{"session_id":"%s","tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$SID" "$W4/.claude/worktrees/wt/scripts/spec_active.py" \
+        | (cd "$W4/.claude/worktrees/wt" && env PATH="$NOGIT" CLAUDE_PROJECT_DIR="$W4/.claude/worktrees/wt" TMPDIR="${TMPDIR:-/tmp}" bash "$HOOK") 2>/dev/null)
+  [ -z "$OUT2" ] && ok "  the second call in the session is deduplicated (by the git-dir stamp)" || bad "  the second call repeated the notice"
+else
+  info "skip: git worktree add failed here"
+fi
+rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

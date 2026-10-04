@@ -28,10 +28,14 @@
 #   - the tool call carries no file path
 #   - ALLOW_CORE_MACHINERY_EDIT=1 (deliberate override; says so rather than hiding)
 #   - the path is not under <root>/scripts/ or <root>/.claude/rules/
-#   - no git root, or the root has no .claude/
+#   - no git root, or the root has no .claude/ and this hook is not installed in it
 #   - the root IS the template repository (that is where the change belongs)
-#   - the root has no scripts/template-autosync.sh (no sync, so no owner to defer to)
-#   - the classifier says not CORE, or cannot answer at all
+#   - the root has no scripts/template-autosync.sh AND shows no sign of being synced: no
+#     .claude/.template-sync, no specs/INDEX.md, and this hook not running from its scripts/.
+#     A synced project whose sync script is gone is DENIED (spec 098 R3, F141): deleting one
+#     file used to turn this guard off without a word.
+#   - the classifier says not CORE, or cannot answer at all (announced)
+#   - the root walk could not ask git (announced per file, spec 098 R4)
 #   - the write leaves the file byte-identical to the template clone's copy (spec 039)
 #
 # Fails OPEN, deliberately, and the other way round from pipeline-state-guard. That
@@ -111,8 +115,16 @@ esac
 # spec 088 R1 (F090) anchors the walk; spec 090: an empty worktree takes the project's sync.
 guard_core_root "$FILE"
 ROOT=$GUARD_CORE_ROOT; SYNC_ROOT=$GUARD_SYNC_ROOT
+# Spec 098 R4 (F142, developer O3): git could not answer, so the root is a guess. Fail open, aloud, keyed
+# by file so a git that stays slow is heard for every file it lets through (threat model #7).
+if [ -n "$GUARD_GIT_UNSURE" ]; then
+  guard_announce core-machinery-guard "the root walk could not ask git ($GUARD_GIT_UNSURE), so $FILE was not checked"
+  exit 0
+fi
 [ -n "$ROOT" ] || exit 0
-[ -d "$SYNC_ROOT/.claude" ] || exit 0
+# The running hook living in this root's scripts/ is evidence the project installed it (spec 098 R3,
+# threat model #4): it cannot be deleted without disabling the guard itself.
+[ -d "$SYNC_ROOT/.claude" ] || [ "$HOOK_DIR" -ef "$SYNC_ROOT/scripts" ] || exit 0
 
 # The template repository is where this guard is telling everyone to go, so denying an
 # edit here would be perfectly circular. Identified by template-identity.sh, as
@@ -127,7 +139,18 @@ if . "$HOOK_DIR/template-identity.sh" 2>/dev/null && [ "$(template_identity "$SY
 fi
 
 SYNC="$SYNC_ROOT/scripts/template-autosync.sh"
-[ -f "$SYNC" ] || exit 0
+# Spec 098 R3 (F141, developer O2): in a project that is visibly synced, a missing sync script is not
+# "not our project". Deleting it used to turn this guard off without a word. Restoring it is a CORE
+# write this guard refuses (an agent-written sync would answer for itself), so the route is the
+# developer's.
+if [ ! -f "$SYNC" ]; then
+  if guard_core_synced "$SYNC_ROOT" "$HOOK_DIR"; then
+    guard_deny "BLOCKED — core-machinery-guard cannot tell whether ${FILE#"$ROOT"/} is CORE machinery: scripts/template-autosync.sh is missing at $SYNC_ROOT, and this project is synced from the template (spec 098 R3).
+
+The sync script is the one list of CORE names. Without it this guard used to allow every edit without a word, so deleting one file turned it off. Ask the developer to restore it with  ! git checkout HEAD -- scripts/template-autosync.sh  (a ! command runs outside the agent's tools), or to rerun the template sync. Then retry the edit."
+  fi
+  exit 0
+fi
 
 REL=${FILE#"$ROOT"/}
 case "$REL" in /*) exit 0 ;; esac      # not under this root after all

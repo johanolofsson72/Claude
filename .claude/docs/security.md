@@ -98,7 +98,7 @@ Spec 091 closed the places where a trust decision still rested on state the agen
 - **The template updater's model.** `scripts/update-template.sh` starts `claude -p` with `--restricted`, `--permission-mode dontAsk` and `--tools`, so it cannot write outside the repository. It refuses to start on a `claude` without `--restricted`. A skill, agent or command that gains `hooks:` (or `allowed-tools`, `permissionMode`, `mcpServers`) in its frontmatter, or a new script under those directories, is named `[REVIEW]` and the run exits 4.
 - **What the nightly runs.** The trusted suite identity includes a blob hash of every file the suite command reaches, so an edited or new test file un-trusts it. A command that reaches files through `$`, a backtick or `..` is never trusted.
 - **Cloud stamps.** A stamp pulled from `claude/maintenance-results` counts only for a job placed in the cloud on this machine. `secrets` is always local. The agent cannot edit `.claude/workload-placement.tsv`.
-- **Acceptance confirmations.** Only a click on `Confirm`, given to a question that showed every case in full (`acceptance-cases.sh --question`), binds the digest. A committed Confirmed line is trusted without a recorded answer only once it is on the upstream, not because it is at HEAD.
+- **Acceptance confirmations.** Only a click on `Confirm`, given to a question that showed every case in full (`acceptance-cases.sh --question`), binds the digest. A Confirmed line counts only when this clone's answer store backs it, committed, pushed or not: a plain `git push` moves the remote-tracking ref the old upstream shortcut trusted (spec 098, F140). Another clone asks the developer once more.
 
 The residuals are in `specs/091-trust-residuals/spec.md` under Threat model.
 

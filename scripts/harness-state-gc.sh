@@ -183,6 +183,11 @@ NOTICE_BASE="${NOTICE_BASE%/}/claude-hook-notices"
 if [ -d "$NOTICE_BASE" ] && [ "$MODE" = "clean" ]; then
   find "$NOTICE_BASE" -maxdepth 1 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null
 fi
+# Spec 098 R6: guard_announce keeps its stamps in the git dir, one directory per session.
+GIT_NOTICES="$PROJECT_ROOT/.git/claude-hook-notices"
+if [ -d "$GIT_NOTICES" ] && [ "$MODE" = "clean" ]; then
+  find "$GIT_NOTICES" -mindepth 1 -maxdepth 1 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null
+fi
 
 if [ "$REMOVED_MARKERS" -gt 0 ]; then
   if [ "$MODE" = "clean" ]; then

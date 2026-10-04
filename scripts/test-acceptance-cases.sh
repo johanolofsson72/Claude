@@ -232,7 +232,24 @@ expect "091-AC-5 a branch tracking a local branch (remote .) is no upstream" "$P
 ( cd "$P" && git checkout -q main ) >/dev/null 2>&1
 BARE088="$TMP/fgd-remote.git"; git init -q --bare "$BARE088"
 ( cd "$P" && git remote add origin "$BARE088" && git push -q -u origin HEAD ) >/dev/null 2>&1
-expect "091-AC-5 once on the upstream it is trusted (the store is per clone)" "$P/src/app.ts" allow
+# Spec 098 R2 (F140, developer O1): a plain `git push` moves the upstream, so being on it proves nothing.
+expect "098-AC-2 on the upstream, with no answer in this clone, it is still denied" "$P/src/app.ts" deny "answers here too"
+confirm "$P" 080      # the developer answers Confirm here; --confirm re-records the line
+expect "098-AC-2 once the developer's answer is recorded in this clone it passes" "$P/src/app.ts" allow
+# Threat model #11: the store is the project root's, not that of a repository a spec dir links into.
+PL=$(mk_project lnk 080 "full track"); PO=$(mk_project lnkother 080 "full track")
+write_cases "$PO" 080 3; confirm "$PO" 080
+rm -rf "$PL/specs/080-demo"; ln -s "$PO/specs/080-demo" "$PL/specs/080-demo"
+printf '// 080-AC-1 080-AC-2 080-AC-3\n' > "$PL/tests/app.test.ts"
+expect "098 threat #11 a spec dir linked into another repository is denied" "$PL/src/app.ts" deny "live outside this project"
+SABR2="$TMP/sabr2"; mkdir -p "$SABR2"; cp "$SELF_DIR"/*.py "$SELF_DIR"/*.sh "$SABR2"/
+sed 's/backed = answer_bound(root, conf\["quote"\], parsed\["digest"\], strict=True)/backed = True/' "$SELF_DIR/acceptance_cases.py" > "$SABR2/acceptance_cases.py"
+if cmp -s "$SELF_DIR/acceptance_cases.py" "$SABR2/acceptance_cases.py"; then fail "098-R2 sabotage target not found"; else
+  rm -f "$P/.git/claude-developer-words"
+  OUTS=$(jq -cn --arg p "$P/src/app.ts" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}' \
+         | (cd "$P" && CLAUDE_PROJECT_DIR="$P" bash "$SABR2/spec-interview-guard-hook.sh") 2>/dev/null)
+  case "$(hook_verdict "$OUTS")" in deny) fail "098-R2 sabotage: the mutant still denies" ;; *) ok "098-R2 sabotage: a gate that skips the store lets the pushed line through" ;; esac
+fi
 P=$(mk_project bkd 080 "full track")
 write_cases "$P" 080 3
 printf '// 080-AC-1 080-AC-2 080-AC-3\n' > "$P/tests/app.test.ts"

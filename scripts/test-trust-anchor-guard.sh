@@ -382,6 +382,37 @@ PY
 run "$MUT3/trust-anchor-guard-hook.sh" "$(mcp_p mcp__fs__write_file "$(jq -cn --arg p "$P/.git/claude-developer-words" '{path:$p,content:"x"}')")"
 expect "sabotage 095-R3: without the MCP path scan the store write passes" none
 
+printf '\n[098-R1] a symlink at any component of the path  (098-AC-1)\n'
+ln -s .git "$P/gd"
+run "$GUARD" "$(write_p "$P/gd/info/exclude" "x")";    expect "098-AC-1 Write gd/info/exclude (gd -> .git) is denied" deny
+case "$(reason)" in *"inside a git directory"*) ok "  as a write inside a git directory" ;; *) bad "  the wrong reason: $(reason | head -1)" ;; esac
+run "$GUARD" "$(write_p "$P/gd/description" "x")";     expect "098-AC-1 Write gd/description is denied" deny
+run "$GUARD" "$(write_p "gd/config" "x")";             expect "a relative gd/config, resolved against the payload's cwd, is denied" deny
+run "$GUARD" "$(write_p "$P/docs/notes.md" "x")";      expect "098-AC-1 Write docs/notes.md in the same project passes" none
+for c in 'chmod 000 .git' 'chmod -R 000 .git/objects' 'mv .git .git2' 'chown nobody "$PWD/.git"' 'setfacl -m u:x:0 ./.git'; do
+  run "$GUARD" "$(bash_p "$c")"; expect "threat #6: [$c] changes the git dir and is refused" deny
+done
+for c in 'chmod +x scripts/a.sh' 'git mv .github/x.yml .github/y.yml' 'mv .gitignore .gitignore.bak' 'chmod 644 docs/.gitkeep'; do
+  run "$GUARD" "$(bash_p "$c")"; expect "  control: [$c] passes" none
+done
+# TB1: a git dir kept outside the tree has no .git component; the project's .git file names it.
+Q="$WORK/sep"; mkdir -p "$Q"; git init -q --separate-git-dir="$WORK/sepgd" "$Q"
+runq() { OUT=$(printf '%s' "$1" | (cd "$Q" && CLAUDE_PROJECT_DIR="$Q" "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT"); }
+runq "$(jq -cn --arg p "$WORK/sepgd/config" --arg w "$Q" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"
+expect "TB1 a Write into a git dir kept elsewhere is denied" deny
+ln -s "$WORK/sepgd" "$Q/sg"
+runq "$(jq -cn --arg p "$Q/sg/hooks/pre-commit" --arg w "$Q" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"
+expect "TB1 and through a link to it" deny
+runq "$(jq -cn --arg p "$Q/src.txt" --arg w "$Q" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"
+expect "TB1 an ordinary file in that project passes" none
+MUT1="$WORK/mut1"; mkdir -p "$MUT1"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT1"/
+sed 's/^      guard_precheck_link "\$INPUT" \&\& HIT=1$/      [ -L "$_fp" ] \&\& HIT=1/' "$GUARD" > "$MUT1/trust-anchor-guard-hook.sh"
+if cmp -s "$GUARD" "$MUT1/trust-anchor-guard-hook.sh"; then bad "098-R1 sabotage target not found"; else
+  run "$MUT1/trust-anchor-guard-hook.sh" "$(write_p "$P/gd/info/exclude" "x")"
+  expect "098-R1 sabotage: testing only the last component lets gd/info/exclude through" none
+fi
+rm -f "$P/gd"
+
 printf '\n[R3] sabotage: without the Confirmed-line rule the forged Edit passes\n'
 MUT="$WORK/mut"; mkdir -p "$MUT"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT"/ 2>/dev/null
 python3 - "$MUT/trust-anchor-guard-hook.sh" <<'PY'

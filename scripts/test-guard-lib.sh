@@ -68,9 +68,11 @@ assert d["permissionDecisionReason"] == os.environ["NASTY"], repr(d["permissionD
 done
 
 printf '\n[R1] guard_announce — once per session, every time without one\n'
-OUT1=$(TMPDIR="$WORK/tmp" lib jq 'mkdir -p "$TMPDIR"; INPUT="{\"session_id\":\"s1\"}"; guard_announce g cause')
-OUT2=$(TMPDIR="$WORK/tmp" lib jq 'INPUT="{\"session_id\":\"s1\"}"; guard_announce g cause')
-OUT3=$(TMPDIR="$WORK/tmp" lib jq 'INPUT="{}"; guard_announce g cause')
+# Spec 098 R6: the stamp needs a project git dir; without one the notice is said every time.
+mkdir -p "$WORK/annp" && git init -q "$WORK/annp"
+OUT1=$(CLAUDE_PROJECT_DIR="$WORK/annp" TMPDIR="$WORK/tmp" lib jq 'mkdir -p "$TMPDIR"; INPUT="{\"session_id\":\"s1\"}"; guard_announce g cause')
+OUT2=$(CLAUDE_PROJECT_DIR="$WORK/annp" TMPDIR="$WORK/tmp" lib jq 'INPUT="{\"session_id\":\"s1\"}"; guard_announce g cause')
+OUT3=$(CLAUDE_PROJECT_DIR="$WORK/annp" TMPDIR="$WORK/tmp" lib jq 'INPUT="{}"; guard_announce g cause')
 case "$OUT1" in *additionalContext*"ALLOWED"*) ok "the first announcement in a session is printed" ;; *) bad "first announcement: [$OUT1]" ;; esac
 [ -z "$OUT2" ] && ok "the second, same session and cause, is not" || bad "repeated announcement: [$OUT2]"
 [ -n "$OUT3" ] && ok "without a session id it is always printed" || bad "no-session announcement missing"
@@ -158,6 +160,73 @@ if cmp -s "$(dirname "$IG")/guard-lib.sh" "$SAB6/guard-lib.sh"; then bad "095-R6
          | (rm -f "$R6/package.json"; cd "$R6" && CLAUDE_PROJECT_DIR="$R6" bash "$SAB6/spec-interview-guard-hook.sh") 2>/dev/null)
   case "$OUTS" in *'"deny"'*) bad "095-R6 sabotage: the mutant still denies" ;; *) ok "095-R6 sabotage: without the stand-in, no marker turns the guard off again" ;; esac
 fi
+
+printf '\n[098-R4] _guard_git: an answer, no git, a git that does not answer\n'
+NOGIT="$WORK/nogit"; mkdir -p "$NOGIT"
+for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
+  [ -d "$d" ] || continue
+  for x in "$d"/*; do b=${x##*/}; [ "$b" = git ] || [ -e "$NOGIT/$b" ] || ln -s "$x" "$NOGIT/$b" 2>/dev/null; done
+done
+SLOW="$WORK/slowgit"; mkdir -p "$SLOW"; printf '#!/bin/sh\nsleep 20\n' > "$SLOW/git"; chmod +x "$SLOW/git"
+V=$(bash -c '. "$0"; _guard_git -C "$1" rev-parse --git-dir; echo "rc=$? u=[$GUARD_GIT_UNSURE]"' "$LIB" "$WORK")
+case "$V" in "rc=128 u=[]") ok "git saying 'not a repository' is an answer (rc 128, not unsure)" ;; *) bad "an answer read as [$V]" ;; esac
+V=$(PATH="$NOGIT" bash -c '. "$0"; _guard_git rev-parse --git-dir; echo "rc=$? u=[$GUARD_GIT_UNSURE]"' "$LIB")
+case "$V" in "rc=125 u=[git is not on PATH]") ok "no git on PATH is unsure, with the cause" ;; *) bad "missing git read as [$V]" ;; esac
+T0=$SECONDS
+V=$(PATH="$SLOW:$PATH" GUARD_GIT_TIMEOUT=1 bash -c '. "$0"; _guard_git rev-parse --git-dir; echo "rc=$? u=[$GUARD_GIT_UNSURE]"' "$LIB")
+case "$V" in "rc=125 u=[git did not answer within 1s]") ok "a git that hangs is cut off and unsure" ;; *) bad "a hanging git read as [$V]" ;; esac
+[ $((SECONDS - T0)) -lt 8 ] && ok "  within the bound ($((SECONDS - T0)) s)" || bad "  took $((SECONDS - T0)) s"
+V=$(GIT_DIR=/nonexistent bash -c '. "$0"; _guard_git -C "$1" rev-parse --is-inside-work-tree; echo "rc=$?"' "$LIB" "$(cd "$(dirname "$0")/.." && pwd)")
+case "$V" in *"rc=0"*) ok "GIT_DIR in the environment does not reach git" ;; *) bad "GIT_DIR leaked: [$V]" ;; esac
+P4="$WORK/p4"; mkdir -p "$P4/src"; git init -q "$P4"
+V=$(PATH="$NOGIT" CLAUDE_PROJECT_DIR="$P4" bash -c '. "$0"; guard_walk "$1"; echo "u=[$GUARD_GIT_UNSURE] root=[${GUARD_GIT_ROOT##*/}]"' "$LIB" "$P4/src/a.ts")
+[ "$V" = "u=[] root=[p4]" ] && ok "SC-2 an ordinary checkout never asks git: no git on PATH, still sure" || bad "an ordinary walk needed git: [$V]"
+
+printf '\n[098-R4] the pipeline guards deny when the walk is unsure  (098-AC-4)\n'
+W4="$WORK/w4"; mkdir -p "$W4/src"; git init -q "$W4"
+git -C "$W4" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm init --allow-empty
+git -C "$W4" worktree add -q "$W4/.claude/worktrees/wt" 2>/dev/null; mkdir -p "$W4/.claude/worktrees/wt/src"
+PS="$(dirname "$IG")/pipeline-state-guard-hook.sh"
+ask_ps() { # ask_ps <hook> -> the hook's stdout for an Edit to the worktree's src/app.ts, git off PATH
+  jq -cn --arg p "$W4/.claude/worktrees/wt/src/app.ts" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}' \
+    | (cd "$W4/.claude/worktrees/wt" && env PATH="$NOGIT" CLAUDE_PROJECT_DIR="$W4/.claude/worktrees/wt" bash "$1") 2>/dev/null
+}
+OUT=$(ask_ps "$PS")
+case "$OUT" in *'"deny"'*"git is not on PATH"*) ok "098-AC-4 pipeline-state denies, naming git" ;; *) bad "098-AC-4 pipeline-state did not deny: $OUT" ;; esac
+for g in spec-interview spec-register; do
+  case "$(ask_ps "$(dirname "$IG")/$g-guard-hook.sh")" in *'"deny"'*"could not find this project's root"*) ok "$g denies too" ;; *) bad "$g did not deny" ;; esac
+done
+SAB4="$WORK/sab4"; mkdir -p "$SAB4"; cp "$(dirname "$IG")"/*.sh "$(dirname "$IG")"/*.py "$SAB4"/ 2>/dev/null
+sed 's/^guard_unsure_deny pipeline-state-guard && exit 0.*/:/' "$PS" > "$SAB4/pipeline-state-guard-hook.sh"
+if cmp -s "$PS" "$SAB4/pipeline-state-guard-hook.sh"; then bad "098-R4 sabotage target not found"; else
+  case "$(ask_ps "$SAB4/pipeline-state-guard-hook.sh")" in *'"deny"'*) bad "098-R4 sabotage: the mutant still denies" ;; *) ok "098-R4 sabotage: without the check an unsure walk allows silently" ;; esac
+fi
+
+printf '\n[098-R6] the announce stamp lives in the git dir  (098-AC-4)\n'
+P6="$WORK/p6"; mkdir -p "$P6/pkg/a"; git init -q "$P6"
+ann() { # ann <project-dir> <sid> <cause> [lib] -> 1 when the notice was said, 0 when deduplicated
+  local out
+  out=$(CLAUDE_PROJECT_DIR="$1" INPUT="{\"session_id\":\"$2\"}" bash -c '. "$0"; guard_announce g "$1"' "${4:-$LIB}" "$3")
+  [ -n "$out" ] && echo 1 || echo 0
+}
+SID6="t098-$$"
+[ "$(ann "$P6" "$SID6" c1)$(ann "$P6" "$SID6" c1)" = 10 ] && ok "said once, then deduplicated" || bad "dedupe broken"
+[ -n "$(ls -A "$P6/.git/claude-hook-notices/$SID6" 2>/dev/null)" ] && ok "  the stamp is under .git/claude-hook-notices" || bad "  no stamp in the git dir"
+K=$(printf '%s' "guard-announce:g:c2" | cksum | tr -d ' ' | cut -c1-24)
+mkdir -p "${TMPDIR:-/tmp}/claude-hook-notices/$SID6" && : > "${TMPDIR:-/tmp}/claude-hook-notices/$SID6/$K"
+[ "$(ann "$P6" "$SID6" c2)" = 1 ] && ok "098-AC-4 a stamp planted under TMPDIR silences nothing" || bad "098-AC-4 a TMPDIR stamp silenced the notice"
+[ "$(ann "$P6/pkg/a" "$SID6" c3)$(ann "$P6/pkg/a" "$SID6" c3)" = 10 ] && ok "threat #8: a package directory finds the git dir above it" || bad "a monorepo package directory repeats the notice"
+NG="$WORK/nogitdir"; mkdir -p "$NG"
+[ "$(ann "$NG" "$SID6" c4)$(ann "$NG" "$SID6" c4)" = 11 ] && ok "no git dir: said every time" || bad "no git dir was deduplicated"
+[ -e "${TMPDIR:-/tmp}/claude-hook-notices/$SID6/$(printf '%s' "guard-announce:g:c4" | cksum | tr -d ' ' | cut -c1-24)" ] \
+  && bad "  …and it fell back to a TMPDIR stamp" || ok "  and never through a TMPDIR stamp"
+SAB6B="$WORK/sab6b"; mkdir -p "$SAB6B"; cp "$(dirname "$IG")"/*.sh "$SAB6B"/
+sed 's/hn_first_time "\$sid" "guard-announce:\$guard:\$cause" "\$base"/hn_first_time "$sid" "guard-announce:$guard:$cause"/' "$LIB" > "$SAB6B/guard-lib.sh"
+if cmp -s "$LIB" "$SAB6B/guard-lib.sh"; then bad "098-R6 sabotage target not found"; else
+  K5=$(printf '%s' "guard-announce:g:c5" | cksum | tr -d ' ' | cut -c1-24); : > "${TMPDIR:-/tmp}/claude-hook-notices/$SID6/$K5"
+  [ "$(ann "$P6" "$SID6" c5 "$SAB6B/guard-lib.sh")" = 0 ] && ok "098-R6 sabotage: a TMPDIR stamp silences the old code" || bad "098-R6 sabotage: the mutant still speaks"
+fi
+rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID6"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

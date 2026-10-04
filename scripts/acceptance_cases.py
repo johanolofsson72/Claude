@@ -357,6 +357,19 @@ def _git(where, *args):
     return proc.returncode, proc.stdout.decode("utf-8", "replace"), proc.stderr.decode("utf-8", "replace")
 
 
+def _git_strict(where, *args):
+    """stdout of a git call that must answer: a timeout raises ScanFailed, anything else ScanError."""
+    try:
+        rc, out, err = _git(where, *args)
+    except subprocess.TimeoutExpired as exc:
+        raise ScanFailed(str(exc))
+    except OSError as exc:
+        raise ScanError("git could not run: %s" % exc)
+    if rc != 0:
+        raise ScanError("git %s exited %d: %s" % (args[0], rc, err.strip()[:200]))
+    return out
+
+
 def _git_out(where, *args):
     """stdout of a git call that succeeded, else None (timeouts and errors included)."""
     try:
@@ -416,54 +429,6 @@ HOW_TO_CONFIRM = """How to get it confirmed:
 A project that does not want this sets SPEC_ACCEPTANCE=off in .claude/settings.json env."""
 
 
-def _confirmed_line(text):
-    for l in (text or "").lstrip("﻿").splitlines():
-        if l.startswith(CONFIRMED_PREFIX):
-            return l.rstrip()
-    return None
-
-
-def _committed_unchanged(spec_dir):
-    """True when the upstream's acceptance.md carries the same Confirmed line the working tree does.
-
-    Spec 091 R9 (F107). It used to be HEAD's, and a forged line that reached disk by a route no guard
-    reads (a script file) was laundered by one local commit. The upstream is a remote-tracking ref,
-    which R2 keeps the agent from moving; no upstream, or one that is not under refs/remotes/ (a
-    branch tracking `.`), means no shortcut, and the answer store has to back the line."""
-    try:
-        got = read_file(os.path.join(spec_dir, "acceptance.md"))
-    except Unreadable:
-        return False
-    line = _confirmed_line(got if isinstance(got, str) else None)
-    if line is None:
-        return False
-    # A timeout raises ScanFailed, which the backing check turns into a deny (095 O2); any other git
-    # failure denies too.
-    try:
-        rc, _, err = _git(spec_dir, "rev-parse", "--git-dir")
-        if rc != 0:
-            raise ScanError("git rev-parse exited %d: %s" % (rc, err.strip()[:200]))
-        rc, up, _ = _git(spec_dir, "rev-parse", "--symbolic-full-name", "@{upstream}")
-        up = up.strip()
-        if rc != 0 or not up.startswith("refs/remotes/"):
-            return False                                   # no upstream: no shortcut, not an error
-        if os.path.islink(os.path.join(spec_dir, "acceptance.md")):
-            return False      # /security-review: a link to another spec's pushed file is not this one
-        rc, top, _ = _git(spec_dir, "rev-parse", "--show-toplevel")
-        if rc != 0:
-            return False
-        rel = os.path.relpath(os.path.realpath(os.path.join(spec_dir, "acceptance.md")),
-                              os.path.realpath(top.strip())).replace(os.sep, "/")
-        if rel.startswith("../"):
-            return False
-        rc, published, _ = _git(spec_dir, "show", "%s:%s" % (up, rel))
-    except subprocess.TimeoutExpired as exc:
-        raise ScanFailed(str(exc))
-    except OSError as exc:
-        raise ScanError("git could not run: %s" % exc)
-    return rc == 0 and _confirmed_line(published) == line   # rc != 0: never pushed
-
-
 def gate(root, info, file_path):
     """Decide one edit. Returns None to allow, or a deny reason string."""
     if not _owes(info) or not info.get("dir"):
@@ -501,28 +466,35 @@ def gate(root, info, file_path):
             "confirm again (step 2-3 below); never rewrite a case to match the code.\n\n%s" % (
                 conf["digest"], parsed["digest"], how)
 
-    # Spec 088 (adversarial #3): a Confirmed line nobody has committed yet must be one --confirm could
-    # have written, i.e. its quote is a recorded answer for this digest. trust-anchor-guard stops the
-    # shell spellings it can see; this catches the ones it cannot (a printf that splits the prefix, a
-    # glob for the file name). A line already on the upstream is trusted (spec 091 R9): the store is per
-    # clone, and a pushed commit is in the shared history the developer reads.
+    # Spec 088 (adversarial #3): a Confirmed line must be one --confirm could have written, i.e. its
+    # quote is a recorded answer for this digest. trust-anchor-guard stops the shell spellings it can
+    # see; this catches the ones it cannot (a printf that splits the prefix, a glob for the file name).
+    # Spec 098 R2 (F140, developer O1): only this clone's store counts. The upstream shortcut trusted a
+    # remote-tracking ref that a plain `git push` moves. The store is the project root's (threat model
+    # #11): a spec directory linked into another repository would read that repository's answers.
+    real_spec, real_top = os.path.realpath(spec_dir), os.path.realpath(root)
+    if real_spec != real_top and not real_spec.startswith(real_top + os.sep):
+        return head + "live outside this project.\n\n%s resolves to %s, which is not under %s. A spec " \
+            "directory linked into another repository would be backed by that repository's answers " \
+            "(spec 098). Keep the spec's files in this project." % (rel_dir, real_spec, real_top)
     try:
-        backed = _committed_unchanged(spec_dir) or answer_bound(spec_dir, conf["quote"], parsed["digest"])
+        backed = answer_bound(root, conf["quote"], parsed["digest"], strict=True)
     except ScanFailed:
-        # Spec 095 R5 (developer O2): this is the forgery route, so a timeout denies here. The agent
-        # can grow the tree until git outlasts the limit.
+        # Spec 095 R5 (developer O2): this is the forgery route, so a timeout denies here.
         return head + "could not be checked against the recorded answers: git timed out " \
-            "(ACCEPTANCE_SCAN_TIMEOUT, %ss).\n\nA Confirmed line that is not on the upstream must be " \
-            "backed by a recorded answer, and that check fails closed (spec 095). Commit and push the " \
-            "line, or make git answer in time, and try again." % _scan_timeout()
+            "(ACCEPTANCE_SCAN_TIMEOUT, %ss).\n\nA Confirmed line must be backed by a recorded answer " \
+            "in this clone, and that check fails closed (specs 095, 098). Make git answer in time, and " \
+            "try again." % _scan_timeout()
     except ScanError as exc:
         return head + "could not be checked against the recorded answers.\n\n%s\n\nOnly a timeout " \
             "lets an edit through; fix git here (safe.directory, a broken .git) and try again." % exc
     if not backed:
         return head + "carry a Confirmed line that no recorded developer answer backs.\n\nThe line " \
             "quotes \"%s\" for digest %s, and no AskUserQuestion answer with those words was " \
-            "recorded for a question showing that digest. Only scripts/acceptance-cases.sh --confirm " \
-            "writes the line, after the developer answers (spec 088).\n\n%s" % (
+            "recorded in this clone for a question showing that digest. Only scripts/acceptance-cases.sh " \
+            "--confirm writes the line, after the developer answers (spec 088). A line confirmed in " \
+            "another clone, committed or pushed, counts only after the developer answers here too " \
+            "(spec 098): ask the question again (step 2) and --confirm re-records it.\n\n%s" % (
                 conf["quote"], parsed["digest"], how)
 
     # Resolved first: `ln -s ../src tests/link` must not turn tests/link/app.ts into a test file.
@@ -572,9 +544,12 @@ WORDS_KEEP = 500
 _DIGEST_TOKEN = re.compile(r"(?<![0-9a-f])[0-9a-f]{%d}(?![0-9a-f])" % DIGEST_CHARS)
 
 
-def _words_path(start):
-    """<git-common-dir>/claude-developer-words for the repository holding `start`, or None."""
-    gd = (_git_out(start, "rev-parse", "--git-common-dir") or "").strip()
+def _words_path(start, strict=False):
+    """<git-common-dir>/claude-developer-words for the repository holding `start`, or None. strict (the
+    gate, spec 098 R2): a git timeout raises ScanFailed and a git that cannot run raises ScanError, so a
+    failure to look is never read as "no answer recorded"."""
+    args = ("rev-parse", "--git-common-dir")
+    gd = (_git_strict(start, *args) if strict else (_git_out(start, *args) or "")).strip()
     if not gd:
         return None
     if not os.path.isabs(gd):
@@ -686,9 +661,9 @@ def record_answers(payload, start):
     return len(pairs)
 
 
-def answer_bound(start, quote, digest):
+def answer_bound(start, quote, digest, strict=False):
     """True when the store holds an answer equal to `quote` given to a question showing `digest`."""
-    path = _words_path(start)
+    path = _words_path(start, strict)
     if not path or not os.path.isfile(path):
         return False
     want = answer_hash(quote)

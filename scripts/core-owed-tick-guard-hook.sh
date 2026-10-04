@@ -54,10 +54,13 @@
 #     would block the repair path, since marking a row in progress is what you do ON THE WAY to
 #     fixing what is owed)
 #   - ALLOW_TICK_WITH_CORE_OWED=1 (deliberate override; says so rather than hiding)
-#   - no git root, or the root has no .claude/
+#   - no git root, or the root has no .claude/ and this hook is not installed in it
 #   - the root IS the template repository (that is where the change belongs)
-#   - the root has no scripts/template-autosync.sh (no sync, so nothing to owe)
-#   - the sync cannot answer either question
+#   - the root has no scripts/template-autosync.sh AND shows no sign of being synced. A register
+#     being ticked is such a sign, so in practice a missing sync script DENIES the tick (spec 098
+#     R3, F141); ALLOW_TICK_WITH_CORE_OWED=1 still lets the developer through
+#   - the sync cannot answer either question (announced)
+#   - the root walk could not ask git (announced per file, spec 098 R4)
 #
 # Exit: always 0. A deny is expressed as permissionDecision JSON on stdout, per the hook contract.
 
@@ -203,8 +206,16 @@ fi
 # spec 088 R1 (F090) anchors the walk; spec 090: an empty worktree takes the project's sync.
 guard_core_root "$FILE"
 ROOT=$GUARD_CORE_ROOT; SYNC_ROOT=$GUARD_SYNC_ROOT
+# Spec 098 R4 (F142, developer O3): git could not answer, so the root is a guess. Fail open, aloud, keyed
+# by file (threat model #7).
+if [ -n "$GUARD_GIT_UNSURE" ]; then
+  guard_announce core-owed-tick-guard "the root walk could not ask git ($GUARD_GIT_UNSURE), so the tick in $FILE was not checked"
+  exit 0
+fi
 [ -n "$ROOT" ] || exit 0
-[ -d "$SYNC_ROOT/.claude" ] || exit 0
+# Spec 098 R3, threat model #4: the running hook in this root's scripts/ is evidence the project
+# installed it.
+[ -d "$SYNC_ROOT/.claude" ] || [ "$HOOK_DIR" -ef "$SYNC_ROOT/scripts" ] || exit 0
 
 # The template repository is where this guard is telling everyone to go, so denying a tick there
 # would be perfectly circular. Identified by template-identity.sh, as
@@ -217,7 +228,16 @@ if . "$HOOK_DIR/template-identity.sh" 2>/dev/null && [ "$(template_identity "$SY
 fi
 
 SYNC="$SYNC_ROOT/scripts/template-autosync.sh"
-[ -f "$SYNC" ] || exit 0
+# Spec 098 R3 (F141, developer O2): a register being ticked is itself evidence the project is synced,
+# so a missing sync script denies the tick instead of letting it through unchecked.
+if [ ! -f "$SYNC" ]; then
+  if guard_core_synced "$SYNC_ROOT" "$HOOK_DIR"; then
+    guard_deny "BLOCKED — core-owed-tick-guard cannot tell whether this project owes the template CORE work: scripts/template-autosync.sh is missing at $SYNC_ROOT, and this project is synced from the template (spec 098 R3).
+
+Without the sync script this guard used to let every tick through without a word, so deleting one file turned it off. Ask the developer to restore it with  ! git checkout HEAD -- scripts/template-autosync.sh  (a ! command runs outside the agent's tools), or to rerun the template sync. Then tick again. The developer's override ALLOW_TICK_WITH_CORE_OWED=1 still works."
+  fi
+  exit 0
+fi
 
 # ------------------------------------------------------------------- the two questions
 # Bounded, because this sits in front of an Edit. Both modes answer from the manifest and the

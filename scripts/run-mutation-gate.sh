@@ -25,12 +25,14 @@
 # ${MUTATION_WORKDIR:-$HOME/.cache/claude-mutation} (under $HOME because test-drive-sync.sh judges
 # its sandbox by location; an absolute path that is not $HOME and not near the repository), run
 # every module's tests once unmutated, then the mutants. The copies share nothing with the real
-# repository: no remote, no hooks, no .git link (security review, spec 085). Tests run without
-# SSH_AUTH_SOCK, GH_TOKEN, GITHUB_TOKEN, the askpass helpers, CLAUDE_TEMPLATE_DIR, XDG_CONFIG_HOME
-# and GIT_CONFIG_GLOBAL, and with HOME set to <copy>.home: a neutral git identity and the https,
-# http, ssh and git transports refused (spec 094, F117). What they still share with the developer:
-# the system git config, PATH and the passwd entry. A test that sets its own HOME drops the
-# transport block along with the developer's home.
+# repository: no remote, no hooks, no .git link (security review, spec 085). Tests run under env -i
+# with an allowlist (spec 098, F143): PATH (absolute entries outside the repository only), LANG/LC_*,
+# TERM, USER, LOGNAME, SHELL, TMPDIR=<copy>.tmp, HOME=<copy>.home and GIT_CONFIG_NOSYSTEM=1. The home
+# holds a neutral git identity, the https, http, ssh and git transports refused (spec 094, F117), and
+# pushInsteadOf rules that refuse a push to the real repository by path. What they still share with the
+# developer: the passwd entry and the file system; the sandbox stops accidents, not a test written to
+# escape it. A SIGKILL under the limit is infrastructure, not a kill. A test that sets its own HOME
+# drops the transport block along with the developer's home.
 #
 # A red or timed-out baseline is UNMEASURED: no score, exit 2, the test is named. Every test run is
 # bounded by max(MUTATION_MIN_LIMIT=60, MUTATION_LIMIT_FACTOR=3 x its baseline seconds). A timeout
@@ -443,10 +445,28 @@ done
   done
 ) || die "could not snapshot the working tree"
 rm -rf "$RUN/index" "$RUN/objects"
+# Spec 098 R5 (F143): a push by path to the developer's repository is refused in the copy's own git
+# config: the repository as given, as resolved, as a file:// URL, and its git dir. The longest
+# pushInsteadOf wins, so the run directory maps to itself and a fixture remote inside it still works.
+# Other spellings (../repo, a symlink alias) are the bound: the sandbox stops accidents, not escapes.
+ROOT_REAL=$(cd -P "$ROOT" && pwd)
+COMMON_REAL=$(cd -P "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)" && pwd) ||
+  die "could not resolve the git dir of $ROOT"
+# PATH for the tests: absolute entries outside the repository and the run directory only. A relative
+# or in-tree entry would resolve git or timeout to a file the snapshot copied (threat #12).
+SAFE_PATH=""
+IFS=: ; for _pe in $PATH; do
+  case "$_pe" in
+    /*) case "$_pe/" in "$ROOT/"*|"$ROOT_REAL/"*|"$RUN/"*) continue ;; esac
+        SAFE_PATH="${SAFE_PATH:+$SAFE_PATH:}$_pe" ;;
+  esac
+done; unset IFS
+[ -n "$SAFE_PATH" ] || die "no absolute PATH entry outside the repository is left for the tests"
 w=0
 while [ "$w" -lt "$JOBS" ]; do
   # An independent repository: tests that read git state see one commit, no remote, no hooks.
-  ( cd "$RUN/wt$w" && git init -q . && git -c core.hooksPath=/dev/null add -A . &&
+  # --template= : no developer init.templateDir, whose hooks would land in the copy (spec 098, threat #12).
+  ( cd "$RUN/wt$w" && git init -q --template= . && git -c core.hooksPath=/dev/null add -A . &&
       git -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -qm "mutation snapshot" ) >/dev/null 2>&1 ||
     die "could not prepare the copy $RUN/wt$w"
   # Spec 094 (F117): the copy's own home. A test that kept the developer's would find the real
@@ -454,8 +474,13 @@ while [ "$w" -lt "$JOBS" ]; do
   # protocol block lives here, not in GIT_CONFIG_COUNT: self-test-env.sh unsets that on line one.
   mkdir "$RUN/wt$w.home" && printf '%s\n' '[user]' '	name = mutation' '	email = mutation@invalid' \
       '[commit]' '	gpgsign = false' '[protocol "https"]' '	allow = never' '[protocol "http"]' '	allow = never' \
-      '[protocol "ssh"]' '	allow = never' '[protocol "git"]' '	allow = never' > "$RUN/wt$w.home/.gitconfig" ||
+      '[protocol "ssh"]' '	allow = never' '[protocol "git"]' '	allow = never' \
+      '[url "/dev/null/push-refused-by-the-mutation-sandbox"]' \
+      "	pushInsteadOf = $ROOT" "	pushInsteadOf = $ROOT_REAL" "	pushInsteadOf = file://$ROOT" "	pushInsteadOf = file://$ROOT_REAL" \
+      "	pushInsteadOf = $COMMON_REAL" \
+      "[url \"$RUN\"]" "	pushInsteadOf = $RUN" > "$RUN/wt$w.home/.gitconfig" ||
     die "could not prepare the sandbox home $RUN/wt$w.home"
+  mkdir "$RUN/wt$w.tmp" || die "could not prepare the sandbox temp dir $RUN/wt$w.tmp"
   w=$((w + 1))
 done
 unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
@@ -485,14 +510,19 @@ run_test() { # run_test <copy> <limit> <test> -> echoes "<rc> <seconds> <0 ran |
   # infrastructure failure: it says nothing about the mutant, so it is neither a kill nor a survivor.
   [ -d "$1" ] && [ -f "$1/$3" ] || { echo "0 0 2"; return; }
   _s=$SECONDS
-  ( cd "$1" && env -u CLAUDE_PROJECT_DIR -u SSH_AUTH_SOCK -u GH_TOKEN -u GITHUB_TOKEN -u GIT_ASKPASS -u SSH_ASKPASS \
-      -u CLAUDE_TEMPLATE_DIR -u XDG_CONFIG_HOME -u GIT_CONFIG_GLOBAL HOME="$1.home" \
+  # Spec 098 R5 (F143): an allowlist, not a denylist. The old list of nine let GIT_SSH_COMMAND,
+  # GIT_CONFIG_* and cloud tokens through. GIT_CONFIG_NOSYSTEM: macOS keeps credential.helper there.
+  ( cd "$1" && env -i PATH="$SAFE_PATH" TMPDIR="$1.tmp" HOME="$1.home" GIT_CONFIG_NOSYSTEM=1 \
+      ${LANG:+LANG="$LANG"} ${LC_ALL:+LC_ALL="$LC_ALL"} ${LC_CTYPE:+LC_CTYPE="$LC_CTYPE"} ${TERM:+TERM="$TERM"} \
+      ${USER:+USER="$USER"} ${LOGNAME:+LOGNAME="$LOGNAME"} ${SHELL:+SHELL="$SHELL"} \
       "$TO" -k 5 "$2" bash -- "$3" </dev/null >/dev/null 2>&1 )
   _rc=$?
   _e=$(( SECONDS - _s ))
   _to=0
   { [ "$_rc" -eq 124 ] || [ "$_rc" -eq 137 ]; } && [ "$_e" -ge "$2" ] && _to=1
   { [ "$_rc" -eq 125 ] || [ "$_rc" -eq 126 ]; } && _to=2
+  # A SIGKILL under the limit (OOM, an external kill) says nothing about the mutant: no verdict.
+  [ "$_rc" -eq 137 ] && [ "$_to" -eq 0 ] && _to=2
   echo "$_rc $_e $_to"
 }
 

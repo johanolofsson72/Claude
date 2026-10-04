@@ -17,7 +17,9 @@
 # on AskUserQuestion writes (scripts/developer-answers-hook.sh). This guard denies the agent's tools:
 #
 #   (a) any file_path with a `.git` component: the two stores, the rest of the git dir, and a planted
-#       `.git` file or directory (F090's own move). A symlink is judged where it lands.
+#       `.git` file or directory (F090's own move). A symlink is judged where it lands, at any
+#       component of the path (spec 098 R1, F139), and a git dir kept outside the tree that the
+#       project's .git file names counts as the git dir.
 #   (b) an Edit/MultiEdit/Write that adds, removes or changes a Confirmed line in an acceptance.md
 #       (the edit is applied to the current bytes first, so a line spliced across old_string is seen),
 #       and a payload naming such a file, or a glob that can match one, with no bytes at all: that is
@@ -32,6 +34,9 @@
 #       core.fsmonitor, filter.*, credential.*, …, R10); an mcp__ tool whose strings name a store, a
 #       cases file or the placement table, or carry a command (R3). --trust counts as a shell word, not
 #       as prose inside a quoted argument (R8).
+#   (g) spec 098: chmod, chown, chgrp, chflags, chattr, setfacl, xattr, mv or rename on a path with a
+#       .git component. None writes bytes, so bash-write-guard never delegated them, and each makes git
+#       fail at once, which the root walk reads as an answer.
 #   (d) an AskUserQuestion whose tool_input already carries `answers`. An honest call never does at
 #       PreToolUse (measured 2026-10-01); the answers arrive after the developer picks them.
 #
@@ -86,7 +91,22 @@ else
   if [ "$HIT" -eq 0 ] && [[ $TI =~ \"file_path\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
     _fp="${BASH_REMATCH[1]}"
     case "$_fp" in *[*?{[]*) HIT=1 ;; esac
-    [ -L "$_fp" ] && HIT=1
+    # Spec 098 R1 (F139): a link at ANY component, not only the last: with gd -> .git in the tree,
+    # gd/info/exclude names no trigger word. The shared ancestor walk (spec 090 R2(b)) reads the
+    # payload's cwd for a relative path, so it gets the whole payload. Not loadable: look.
+    if . "${BASH_SOURCE[0]%/*}/guard-precheck.sh" 2>/dev/null; then
+      guard_precheck_link "$INPUT" && HIT=1
+    else
+      HIT=1
+    fi
+    # Spec 098 TB1: a .git FILE at the project root may name a git dir kept elsewhere, which has no
+    # .git component; a path under it is a write into the git dir.
+    if [ "$HIT" -eq 0 ] && [ -f "${CLAUDE_PROJECT_DIR:-}/.git" ] && IFS= read -r _gl < "$CLAUDE_PROJECT_DIR/.git"; then
+      case "$_gl" in
+        "gitdir: "*) _gd=${_gl#gitdir: }; case "$_gd" in /*) ;; *) _gd="$CLAUDE_PROJECT_DIR/$_gd" ;; esac
+                     case "$_fp" in "${_gd%/}"|"${_gd%/}"/*) HIT=1 ;; esac ;;
+      esac
+    fi
     # A hard link to an acceptance.md under another name (/security-review, spec 088): -ef compares
     # device and inode, as a builtin.
     if [ "$HIT" -eq 0 ] && [ -f "$_fp" ]; then
@@ -138,8 +158,41 @@ def path_hits(p, pred):
     """pred(lower-cased components) for the path as spelled or as resolved."""
     return any(pred([x.lower() for x in parts_of(q)]) for q in (p, os.path.realpath(p)))
 
+def _project_git_dirs():
+    """Spec 098 TB1: a .git FILE at the project root names its git dir with a gitdir: line. A git dir
+    kept elsewhere (`git init --separate-git-dir`) has no .git component for touches_git to see, and a
+    linked worktree's commondir names the shared one."""
+    root = os.environ.get("CLAUDE_PROJECT_DIR") or ""
+    g = os.path.join(root, ".git")
+    if not root or not os.path.isfile(g):
+        return []
+    try:
+        with open(g, encoding="utf-8", errors="replace") as fh:
+            line = fh.readline().strip()
+    except OSError:
+        return []
+    if not line.startswith("gitdir: "):
+        return []
+    t = line[len("gitdir: "):]
+    t = os.path.realpath(t if os.path.isabs(t) else os.path.join(root, t))
+    out = [t]
+    try:
+        with open(os.path.join(t, "commondir"), encoding="utf-8", errors="replace") as fh:
+            c = fh.readline().strip()
+        out.append(os.path.realpath(c if os.path.isabs(c) else os.path.join(t, c)))
+    except OSError:
+        pass
+    return [d.lower() for d in out]
+
+_GIT_DIRS = []
+
 def touches_git(p):
-    return path_hits(p, lambda ps: ".git" in ps or (bool(ps) and ps[-1] in STORES))
+    if path_hits(p, lambda ps: ".git" in ps or (bool(ps) and ps[-1] in STORES)):
+        return True
+    if not _GIT_DIRS:
+        _GIT_DIRS.append(_project_git_dirs())             # read once, and only when a path is judged
+    rp = os.path.realpath(p if os.path.isabs(p) else os.path.join(cwd, p)).lower()
+    return any(rp == d or rp.startswith(d + os.sep) for d in _GIT_DIRS[0])
 
 # Spec 090 R8(b) (F112): a glob is judged by what bash expands it to, not by whether its last
 # component could spell acceptance.md. `{/* c */}` in a heredoc fixture ended in `*`, which "could",
@@ -284,6 +337,13 @@ def trust_option(cmd):
             program = True               # bash -c -x '…', bash -c -- '…' (095 /security-review)
     return False
 
+# Spec 098 (threat model #6): a mode, owner, flag or name change on the git dir. None of these is a
+# byte write, so bash-write-guard never delegated them, and each makes git fail in milliseconds with an
+# answer (exit 128) that moves the root the guards walk to, or hides the stores. `.git` as a path
+# component only: .gitignore and .github are not it.
+GIT_META = re.compile(r"(?:^|[\s;&|(])(?:chmod|chown|chgrp|chflags|chattr|setfacl|xattr|mv|rename)\b"
+                      r"[^;&|\n]*?(?:^|[\s/=])\.git(?:/|\s|$)")
+
 def shell_verdict(cmd):
     n = ANSI_C.sub(ansi_c, cmd)                              # $'\x63laude' -> claude (adversarial #2)
     n = re.sub(r"[\"'\\]", "", n).lower()
@@ -295,6 +355,8 @@ def shell_verdict(cmd):
         return "bash-tty"
     if ".git/worktrees" in n or "separate-git-dir" in n or re.search(r"\bln\b[^;&|]*acceptance\.md", n):
         return "bash-gitdir"
+    if GIT_META.search(n):
+        return "bash-gitmeta"
     if "confirmed:**" in n:
         return "bash-confirmed"
     if trust_option(cmd):
@@ -406,6 +468,10 @@ The first picks where project-maintenance.sh --trust reads the human's \`yes\`; 
     guard_deny "BLOCKED — this shell command names .git/worktrees, uses --separate-git-dir, or hard-links an acceptance.md (spec 088, R1/R3).
 
 A linked worktree below the project is a root the pipeline guards stop at, recognised by the link git keeps in this project's own git dir. Create one with \`git worktree add\`, which this guard allows; making the link by hand, or a repository whose git dir lives elsewhere, is not allowed. A hard link would let an acceptance.md be edited under a name this guard does not judge." ;;
+  bash-gitmeta)
+    guard_deny "BLOCKED — this shell command changes the mode, owner, flags or name of the git dir (spec 098).
+
+chmod, chown, chflags, setfacl, xattr or mv on .git makes git fail at once. The pipeline guards read that failure as an answer and walk to another root, and the trust stores in .git stop being readable. Only the developer changes the git dir; ask them, and they can run it themselves with the ! prefix." ;;
   bash-trust)
     guard_deny "BLOCKED — this shell command passes --trust (spec 088, R3).
 
@@ -429,7 +495,7 @@ core.hooksPath, core.fsmonitor, core.sshCommand, core.pager, core.editor, filter
   git-remote-write|git-config-trust|git-ref-write)
     guard_deny "BLOCKED — this git command changes a remote, an upstream or a remote-tracking ref (spec 091, R2).
 
-\`git remote add|set-url|rename|remove\`, a \`git config\` write under remote.*, url.* (insteadOf), branch.*, include* or alias.*, \`git update-ref\`, \`git symbolic-ref\` with a target, and a fetch or push refspec that writes refs/remotes/ are the developer's steps. Where origin points and which upstream a branch tracks decide what the guards trust: the template is recognised by its history, and a Confirmed line counts once it is on the upstream. Reading is fine: \`git remote -v\`, \`git config --get …\`, \`git fetch origin\`, \`git push\`. If the change is really needed, ask the developer to run it with ! in the prompt." ;;
+\`git remote add|set-url|rename|remove\`, a \`git config\` write under remote.*, url.* (insteadOf), branch.*, include* or alias.*, \`git update-ref\`, \`git symbolic-ref\` with a target, and a fetch or push refspec that writes refs/remotes/ are the developer's steps. Where origin points and which upstream a branch tracks decide what the guards trust: the template is recognised by its history, and a Confirmed line counts only when this clone recorded the developer's answer (spec 098). Reading is fine: \`git remote -v\`, \`git config --get …\`, \`git fetch origin\`, \`git push\`. If the change is really needed, ask the developer to run it with ! in the prompt." ;;
   placement)
     guard_deny "BLOCKED — .claude/workload-placement.tsv decides which maintenance jobs a cloud run may mark done (spec 091, R7).
 

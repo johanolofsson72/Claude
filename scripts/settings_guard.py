@@ -78,7 +78,7 @@ TREE_COMMANDS = frozenset("find fd xargs rsync tar zip".split())
 OUTPUT_OPTIONS = frozenset(("-o", "--output", "--output-file", "--output-directory"))
 EXEC_COMMANDS = frozenset(
     "sh bash zsh dash ksh fish eval source . exec xargs env python python3 perl ruby node php awk "
-    "osascript parallel".split())
+    "osascript parallel at batch crontab busybox".split())
 SYSTEM_BIN = frozenset(("/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/usr/sbin", "/sbin"))
 MISSING = object()
 
@@ -690,9 +690,11 @@ def strip_comments(text):
     return "".join(out)
 
 
-def split_commands(text, strip=False):
+def split_commands(text, strip=False, flow=None):
     """[(words, redirect_targets)] per simple command, or None when the text cannot be split. strip:
-    remove bash comments first (see bash_verdict for why both readings are judged)."""
+    remove bash comments first (see bash_verdict for why both readings are judged). flow: a list that
+    receives one pipeline id per command; a pipe (`|`, `|&`) keeps the id, any other separator moves it
+    on (spec 098 R7)."""
     lex = shlex.shlex(strip_comments(text) if strip else text, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"
     lex.commenters = ""
@@ -701,9 +703,12 @@ def split_commands(text, strip=False):
     words, targets = [], []
     pending_redirect = False
     depth = 0                                         # inside $( ), >( ), <( ): output flows on
+    group = 0
     def flush():
         if words or targets:
             out.append((words, targets, depth > 0))
+            if flow is not None:
+                flow.append(group)
     try:
         for tok in lex:
             if tok and all(ch in "();<>|&\n" for ch in tok):
@@ -730,6 +735,8 @@ def split_commands(text, strip=False):
                 flush()
                 words, targets = [], []
                 pending_redirect = False
+                if "|" not in tok or "||" in tok:
+                    group += 1
                 continue
             if pending_redirect:
                 targets.append(tok)
@@ -740,6 +747,45 @@ def split_commands(text, strip=False):
         return None
     flush()
     return out
+
+
+# Spec 098 R7 (F155): "a read whose output can reach a command that runs text" used to count every
+# command on the line, so `grep hooks <settings> ; bash scripts/test-x.sh` was refused. On a plain line
+# the output can reach a runner only through the read's own pipeline, or through a file that pipeline
+# writes. Any line this reading cannot follow (a group, a subshell, $( ), coproc, exec, a here-string,
+# a descriptor above 2) keeps the old rule (threat model #1, #2).
+STDOUT_FILTERS = frozenset("grep egrep fgrep wc head tail cut tr nl column jq cat".split())
+RUN_WRAPPERS = frozenset("! time command builtin nice nohup stdbuf setsid timeout gtimeout caffeinate sudo doas { exec".split())
+UNPLAIN = re.compile(r"[(){}]|<<<|\bcoproc\b|\bexec\b|[<>]&\s*(?:[3-9]|\d\d|\$|-)|\d{2,}[<>]")
+SAFE_TARGET = re.compile(r"^(?:\d|-|/dev/(?:null|stdout|stderr|tty))$")
+
+
+def blank_quotes(text):
+    """Quoted strings emptied, so their contents read as data, not shell syntax."""
+    return re.sub(r"'[^']*'|\"(?:[^\"\\\\]|\\\\.)*\"", "''", text)
+
+
+def runs_text(words):
+    """The command, past wrappers (`command sh`, `timeout 9 bash`, `nice -n 5 sh`), is a runner."""
+    for i, w in enumerate(words):
+        b = w.rpartition("/")[2]
+        if NAME_ASSIGN.match(w) or b in RUN_WRAPPERS or (i > 0 and (w.startswith("-") or re.fullmatch(r"[\d.]+[smhd]?", w))):
+            continue
+        return b in EXEC_COMMANDS
+    return False
+
+
+def read_flows(k, cmds, flow, plain, runners):
+    """True when command k's output can reach a runner elsewhere on the line. plain and runners (one
+    flag per command) are computed once per line by the caller."""
+    others = [j for j in range(len(cmds)) if j != k]
+    if not plain:
+        return any(runners[j] for j in others)
+    mates = [j for j in others if flow[j] == flow[k]]
+    if any((command_word(cmds[j][0]) or "").rpartition("/")[2] not in STDOUT_FILTERS for j in mates):
+        return True                                   # | sh, | dd of=f, | pbcopy, | command sh
+    spills = any(not SAFE_TARGET.match(t) for j in mates + [k] for t in cmds[j][1])
+    return spills and any(runners[j] for j in others)
 
 
 # Spec 095 R7 (F121): a read is trusted only in a command that does not first change what a read runs.
@@ -753,7 +799,7 @@ FUNC_DEF = re.compile(r"(?:^|[\s;&|(){}])(?:function\s+[^\s(){};&|]+|[A-Za-z_][\
 
 def prelude_taints(cmds, text):
     # A definition is shell syntax, never quoted text: `grep 'ok()' f` defines nothing (found 095).
-    if FUNC_DEF.search(re.sub(r"'[^']*'|\"(?:[^\"\\\\]|\\\\.)*\"", "''", text)):
+    if FUNC_DEF.search(blank_quotes(text)):
         return True
     for words, _, _ in cmds:
         if not words:
@@ -1554,7 +1600,8 @@ def _bash_verdict(cmd, g, strip):
     parts = text.split("`")
     text = "".join(p + ("" if i == len(parts) - 1 else (" $( " if i % 2 == 0 else " ) "))
                    for i, p in enumerate(parts))
-    cmds = split_commands(text, strip)
+    flow = []
+    cmds = split_commands(text, strip, flow)
     if cmds is None:
         low = cmd.lower()
         if "settings" in low or ".claude" in low:
@@ -1581,10 +1628,12 @@ def _bash_verdict(cmd, g, strip):
         if cw and cw.rpartition("/")[2] in TREE_COMMANDS:
             by_name = True
     tainted = prelude_taints(cmds, text)
+    plain = len(flow) == len(cmds) and not UNPLAIN.search(blank_quotes(text))
+    runners = [runs_text(w) for w, _, _ in cmds]
     # 095a TM-5: in a mod zone (the payload cwd, a cd or -C target) a write names no path at all:
     # `cd ~/.claude/skills && git clone URL`, `tar xf m.tar`.
     mod_base = next((b for b in bases if not GLOBCH.search(b) and g.mods.kind(g.absolute(b)) == "hard"), None)
-    for words, targets, in_subst in cmds:
+    for k, (words, targets, in_subst) in enumerate(cmds):
         why = claude_cli_verdict(words)
         if why:
             return ["mod-bash", "the claude CLI " + why]
@@ -1610,9 +1659,7 @@ def _bash_verdict(cmd, g, strip):
             continue
         if not reads(words) or in_subst or tainted:
             return ["settings-bash", naming[0][1]]
-        # A read whose output can reach a command that runs text: cat <path> | sh, echo <path> | xargs rm.
-        others = [command_word(w) for w, _, _ in cmds if w is not words]
-        if any(o and o.rpartition("/")[2] in EXEC_COMMANDS for o in others):
+        if read_flows(k, cmds, flow, plain, runners):
             return ["settings-bash", naming[0][1]]
         for i, h in naming:
             if words[i].startswith("-") or (i > 0 and words[i - 1] in OUTPUT_OPTIONS):
