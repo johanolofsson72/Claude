@@ -99,11 +99,17 @@ run_hook() {          # $1 = file path, $2 = new_string ("" = none), rest = VAR=
   if [ -z "$_new" ]; then
     printf '{"tool_name":"Edit","tool_input":{"file_path":%s}}' "$(jq -Rn --arg p "$_f" '$p')" \
       | env "$@" bash "$HOOK" 2>/dev/null
+    _rc=${PIPESTATUS[1]}
   else
     jq -n --arg p "$_f" --arg n "$_new" \
       '{tool_name:"Edit",tool_input:{file_path:$p,new_string:$n}}' \
       | env "$@" bash "$HOOK" 2>/dev/null
+    _rc=${PIPESTATUS[1]}
   fi
+  # A guard always exits 0: Claude Code reads a PreToolUse decision only on exit 0, so a deny that
+  # exits 1 is an allow. Only the real hook; a sabotage copy may exit as it likes (098 mutation survivors).
+  [ "$HOOK" = "$SELF_DIR/core-owed-tick-guard-hook.sh" ] && [ "$_rc" -ne 0 ] && echo "exit $_rc for $_f" >> "$WORK/nonzero-exits"
+  return 0
 }
 
 decision() { hook_verdict "$1"; }
@@ -401,6 +407,8 @@ if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; th
 fi
 
 printf '\n%s\n' "----------------------------------------"
+[ -s "$WORK/nonzero-exits" ] && bad "the hook exited non-zero (a deny would be read as an allow): $(head -3 "$WORK/nonzero-exits")" \
+  || ok "every run of the hook exited 0"
 printf 'pass: %d   fail: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

@@ -324,6 +324,7 @@ arm_sandbox_env() {
   echo "nosystem=\${GIT_CONFIG_NOSYSTEM:-unset}"; echo "tmp=\$TMPDIR"
   case ":\$PATH:" in *:.:*|*::*|*:bin:*) echo path=relative ;; *) echo path=absolute ;; esac
   git push -q "$_root" HEAD:refs/heads/mutant-probe >/dev/null 2>&1 && echo push-root=done || echo push-root=refused
+  git push -q "$_root/.git" HEAD:refs/heads/mutant-probe-gd >/dev/null 2>&1 && echo push-gitdir=done || echo push-gitdir=refused
   git init -q --bare "\$TMPDIR/fixture.git" && git push -q "\$TMPDIR/fixture.git" HEAD:refs/heads/x >/dev/null 2>&1 \
     && echo push-fixture=done || echo push-fixture=refused; } > "$TMP/probe" 2>&1
 [ "\$(bash scripts/calc.sh 0 | head -1)" = zero ]
@@ -341,8 +342,9 @@ EOF
   has "098-R5 TMPDIR is the copy's own" "$p" ".tmp"
   has "098-R5 PATH keeps absolute entries only" "$p" "path=absolute"
   has "098-R5 a push by path to the real repository is refused" "$p" "push-root=refused"
+  has "098-R5 a push by path to the real repository's git dir is refused" "$p" "push-gitdir=refused"
   has "098-R5 a push to a fixture inside the run still works" "$p" "push-fixture=done"
-  same "  and the real repository got no branch" "$(git branch --list mutant-probe | wc -l | tr -d ' ')" 0
+  same "  and the real repository got no branch" "$(git branch --list 'mutant-probe*' | wc -l | tr -d ' ')" 0
   printf 'kill -9 $$\n' > scripts/test-probe.sh
   out=$(MUTATION_TARGETS="$TMP/probe-targets" MUTATION_WORKDIR="$WORK" bash "$RUNNER" --jobs 1 --lines scripts/calc.sh:3 2>&1); rc=$?
   same "098-R5 a test killed by SIGKILL under the limit leaves the run unmeasured" "$rc" 2

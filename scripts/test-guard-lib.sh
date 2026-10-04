@@ -237,6 +237,28 @@ for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
 done
 annp() { local out; out=$(PATH="$NOHASH" CLAUDE_PROJECT_DIR="$1" INPUT="{\"session_id\":\"$2\"}" bash -c '. "$0"; guard_announce g "$1"' "$LIB" "$3"); [ -n "$out" ] && echo 1 || echo 0; }
 [ "$(annp "$P6" "$SID6" c6)$(annp "$P6" "$SID6" c6)" = 11 ] && ok "nothing to hash with: said every time, never silenced" || bad "no hasher silenced the notice"
+# The base must be a git dir, or nothing: never an empty base that falls back to TMPDIR.
+[ "$(ann "" "$SID6" c7)$(ann "" "$SID6" c7)" = 11 ] && ok "no project dir: said every time (clarification R6)" || bad "no project dir was deduplicated"
+J1="$WORK/junkgit"; mkdir -p "$J1"; echo "not a gitdir line" > "$J1/.git"
+[ "$(ann "$J1" "$SID6" c8)$(ann "$J1" "$SID6" c8)" = 11 ] && ok "a .git file without gitdir: is no git dir: said every time" || bad "a junk .git file was deduplicated"
+J2="$WORK/danglegit"; mkdir -p "$J2"; echo "gitdir: $WORK/nowhere" > "$J2/.git"
+[ "$(ann "$J2" "$SID6" c9)$(ann "$J2" "$SID6" c9)" = 11 ] && ok "a gitdir: naming no directory: said every time" || bad "a dangling gitdir was deduplicated"
+J3="$WORK/linkedgit"; mkdir -p "$J3" "$WORK/realgd"; echo "gitdir: $WORK/realgd" > "$J3/.git"
+[ "$(ann "$J3" "$SID6" c10)$(ann "$J3" "$SID6" c10)" = 10 ] && ok "threat #8: a gitdir: naming a directory dedupes there" || bad "the gitdir: route did not dedupe"
+[ -n "$(ls -A "$WORK/realgd/claude-hook-notices/$SID6" 2>/dev/null)" ] && ok "  its stamp is in that git dir" || bad "  no stamp in the named git dir"
+V=$(CLAUDE_PROJECT_DIR="$P6" INPUT="{\"session_id\":\"$SID6\"}" bash -c 'set -e; . "$0"; guard_announce g c1 >/dev/null; echo "rc=$?"' "$LIB")
+[ "$V" = "rc=0" ] && ok "a deduplicated announcement returns 0 (a caller under set -e lives)" || bad "deduplicated announce read as [$V]"
+NOTO="$WORK/noto"; mkdir -p "$NOTO"
+for d in /usr/bin /bin /usr/local/bin /opt/homebrew/bin; do
+  [ -d "$d" ] || continue
+  for x in "$d"/*; do b=${x##*/}; case "$b" in timeout|gtimeout|perl|perl5*) continue ;; esac; [ -e "$NOTO/$b" ] || ln -s "$x" "$NOTO/$b" 2>/dev/null; done
+done
+V=$(PATH="$NOTO" bash -c '. "$0"; _guard_git rev-parse --git-dir; echo "rc=$? u=[$GUARD_GIT_UNSURE]"' "$LIB")
+case "$V" in *"rc=125 u=[neither timeout, gtimeout nor perl"*) ok "nothing to bound git with: unsure, rc 125" ;; *) bad "an unbounded git read as [$V]" ;; esac
+V=$(GUARD_GIT_UNSURE="git is not on PATH" bash -c '. "$0"; guard_unsure_deny g >/dev/null; echo "rc=$?"' "$LIB")
+[ "$V" = "rc=0" ] && ok "guard_unsure_deny returns 0 once it has denied" || bad "guard_unsure_deny read as [$V]"
+V=$(bash -c '. "$0"; unset GUARD_GIT_UNSURE; out=$(guard_unsure_deny g); echo "rc=$? out=[$out]"' "$LIB")
+[ "$V" = "rc=1 out=[]" ] && ok "  and 1, silently, when the walk was sure" || bad "  a sure walk read as [$V]"
 SAB6B="$WORK/sab6b"; mkdir -p "$SAB6B"; cp "$(dirname "$IG")"/*.sh "$SAB6B"/
 sed 's/hn_first_time "\$sid" "guard-announce:\$guard:\$cause" "\$base"/hn_first_time "$sid" "guard-announce:$guard:$cause"/' "$LIB" > "$SAB6B/guard-lib.sh"
 if cmp -s "$LIB" "$SAB6B/guard-lib.sh"; then bad "098-R6 sabotage target not found"; else

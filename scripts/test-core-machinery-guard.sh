@@ -57,6 +57,10 @@ run_hook() {          # $1 = file path, rest = VAR=VAL environment overrides
   env "$@" bash "$HOOK" <<JSON 2>/dev/null
 {"tool_name":"Edit","tool_input":{"file_path":"$_f"}}
 JSON
+  # A guard always exits 0: Claude Code reads a PreToolUse decision only on exit 0, so a deny that
+  # exits 1 is an allow. Run in $( ), so the count goes through a file (098 mutation survivors).
+  _rc=$?; [ "$_rc" -eq 0 ] || echo "exit $_rc for $_f" >> "$WORK/nonzero-exits"
+  return 0
 }
 
 decision() { hook_verdict "$1"; }
@@ -391,6 +395,8 @@ else
 fi
 rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID"
 
+[ -s "$WORK/nonzero-exits" ] && { bad "the hook exited non-zero (a deny would be read as an allow)"; info "$(head -5 "$WORK/nonzero-exits")"; } \
+  || ok "every run of the hook exited 0"
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
