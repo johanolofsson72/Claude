@@ -117,8 +117,11 @@ Order of execution. Tick when done. Append new rows to the end.
 - [ ] H6 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 095–099.
 - [ ] 100 — kill-surviving-mutants-2 — spec-only — arm guard allow cases with rc==0, then kill the H4/H5/090/091/095 survivors; mark equivalents. F123–F125 F129 F136 F138 F150–F152 F160
 - [ ] 101 — guard-parser-dedupe — spec-only — one sed-purity parser, by_name scoped per simple command, sync-prompt reuses template_url_matches. F132 F153 F154
+- [ ] 102 — downstream-core-red — spec-only — fundit 2026-10-05: freshness flags its own PuTTY fixture as a key; 9 CORE self-tests red downstream; 14 dangling citations (testing-mobile.md).
 
 ## Register history (newest first)
+
+- 2026-10-06 — 102 added from fundit's maintenance run (T0): CORE defects that are red downstream only.
 
 - 2026-10-03 — finding review (38 open): 098–101 + H6 added from F123–F170; F147 F161 F170 resolved; F156–F158 F162–F165 accepted as bounds; F130 F131 F146 stay open.
 
