@@ -615,8 +615,12 @@ guard_walk() {
   # guards off. A register, or the sync stamp, at the git root now stands in for the marker, except in
   # the template itself (template-identity.sh: its URL and its root commit; a missing library means a
   # project). Asked about the git root, so a template clone nested in a project does not count.
+  # A pure document repo (CVs, letters, no code) declares itself with .claude/document-repo; then the
+  # sync stamp alone does not make it a code project. A register still does. Origin: the cv repo,
+  # 2026-10-06, where the stamp blocked every CV_*.html edit.
   if [ -z "$GUARD_LANG_MARKER" ] && [ -n "$GUARD_GIT_ROOT" ] \
-     && { [ -n "$GUARD_REGISTER" ] || [ -f "$GUARD_GIT_ROOT/.claude/.template-sync" ]; }; then
+     && { [ -n "$GUARD_REGISTER" ] \
+          || { [ -f "$GUARD_GIT_ROOT/.claude/.template-sync" ] && [ ! -f "$GUARD_GIT_ROOT/.claude/document-repo" ]; }; }; then
     local _gl_id=project
     if . "${BASH_SOURCE[0]%/*}/template-identity.sh" 2>/dev/null; then
       _gl_id=$(template_identity "$GUARD_GIT_ROOT")
