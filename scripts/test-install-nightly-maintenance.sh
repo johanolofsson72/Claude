@@ -155,8 +155,12 @@ grep -Eq "STALE \(no --unattended.*maintenance:/pre--unattended\$" <<< "$OUT" &&
   || bad "R6 --unattended in the path made the line read current: $(printf '%s' "$OUT" | tr '\n' '|')"
 # No crontab (Windows): the schtasks and /loop lines it prints pass --unattended too.
 NOCRON="$WORK/nocron"; mkdir -p "$NOCRON"
-for t in git basename; do ln -sf "$(command -v "$t")" "$NOCRON/$t"; done
-OUT=$( cd "$P" && HOME="$WORK/home" PATH="$NOCRON:/bin" /bin/bash scripts/install-nightly-maintenance.sh 2>&1 ); rc=$?
+# Only the tools the installer needs before it looks for crontab, and never a system directory: on a
+# merged-/usr Linux /bin IS /usr/bin, so a PATH ending in /bin found the real crontab and installed
+# this fixture's line into the developer's own.
+for t in git basename sed cksum awk cat; do ln -sf "$(command -v "$t")" "$NOCRON/$t"; done
+if PATH="$NOCRON" command -v crontab >/dev/null 2>&1; then OUT="a crontab is reachable; the arm was not run"; rc=-1
+else OUT=$( cd "$P" && HOME="$WORK/home" PATH="$NOCRON" /bin/bash scripts/install-nightly-maintenance.sh 2>&1 ); rc=$?; fi
 [ "$rc" = 3 ] && ok "R6 no crontab exits 3" || bad "R6 no crontab gave exit $rc: $OUT"
 [ "$(grep -c -- '--if-due --unattended' <<< "$OUT")" = 2 ] && ok "R6 schtasks and /loop lines pass --unattended" \
   || bad "R6 the no-crontab lines lack --unattended: $(printf '%s' "$OUT" | tr '\n' '|')"
