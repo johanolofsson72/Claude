@@ -1313,6 +1313,9 @@ MBO_OUT=$( eval "$MBO"; mutation_break_of "$TMP/c106-stryker-config.json" )
 expect_rc       "C106 085-AC-3 present config echoes its break" 77 "$MBO_OUT"
 
 # --- C107: the fast E2E census — exit 1 is drift, exit 0 is silent (line ~1303, -eq) ---------------
+# The census is written into the fixture below, never called from the project; the [unlisted] scanner
+# reads the path as a dependency, which kept rocky's core-owed-tick-guard red. Same exit as C88.
+# template-autosync: optional-project-script scripts/e2e-gate-census.py
 D=$(mkfix c107)
 printf '%s\n' 'import sys' 'print("census"); print("---"); print("Ledger drift: FooTests.cs added")' 'sys.exit(1)' > "$D/scripts/e2e-gate-census.py"
 OUT=$(run "$D"); RC=$?
