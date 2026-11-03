@@ -196,7 +196,7 @@ if [ "$#" -gt 0 ]; then
   ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
   case "$ROOT" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$ROOT" 2>/dev/null && pwd -P) && ROOT=$_walk_abs || ROOT="$PWD/$ROOT" ;; esac   # spec 084 (F015): relative never reaches /
   while [ "$ROOT" != "/" ] && [ -n "$ROOT" ]; do
-    [ -d "$ROOT/.git" ] && break
+    [ -e "$ROOT/.git" ] && break
     _walk_up=$(dirname "$ROOT"); [ "$_walk_up" = "$ROOT" ] && break; ROOT=$_walk_up
   done
   REG="$ROOT/specs/INDEX.md"
@@ -310,7 +310,7 @@ SPEC_DIR=$(spec_dir_of "$FILE")
 _RL_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
 case "$_RL_ROOT" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$_RL_ROOT" 2>/dev/null && pwd -P) && _RL_ROOT=$_walk_abs || _RL_ROOT="$PWD/$_RL_ROOT" ;; esac   # spec 084 (F015): relative never reaches /
 while [ "$_RL_ROOT" != "/" ] && [ -n "$_RL_ROOT" ]; do
-  [ -d "$_RL_ROOT/.git" ] && break
+  [ -e "$_RL_ROOT/.git" ] && break
   _walk_up=$(dirname "$_RL_ROOT"); [ "$_walk_up" = "$_RL_ROOT" ] && break; _RL_ROOT=$_walk_up
 done
 # Spec 007q — the refresh that used to sit here has moved out.

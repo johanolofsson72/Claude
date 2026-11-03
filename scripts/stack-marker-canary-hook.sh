@@ -31,7 +31,7 @@ DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 ROOT=""
 case "$DIR" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$DIR" 2>/dev/null && pwd -P) && DIR=$_walk_abs || DIR="$PWD/$DIR" ;; esac   # spec 084 (F015): relative never reaches /
 while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
-  if [ -d "$DIR/.git" ]; then ROOT="$DIR"; break; fi
+  if [ -e "$DIR/.git" ]; then ROOT="$DIR"; break; fi
   _walk_up=$(dirname "$DIR"); [ "$_walk_up" = "$DIR" ] && break; DIR=$_walk_up
 done
 [ -n "$ROOT" ] || exit 0

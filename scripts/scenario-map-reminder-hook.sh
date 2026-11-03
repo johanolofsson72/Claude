@@ -36,7 +36,7 @@ fi
 DIR=$(CDPATH='' cd "$(dirname "$FILE")" 2>/dev/null && pwd)
 ROOT=""
 while [ -n "$DIR" ] && [ "$DIR" != "/" ]; do
-  if [ -d "$DIR/.git" ]; then ROOT="$DIR"; break; fi
+  if [ -e "$DIR/.git" ]; then ROOT="$DIR"; break; fi
   DIR=$(dirname "$DIR")
 done
 [ -z "$ROOT" ] && exit 0

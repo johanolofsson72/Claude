@@ -36,7 +36,7 @@ case "$DIR" in /*) ;; *) _walk_abs=$(CDPATH='' cd -P -- "$DIR" 2>/dev/null && pw
 while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   # A directory, not merely a path: a git worktree's .git is a FILE, and a marker
   # path built inside one would be a hook inventing news of a shape nobody tested.
-  if [ -d "$DIR/.git" ]; then PROJECT_ROOT="$DIR"; break; fi
+  if [ -e "$DIR/.git" ]; then PROJECT_ROOT="$DIR"; break; fi
   _walk_up=$(dirname "$DIR"); [ "$_walk_up" = "$DIR" ] && break; DIR=$_walk_up
 done
 [ -n "$PROJECT_ROOT" ] || exit 0

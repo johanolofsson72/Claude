@@ -75,7 +75,7 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   if [ -z "$LANG_MARKER" ]; then
     if ls "$DIR"/*.sln >/dev/null 2>&1; then LANG_MARKER="*.sln"; [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"; fi
   fi
-  if [ -d "$DIR/.git" ]; then
+  if [ -e "$DIR/.git" ]; then
     REPO_FOUND=1
     [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"
     break

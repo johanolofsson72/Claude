@@ -33,7 +33,7 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   fi
   if [ -z "$LANG_MARKER" ] && ls "$DIR"/*.csproj >/dev/null 2>&1; then LANG_MARKER="*.csproj"; [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"; fi
   if [ -z "$LANG_MARKER" ] && ls "$DIR"/*.sln >/dev/null 2>&1; then LANG_MARKER="*.sln"; [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"; fi
-  if [ -d "$DIR/.git" ]; then
+  if [ -e "$DIR/.git" ]; then
     [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"
     break
   fi
