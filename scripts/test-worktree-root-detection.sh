@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+. "$(dirname -- "$0")/self-test-env.sh" || exit 1
 # Regression: a git worktree's .git is a FILE, and every project-root finder used `[ -d .../.git ]`, so in
 # a worktree they walked to / and reported "not inside a git repository". template-autosync.sh --owed then
 # exited 0 ("owed"), and the tick guard refused every tick in every worktree (msroute spec 028, 2026-11-03).

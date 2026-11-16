@@ -55,7 +55,13 @@ spawn() {
   ( cd "$cwd" && exec "$@" ) >/dev/null 2>&1 &
   printf '%s' "$!"
 }
-stop() { kill "$1" 2>/dev/null; wait "$1" 2>/dev/null; }
+# spawn runs in $(...), so the process is not this shell's child and `wait` returns at once. Poll until
+# it is gone (bounded at ~5 s), or a loaded machine runs the next arm while it still looks live (H6).
+stop() {
+  local i=0
+  kill "$1" 2>/dev/null; wait "$1" 2>/dev/null
+  while kill -0 "$1" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+}
 
 # bounded <seconds> <command> — hook output, or HUNG after <seconds>. A stress arm that hangs the suite
 # reports nothing; one that fails in bounded time reports what it found.
