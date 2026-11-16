@@ -1533,3 +1533,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 103 — unlisted-fires-on-a-test-fixture
 
 - [x] 103 — unlisted-fires-on-a-test-fixture — trivial — rocky 2026-10-30 (T0): test-project-maintenance.sh C107 writes e2e-gate-census.py as a fixture; declared optional like C88, so core-owed-tick-guard clears.
+
+## 100 — kill-surviving-mutants-2
+
+- [x] 100 — kill-surviving-mutants-2 — spec-only — arm guard allow cases with rc==0, then kill the H4/H5/090/091/095 survivors; mark equivalents. F123–F125 F129 F136 F138 F150–F152 F160

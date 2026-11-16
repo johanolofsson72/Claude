@@ -6,4 +6,4 @@
 - [x] T4 R2 equivalence markers, each confirmed by hand
 - [x] T5 touched suites green alone
 - [x] T6 R4 re-measure ≥ 95%, no timeout
-- [ ] T7 simplify, full template suite, archive, tick, commit, push
+- [x] T7 simplify, full template suite, archive, tick, commit, push
