@@ -111,8 +111,8 @@ run "$GUARD" "$(bash_p "ln specs/001-x/acceptance.md notes.md")";          expec
 ln "$ACC" "$P/docs/alias.md"
 run "$GUARD" "$(edit_p "$P/docs/alias.md" "0123456789ab" "ffffffffffff")"
 OUT_SAVE=$VERDICT
-OUT=$(jq -cn --arg p "$P/docs/alias.md" --arg w "$P" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"0123456789ab",new_string:"ffffffffffff"},cwd:$w}' | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null)
-VERDICT=$(hook_verdict "$OUT"); expect "/security-review: an Edit through a hard-linked alias is judged as the acceptance.md" deny
+OUT=$(jq -cn --arg p "$P/docs/alias.md" --arg w "$P" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"0123456789ab",new_string:"ffffffffffff"},cwd:$w}' | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?
+VERDICT=$(hook_verdict "$OUT" "$RC"); expect "/security-review: an Edit through a hard-linked alias is judged as the acceptance.md" deny
 rm -f "$P/docs/alias.md"
 run "$GUARD" "$(bash_p "cat .gitignore && ls .github/workflows/*.yml")";    expect ".gitignore and a .github glob are not .git/" none
 run "$GUARD" "$(bash_p "bash scripts/test-developer-answers.sh")";          expect "running the hook's own test by name" none
@@ -178,7 +178,7 @@ NOPY="$WORK/nopy"; mkdir -p "$NOPY"
 for t in bash cat jq python3; do :; done
 for d in $(printf '%s' "$PATH" | tr ':' ' '); do for f in "$d"/*; do n=${f##*/}; [ "$n" = python3 ] && continue; [ -x "$f" ] && [ ! -e "$NOPY/$n" ] && ln -s "$f" "$NOPY/$n" 2>/dev/null; done; done
 META=$(jq -cn --arg w "$P" '{session_id:"s",transcript_path:"/Users/x/.claude/projects/-Users-x-repos-Claude/t.jsonl",scratchpad_dir:"/private/tmp/claude-501/x",cwd:$w,tool_name:"Bash",tool_input:{command:"ls -la"}}')
-OUT=$(printf '%s' "$META" | (cd "$P" && PATH="$NOPY" "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+OUT=$(printf '%s' "$META" | (cd "$P" && PATH="$NOPY" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 expect "scratchpad_dir=/…/claude-501/ in the harness fields does not wake the verdict (no python3 needed)" none
 MUT2="$WORK/mut2"; mkdir -p "$MUT2"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT2"/ 2>/dev/null
 python3 - "$MUT2/trust-anchor-guard-hook.sh" <<'PY'
@@ -194,23 +194,23 @@ run "$MUT2/trust-anchor-guard-hook.sh" "$(bash_p "echo x >> .git/claude-trusted-
 run "$MUT2/trust-anchor-guard-hook.sh" "$(edit_p "$P/src/trust-anchor-guard-hook.sh" "a" "--trust")"; expect "the repair exemption is the root scripts/ copy only" deny
 
 printf '\n[R3] the bash-write-guard route\n'
-OUT=$(bash_p "sed -i.bak 's/0123456789ab/ffffffffffff/' specs/001-x/acceptance.md" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
-VERDICT=$(hook_verdict "$OUT"); expect "sed -i on acceptance.md reaches the trust-anchor delegate" deny
+OUT=$(bash_p "sed -i.bak 's/0123456789ab/ffffffffffff/' specs/001-x/acceptance.md" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null); RC=$?
+VERDICT=$(hook_verdict "$OUT" "$RC"); expect "sed -i on acceptance.md reaches the trust-anchor delegate" deny
 case "$(reason)" in *trust-anchor-guard-hook.sh*) ok "  and names it" ;; *) bad "  the delegate is not named" ;; esac
-OUT=$(bash_p "cat notes > specs/001-x/acceptance.md" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
-VERDICT=$(hook_verdict "$OUT"); expect "a redirect into acceptance.md is denied" deny
+OUT=$(bash_p "cat notes > specs/001-x/acceptance.md" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null); RC=$?
+VERDICT=$(hook_verdict "$OUT" "$RC"); expect "a redirect into acceptance.md is denied" deny
 
 printf '\n[090 R8b] a glob is judged by what bash expands it to  (090-AC-5, F112)\n'
 FIX=$'cat > fix.json <<\'X\'\n{/* c */ "a": 1}\nX'
-OUT=$(bash_p "$FIX" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
-VERDICT=$(hook_verdict "$OUT"); expect "090-AC-5 a heredoc fixture holding {/* c */}: allowed (bash-write route)" none
+OUT=$(bash_p "$FIX" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null); RC=$?
+VERDICT=$(hook_verdict "$OUT" "$RC"); expect "090-AC-5 a heredoc fixture holding {/* c */}: allowed (bash-write route)" none
 FIXPY=$'python3 - <<\'X\'\nprint({/* 1 */})\nX'
-OUT=$(bash_p "$FIXPY" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
-VERDICT=$(hook_verdict "$OUT"); expect "an interpreter heredoc holding {/* */}: allowed" none
+OUT=$(bash_p "$FIXPY" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null); RC=$?
+VERDICT=$(hook_verdict "$OUT" "$RC"); expect "an interpreter heredoc holding {/* */}: allowed" none
 run "$GUARD" "$(jq -cn --arg p "$P/{/*" '{tool_input:{file_path:$p}}')";           expect "a delegated target {/* (no comma: literal braces)" none
 run "$GUARD" "$(jq -cn --arg p "$P/docs/*" '{tool_input:{file_path:$p}}')";        expect "a delegated docs/* with no acceptance.md in docs/" none
-OUT=$(bash_p "sed -i 's/x/y/' specs/*/acceptance.md" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
-VERDICT=$(hook_verdict "$OUT"); expect "090-AC-5 sed -i on specs/*/acceptance.md is still denied" deny
+OUT=$(bash_p "sed -i 's/x/y/' specs/*/acceptance.md" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null); RC=$?
+VERDICT=$(hook_verdict "$OUT" "$RC"); expect "090-AC-5 sed -i on specs/*/acceptance.md is still denied" deny
 for g in 'specs/*/acceptance.md' 'specs/001-x/*' 'specs/001-x/{acceptance,x}.md' 'specs/001-x/ACCEPT*.MD' \
          'specs/001-x/{a..a}cceptance.md' 'specs/001-x/a[[=c=]]ceptance.md' 'specs/00{1..3}-x/acceptance.md' \
          'SPECS/*/acceptance.md' 'specs/0*/a*'; do
@@ -399,7 +399,7 @@ for c in 'chmod +x scripts/a.sh' 'git mv .github/x.yml .github/y.yml' 'mv .gitig
 done
 # TB1: a git dir kept outside the tree has no .git component; the project's .git file names it.
 Q="$WORK/sep"; mkdir -p "$Q"; git init -q --separate-git-dir="$WORK/sepgd" "$Q"
-runq() { OUT=$(printf '%s' "$1" | (cd "$Q" && CLAUDE_PROJECT_DIR="$Q" "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT"); }
+runq() { OUT=$(printf '%s' "$1" | (cd "$Q" && CLAUDE_PROJECT_DIR="$Q" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC"); }
 runq "$(jq -cn --arg p "$WORK/sepgd/config" --arg w "$Q" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"
 expect "TB1 a Write into a git dir kept elsewhere is denied" deny
 ln -s "$WORK/sepgd" "$Q/sg"

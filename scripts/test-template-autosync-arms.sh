@@ -35,6 +35,22 @@
 #   M34      L3526  commit guard: `[ -n "$MSG" ] && [ -n "$COMMIT_PATHS" ]`
 #   M35      L3764  [verify] hint: `[ -n "$VERIFY_CMD" ]`
 #
+# Spec 100 (R2) armed the template-autosync.sh survivors of the 20261116 --lines re-measure:
+#
+#   M36      L367   --list-core-rules: `exit 0`
+#   M37      L453   _exempt: local-llm-*|graphify-* `return 0`
+#   M38      L886   the no-.claude/ skip: `exit 0`
+#   M39      L1875  a refused template clone under --accept-local: `exit 1`
+#   M40      L2085  the .sync-local rebuild: `mktemp … || mktemp -t syncrecord`
+#   M41-M42  L2951  prune-dangling-hooks.py: `[ -f … ] && command -v python3`
+#   M43-M44  L2991  speckit-git-* SKILL.md: `[ -f "$_sk" ] && record_write`
+#   M45-M46  L3790  [verify] candidates: `[ -f …/detect-verify-command.sh ] && VERIFY_CANDIDATES=…`
+#   M47-M49  L3929  [reverted] gate: `-eq 1`, `-n STAGED_NUMSTAT`, `-n REVERT_RANGE`
+#   M50-M51  L3983  [reverted] path lines: `[ -n "$_line" ] && tell`
+#
+# L3929 carries `# mutant-equivalent:` for its two `&&`->`||` sites, so the gate skips the whole line;
+# M47-M49 are the record that its other three sites are killed.
+#
 # M14 (`[ -n "$_cands" ] || exit 0` in unlisted_core_shaped's project mode) has no arm: it is the
 # exit status of a subshell whose stdout is empty either way, and every caller reads only the
 # stdout. The line carries `# mutant-equivalent:`.
@@ -100,7 +116,25 @@ M31@@vs project $([ -n "$STAMP_SHA" ] && echo "$STAMP_SHA" || echo "never synced
 M32@@    [ -n "$_cp" ] || continue@@    [ -z "$_cp" ] || continue@@arm_l3107_wrote_carry
 M33@@    [ -n "$_cp" ] || continue@@    [ -n "$_cp" ] && continue@@arm_l3107_wrote_carry
 M34@@    if [ -n "$MSG" ] && [ -n "$COMMIT_PATHS" ] \@@    if [ -n "$MSG" ] || [ -n "$COMMIT_PATHS" ] \@@arm_l3526_nothing_to_commit
-M35@@  if [ -n "$VERIFY_CMD" ]; then@@  if [ -z "$VERIFY_CMD" ]; then@@arm_l3764_verify_hint'
+M35@@  if [ -n "$VERIFY_CMD" ]; then@@  if [ -z "$VERIFY_CMD" ]; then@@arm_l3764_verify_hint
+M36@@$CORE_RULES;   exit 0; fi@@$CORE_RULES;   exit 1; fi@@arm_l367_list_rules
+M37@@    case "$1" in local-llm-*|graphify-*) return 0 ;; esac@@    case "$1" in local-llm-*|graphify-*) return 1 ;; esac@@arm_l453_exempt_families
+M38@@not a Claude Code project"; exit 0; }@@not a Claude Code project"; exit 1; }@@arm_l886_no_claude_dir
+M39@@(stamped -dirty-)."
+  [ "$MODE_ACCEPT" -eq 1 ] && exit 1@@(stamped -dirty-)."
+  [ "$MODE_ACCEPT" -eq 1 ] && exit 0@@arm_l1875_accept_dirty_template
+M40@@    RECORD_TMP=$(mktemp 2>/dev/null || mktemp -t syncrecord)@@    RECORD_TMP=$(mktemp 2>/dev/null && mktemp -t syncrecord)@@arm_l2085_accept_record
+M41@@if [ -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] && command@@if [ -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] || command@@arm_l2951_prune_hooks
+M42@@if [ -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] && command@@if [ ! -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] && command@@arm_l2951_prune_hooks
+M43@@      [ -f "$_sk" ] && record_write@@      [ -f "$_sk" ] || record_write@@arm_l2991_policy_skill_recorded
+M44@@      [ -f "$_sk" ] && record_write@@      [ ! -f "$_sk" ] && record_write@@arm_l2991_policy_skill_recorded
+M45@@      [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ] && VERIFY_CANDIDATES@@      [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ] || VERIFY_CANDIDATES@@arm_l3790_verify_candidates
+M46@@      [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ] && VERIFY_CANDIDATES@@      [ ! -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ] && VERIFY_CANDIDATES@@arm_l3790_verify_candidates
+M47@@if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ]@@if [ "$RECONCILED" -ne 1 ] && [ -n "$STAGED_NUMSTAT" ]@@arm_l3929_reverted
+M48@@if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ]@@if [ "$RECONCILED" -eq 1 ] && [ -z "$STAGED_NUMSTAT" ]@@arm_l3929_reverted
+M49@@[ -n "$STAGED_NUMSTAT" ] && [ -n "$REVERT_RANGE" ]; then@@[ -n "$STAGED_NUMSTAT" ] && [ -z "$REVERT_RANGE" ]; then@@arm_l3929_reverted
+M50@@      [ -n "$_line" ] && tell "           $_line"@@      [ -z "$_line" ] && tell "           $_line"@@arm_l3929_reverted
+M51@@      [ -n "$_line" ] && tell "           $_line"@@      [ -n "$_line" ] || tell "           $_line"@@arm_l3929_reverted'
 
 if [ "${1:-}" = "--sabotage" ]; then
   RED=0; STILL_GREEN=""; STALE_ANCHOR=""
@@ -556,6 +590,176 @@ arm_l3764_verify_hint() {
   hasnt "092 L3764 declared: no how-to-declare text"          "$OUT" "no declaration"
 }
 
+# ---------------------------------------------------------------------------- 100 L367
+# 100 R2. --list-core-rules is a query: the rules on stdout and exit 0. A non-zero exit reads as
+# "cannot answer" to every caller that checks it, whatever stdout held.
+arm_l367_list_rules() {
+  echo "== 100 L367 — --list-core-rules lists the CORE rules and exits 0"
+  R="$TMP/l367"; rm -rf "$R"; mkdir -p "$R"
+  git -C "$R" init -q -b main
+  OUT=$(DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync_readonly "$R" --list-core-rules 2>/dev/null); RC=$?
+  same "[100] L367 --list-core-rules exits 0"        "$RC" "0"
+  has  "[100] L367 --list-core-rules names a CORE rule" "$OUT" "spec-register.md"
+}
+
+# ---------------------------------------------------------------------------- 100 L453
+# 100 R2. In the template, --unlisted names every script CORE_SCRIPTS does not ship, except the
+# local-llm-* and graphify-* families, which their helpers ship. The template is a stub identity, as
+# in the L938 arm, because the gate's snapshot carries no template history.
+arm_l453_exempt_families() {
+  echo "== 100 L453 — template --unlisted: local-llm-* and graphify-* are exempt, others are named"
+  R="$TMP/l453"; rm -rf "$R"; mkdir -p "$R/bin" "$R/repo/.claude" "$R/repo/scripts"
+  cp "$SCRIPT" "$R/bin/template-autosync.sh"
+  printf 'template_identity() { echo template; }\n' > "$R/bin/template-identity.sh"
+  git -C "$R/repo" init -q -b main
+  : > "$R/repo/scripts/local-llm-demo-hook.sh"
+  : > "$R/repo/scripts/graphify-demo.sh"
+  : > "$R/repo/scripts/demo-not-in-core.sh"
+  OUT=$(DRIVE_SYNC_SCRIPT="$R/bin/template-autosync.sh" drive_sync "$R/repo" "$TMP" --unlisted 2>/dev/null)
+  has   "[100] L453 control: an ordinary unlisted script is named" "$OUT" "scripts/demo-not-in-core.sh	absent from CORE_SCRIPTS"
+  hasnt "[100] L453 a local-llm-* script is not named"             "$OUT" "local-llm-demo-hook.sh"
+  hasnt "[100] L453 a graphify-* script is not named"              "$OUT" "graphify-demo.sh"
+}
+
+# ---------------------------------------------------------------------------- 100 L886
+# 100 R2. A repository without .claude/ is not a Claude Code project: say so and succeed. This runs
+# at SessionStart, where a non-zero exit is an error shown to the developer for a correct skip.
+arm_l886_no_claude_dir() {
+  echo "== 100 L886 — no .claude/: [skip] and exit 0"
+  R="$TMP/l886"; rm -rf "$R"; mkdir -p "$R"
+  git -C "$R" init -q -b main
+  OUT=$(DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync "$R" "$TMP" 2>&1); RC=$?
+  same "[100] L886 no .claude/ exits 0"   "$RC" "0"
+  has  "[100] L886 no .claude/ is a skip" "$OUT" "[skip] no .claude/"
+}
+
+# ---------------------------------------------------------------------------- 100 L1875
+# 100 R2. A template clone whose bytes cannot be vouched for is a refusal (LOCAL_RC 3). At
+# SessionStart it fails open (exit 0); under --accept-local the developer asked for a record, so the
+# refusal is a failure (exit 1). --accept-local implies --force, which waves a plainly dirty clone
+# through, so the refusal is reached the other way: a skip-worktree path stage_clone_divergence
+# cannot stage as a file. A committed gitlink is that path on every platform (checkout-index makes
+# it a directory), and no file system name is needed to build it.
+arm_l1875_accept_dirty_template() {
+  echo "== 100 L1875 — --accept-local against a refused template clone exits 1"
+  build l1875
+  printf 'mine\n' > "$P/.claude/rules/demo-rule.md"
+  commit_both
+  git -C "$T" update-index --add --cacheinfo "160000,$(git -C "$T" rev-parse HEAD),vendor-sub"
+  git -C "$T" commit -qm gitlink
+  git -C "$T" update-index --skip-worktree vendor-sub
+  OUT=$(sync --accept-local .claude/rules/demo-rule.md 2>&1); RC=$?
+  same "[100] L1875 --accept-local with a refused template exits 1" "$RC" "1"
+  has  "[100] L1875 and names the refusal"                        "$OUT" "has uncommitted changes — not synced"
+  [ -f "$P/.claude/.sync-local" ] && bad "[100] L1875 no record was written" || ok "[100] L1875 no record was written"
+
+  # The control: a plain run against the same dirty clone refuses too, and fails open.
+  OUT=$(sync 2>&1); RC=$?
+  same "[100] L1875 control: a plain run against it exits 0" "$RC" "0"
+  has  "[100] L1875 control: and refuses the same way"       "$OUT" "has uncommitted changes — not synced"
+}
+
+# ---------------------------------------------------------------------------- 100 L2085
+# 100 R2. --accept-local rebuilds .sync-local through one temporary file. The record holds the path
+# with both hashes, and the run says nothing about mktemp or a missing file.
+arm_l2085_accept_record() {
+  echo "== 100 L2085 — --accept-local writes the record line"
+  build l2085
+  printf 'mine\n' > "$P/.claude/rules/demo-rule.md"
+  commit_both
+  OUT=$(sync --accept-local .claude/rules/demo-rule.md 2>&1); RC=$?
+  same  "[100] L2085 --accept-local exits 0"            "$RC" "0"
+  REC=$(grep -v '^#' "$P/.claude/.sync-local" 2>/dev/null)
+  same  "[100] L2085 the record holds one data line"    "$(printf '%s\n' "$REC" | grep -c '  .claude/rules/demo-rule.md$')" "1"
+  hasnt "[100] L2085 no mktemp complaint"               "$OUT" "mktemp"
+  hasnt "[100] L2085 no missing-file complaint"         "$OUT" "No such file"
+}
+
+# ---------------------------------------------------------------------------- 100 L2951
+# 100 R2. prune-dangling-hooks.py runs when it is a regular file in the project, and its `removed`
+# line joins the summary. A path of that name that is not a regular file (here a directory Python
+# would happily run through its __main__.py) is not run.
+prune_fixture() {  # <name>
+  build "$1"
+  mkdir -p "$P/.claude"
+  printf '{"hooks":{}}\n' > "$P/.claude/settings.json"
+}
+arm_l2951_prune_hooks() {
+  echo "== 100 L2951 — prune-dangling-hooks.py runs only as a regular file"
+  prune_fixture l2951
+  printf 'print("removed 1 dangling hook ref (demo-prune)")\n' > "$P/scripts/prune-dangling-hooks.py"
+  commit_both
+  OUT=$(sync 2>&1)
+  has   "[100] L2951 a regular prune script runs and is reported" "$OUT" "removed 1 dangling hook ref (demo-prune)"
+
+  prune_fixture l2951d
+  mkdir -p "$P/scripts/prune-dangling-hooks.py"
+  printf 'print("removed 1 dangling hook ref (not-a-file)")\n' > "$P/scripts/prune-dangling-hooks.py/__main__.py"
+  commit_both
+  OUT=$(sync 2>&1)
+  has   "[100] L2951 control: the sync ran"                       "$OUT" "[synced] template"
+  hasnt "[100] L2951 a directory of that name is not run"         "$OUT" "not-a-file"
+}
+
+# ---------------------------------------------------------------------------- 100 L2991
+# 100 R2. When the spec-kit policy turns disable-model-invocation on, every speckit-git-* SKILL.md it
+# rewrote is recorded, so the sync commit carries it and the tree is left clean.
+arm_l2991_policy_skill_recorded() {
+  echo "== 100 L2991 — a SKILL.md the spec-kit policy rewrote is committed by the sync"
+  build l2991
+  mkdir -p "$P/.claude/skills/speckit-git-demo"
+  printf -- '---\nname: speckit-git-demo\n---\n' > "$P/.claude/skills/speckit-git-demo/SKILL.md"
+  cat > "$P/scripts/speckit-extension-policy.sh" <<'EOF'
+#!/bin/bash
+# Test stub: rewrite one speckit-git skill and say so the way the real policy does.
+printf 'disable-model-invocation: true\n' >> "$2/.claude/skills/speckit-git-demo/SKILL.md"
+echo "speckit-extension-policy: disable-model-invocation on speckit-git-demo"
+EOF
+  commit_both
+  OUT=$(sync 2>&1)
+  has  "[100] L2991 the policy ran"                         "$OUT" "[speckit] speckit-extension-policy: disable-model-invocation on"
+  has  "[100] L2991 the rewritten SKILL.md is in the commit" \
+       "$(git -C "$P" show HEAD:.claude/skills/speckit-git-demo/SKILL.md 2>/dev/null)" "disable-model-invocation: true"
+  same "[100] L2991 and the tree is clean after the sync" \
+       "$(git -C "$P" status --porcelain -- .claude/skills 2>/dev/null)" ""
+}
+
+# ---------------------------------------------------------------------------- 100 L3790
+# 100 R2. No declaration and nothing derived: the [verify] obligation lists the candidates
+# detect-verify-command.sh offers, when the project has that script.
+arm_l3790_verify_candidates() {
+  echo "== 100 L3790 — [verify] lists detect-verify-command.sh's candidates"
+  verify_fixture l3790
+  cat > "$P/scripts/detect-verify-command.sh" <<'EOF'
+#!/bin/bash
+# Test stub: nothing derivable, two candidates.
+[ "${2:-}" = --candidates ] && printf 'npm test\nmake check\n'
+exit 0
+EOF
+  commit_both
+  OUT=$(sync 2>&1)
+  has   "[100] L3790 the candidates header is printed" "$OUT" "no declaration, and more than one thing this could mean:"
+  has   "[100] L3790 the first candidate is named"     "$OUT" "           npm test"
+  hasnt "[100] L3790 not the nothing-found text"       "$OUT" "no test project or test script was found"
+}
+
+# ---------------------------------------------------------------------------- 100 L3929 / L3983
+# 100 R2. A sync that gives a CORE file content the project already had in an earlier commit says
+# so: [reverted], one line per path with its line counts and the commit it restores.
+arm_l3929_reverted() {
+  echo "== 100 L3929/L3983 — [reverted] names a CORE file put back to an earlier project version"
+  build l3929
+  printf 'core v1\n' > "$T/.claude/rules/spec-register.md"
+  printf 'core v1\n' > "$P/.claude/rules/spec-register.md"
+  commit_both
+  printf 'core v1\nlocal fix\n' > "$P/.claude/rules/spec-register.md"
+  git -C "$P" commit -qam "local fix"
+  OUT=$(sync 2>&1)
+  has "[100] L3929 the [reverted] block is raised" "$OUT" "[reverted] CORE file(s) given content this project already had"
+  has "[100] L3983 the path line is printed"       "$OUT" "           .claude/rules/spec-register.md — +0/-1 lines, restored to"
+  same "[100] L3929 the sync did restore the template's bytes" "$(cat "$P/.claude/rules/spec-register.md")" "core v1"
+}
+
 want arm_unlisted_glob          && arm_unlisted_glob
 want arm_no_record_is_not_stale && arm_no_record_is_not_stale
 want arm_accept_core            && arm_accept_core
@@ -573,6 +777,15 @@ want arm_l2613_check_header     && arm_l2613_check_header
 want arm_l3107_wrote_carry      && arm_l3107_wrote_carry
 want arm_l3526_nothing_to_commit && arm_l3526_nothing_to_commit
 want arm_l3764_verify_hint      && arm_l3764_verify_hint
+want arm_l367_list_rules        && arm_l367_list_rules
+want arm_l453_exempt_families   && arm_l453_exempt_families
+want arm_l886_no_claude_dir     && arm_l886_no_claude_dir
+want arm_l1875_accept_dirty_template && arm_l1875_accept_dirty_template
+want arm_l2085_accept_record    && arm_l2085_accept_record
+want arm_l2951_prune_hooks      && arm_l2951_prune_hooks
+want arm_l2991_policy_skill_recorded && arm_l2991_policy_skill_recorded
+want arm_l3790_verify_candidates && arm_l3790_verify_candidates
+want arm_l3929_reverted         && arm_l3929_reverted
 
 echo
 echo "test-template-autosync-arms.sh: $PASS passed, $FAIL failed"

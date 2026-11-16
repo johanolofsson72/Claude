@@ -53,7 +53,7 @@
 
 set -u
 
-INPUT=$(cat 2>/dev/null || true)
+INPUT=$(cat 2>/dev/null || true)   # mutant-equivalent: no set -e and the assignment's status is never read; `cat && true` captures the same bytes (none on a closed stdin) and the next line decides on the text alone
 [ -z "$INPUT" ] && exit 0
 
 # Cheapest exit first: no trigger word in the payload, nothing to decide. A long payload goes straight
@@ -106,7 +106,7 @@ else
     [ -f "${CLAUDE_PROJECT_DIR:-}/.git" ] && HIT=1
     # A hard link to an acceptance.md under another name (/security-review, spec 088): -ef compares
     # device and inode, as a builtin.
-    if [ "$HIT" -eq 0 ] && [ -f "$_fp" ]; then
+    if [ "$HIT" -eq 0 ] && [ -f "$_fp" ]; then   # mutant-equivalent: with HIT=1 the loop can only set HIT=1 again; -f only skips the glob for a path that cannot -ef a regular file
       # acceptance_cases.ACCEPTANCE_GLOBS, spelled for bash (the verdict below imports the list itself).
       for _a in "${CLAUDE_PROJECT_DIR:-.}"/specs/*/acceptance.md "${CLAUDE_PROJECT_DIR:-.}"/.specify/specs/*/acceptance.md \
                 "${CLAUDE_PROJECT_DIR:-.}"/*/specs/*/acceptance.md; do

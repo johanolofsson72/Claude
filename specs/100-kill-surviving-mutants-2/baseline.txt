@@ -1,0 +1,62 @@
+scripts/template-autosync.sh: 5/23 killed (21.7%)
+  survived scripts/template-autosync.sh:367 exit_code 'exit 0' -> 'exit 1'
+  survived scripts/template-autosync.sh:453 exit_code 'return 0' -> 'return 1'
+  survived scripts/template-autosync.sh:886 exit_code 'exit 0' -> 'exit 1'
+  survived scripts/template-autosync.sh:1875 exit_code 'exit 1' -> 'exit 0'
+  survived scripts/template-autosync.sh:2085 boolean '||' -> '&&'
+  survived scripts/template-autosync.sh:2951 boolean '&&' -> '||'
+  survived scripts/template-autosync.sh:2951 file_test '-f' -> '! -f'
+  survived scripts/template-autosync.sh:2991 boolean '&&' -> '||'
+  survived scripts/template-autosync.sh:2991 file_test '-f' -> '! -f'
+  survived scripts/template-autosync.sh:3790 boolean '&&' -> '||'
+  survived scripts/template-autosync.sh:3790 file_test '-f' -> '! -f'
+  survived scripts/template-autosync.sh:3929 arith_compare '-eq' -> '-ne'
+  survived scripts/template-autosync.sh:3929 string_test '-n' -> '-z'
+  survived scripts/template-autosync.sh:3929 string_test '-n' -> '-z'
+  survived scripts/template-autosync.sh:3929 boolean '&&' -> '||'
+  survived scripts/template-autosync.sh:3929 boolean '&&' -> '||'
+  survived scripts/template-autosync.sh:3983 string_test '-n' -> '-z'
+  survived scripts/template-autosync.sh:3983 boolean '&&' -> '||'
+scripts/project-maintenance.sh: 3/8 killed (37.5%)
+  survived scripts/project-maintenance.sh:703 boolean '&&' -> '||'
+  survived scripts/project-maintenance.sh:703 file_test '-f' -> '! -f'
+  survived scripts/project-maintenance.sh:1051 boolean '&&' -> '||'
+  survived scripts/project-maintenance.sh:1051 file_test '-f' -> '! -f'
+  survived scripts/project-maintenance.sh:1523 arith_compare '-eq' -> '-ne'
+scripts/bash-write-guard-hook.sh: 0/5 killed (0.0%)
+  survived scripts/bash-write-guard-hook.sh:451 string_test '-n' -> '-z'
+  survived scripts/bash-write-guard-hook.sh:451 boolean '&&' -> '||'
+  survived scripts/bash-write-guard-hook.sh:451 file_test '-f' -> '! -f'
+  survived scripts/bash-write-guard-hook.sh:530 string_test '-n' -> '-z'
+  survived scripts/bash-write-guard-hook.sh:530 boolean '&&' -> '||'
+scripts/trust-anchor-guard-hook.sh: 5/8 killed (62.5%)
+  survived scripts/trust-anchor-guard-hook.sh:56 boolean '||' -> '&&'
+  survived scripts/trust-anchor-guard-hook.sh:109 boolean '&&' -> '||'
+  survived scripts/trust-anchor-guard-hook.sh:123 exit_code 'exit 0' -> 'exit 1'
+scripts/core-owed-tick-guard-hook.sh: 1/4 killed (25.0%)
+  survived scripts/core-owed-tick-guard-hook.sh:94 exit_code 'exit 0' -> 'exit 1'
+  survived scripts/core-owed-tick-guard-hook.sh:286 string_test '-n' -> '-z'
+  survived scripts/core-owed-tick-guard-hook.sh:286 boolean '&&' -> '||'
+scripts/core-machinery-guard-hook.sh: 3/4 killed (75.0%)
+  survived scripts/core-machinery-guard-hook.sh:78 exit_code 'exit 0' -> 'exit 1'
+scripts/cloud-maintenance.sh: 2/7 killed (28.6%)
+  survived scripts/cloud-maintenance.sh:152 string_test '-n' -> '-z'
+  survived scripts/cloud-maintenance.sh:152 boolean '&&' -> '||'
+  survived scripts/cloud-maintenance.sh:155 boolean '&&' -> '||'
+  survived scripts/cloud-maintenance.sh:190 exit_code 'exit 2' -> 'exit 0'
+  survived scripts/cloud-maintenance.sh:196 exit_code 'return 1' -> 'return 0'
+scripts/guard-lib.sh: 1/3 killed (33.3%)
+  survived scripts/guard-lib.sh:90 exit_code 'return 0' -> 'return 1'
+  survived scripts/guard-lib.sh:447 exit_code 'return 1' -> 'return 0'
+scripts/spec-interview-guard-hook.sh: 21/25 killed (84.0%)
+  survived scripts/spec-interview-guard-hook.sh:68 exit_code 'return 0' -> 'return 1'
+  survived scripts/spec-interview-guard-hook.sh:90 exit_code 'exit 0' -> 'exit 1'
+  survived scripts/spec-interview-guard-hook.sh:306 string_test '-n' -> '-z'
+  survived scripts/spec-interview-guard-hook.sh:306 boolean '||' -> '&&'
+scripts/destructive-command-guard-hook.sh: 2/4 killed (50.0%)
+  survived scripts/destructive-command-guard-hook.sh:41 boolean '||' -> '&&'
+  survived scripts/destructive-command-guard-hook.sh:86 boolean '||' -> '&&'
+seed 20261116, 12 per module; 43/91 killed
+settings: break 80, limit max(60, 3 x baseline s), table /private/tmp/claude-501/-Users-jool-repos-Claude/499e76be-b53d-413e-8de8-fe8a59966c1a/scratchpad/targets.txt
+mutation score 47.3%
+rc=1

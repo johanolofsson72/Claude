@@ -125,7 +125,7 @@ ln "$S" "$P/docs/hard.json"
 run "$GUARD" "$(edit_p "$P/docs/hard.json" '"auto"' '"manual"')";              expect "a hard link with an innocent name" deny
 rm -f "$P/docs/hard.json"
 CFG="$WORK/cfg"; mkdir -p "$CFG"; printf '{}\n' > "$CFG/settings.json"
-OUT=$(edit_p "$CFG/settings.json" '{}' '{"disableAllHooks":true}' | (cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDE_CONFIG_DIR="$CFG" "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+OUT=$(edit_p "$CFG/settings.json" '{}' '{"disableAllHooks":true}' | (cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDE_CONFIG_DIR="$CFG" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 expect "CLAUDE_CONFIG_DIR moves the user settings" deny
 run "$GUARD" "$(write_p "$P/.claude/s*.json" '{}')";                            expect "a glob path (a delegated shell write)" deny
 run "$GUARD" "$(jq -cn --arg p "$S" '{tool_name:"Write",tool_input:{file_path:$p}}')"; expect "a path with no bytes" deny
@@ -274,25 +274,25 @@ run "$GUARD" "$(bash_p "cat x
 rm .claude/settings.json")";                                                    expect "deny: a write on the second line" deny
 
 printf '\n[R5] the bash-write-guard route  (089-AC-5)\n'
-OUT=$(bash_p "echo '{}' | tee .claude/settings.json" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
-VERDICT=$(hook_verdict "$OUT"); expect "089-AC-5 tee into settings.json is denied by bash-write-guard" deny
+OUT=$(bash_p "echo '{}' | tee .claude/settings.json" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null); RC=$?
+VERDICT=$(hook_verdict "$OUT" "$RC"); expect "089-AC-5 tee into settings.json is denied by bash-write-guard" deny
 case "$(reason)" in *settings-edit-guard-hook.sh*) ok "  and names the settings delegate" ;; *) bad "  the delegate is not named" ;; esac
-OUT=$(bash_p "python3 -c \"open('.claude/settings.json','w').write('{}')\"" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null)
-VERDICT=$(hook_verdict "$OUT"); expect "089-AC-5 python3 -c naming settings.json is denied by bash-write-guard" deny
+OUT=$(bash_p "python3 -c \"open('.claude/settings.json','w').write('{}')\"" | (cd "$P" && CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$BASHGUARD") 2>/dev/null); RC=$?
+VERDICT=$(hook_verdict "$OUT" "$RC"); expect "089-AC-5 python3 -c naming settings.json is denied by bash-write-guard" deny
 case "$(reason)" in *settings-edit-guard-hook.sh*) ok "  and names the settings delegate" ;; *) bad "  the delegate is not named" ;; esac
 
 printf '\n[R6] pre-check, fail closed, repair path\n'
 NOPY="$WORK/nopy"; mkdir -p "$NOPY"
 for d in $(printf '%s' "$PATH" | tr ':' ' '); do for f in "$d"/*; do n=${f##*/}; [ "$n" = python3 ] && continue; [ -x "$f" ] && [ ! -e "$NOPY/$n" ] && ln -s "$f" "$NOPY/$n" 2>/dev/null; done; done
-OUT=$(bash_p "ls -la" | (cd "$P" && PATH="$NOPY" CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+OUT=$(bash_p "ls -la" | (cd "$P" && PATH="$NOPY" CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 expect "a plain command never wakes the verdict (no python3 needed)" none
 printf 'x\n' > "$P/scripts/x.sh"
-OUT=$(edit_p "$P/scripts/x.sh" a b | (cd "$P" && PATH="$NOPY" CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT")
+OUT=$(edit_p "$P/scripts/x.sh" a b | (cd "$P" && PATH="$NOPY" CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 [ "$RC" -eq 0 ] || bad "exit $RC on an unrelated Edit"
 expect "an unrelated Edit of an existing file (not a hard link) never wakes the verdict" none
-OUT=$(edit_p "$S" '"auto"' '"auto"' | (cd "$P" && PATH="$NOPY" CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+OUT=$(edit_p "$S" '"auto"' '"auto"' | (cd "$P" && PATH="$NOPY" CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 expect "without python3 a settings edit is denied" deny
-OUT=$(edit_p "$P/scripts/settings-edit-guard-hook.sh" a b | (cd "$P" && PATH="$NOPY" CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT")
+OUT=$(edit_p "$P/scripts/settings-edit-guard-hook.sh" a b | (cd "$P" && PATH="$NOPY" CLAUDE_PROJECT_DIR="$P" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 [ "$RC" -eq 0 ] || bad "exit $RC on the repair path"
 expect "without python3 the guard's own file stays editable" none
 case "$OUT" in *"ALLOWED this edit unchecked"*) ok "  and says so" ;; *) bad "  the allow is silent" ;; esac
@@ -425,7 +425,7 @@ cp "$WORK/withhooks.json" "$SD"; jq '.hooks.Stop = []' "$WORK/withhooks.json" > 
 run "$GUARD" "$(bash_p "git stash")";                           expect "git stash reverts a hand edit to the hooks" deny
 run "$GUARD" "$(bash_p "git checkout -- .claude")";             expect "git checkout -- .claude restores the index copy over it" deny
 cp "$WORK/withhooks.json" "$SD"
-OUT=$(bash_p "git checkout $REV -- ." | (cd "$P" && CLAUDE_PROJECT_DIR="$P" SETTINGS_GUARD_GIT_TIMEOUT=0.000001 "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+OUT=$(bash_p "git checkout $REV -- ." | (cd "$P" && CLAUDE_PROJECT_DIR="$P" SETTINGS_GUARD_GIT_TIMEOUT=0.000001 "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 expect "a git timeout denies" deny
 
 printf '\n[095 adversarial review] shapes the first pass let through\n'
@@ -509,7 +509,7 @@ run "$GUARD" "$(write_p "$MX" 'x')";                                        expe
 run "$GUARD" "$(jq -cn --arg p "$P/mods/x/hooks/*.ts" --arg w "$P" '{tool_name:"Write",tool_input:{file_path:$p,content:"x"},cwd:$w}')"; expect "a glob file_path into a plugin folder" deny
 mkdir -p "$WORK/pd"; printf '{}\n' > "$WORK/pd/a.ts"
 run "$GUARD" "$(write_p "$WORK/pd/a.ts" 'x')";                              expect "control: a folder not on CLAUDE_CODE_PLUGIN_DIRS" none
-OUT=$(write_p "$WORK/pd/a.ts" 'x' | (cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDE_CODE_PLUGIN_DIRS="/nonexistent:$WORK/pd" "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+OUT=$(write_p "$WORK/pd/a.ts" 'x' | (cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDE_CODE_PLUGIN_DIRS="/nonexistent:$WORK/pd" "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 expect "R1(d) a folder on CLAUDE_CODE_PLUGIN_DIRS (environment)" deny
 jq --arg d "$WORK/pd" '. + {env: {CLAUDE_CODE_PLUGIN_DIRS: $d}}' "$CF/settings.json" > "$WORK/cf.json" && cp "$CF/settings.json" "$WORK/cf.bak" && cp "$WORK/cf.json" "$CF/settings.json"
 run "$GUARD" "$(write_p "$WORK/pd/a.ts" 'x')";                              expect "R1(d) a folder on CLAUDE_CODE_PLUGIN_DIRS (user settings env)" deny
@@ -581,7 +581,7 @@ run "$GUARD" "$(mbash_p "git checkout -- .")";                             expec
 (cd "$MR" && git rm -q --cached mods/q/hooks/hooks.json) || bad "fixture: drop index entry"
 git -C "$MR" remote add origin "https://example.invalid/m.git" 2>/dev/null
 run "$GUARD" "$(mbash_p "git pull origin main")";                          expect "M3: a pull from a configured remote" none
-OUT=$(mbash_p "git checkout $MREV -- ." | (cd "$MR" && CLAUDE_PROJECT_DIR="$MR" SETTINGS_GUARD_GIT_TIMEOUT=0.000001 "$BASH_BIN" "$GUARD") 2>/dev/null); VERDICT=$(hook_verdict "$OUT")
+OUT=$(mbash_p "git checkout $MREV -- ." | (cd "$MR" && CLAUDE_PROJECT_DIR="$MR" SETTINGS_GUARD_GIT_TIMEOUT=0.000001 "$BASH_BIN" "$GUARD") 2>/dev/null); RC=$?; VERDICT=$(hook_verdict "$OUT" "$RC")
 expect "Q20: a git timeout denies" deny
 run "$GUARD" "$(mbash_p "git checkout HEAD -- .")";                        expect "control: checkout HEAD -- . changes nothing" none
 (cd "$MR" && git diff HEAD "$MREV" > "$WORK/mod.diff")

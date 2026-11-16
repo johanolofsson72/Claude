@@ -3926,7 +3926,7 @@ if [ -n "$SYNC_COMMIT" ]; then
   fi
 fi
 
-if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ] && [ -n "$REVERT_RANGE" ]; then
+if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ] && [ -n "$REVERT_RANGE" ]; then  # mutant-equivalent: either &&->|| only differs when STAGED_NUMSTAT is empty (it is set non-empty only in recount_staged, which also sets RECONCILED=1), and an empty STAGED_NUMSTAT yields no candidate, so REVERTED stays empty and nothing is said; the -eq/-z sites are killed by arms M47-M49 (spec 100)
   REVERTED=""
   # Stage 1. Field 3 is the path; a rename renders `old => new` there and is dropped by the
   # basename split below rather than being asked about, which is correct — the sync does not

@@ -38,7 +38,7 @@
 
 set -u
 
-INPUT=$(cat 2>/dev/null || true)
+INPUT=$(cat 2>/dev/null || true)   # mutant-equivalent: no set -e and the assignment's status is never read; `cat && true` captures the same bytes (none on a closed stdin) and the next line decides on the text alone
 [ -z "$INPUT" ] && exit 0
 
 # Cheapest exit first. Every Bash call pays for this hook, so a command that names none of the words a

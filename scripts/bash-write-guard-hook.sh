@@ -448,7 +448,7 @@ payload_for() {     # $1 = target path
 $COPIES
 EOF
   fi
-  if [ -n "$src" ] && [ -f "$src" ]; then
+  if [ -f "$src" ]; then    # no -n test: [ -f "" ] is false, and `-n && -f` -> `||` was equivalent (spec 100)
     case "$GUARD_PARSER" in
       jq) jq -n --arg p "$target" --rawfile c "$src" '{tool_input: {file_path: $p, content: $c}}' 2>/dev/null && return 0 ;;
       python3) python3 -c 'import json,sys

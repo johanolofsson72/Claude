@@ -350,6 +350,49 @@ expect_eq       "C10 dry run exits 0" "0" "$RC"
 expect_contains "C10 the channel comes from global.json" "--channel 9.0" "$OUT"
 expect_contains "C10 prints the PATH line" "export PATH=\"$TMP/no-dotnet:" "$OUT"
 
+# Spec 100 (F136): survivors in the run half. Each case gets its own bare remote, so nothing it
+# publishes reaches the laptop pulls above.
+# [100] :152 — the one PATH line cloud-setup.sh prints is applied before the pass runs.
+K=$(mkrepo cloud-path); mkdir -p "$TMP/setupbin"
+printf '#!/bin/bash\nexit 0\n' > "$TMP/setupbin/cloud-setup-marker"; chmod +x "$TMP/setupbin/cloud-setup-marker"
+printf '%s\n' '#!/bin/bash' "echo 'export PATH=\"$TMP/setupbin:\$PATH\"'" > "$K/scripts/cloud-setup.sh"
+printf '%s\n' '#!/bin/bash' 'echo "marker=$(command -v cloud-setup-marker)"' > "$K/scripts/project-maintenance.sh"
+chmod +x "$K"/scripts/*.sh
+git init -q --bare "$TMP/remote-path.git"
+( cd "$K" && git add -A && git commit -qm init && git remote add origin "$TMP/remote-path.git" )
+OUT=$(cd "$K" && bash scripts/cloud-maintenance.sh --force-local 2>&1); RC=$?
+expect_eq       "[100] cloud-maintenance.sh:152 publish exit 0" "0" "$RC"
+expect_contains "[100] cloud-maintenance.sh:152 the setup PATH line reaches the pass" "marker=$TMP/setupbin/cloud-setup-marker" "$OUT"
+# [100] :155 — outside the cloud, --force-local says it publishes to the real remote; in it, it does not.
+expect_contains "[100] cloud-maintenance.sh:155 --force-local names the real remote" "--force-local: publishing to the real origin remote's claude/maintenance-results" "$OUT"
+OUT=$(cd "$K" && CLAUDE_CODE_REMOTE=true bash scripts/cloud-maintenance.sh 2>&1)
+expect_absent   "[100] cloud-maintenance.sh:155 a cloud session gets no --force-local note" "--force-local:" "$OUT"
+
+# [100] :190 — a second mktemp that fails is exit 2, never a run reported as fine.
+I=$(mkrepo cloud-idx-fails)
+cp "$C/scripts/project-maintenance.sh" "$C/scripts/cloud-setup.sh" "$I/scripts/"
+git init -q --bare "$TMP/remote-idx.git"
+( cd "$I" && git add -A && git commit -qm init && git remote add origin "$TMP/remote-idx.git" )
+mkdir -p "$TMP/mktemp-bin"
+printf '%s\n' '#!/bin/bash' 'case "$*" in *cloud-results-idx*) exit 1 ;; esac' "exec \"$(command -v mktemp)\" \"\$@\"" > "$TMP/mktemp-bin/mktemp"
+chmod +x "$TMP/mktemp-bin/mktemp"
+( cd "$I" && PATH="$TMP/mktemp-bin:$PATH" bash scripts/cloud-maintenance.sh --force-local >/dev/null 2>&1 ); RC=$?
+expect_eq "[100] cloud-maintenance.sh:190 no private index — exit 2" "2" "$RC"
+expect_eq "[100] cloud-maintenance.sh:190 and nothing published" "" "$(git --git-dir="$TMP/remote-idx.git" for-each-ref refs/heads/)"
+
+# [100] :196 — a results branch that is not a commit cannot be built on: exit 3, never "published".
+# Written as a loose ref in the bare remote: update-ref refuses a tree under refs/heads.
+Q=$(mkrepo cloud-not-commit)
+cp "$C/scripts/project-maintenance.sh" "$C/scripts/cloud-setup.sh" "$Q/scripts/"
+QB="$TMP/remote-tree.git"; git init -q --bare "$QB"
+QT=$(git --git-dir="$QB" mktree </dev/null)
+mkdir -p "$QB/refs/heads/claude"; printf '%s\n' "$QT" > "$QB/refs/heads/claude/maintenance-results"
+( cd "$Q" && git add -A && git commit -qm init && git remote add origin "$QB" )
+OUT=$(cd "$Q" && bash scripts/cloud-maintenance.sh --force-local 2>&1); RC=$?
+expect_eq       "[100] cloud-maintenance.sh:196 a non-commit branch — exit 3" "3" "$RC"
+expect_contains "[100] cloud-maintenance.sh:196 and says it could not publish" "could not publish" "$OUT"
+expect_eq       "[100] cloud-maintenance.sh:196 the branch is untouched" "$QT" "$(git --git-dir="$QB" rev-parse refs/heads/claude/maintenance-results)"
+
 echo
 echo "workload-placement: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

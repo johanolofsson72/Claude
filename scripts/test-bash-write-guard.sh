@@ -562,6 +562,41 @@ PY"
     *UNCHECKED*) ok "a capped opaque pass names what it did not check" ;;
     *)           bad "a capped opaque pass allowed the remainder silently" ;;
   esac
+  # [100] bash-write-guard-hook.sh:530 — the PATH cap on its own: 40 paths in one group, so only the
+  # path count is over. A count that is never taken (OPATHS left at 0) checks all 40 and says nothing.
+  ROOT=$(make_fixture opaquepathcap)
+  PROG="python3 - <<'PY'"
+  i=1; while [ "$i" -le 40 ]; do PROG="$PROG
+open('/tmp/opc/f$i.txt')"; i=$((i + 1)); done
+  PROG="$PROG
+PY"
+  RAW=$(run_pre_raw "$ROOT" "$PROG")
+  case "$RAW" in
+    *"40 candidate paths found"*) ok "[100] bash-write-guard-hook.sh:530 — the path cap alone is counted and named" ;;
+    *) bad "[100] bash-write-guard-hook.sh:530 — 40 opaque paths in one group, the path cap went unsaid: $(printf '%s' "$RAW" | cut -c1-90)" ;;
+  esac
+fi
+
+# ------------------------------------------- CPBYTES (spec 083 R7, [100] bash-write-guard-hook.sh:451)
+# A cp of a regular file carries its bytes to core-machinery, which passes a copy byte-identical to the
+# template clone's file. Without the bytes (src not looked up, or the file test inverted) that guard can
+# only deny, so the identical copy is the case that proves the bytes were sent.
+if want cpbytes; then
+  echo "FIXTURE cpbytes — a cp of the template's own bytes onto a CORE file is passed, a different one is not"
+  if ! ROOT=$(make_core_fixture cpbytes); then
+    bad "harness could not stage the sync script into the fixture"
+  else
+    TPL="$WORK/cpbytes-tpl"
+    mkdir -p "$TPL/scripts" "$TPL/.claude/rules"
+    : > "$TPL/scripts/sync-prompt.md"
+    printf 'print("template bytes")\n' > "$TPL/scripts/spec_active.py"
+    printf 'print("template bytes")\n' > "$ROOT/same.py"
+    printf 'print("local change")\n'   > "$ROOT/other.py"
+    expect_allow "[100] bash-write-guard-hook.sh:451 — cp of the template's bytes onto a CORE file" \
+      "$(CLAUDE_TEMPLATE_DIR="$TPL" run_pre "$ROOT" "cp same.py scripts/spec_active.py")"
+    expect_deny "[100] bash-write-guard-hook.sh:451 — control: cp of other bytes onto the same file" \
+      "$(CLAUDE_TEMPLATE_DIR="$TPL" run_pre "$ROOT" "cp other.py scripts/spec_active.py")" "core-machinery-guard-hook.sh"
+  fi
 fi
 
 # --------------------------------------------------------------- NOJQ (H4)

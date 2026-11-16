@@ -285,5 +285,24 @@ if cmp -s "$LIB" "$SAB6B/guard-lib.sh"; then bad "098-R6 sabotage target not fou
 fi
 rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID6"
 
+printf '\n[100] return codes the callers rely on\n'
+# guard_json_str succeeds on every tier: one literal on stdout and exit 0, so a caller that checks the
+# status (`s=$(guard_json_str "$x") || …`) never mistakes a written literal for a failure.
+for tier in jq python3 none; do
+  [ "$tier" = none ] || command -v "$tier" >/dev/null 2>&1 || { info "$tier not installed — tier skipped"; continue; }
+  V=$(lib "$tier" 's=$(guard_json_str "a\"b"); echo "rc=$? s=$s"')
+  [ "$V" = 'rc=0 s="a\"b"' ] && ok "[100] guard-lib.sh:89-90 guard_json_str on $tier: one literal, exit 0" || bad "[100] guard_json_str on $tier read as [$V]"
+done
+# _guard_gitdir_of: a .git FILE without a `gitdir:` line is no git dir (exit 1). Taking it as one with
+# an empty target made the worktree check ask git about a junk file, and a git that does not answer
+# then turned the walk unsure (098 R4) where it was sure: no git is needed to reject a junk .git.
+JG="$WORK/junkgd"; mkdir -p "$JG/sub"; echo "not a gitdir line" > "$JG/sub/.git"
+V=$(bash -c '. "$0"; _guard_gitdir_of "$1"; echo "rc=$? g=[$GUARD_GITDIR]"' "$LIB" "$JG/sub")
+[ "$V" = "rc=1 g=[]" ] && ok "[100] guard-lib.sh:447 a .git file without gitdir: is exit 1" || bad "[100] _guard_gitdir_of on a junk .git read as [$V]"
+FAKEGIT="$WORK/fakegit"; mkdir -p "$FAKEGIT"; printf '#!/bin/sh\nexit 3\n' > "$FAKEGIT/git"; chmod +x "$FAKEGIT/git"
+V=$(PATH="$FAKEGIT:$PATH" bash -c '. "$0"; GUARD_ANCHOR=$1; GUARD_ANCHOR_FOLD=0; GUARD_GIT_UNSURE=""
+  guard_git_boundary "$1/sub"; echo "rc=$? u=[$GUARD_GIT_UNSURE]"' "$LIB" "$JG")
+[ "$V" = "rc=1 u=[]" ] && ok "[100] guard-lib.sh:447 a junk .git below the anchor is no boundary, and git is never asked" || bad "[100] junk .git boundary read as [$V]"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

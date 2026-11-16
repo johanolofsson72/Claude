@@ -1593,5 +1593,41 @@ OUT=$(run_suite "$D")
 expect_contains "093 C144 a red run is still failed"              "failed (exit 1)" "$OUT"
 expect_contains "093 C144 and its timeouts are counted apart"     "1 more timed out and are unmeasured" "$OUT"
 
+# ============================================ spec 100 (F124, F138): survivors on three guarded lines
+# Each pair below pins both halves of a two-part guard, so a `&&`->`||` or a negated file test on the
+# line changes what is said.
+
+# :703, the allium census runs only when the census script AND a spec.allium both exist.
+D=$(mkfix c150); mkdir -p "$D/specs/001-a"; : > "$D/specs/001-a/spec.allium"
+printf '#!/bin/bash\necho "3 baseline(s) with errors"\nexit 1\n' > "$D/scripts/allium-census.sh"
+OUT=$(run "$D")
+expect_contains "[100] project-maintenance.sh:703 census and a baseline — the backlog is noted" "[note] 3 baseline(s) with errors" "$OUT"
+rm -f "$D/specs/001-a/spec.allium"
+OUT=$(run "$D")
+expect_absent   "[100] project-maintenance.sh:703 census without a baseline — census not run" "baseline(s) with errors" "$OUT"
+rm -f "$D/scripts/allium-census.sh"; : > "$D/specs/001-a/spec.allium"
+OUT=$(run "$D")
+expect_absent   "[100] project-maintenance.sh:703 a baseline without the census — nothing said" "allium census" "$OUT"
+
+# :1051, `npx stryker run` is the command only for a package.json that names @stryker-mutator/core.
+# Without --full nothing runs; the clean line says a mutation pass was skipped only when a command exists.
+D=$(mkfix c151); printf '{ "devDependencies": { "@stryker-mutator/core": "8.0.0" } }\n' > "$D/package.json"
+OUT=$(run "$D")
+expect_contains "[100] project-maintenance.sh:1051 a Stryker package.json — a mutation command exists" "(mutation pass skipped — use --full)" "$OUT"
+printf '{ "devDependencies": { "jest": "29.0.0" } }\n' > "$D/package.json"
+OUT=$(run "$D")
+expect_absent   "[100] project-maintenance.sh:1051 a package.json without Stryker — no mutation command" "mutation pass skipped" "$OUT"
+
+# :1523, a census wrapper that exits 0 is silent; one that exits 1 is a [CENSUS] finding.
+D=$(mkfix c152)
+printf '#!/bin/bash\necho "all four censuses green"\nexit 0\n' > "$D/scripts/e2e-wait-audit.sh"
+OUT=$(run "$D"); RC=$?
+expect_absent   "[100] project-maintenance.sh:1523 a green census adds no finding" "[CENSUS]" "$OUT"
+expect_rc       "[100] project-maintenance.sh:1523 a green census — clean exit" 0 "$RC"
+printf '#!/bin/bash\necho "tests/E2E/Waits.cs: drift"\nexit 1\n' > "$D/scripts/e2e-wait-audit.sh"
+OUT=$(run "$D"); RC=$?
+expect_contains "[100] project-maintenance.sh:1523 a red census is a finding" "[CENSUS] A drift census is RED" "$OUT"
+expect_rc       "[100] project-maintenance.sh:1523 a red census — exit 1" 1 "$RC"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

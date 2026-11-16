@@ -199,6 +199,25 @@ else
   bad "an unlisted CORE-shaped script did not block the tick"; info "$OUT"
 fi
 
+# ---- [100] core-owed-tick-guard-hook.sh:286 — the two families, one blank line apart ----------
+# Exactly one blank line above the [unlisted] heading: between the two families when both are owed,
+# and none extra when it is the only one. Prints "ok" or what was found above the heading.
+one_blank_above() {
+  printf '%s\n' "$1" | awk '/^Scripts a CORE file depends on/ { n = NR; exit } { l[NR] = $0 }
+    END { if (!n) print "no heading"; else if (l[n-1] != "") print "no blank line"; else if (l[n-2] == "") print "two blank lines"; else print "ok" }'
+}
+G=$(one_blank_above "$R")
+[ "$G" = ok ] && ok "[100] core-owed-tick-guard-hook.sh:286 — [unlisted] alone: one blank line above its heading" \
+              || { bad "[100] core-owed-tick-guard-hook.sh:286 — [unlisted] alone: $G"; info "$R"; }
+printf 'core script, edited only here\n' > "$UNL/scripts/spec_active.py"     # now [owed] speaks too
+OUT=$(run_hook "$UNL/specs/INDEX.md" "$TICK"); R=$(reason "$OUT")
+case "$R" in *"bytes differ"*"scripts/spec_active.py"*"Scripts a CORE file depends on"*)
+  G=$(one_blank_above "$R")
+  [ "$G" = ok ] && ok "[100] core-owed-tick-guard-hook.sh:286 — both families: one blank line between them" \
+                || { bad "[100] core-owed-tick-guard-hook.sh:286 — both families: $G"; info "$R"; } ;;
+  *) bad "[100] core-owed-tick-guard-hook.sh:286 — both families were not both in the reason"; info "$OUT" ;;
+esac
+
 # ---- a project's own script is not a finding ---------------------------------
 # The negative control for the arm above, and the one that decides whether this block is readable.
 # project-owned-thing.sh has no manifest line either; the difference is that no CORE file depends on it.

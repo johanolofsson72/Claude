@@ -125,6 +125,8 @@ printf '# Spec register\n\n## Specs\n\n- [/] X-1 — x — full track — goal\n
 run "$INTERVIEW" "$(edit_payload "$U/src/App.cs")"
 case "$VERDICT:$(reason)" in deny:*"id this parser does not recognise"*'"X-1"'*) ok "092-AC-2 route 97 (row id outside the grammar): deny, exit 0" ;;
   *) bad "092-AC-2 route 97: $VERDICT"; info "$(reason | head -3)" ;; esac
+case "$(reason)" in *'active row (status "[/]") was found'*) ok "[100] spec-interview-guard-hook.sh:306 route 97 names the row's own status, not the fallback" ;;
+  *) bad "[100] spec-interview-guard-hook.sh:306 route 97 status"; info "$(reason | sed -n 3p)" ;; esac
 # 98: the guard runs from a scripts/ copy that has no spec_active.py.
 R98="$WORK/noresolver"; mkdir -p "$R98"
 cp "$INTERVIEW" "$SELF_DIR/guard-lib.sh" "$SELF_DIR/guard-precheck.sh" "$R98/"
@@ -344,6 +346,35 @@ OUT=$(cd "$P" && echo '{}' | PATH="$NOJQ" "$BASH_BIN" "$ORIENT" 2>/dev/null)
 case "$OUT" in *"python3 instead"*"Spec register"*|*"python3 instead"*"Register:"*) ok "R11 with a register: the notice leads the orientation, one JSON object" ;;
   *) bad "R11 with a register: notice missing or misplaced"; info "${OUT:0:300}" ;; esac
 printf '%s' "$OUT" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null && ok "  and it is valid JSON" || bad "  not valid JSON"
+
+printf '\n[100] a guard that cannot load guard-lib.sh still answers with exit 0\n'
+# The CLI reads a hook's JSON only on exit 0: an exit 1 after the deny (or the fail-open notice) is a
+# non-blocking error, the deny is lost and the notice with it. Each hook runs from a directory that holds
+# no guard-lib.sh, so the load fails and the hard-coded JSON is the answer.
+LONE="$WORK/lone"; mkdir -p "$LONE"
+cp "$SELF_DIR/trust-anchor-guard-hook.sh" "$SELF_DIR/core-owed-tick-guard-hook.sh" "$SELF_DIR/core-machinery-guard-hook.sh" "$LONE/"
+run "$LONE/trust-anchor-guard-hook.sh" "$(edit_payload "$P/specs/001-x/acceptance.md")"
+case "$VERDICT:$(reason)" in deny:*"cannot load scripts/guard-lib.sh"*) ok "[100] trust-anchor-guard-hook.sh:123 — no guard-lib.sh: deny, exit 0" ;;
+  *) bad "[100] trust-anchor-guard-hook.sh:123 — no guard-lib.sh: $VERDICT"; info "$OUT" ;; esac
+run "$LONE/core-owed-tick-guard-hook.sh" "$(edit_payload "$P/specs/INDEX.md")"
+case "$VERDICT:$(context)" in none:*"core-owed-tick-guard cannot load"*) ok "[100] core-owed-tick-guard-hook.sh:94 — no guard-lib.sh: allow announced, exit 0" ;;
+  *) bad "[100] core-owed-tick-guard-hook.sh:94 — no guard-lib.sh: $VERDICT"; info "$OUT" ;; esac
+run "$LONE/core-machinery-guard-hook.sh" "$(edit_payload "$CP/scripts/spec_active.py")"
+case "$VERDICT:$(context)" in none:*"core-machinery-guard cannot load"*) ok "[100] core-machinery-guard-hook.sh:78 — no guard-lib.sh: allow announced, exit 0" ;;
+  *) bad "[100] core-machinery-guard-hook.sh:78 — no guard-lib.sh: $VERDICT"; info "$OUT" ;; esac
+# spec-interview without guard-lib.sh: a payload over the 4096-byte precheck bound reaches the second
+# precheck, and a non-source file is let go there, silently and on exit 0.
+cp "$INTERVIEW" "$SELF_DIR/guard-precheck.sh" "$LONE/"
+BIGMD=$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1],"content":"x"*5000}}))' "$P/README.md")
+run "$LONE/spec-interview-guard-hook.sh" "$BIGMD"
+[ "$VERDICT" = none ] && [ -z "$OUT" ] && ok "[100] spec-interview-guard-hook.sh:90 — no guard-lib.sh, 5 KB write to README.md: silent, exit 0" \
+  || { bad "[100] spec-interview-guard-hook.sh:90 — no guard-lib.sh, large non-source write: $VERDICT"; info "$OUT"; }
+# spec-interview without guard-precheck.sh: the stand-in precheck sends everything to the parser, so the
+# guard still denies a source edit the active spec has no interview for (slower, never looser).
+NOPRE="$WORK/noprecheck"; mkdir -p "$NOPRE"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$NOPRE"/ 2>/dev/null; rm -f "$NOPRE/guard-precheck.sh"
+run "$NOPRE/spec-interview-guard-hook.sh" "$(edit_payload "$P/src/App.cs")"
+case "$VERDICT:$(reason)" in deny:*interview*) ok "[100] spec-interview-guard-hook.sh:68 — no guard-precheck.sh: the source edit is still denied" ;;
+  *) bad "[100] spec-interview-guard-hook.sh:68 — no guard-precheck.sh: $VERDICT"; info "$OUT" ;; esac
 
 printf '\n[sabotage] the arms above bite\n'
 SAB="$WORK/sab"; mkdir -p "$SAB"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$SAB"/ 2>/dev/null

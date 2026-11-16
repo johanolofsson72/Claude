@@ -1,0 +1,14 @@
+scripts/template-autosync.sh: 18/18 killed (100.0%)
+scripts/project-maintenance.sh: 8/8 killed (100.0%)
+scripts/bash-write-guard-hook.sh: 3/3 killed (100.0%)
+scripts/trust-anchor-guard-hook.sh: 4/4 killed (100.0%)
+scripts/core-owed-tick-guard-hook.sh: 4/4 killed (100.0%)
+scripts/core-machinery-guard-hook.sh: 4/4 killed (100.0%)
+scripts/cloud-maintenance.sh: 7/7 killed (100.0%)
+scripts/guard-lib.sh: 3/3 killed (100.0%)
+scripts/spec-interview-guard-hook.sh: 25/25 killed (100.0%)
+scripts/destructive-command-guard-hook.sh: 3/3 killed (100.0%)
+seed 20261116, 12 per module; 79/79 killed
+settings: break 80, limit max(60, 3 x baseline s), table /private/tmp/claude-501/-Users-jool-repos-Claude/499e76be-b53d-413e-8de8-fe8a59966c1a/scratchpad/targets.txt
+mutation score 100.0%
+rc=0

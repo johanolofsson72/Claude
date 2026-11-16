@@ -235,6 +235,16 @@ mkdir -p "$WORK/nopy"; cp "$HOOK" "$SELF_DIR/guard-lib.sh" "$SELF_DIR/hook-notic
 printf 'import sys\nsys.exit(3)\n' > "$WORK/nopy/destructive_command.py"
 v=$(verdict 'rm -rf x' "$WORK/nopy/destructive-command-guard-hook.sh")
 [ "$v" = deny ] && ok "a classifier that does not answer: deny" || bad "broken classifier: $v"
+# [100] destructive-command-guard-hook.sh:86 — either half alone is no answer: an exit that is not 0
+# after printing "none", and an exit 0 that printed nothing. Each is denied as unclassified.
+printf 'print("none")\nimport sys\nsys.exit(1)\n' > "$WORK/nopy/destructive_command.py"
+verdict 'rm -rf x' "$WORK/nopy/destructive-command-guard-hook.sh" > "$WORK/v"; v=$(cat "$WORK/v")
+case "$v:$LAST_OUT" in deny:*"could not classify"*) ok "[100] destructive-command-guard-hook.sh:86 — printed none, then exit 1: denied as unclassified" ;;
+  *) bad "[100] destructive-command-guard-hook.sh:86 — printed none, then exit 1: $v" ;; esac
+printf 'import sys\nsys.exit(0)\n' > "$WORK/nopy/destructive_command.py"
+verdict 'rm -rf x' "$WORK/nopy/destructive-command-guard-hook.sh" > "$WORK/v"; v=$(cat "$WORK/v")
+case "$v:$LAST_OUT" in deny:*"could not classify"*"(exit 0)"*) ok "[100] destructive-command-guard-hook.sh:86 — exit 0 with no form: denied as unclassified" ;;
+  *) bad "[100] destructive-command-guard-hook.sh:86 — exit 0 with no form: $v" ;; esac
 
 printf '\n[cost] the everyday command starts no process\n'
 # Asserted by what runs, not by wall-clock: a ms budget went red under the mutation gate's
