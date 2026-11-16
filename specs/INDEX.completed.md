@@ -1537,3 +1537,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 100 — kill-surviving-mutants-2
 
 - [x] 100 — kill-surviving-mutants-2 — spec-only — arm guard allow cases with rc==0, then kill the H4/H5/090/091/095 survivors; mark equivalents. F123–F125 F129 F136 F138 F150–F152 F160
+
+## 101 — guard-parser-dedupe
+
+- [x] 101 — guard-parser-dedupe — spec-only — one sed-purity parser, by_name scoped per simple command, sync-prompt reuses template_url_matches. F132 F153 F154
