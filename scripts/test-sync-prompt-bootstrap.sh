@@ -95,20 +95,25 @@ echo v1 > "$SEED/CLAUDE.md"; echo v1 > "$SEED/.claude/skills/sync-template/SKILL
 # Spec 073: a template clone is identified the way the sync engine identifies it —
 # scripts/sync-prompt.md plus .claude/rules/ — so Step -1 and autosync agree on what counts.
 echo v1 > "$SEED/scripts/sync-prompt.md"; echo v1 > "$SEED/.claude/rules/keep.md"
+# Spec 101 R4: Step -1 asks the clone's own template_url_matches whether origin is ours to fetch.
+cp "$PWD/scripts/template-identity.sh" "$SEED/scripts/"
 git -C "$SEED" add -A && git -C "$SEED" commit -qm v1
 git -C "$SEED" remote add origin "$ORIGIN" && git -C "$SEED" push -q origin main
 echo v2 > "$SEED/CLAUDE.md"; git -C "$SEED" commit -qam v2 && git -C "$SEED" push -q origin main
 V2=$(git -C "$SEED" rev-parse HEAD); V1=$(git -C "$SEED" rev-parse HEAD~1)
 
-# The block clones from a hardcoded github URL; point it at the local bare repo
-# so the test never touches the network. Everything else runs verbatim.
-RUNNER="$TMP/run.sh"
-sed "s#^TEMPLATE_URL=.*#TEMPLATE_URL=\"$ORIGIN\"#" "$BLOCK" > "$RUNNER"
+# The block runs verbatim. Every clone's origin is spelled the real template URL, and the fake HOME's
+# git config redirects that URL to the local bare repo (url.*.insteadOf), so nothing touches the
+# network and the anchored URL check sees what it sees on a real machine (spec 101 R4, F132).
+TPL_URL="https://github.com/johanolofsson72/Claude.git"
+RUNNER="$BLOCK"
 
 run() {  # run <fake-home>  -> stdout of the block
+  printf '[url "%s"]\n\tinsteadOf = %s\n' "$ORIGIN" "$TPL_URL" > "$1/.gitconfig"
+  printf '[url "%s"]\n\tinsteadOf = %s\n' "$ORIGIN" "https://github.com/evil-johanolofsson72/Claude.git" >> "$1/.gitconfig"
   ( HOME="$1" CLAUDE_TEMPLATE_DIR="" bash "$RUNNER" 2>&1 )
 }
-clone_at() { git clone -q "$ORIGIN" "$1"; git -C "$1" checkout -q -B main "$2"; }
+clone_at() { git clone -q "$ORIGIN" "$1"; git -C "$1" checkout -q -B main "$2"; git -C "$1" remote set-url origin "$TPL_URL"; }
 
 echo "== no clone anywhere: it makes one =="
 H="$TMP/h-fresh"; mkdir -p "$H"
@@ -116,6 +121,7 @@ OUT=$(run "$H")
 check "clone created at \$HOME/repos/Claude" "$([ -d "$H/repos/Claude/.git" ] && echo yes || echo no)" "yes"
 case "$OUT" in *"Cloned the template"*) ok "says it cloned" ;; *) bad "no clone message: $OUT" ;; esac
 check "clone is at origin/main" "$(git -C "$H/repos/Claude" rev-parse HEAD)" "$V2"
+case "$OUT" in *"Template clone is current"*) ok "[101] the fresh clone passes the anchored check" ;; *) bad "fresh clone not recognised: $OUT" ;; esac
 
 echo "== behind + clean: fast-forwards (the silent-staleness case) =="
 H="$TMP/h-behind"; mkdir -p "$H/repos"; clone_at "$H/repos/Claude" "$V1"
@@ -153,12 +159,27 @@ H="$TMP/h-foreign"; mkdir -p "$H/repos/Claude/.claude/skills/sync-template"
 C="$H/repos/Claude"; git init -q -b main "$C"
 echo x > "$C/CLAUDE.md"; echo x > "$C/.claude/skills/sync-template/SKILL.md"
 mkdir -p "$C/scripts" "$C/.claude/rules"; echo x > "$C/scripts/sync-prompt.md"; echo x > "$C/.claude/rules/keep.md"
+cp "$PWD/scripts/template-identity.sh" "$C/scripts/"
 git -C "$C" add -A && git -C "$C" commit -qm x
 git -C "$C" remote add origin "https://github.com/someone/else.git"
 S=$(git -C "$C" rev-parse HEAD)
 OUT=$(run "$H")
 check "left alone" "$(git -C "$C" rev-parse HEAD)" "$S"
 case "$OUT" in *"not a clone of the template repo"*) ok "says it is not ours" ;; *) bad "no notice: $OUT" ;; esac
+
+echo "== [101] an evil-owner origin is never fetched (the old *johanolofsson72/Claude* matched it) =="
+H="$TMP/h-evil"; mkdir -p "$H/repos"; clone_at "$H/repos/Claude" "$V1"
+git -C "$H/repos/Claude" remote set-url origin "https://github.com/evil-johanolofsson72/Claude.git"
+OUT=$(run "$H")
+check "[101] not fast-forwarded" "$(git -C "$H/repos/Claude" rev-parse HEAD)" "$V1"
+case "$OUT" in *"not a clone of the template repo"*) ok "[101] says it is not ours" ;; *) bad "no notice: $OUT" ;; esac
+
+echo "== [101] a clone older than spec 091 (no template-identity.sh) is left alone =="
+H="$TMP/h-old"; mkdir -p "$H/repos"; clone_at "$H/repos/Claude" "$V1"
+rm "$H/repos/Claude/scripts/template-identity.sh"
+OUT=$(run "$H")
+check "[101] not fast-forwarded" "$(git -C "$H/repos/Claude" rev-parse HEAD)" "$V1"
+case "$OUT" in *"older than spec 091"*"pull --ff-only"*) ok "[101] says why and how to fix it" ;; *) bad "no notice: $OUT" ;; esac
 
 echo
 echo "passed: $PASS   failed: $FAIL"

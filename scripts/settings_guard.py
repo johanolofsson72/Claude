@@ -831,7 +831,8 @@ def prelude_taints(cmds, text):
 
 
 # Spec 095 R8 (F145): grep's and rg's pattern is not a file name, so `'[a-z]*'` does not "match"
-# settings.json in the by-name check that a find or xargs elsewhere on the line turns on.
+# settings.json in the by-name check xargs turns on (`find … | xargs grep PATTERN`). Since spec 101 R3
+# only the tree command itself reads by name, so a grep behind xargs is the one place a pattern meets it.
 GREP_COMMANDS = frozenset("grep egrep fgrep rg".split())
 GREP_VALUED = frozenset("-f -m -A -B -C -g -t -T -j -M --file --max-count --glob --type --type-not "
                         "--threads --max-columns --context --after-context --before-context".split())
@@ -839,16 +840,17 @@ GREP_VALUED = frozenset("-f -m -A -B -C -g -t -T -j -M --file --max-count --glob
 
 def pattern_indices(words):
     cw = command_word(words)
-    if not cw:
+    if not cw or cw.rpartition("/")[2] != "xargs":
+        # mutant-equivalent: dropping the xargs test lets a direct grep in, and a direct grep is named
+        # only after a cd that also sets dots, which discards these indices (spec 101 R3).
         return set()
     start = words.index(cw) + 1
-    if cw.rpartition("/")[2] == "xargs":              # find … | xargs grep PATTERN
-        while start < len(words) and words[start].startswith("-"):
-            start += 2 if words[start] in ("-I", "-n", "-L", "-P", "-s", "-d", "-E", "-a") else 1
-        if start >= len(words):
-            return set()
-        cw = words[start]
-        start += 1
+    while start < len(words) and words[start].startswith("-"):
+        start += 2 if words[start] in ("-I", "-n", "-L", "-P", "-s", "-d", "-E", "-a") else 1
+    if start >= len(words):
+        return set()
+    cw = words[start]
+    start += 1
     if cw.rpartition("/")[2] not in GREP_COMMANDS:
         return set()
     pats, positional, with_e = set(), [], False
@@ -1638,10 +1640,6 @@ def _bash_verdict(cmd, g, strip):
             if g.is_dir(full):
                 by_name = dots = True
             bases.append(full)
-    for words, _, _ in cmds:
-        cw = command_word(words)
-        if cw and cw.rpartition("/")[2] in TREE_COMMANDS:
-            by_name = True
     tainted = prelude_taints(cmds, text)
     plain = len(flow) == len(cmds) and not UNPLAIN.search(text)
     runners = [runs_text(w) for w, _, _ in cmds]
@@ -1657,15 +1655,19 @@ def _bash_verdict(cmd, g, strip):
         installer = next((w for w in words if MOD_INSTALLER.search(w.rpartition("/")[2])), None)
         if installer and not reads(words):
             return ["mod-bash", "a mod installer (" + installer.rpartition("/")[2] + "), which is the developer's to run with !"]
+        # Spec 101 R3 (F154): a command that finds files by name (find, xargs, tar …) reads bare names
+        # in its own words only. A cd that cannot be followed, or one into a guarded directory, still
+        # turns it on for the rest of the line.
+        named = by_name or (command_word(words) or "").rpartition("/")[2] in TREE_COMMANDS
         for t in targets:
-            hit = word_hit(t, g, bases, by_name, dots)
+            hit = word_hit(t, g, bases, named, dots)
             if hit and g.mod_hits.get(hit) != "soft":
                 return ["settings-bash", hit]
         if (mod_base or lost_mod) and words and not reads(words) \
                 and (command_word(words) or "").rpartition("/")[2] not in ("cd", "pushd", "popd"):
             return ["mod-bash", mod_base or "a directory this guard cannot follow, in a command naming a mod location"]
         pats = pattern_indices(words) if not dots else set()
-        naming = [(i, word_hit(w, g, bases, by_name and i not in pats, dots)) for i, w in enumerate(words)]
+        naming = [(i, word_hit(w, g, bases, named and i not in pats, dots)) for i, w in enumerate(words)]
         # A cd into a mod zone writes nothing; what runs there is judged by mod_base above.
         moves = (command_word(words) or "").rpartition("/")[2] in ("cd", "pushd")
         naming = [(i, h) for i, h in naming if h and not (moves and h in g.mod_hits)

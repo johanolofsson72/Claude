@@ -130,6 +130,13 @@ expect deny "/security-review: sed -f script.sed s/x/.env/ (with -f every operan
 expect deny "sed -nf prog .env" "$(tool Bash command "sed -nf prog .env")"
 expect deny "sed --file=prog .env" "$(tool Bash command "sed --file=prog .env")"
 expect none "sed -e's/.env//' f (an attached script)" "$(tool Bash command "sed -e's/.env//' f")"
+printf '\n[101-R1] one sed parser: shell_glob judges purity for sensitive-file too  (F153)\n'
+expect none "[101] sed -n '/.env/p' f (a print script's address is a pattern)" "$(tool Bash command "sed -n '/.env/p' f")"
+expect none "[101] sed -i .bak 's/.env//' f (BSD backup suffix)" "$(tool Bash command "sed -i .bak 's/.env//' f")"
+expect none "[101] sed --expr=s/.env// f (a long-option prefix)" "$(tool Bash command "sed --expr=s/.env// f")"
+expect deny "[101] sed -f prog -e 'r .env' f (-e still split beside -f)" "$(tool Bash command "sed -f prog -e 'r .env' f")"
+expect deny "[101] sed -n '/x/{r .env' -e '}' f (a file command inside a block)" "$(tool Bash command "sed -n -e '/x/{r .env' -e '}' f")"
+expect deny "[101] sed 's/x/y/e' .env (a file operand beside a non-pure script)" "$(tool Bash command "sed 's/x/y/e' .env")"
 expect deny "perl -pe 's/.env//' f (a program, not a pattern)" "$(tool Bash command "perl -pe 's/.env//' f")"
 
 printf '\n[size and parse] the old fail-open paths\n'
@@ -189,7 +196,7 @@ sed 's/out.extend((w, True) for w in shell_words(ti\["command"\]))/pass/' "$SELF
 V=$(run "$(tool Bash command 'cat ~/.ssh/id_rsa')" "$SAB/sensitive-file-guard-hook.sh")
 [ "$V" != deny ] && ok "a classifier that skips Bash lets cat ~/.ssh through — AC-5 would see it" || bad "sabotage Bash not observable"
 cp "$SELF_DIR/destructive_command.py" "$SAB/"     # the shell tokeniser the sed rule rides on
-sed 's/    return \[tok for tok, body in sed_scripts(args) if _SED_PURE.match(body)\]/    return []/' "$SELF_DIR/sensitive_paths.py" > "$SAB/sensitive_paths.py"
+sed 's/    return \[tok for tok, body in walk(args)\[1\] if kind(body)\]/    return []/' "$SELF_DIR/sensitive_paths.py" > "$SAB/sensitive_paths.py"
 V=$(run "$(tool Bash command "sed 's/.env//' f.txt")" "$SAB/sensitive-file-guard-hook.sh")
 [ "$V" = deny ] && ok "without the sed rule s/.env// is denied again — the 090 arm would see it" || bad "sabotage sed not observable"
 sed 's/    return out$/    return []/' "$SELF_DIR/sensitive_paths.py" > "$SAB/sensitive_paths.py"

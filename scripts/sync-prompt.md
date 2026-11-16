@@ -59,9 +59,21 @@ fi
 
 # Refresh it. Behind is the case that silently poisons the whole sync; the other
 # states are somebody's deliberate work and are left exactly as they are.
+# "Ours to fetch" is template_url_matches (scripts/template-identity.sh, spec 091 R1), read from the
+# URL written in the clone's own config: anchored, so evil-johanolofsson72/Claude is not ours, and before
+# insteadOf, so a redirect cannot hide behind a good-looking URL. A clone without the library predates
+# spec 091 and is left as it is (spec 101 R4).
 if git -C "$TEMPLATE" rev-parse --git-dir >/dev/null 2>&1; then
-  case "$(git -C "$TEMPLATE" remote get-url origin 2>/dev/null)" in
-    *johanolofsson72/Claude*)
+  ORIGIN_URL=$(git -C "$TEMPLATE" config --local --get remote.origin.url 2>/dev/null)
+  if [ ! -f "$TEMPLATE/scripts/template-identity.sh" ]; then
+    OURS=old
+  elif ( . "$TEMPLATE/scripts/template-identity.sh" && template_url_matches "$ORIGIN_URL" ); then
+    OURS=yes
+  else
+    OURS=no
+  fi
+  case "$OURS" in
+    yes)
       if git -C "$TEMPLATE" fetch --quiet origin main 2>/dev/null; then
         HEAD_SHA=$(git -C "$TEMPLATE" rev-parse HEAD)
         UP_SHA=$(git -C "$TEMPLATE" rev-parse origin/main)
@@ -87,6 +99,9 @@ if git -C "$TEMPLATE" rev-parse --git-dir >/dev/null 2>&1; then
         echo "[WARN] Could not fetch the template clone (offline?) — using it as-is."
       fi
       ;;
+    old)
+      echo "[WARN] $TEMPLATE has no scripts/template-identity.sh (older than spec 091) — not refreshing it."
+      echo "       Fix by hand: git -C $TEMPLATE pull --ff-only, then re-run /project-update." ;;
     *) echo "[WARN] $TEMPLATE is not a clone of the template repo — using it as-is." ;;
   esac
 fi

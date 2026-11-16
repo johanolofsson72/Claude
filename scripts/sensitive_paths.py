@@ -104,65 +104,29 @@ def _split_word(w: str) -> list[str]:
 
 
 # Spec 090 R8(a) (F085): `sed 's/.env//' f.txt` was denied, because the script split on `/` ends in
-# `.env`. A sed script is a pattern language, so a script that is ONE substitution or transliteration,
-# with an optional numeric address and no `w` or `e` flag, cannot open a file and is not a path. Any
-# other script stays a candidate: `r .env`, `R`, `w`, `W`, `e` and `s///w .env` read, write or run
-# (spec 090 threat model, #3). A file operand (`sed … .env`) and `-f <file>` are paths as before.
-_SED_PURE = re.compile(
-    r"""^\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*)?
-        (?:s(?P<d>[^\w\s\\])(?:\\.|(?!(?P=d)).)*(?P=d)(?:\\.|(?!(?P=d)).)*(?P=d)[gpiImM0-9]*
-          |y(?P<e>[^\w\s\\])(?:\\.|(?!(?P=e)).)*(?P=e)(?:\\.|(?!(?P=e)).)*(?P=e))
-        \s*$""", re.S | re.X)
-
-
-def sed_scripts(args: list[str]) -> list[tuple[str, str]]:
-    """(token, script) for every script on a sed command line. One parser for both uses below
-    (/simplify, spec 090): -e S, --expression=S, an attached -eS, and with none of those the first
-    operand. -f FILE, --file=FILE, -l N and BSD's `-i ''` take their values; a script read from a file
-    makes every operand a path."""
-    scripts, explicit, operands, i = [], False, [], 0
-    while i < len(args):
-        a = args[i]
-        if a == "--":
-            operands.extend(args[i + 1:])
-            break
-        if a in ("-e", "--expression") or re.match(r"^-[nEsruz]*e$", a):
-            if i + 1 < len(args):
-                scripts.append((args[i + 1], args[i + 1]))
-            explicit, i = True, i + 2
-        elif a.startswith("--expression="):
-            scripts.append((a, a.split("=", 1)[1]))
-            explicit, i = True, i + 1
-        elif re.match(r"^-[nEsruz]*e.", a):
-            scripts.append((a, a[a.index("e") + 1:]))
-            explicit, i = True, i + 1
-        elif a == "--file" or re.match(r"^-[nEsruz]*f$", a):
-            explicit, i = True, i + 2
-        elif a.startswith("--file=") or re.match(r"^-[nEsruz]*f.", a):
-            explicit, i = True, i + 1
-        elif a in ("-l", "--line-length") or (a == "-i" and i + 1 < len(args) and args[i + 1] == ""):
-            i += 2
-        elif a.startswith("-") and len(a) > 1:
-            i += 1
-        else:
-            operands.append(a)
-            i += 1
-    if not explicit and operands:
-        scripts.append((operands[0], operands[0]))
-    return scripts
+# `.env`. A sed script is a pattern language, so a script that only substitutes, transliterates,
+# prints, deletes or moves through the pattern space cannot open a file and is not a path. Any other
+# script stays a candidate: `r .env`, `R`, `w`, `W`, `e` and `s///w .env` read, write or run (spec 090
+# threat model, #3). A file operand (`sed … .env`) and `-f <file>` are paths as before.
+# Spec 101 R1 (F153): shell_glob judges that, the one parser settings-edit and bash-write use too.
+def _sed():
+    from shell_glob import sed_script_kind, sed_walk
+    return sed_walk, sed_script_kind
 
 
 def sed_data_tokens(args: list[str]) -> list[str]:
-    """The tokens holding a pure s/// or y/// script: a pattern, not a path."""
-    return [tok for tok, body in sed_scripts(args) if _SED_PURE.match(body)]
+    """The words holding a pure script: a pattern, not a path."""
+    walk, kind = _sed()
+    return [tok for tok, body in walk(args)[1] if kind(body)]
 
 
 def sed_script_words(args: list[str]) -> list[str]:
     """The words inside every sed script that is NOT pure: `r .env` is one shell word, and its file
     name only shows once the script is split (spec 090 threat model, #3)."""
+    walk, kind = _sed()
     out = []
-    for _, body in sed_scripts(args):
-        if _SED_PURE.match(body):
+    for _, body in walk(args)[1]:
+        if kind(body):
             continue
         out.extend(w for w in re.split(r"[\s;{}]+", body) if w)
         # GNU sed takes `rFILE`, `1r.env`, `/re/r.env` and the `s///wFILE` flag with no space, and
@@ -183,8 +147,9 @@ def shell_words(cmd: str, depth: int = 0) -> list[str]:
     """
     try:
         d = _sibling()
+        _sed()
     except Exception:
-        # Without the sibling the whole command is split plainly: stricter, never looser.
+        # Without the sibling or shell_glob the whole command is split plainly: stricter, never looser.
         return [p for w in cmd.split() for p in _split_word(w)]
     cmd, docs = d.heredocs(d.normalise(cmd))
     lines = cmd.split("\n")

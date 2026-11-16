@@ -11,6 +11,7 @@ copy of `$'…'` decoding and brace expansion, and the copies disagreed: setting
     brace_alts(word)        bash brace expansion: {a,b} and {x..y[..n]}; a lone {…} is literal
     TooMany                 raised when an expansion would pass BRACE_CAP: the caller fails closed
     sed_args(words)         (in_place, scripts or None, files) for one sed command's words (spec 095)
+    sed_walk(words)         the same walk, with (word, script) pairs and from_file (spec 101)
     sed_script_kind(text)   "print", "edit" or None: what a sed script can do besides print
 
 Imported by name from the scripts directory; no side effects, no third-party modules.
@@ -92,13 +93,26 @@ _SED_LONG = ("in-place", "expression", "file", "line-length", "quiet", "silent",
 def sed_args(words: list[str]):
     """(in_place, scripts, files) for the words after `sed`. scripts is None when a -f file supplies
     the script: it is not in the text."""
-    in_place, scripts, files, first, from_file = False, [], [], None, False
+    in_place, pairs, files, from_file = sed_walk(words)
+    return in_place, (None if from_file else [s for _, s in pairs]), files
+
+
+def sed_walk(words: list[str]):
+    """(in_place, pairs, files, from_file) for the words after `sed`. pairs is (word, script) for every
+    script in the text, -e scripts included when -f is also given (spec 101 R1): the word is the shell
+    word that carries the script (`-es/a/b/`, `--expression=…` or the script itself)."""
+    in_place, pairs, files, first, from_file = False, [], [], None, False
     i = 0
     while i < len(words):
         w = words[i]
         i += 1
         if w == "--":
-            files.extend(words[i:])
+            # `--` ends the options, not the script: `sed -- 's/a/b/' f` still reads its first
+            # operand as the script (spec 101; the old sensitive_paths walker knew this).
+            rest = words[i:]
+            if first is None and not pairs and not from_file and rest:
+                first, rest = rest[0], rest[1:]
+            files.extend(rest)
             break
         if w.startswith("--"):
             name, eq, val = w[2:].partition("=")
@@ -109,11 +123,12 @@ def sed_args(words: list[str]):
             if name == "in-place":
                 in_place = True
             elif name in ("expression", "file", "line-length"):
+                tok = w
                 if not eq:
-                    val = words[i] if i < len(words) else ""
+                    val = tok = words[i] if i < len(words) else ""
                     i += 1
                 if name == "expression":
-                    scripts.append(val)
+                    pairs.append((tok, val))
                 elif name == "file":
                     from_file = True
             continue
@@ -131,23 +146,23 @@ def sed_args(words: list[str]):
                         i += 1
                     break
                 if ch in "efl":                  # -e SCRIPT, -f FILE, -l N: the rest, or the next word
-                    val = w[j + 1:]
+                    val, tok = w[j + 1:], w
                     if not val:
-                        val = words[i] if i < len(words) else ""
+                        val = tok = words[i] if i < len(words) else ""
                         i += 1
                     if ch == "e":
-                        scripts.append(val)
+                        pairs.append((tok, val))
                     elif ch == "f":
                         from_file = True
                     break
             continue
-        if first is None and not scripts and not from_file:
+        if first is None and not pairs and not from_file:
             first = w
             continue
         files.append(w)
     if first is not None:
-        scripts.append(first)
-    return in_place, (None if from_file else scripts), files
+        pairs.append((first, first))
+    return in_place, pairs, files, from_file
 
 
 def _sed_address(t: str, i: int) -> int:

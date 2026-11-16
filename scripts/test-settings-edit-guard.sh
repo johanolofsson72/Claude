@@ -361,9 +361,17 @@ run "$GUARD" "$(bash_p "sed 's/a/b/' .claude/settings.json | head")";           
 run "$GUARD" "$(bash_p "sed --in-pl '/hooks/d' .claude/settings.json")";                    expect "threat model: --in-pl is GNU's --in-place" deny
 run "$GUARD" "$(bash_p "sed -n '1w .claude/settings.json' notes.txt")";                     expect "a sed w command naming the file" deny
 run "$GUARD" "$(bash_p "sed -n -f x.sed .claude/settings.json")";                           expect "a sed script from a file is not read" deny
+run "$GUARD" "$(bash_p "sed -n -f x.sed -e p .claude/settings.json")";                     expect "[101] an -e script beside -f does not make it a read" deny
 run "$GUARD" "$(bash_p "git diff -- scripts .claude/ | tail -5")";                          expect "F145: git diff -- scripts <settings-dir> | tail" none
 run "$GUARD" "$(bash_p "find scripts -name x | xargs grep -o '[a-z]*' | head")";            expect "F145: grep's pattern behind xargs is not a file name" none
 run "$GUARD" "$(bash_p "cd .claude && ls | grep 'sett.*' | xargs rm")";                    expect "control: inside .claude a pattern still counts" deny
+
+printf '\n[101-R3] a tree command reads bare names in its own words only  (F154)\n'
+run "$GUARD" "$(bash_p "find scripts -name x; cp a.txt settings.json")";                   expect "[101] a find on one command does not by-name a cp on another" none
+run "$GUARD" "$(bash_p "find scripts -name x; grep -o '[a-z]*' notes.txt | sort")";         expect "[101] a direct grep's pattern after a find is not a name" none
+run "$GUARD" "$(bash_p "find . -name x > settings.json")";                                 expect "[101] the tree command's own redirect target is read by name" deny
+run "$GUARD" "$(bash_p "tar cf x.tar settings.local.json")";                               expect "[101] the tree command's own word is read by name" deny
+run "$GUARD" "$(bash_p 'cd "$X"; find . -name x; cp a.txt settings.json')";                expect "[101] control: a cd nobody can follow still by-names the whole line" deny
 
 printf '\n[095-R1] git verbs that rewrite the tree  (095-AC-1)\n'
 GC="git -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false"
@@ -712,7 +720,7 @@ sabotage "sabotage: without the read list sed -i passes" \
   'if not reads(words) or in_subst or tainted:' 'if False:' \
   "$(bash_p "sed -i '' s/a/b/ .claude/settings.json")"
 sabotage "sabotage: without the redirect check printf > passes" \
-  'hit = word_hit(t, g, bases, by_name, dots)' 'hit = None' \
+  'hit = word_hit(t, g, bases, named, dots)' 'hit = None' \
   "$(bash_p "printf x > .claude/settings.json")"
 sabotage "sabotage: without the cd bases ../.claude passes" \
   'bases.append(full)' 'pass' \
