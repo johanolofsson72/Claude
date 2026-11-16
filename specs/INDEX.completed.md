@@ -1541,3 +1541,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 101 — guard-parser-dedupe
 
 - [x] 101 — guard-parser-dedupe — spec-only — one sed-purity parser, by_name scoped per simple command, sync-prompt reuses template_url_matches. F132 F153 F154
+
+## 102 — downstream-core-red
+
+- [x] 102 — downstream-core-red — spec-only — fundit 2026-10-05: freshness flags its own PuTTY fixture as a key; 9 CORE self-tests red downstream; 14 dangling citations (testing-mobile.md).

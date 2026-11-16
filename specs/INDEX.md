@@ -117,7 +117,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] H6 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 095–099.
 - [x] 100 — kill-surviving-mutants-2 — spec-only — arm guard allow cases with rc==0, then kill the H4/H5/090/091/095 survivors; mark equivalents. F123–F125 F129 F136 F138 F150–F152 F160
 - [x] 101 — guard-parser-dedupe — spec-only — one sed-purity parser, by_name scoped per simple command, sync-prompt reuses template_url_matches. F132 F153 F154
-- [ ] 102 — downstream-core-red — spec-only — fundit 2026-10-05: freshness flags its own PuTTY fixture as a key; 9 CORE self-tests red downstream; 14 dangling citations (testing-mobile.md).
+- [x] 102 — downstream-core-red — spec-only — fundit 2026-10-05: freshness flags its own PuTTY fixture as a key; 9 CORE self-tests red downstream; 14 dangling citations (testing-mobile.md).
 - [x] 103 — unlisted-fires-on-a-test-fixture — trivial — rocky 2026-10-30 (T0): test-project-maintenance.sh C107 writes e2e-gate-census.py as a fixture; declared optional like C88, so core-owed-tick-guard clears.
 
 ## Register history (newest first)
