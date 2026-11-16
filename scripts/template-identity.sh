@@ -32,12 +32,42 @@ template_url_matches() {
   return 1
 }
 
+# _template_roots DIR -> HEAD's root commit(s). Replace refs off and grafts read from /dev/null: both
+# can fake a parentless commit (see the header).
+_template_roots() {
+  GIT_GRAFT_FILE=/dev/null \
+    git --no-replace-objects -c core.commitGraph=false -C "$1" rev-list --max-parents=0 HEAD 2>/dev/null </dev/null
+}
+
 template_identity() {
   # The raw value, not `remote get-url`, which applies url.*.insteadOf (threat model A1): the URL that is
   # compared is the one written in this repository's own config.
   _ti_url=$(git -C "$1" config --local --get remote.origin.url 2>/dev/null </dev/null)
   if ! template_url_matches "$_ti_url"; then echo project; return 0; fi
-  _ti_roots=$(GIT_GRAFT_FILE=/dev/null \
-              git --no-replace-objects -c core.commitGraph=false -C "$1" rev-list --max-parents=0 HEAD 2>/dev/null </dev/null)
-  if [ "$_ti_roots" = "$TEMPLATE_ROOT_COMMIT" ]; then echo template; else echo impostor; fi
+  if [ "$(_template_roots "$1")" = "$TEMPLATE_ROOT_COMMIT" ]; then echo template; else echo impostor; fi
+}
+
+# self_test_subject DIR -> prints upstream | downstream, always exit 0 (spec 102).
+#
+# A different question from template_identity: not "may this repository be exempted", but "does a
+# self-test here have a subject". Some CORE self-tests read a template-only file (sync-prompt.md is
+# fetched from GitHub by /project-update, so a project's copy is a snapshot nobody reads); downstream
+# they must skip, not fail. Nothing is exempted on the answer. The template's root commit says
+# upstream; otherwise origin's URL decides, with the sync stamp as the fallback. Only DIR's own toplevel counts: a fixture inside another checkout must not
+# inherit that checkout's origin. Neither signal answering means upstream, so nothing is skipped.
+self_test_subject() {
+  _st_top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null </dev/null)
+  _st_phys=$(CDPATH='' cd -- "$1" 2>/dev/null && pwd -P)
+  _st_url=""; _st_root=""
+  if [ -n "$_st_top" ] && [ "$_st_top" = "$_st_phys" ]; then
+    _st_url=$(git -C "$1" config --local --get remote.origin.url 2>/dev/null </dev/null)
+    _st_root=$(_template_roots "$1")
+  fi
+  # A credentialed, mirrored or local-path origin on a real template checkout is still upstream.
+  if [ "$_st_root" = "$TEMPLATE_ROOT_COMMIT" ]; then echo upstream
+  elif [ -n "$_st_url" ]; then
+    if template_url_matches "$_st_url"; then echo upstream; else echo downstream; fi
+  elif [ -f "$1/.claude/.template-sync" ]; then echo downstream
+  else echo upstream
+  fi
 }

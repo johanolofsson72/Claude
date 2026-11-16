@@ -174,12 +174,21 @@ echo "pinned downloads (R15)"
 SP="$DIR/sync-prompt.md"; TS="$ROOT/.claude/skills/tla/SKILL.md"
 SHA=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 URL=https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
-for f in "$SP" "$TS"; do
+# sync-prompt.md is template-only: /project-update fetches it from GitHub, so downstream the checks
+# that read it have no subject and skip (spec 102). The tla skill file ships, so its checks still run.
+SUBJECT=$(. "$DIR/template-identity.sh" && self_test_subject "$ROOT")
+PINNED="$SP $TS"
+if [ "$SUBJECT" = downstream ]; then
+  PINNED="$TS"
+  echo "  skip every sync-prompt.md check (P1-P9; the tla skill's still run): downstream, /project-update fetches it from GitHub"
+fi
+for f in $PINNED; do
   b=${f#$ROOT/}
   expect_contains "P1 $b downloads the v1.7.4 jar by exact URL" "$URL" "$(cat "$f")"
   expect_contains "P2 $b verifies the jar's SHA-256" "$SHA" "$(cat "$f")"
   expect_absent   "P3 $b no longer downloads releases/latest" "releases/latest/download/tla2tools" "$(cat "$f")"
 done
+if [ "$SUBJECT" != downstream ]; then
 for pin in "anthropics/skills 8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4" \
            "obra/superpowers 8ca22dba9a94f28898bbce59f2537ff4d87c747d" \
            "trailofbits/skills 82fe8226252622fa807643bdca1710901198553a" \
@@ -243,6 +252,7 @@ OUT=$(cd "$TMP" && env -u TLA2TOOLS_JAR HOME="$H3" CURL_MARKER="$TMP/p9" PATH="$
 expect_contains "P9 sync-prompt warns on an existing jar with the wrong SHA-256" "[WARN]" "$OUT"
 expect_contains "P9 naming the expected hash" "$SHA" "$OUT"
 expect_eq       "P9 and leaves the jar alone" "tampered" "$(cat "$H3/.local/lib/tla2tools.jar")"
+fi
 expect_contains "P9 tla SKILL.md re-hashes an existing jar" "SHA-256 does not match" "$(cat "$TS")"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

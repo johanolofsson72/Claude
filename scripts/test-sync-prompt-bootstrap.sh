@@ -27,27 +27,13 @@ SRC="$PWD/scripts/sync-prompt.md"
 # do not carry one at all and this harness failed there with "sync-prompt.md not found" — a red
 # test for the absence of a file the project has no reason to have.
 #
-# Same predicate and same reasoning as test-sync-prompt-core-parity.sh and
-# validate-no-sigpipe-assertions.sh: compare origin against the template slug, fall back to the
-# sync stamp, and exempt nothing when neither answers.
-_origin() {
-  local top phys
-  top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
-  phys="$(pwd -P)" || return 0
-  [ "$top" = "$phys" ] || return 0
-  git remote get-url origin 2>/dev/null || true
-}
-_O="$(_origin)"
-case "$_O" in
-  *johanolofsson72/Claude|*johanolofsson72/Claude.git|*johanolofsson72/Claude/|*johanolofsson72/Claude.git/) ;;
-  "") [ -f .claude/.template-sync ] && {
-        echo "SKIP: downstream (.claude/.template-sync is present) — the sync-prompt.md this would test"
-        echo "      is not the one /project-update reads; the authoritative copy is fetched from GitHub."
-        exit 0; } ;;
-  *)  echo "SKIP: downstream (origin is $_O, not johanolofsson72/Claude) — the sync-prompt.md this would"
-      echo "      test is not the one /project-update reads; the authoritative copy is fetched from GitHub."
-      exit 0 ;;
-esac
+# The predicate is template-identity.sh's self_test_subject (spec 102), shared with every self-test
+# that reads a template-only file; nothing is skipped when neither origin nor sync stamp answers.
+if [ "$(. "$PWD/scripts/template-identity.sh" && self_test_subject "$PWD")" = downstream ]; then
+  echo "SKIP: downstream — the sync-prompt.md this would test is not the one /project-update reads;"
+  echo "      the authoritative copy is fetched from GitHub."
+  exit 0
+fi
 
 [ -f "$SRC" ] || { echo "FAIL: sync-prompt.md not found"; exit 1; }
 

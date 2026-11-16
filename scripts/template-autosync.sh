@@ -266,7 +266,7 @@ stryker_guard.py stryker-guard-hook.sh test-stryker-guard.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
 template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh
-test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
+test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh test-template-autosync-ships.sh
 test-template-autosync-unlisted.sh test-template-autosync-arms.sh test-template-autosync-supply-chain.sh
 test-maintenance-trust.sh test-lane-catchup.sh test-prune-agent-worktrees.sh test-local-llm-host.sh
 validate-sync-sandbox-declarations.sh test-validate-sync-sandbox-declarations.sh
@@ -372,7 +372,12 @@ if [ "$MODE_LIST_RULES"   -eq 1 ]; then printf '%s\n' $CORE_RULES;   exit 0; fi
 # are named: added when missing, and after that updated under the manifest like every other doc —
 # NOT CORE, so a local edit is reported and kept rather than overwritten, and no guard, --owed or
 # --accept-local arm has to learn a third class.
-RULE_DOCS="supply-chain.md carve-budget-rationale.md continuous-execution-rationale.md feature-pipeline-rationale.md github-actions-rationale.md lane-handoff-rationale.md project-workflow-rationale.md spec-hardening-rationale.md spec-interview-rationale.md spec-register-rationale.md validation-followup-rationale.md"
+# Spec 102 added the three mobile docs: CORE rules (tests.md, specs.md, feature-pipeline.md), their
+# rationale docs and this script cite them by name on every stack, and without them
+# validate-rule-citations reported 15 dangling citations in every web project. workload-placement.md
+# is cited by scripts/workload-placement.tsv, which ships since the same spec.
+RULE_DOCS="supply-chain.md carve-budget-rationale.md continuous-execution-rationale.md feature-pipeline-rationale.md github-actions-rationale.md lane-handoff-rationale.md project-workflow-rationale.md spec-hardening-rationale.md spec-interview-rationale.md spec-register-rationale.md validation-followup-rationale.md
+testing-mobile.md spec-testing-checklist-mobile.md deployment-mobile.md workload-placement.md"
 
 is_core() {
   case "$2" in
@@ -2363,11 +2368,18 @@ $SRCREL
   printf '%s  %s\n' "$SRC_HASH" "$REL" >> "$NEW_MANIFEST"
 }
 
-# speckit-version is data, not code, and the only CORE file under scripts/ without a .sh or .py
-# suffix — so it is named here rather than widening the glob to everything in scripts/ (spec 073).
-for f in "$TEMPLATE_DIR"/scripts/*.sh "$TEMPLATE_DIR"/scripts/*.py "$TEMPLATE_DIR"/scripts/speckit-version; do
+for f in "$TEMPLATE_DIR"/scripts/*.sh "$TEMPLATE_DIR"/scripts/*.py; do
   [ -f "$f" ] || continue
   copy_file "$f" "scripts/$(basename "$f")" scripts
+done
+# Data files (speckit-version, quality-gates.tsv, workload-placement.tsv) ship by their CORE_SCRIPTS
+# name, not by a wider glob over scripts/ (spec 073). Spec 102: this loop named speckit-version
+# alone, so the two .tsv files CORE_SCRIPTS lists reached no project and their readers ran without
+# them. Naming a data file in CORE_SCRIPTS is now the whole act of shipping it.
+for n in $CORE_SCRIPTS; do
+  case "$n" in *.sh|*.py) continue ;; esac
+  [ -f "$TEMPLATE_DIR/scripts/$n" ] || continue
+  copy_file "$TEMPLATE_DIR/scripts/$n" "scripts/$n" scripts
 done
 
 for f in "$TEMPLATE_DIR"/.claude/rules/*.md; do
@@ -2463,10 +2475,9 @@ for f in "$TEMPLATE_DIR"/.claude/docs/*.md; do
     # Mobile/hybrid: the canonical names carry mobile content — never overwrite
     # them with the browser versions.
     mobile:testing.md|mobile:spec-testing-checklist.md) continue ;;
-    mobile:testing-mobile.md)                copy_file "$f" ".claude/docs/testing.md" docs ".claude/docs/testing-mobile.md"; continue ;;
-    mobile:spec-testing-checklist-mobile.md) copy_file "$f" ".claude/docs/spec-testing-checklist.md" docs ".claude/docs/spec-testing-checklist-mobile.md"; continue ;;
-    # Web: no mobile docs.
-    web:testing-mobile.md|web:spec-testing-checklist-mobile.md|web:deployment-mobile.md) continue ;;
+    # The mobile docs also land under their own names, on every stack (RULE_DOCS, spec 102).
+    mobile:testing-mobile.md)                copy_file "$f" ".claude/docs/testing.md" docs ".claude/docs/testing-mobile.md" ;;
+    mobile:spec-testing-checklist-mobile.md) copy_file "$f" ".claude/docs/spec-testing-checklist.md" docs ".claude/docs/spec-testing-checklist-mobile.md" ;;
   esac
   copy_file "$f" ".claude/docs/$B" docs
 done

@@ -175,12 +175,35 @@ if [ "$HAVE_HISTORY" -eq 1 ]; then
     *) bad "091-AC-1 autosync did not skip the template: $(printf '%s' "$OUT" | head -2)" ;; esac
 fi
 
+printf '\n[102] self_test_subject: does a self-test here have a template-only subject\n'
+S="$WORK/st"; mkdir -p "$S/a" "$S/b" "$S/c" "$S/d" "$S/outer/inner"
+git -C "$S/a" init -q; git -C "$S/a" remote add origin https://github.com/johanolofsson72/Claude.git
+expect "[102] the template's URL: upstream" upstream "$(self_test_subject "$S/a")"
+git -C "$S/b" init -q; git -C "$S/b" remote add origin https://github.com/someone/fundit.git
+mkdir -p "$S/b/.claude"; : > "$S/b/.claude/.template-sync"
+expect "[102] another origin: downstream" downstream "$(self_test_subject "$S/b")"
+git -C "$S/c" init -q; mkdir -p "$S/c/.claude"; : > "$S/c/.claude/.template-sync"
+expect "[102] no origin, a sync stamp: downstream" downstream "$(self_test_subject "$S/c")"
+git -C "$S/d" init -q
+expect "[102] neither signal: upstream, nothing skipped" upstream "$(self_test_subject "$S/d")"
+expect "[102] not a repository, no stamp: upstream" upstream "$(self_test_subject "$S/outer/inner")"
+git -C "$S/outer" init -q; git -C "$S/outer" remote add origin https://github.com/someone/fundit.git
+expect "[102] a dir inside another checkout does not inherit its origin" upstream "$(self_test_subject "$S/outer/inner")"
+git -C "$S/a" remote set-url origin https://github.com/evil-johanolofsson72/Claude.git
+expect "[102] evil-johanolofsson72/Claude: downstream" downstream "$(self_test_subject "$S/a")"
+if [ "$HAVE_HISTORY" -eq 1 ]; then
+  M=$(repo st-mirror); template_history "$M"; set_origin "$M" "https://x-access-token:t@git.example/mirror/Claude.git"
+  expect "[102] the template's history behind a mirror URL: upstream" upstream "$(self_test_subject "$M")"
+else
+  skip "[102] mirror URL on the template's history (no template history here)"
+fi
+
 printf '\n[R1] sabotage: a URL-only identity lets the impostor through\n'
 MUT="$WORK/mut"; mkdir -p "$MUT"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT"/ 2>/dev/null
 python3 - "$MUT/template-identity.sh" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = 'if [ "$_ti_roots" = "$TEMPLATE_ROOT_COMMIT" ]; then echo template; else echo impostor; fi'
+old = 'if [ "$(_template_roots "$1")" = "$TEMPLATE_ROOT_COMMIT" ]; then echo template; else echo impostor; fi'
 assert old in s, "sabotage target not found"
 open(p, "w").write(s.replace(old, "echo template"))
 PY

@@ -486,6 +486,45 @@ else
   bad 'a decorated five-digit id in a comment is refused' "rc=$RC [$OUT]"
 fi
 
+# --- C17 [102]: without --map, a split project's rows are read from specs/scenarios/ --------------
+# The index of a split map holds feature links, not rows. Reading it alone reported NOT RUN on every
+# split project. The gate is run from inside a throwaway project, without --map, so it resolves the
+# map the way it does downstream.
+SP="$TMP/c17proj"; mkdir -p "$SP/specs/scenarios" "$SP/scripts"
+git -C "$SP" init -q
+{ printf '# Scenario map\n\n| Feature | Spec | File | Ids |\n|---|---|---|---|\n'
+  printf '| Thing | 001-thing | [thing](scenarios/001-thing.md) | %s |\n' "$OWNED_A"
+} > "$SP/specs/SCENARIOS.md"
+sed -n '/^|/p' "$MAP" > "$SP/specs/scenarios/001-thing.md"
+{ printf '#!/bin/sh\n'
+  printf "cat > \"\$TMP/probe.md\" <<'MAP'\n"
+  printf '| %s | happy | probe | probe outcome | ✓ |\n' "$OWNED_B"
+  printf 'MAP\n'
+} > "$SP/scripts/test-thing.sh"
+RC=0; OUT=$(cd "$SP" && sh "$GATE" --root "$SP/scripts" 2>&1) || RC=$?
+if [ "$RC" -eq 1 ] && contains "$OUT" "$OWNED_B"; then
+  ok '[102] a split project: an id owned in a feature file is refused'
+else
+  bad '[102] a split project: an id owned in a feature file is refused' "rc=$RC [$OUT]"
+fi
+{ printf '| SC | now | why |\n|----|-----|-----|\n| %s | ✓ | promoted by the operator |\n\n' "$OWNED_B"
+  printf '| ID | Type | Scenario | Expected outcome | Status |\n|----|------|----------|------------------|--------|\n'
+  printf '| %s | happy | a real scenario | a real outcome | ✓ |\n' "$OWNED_A"
+} > "$SP/specs/scenarios/001-thing.md"
+RC=0; OUT=$(cd "$SP" && sh "$GATE" --root "$SP/scripts" 2>&1) || RC=$?
+if [ "$RC" -eq 0 ]; then
+  ok '[102] an id cited only in a feature file side table is not owned'
+else
+  bad '[102] an id cited only in a feature file side table is not owned' "rc=$RC [$OUT]"
+fi
+rm -f "$SP/specs/scenarios/001-thing.md"; printf 'prose, no rows\n' > "$SP/specs/scenarios/001-thing.md"
+RC=0; OUT=$(cd "$SP" && sh "$GATE" --root "$SP/scripts" 2>&1) || RC=$?
+if [ "$RC" -eq 3 ] && contains "$OUT" "NOT RUN"; then
+  ok '[102] a split project with no rows in any file is still NOT RUN'
+else
+  bad '[102] a split project with no rows in any file is still NOT RUN' "rc=$RC [$OUT]"
+fi
+
 printf '\n'
 if [ "$FAILED" -eq 0 ]; then
   printf 'fixture-map-ids: all cases pass\n'

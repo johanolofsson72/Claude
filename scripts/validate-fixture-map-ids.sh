@@ -95,7 +95,11 @@ done
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 PROJECT=$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$HERE/..")
 
-[ -n "$MAP" ]  || MAP="$PROJECT/specs/SCENARIOS.md"
+# --map names exactly one file. Without it the map is the project's, in whichever layout it is in:
+# under the split layout the index holds no rows and every row lives in specs/scenarios/*.md, so
+# reading the index alone reported NOT RUN on every split project (spec 102).
+MAP_GIVEN=1
+[ -n "$MAP" ]  || { MAP="$PROJECT/specs/SCENARIOS.md"; MAP_GIVEN=0; }
 [ -n "$ROOT" ] || ROOT="$PROJECT/scripts"
 
 if [ ! -d "$ROOT" ]; then
@@ -209,11 +213,28 @@ fi
 # is never reused, so a retired row's number stays occupied and a fixture taking it still collides
 # with a row that still exists. The suffix letter is dropped because the NUMBER is what a collision
 # is about: a fixture spelling the stem of a suffixed pair collides with both.
-awk '
-  /^\| *~*SC-[0-9]/ {
-    if (match($0, /SC-[0-9]+/)) print substr($0, RSTART + 3, RLENGTH - 3) + 0
-  }
-' "$MAP" | sort -u > "$TMP/owned"
+#
+# The rows come from scenario-map-rows.sh, the one ledger reader: it judges a table by its header,
+# so a feature file's promotion-note or evidence table that cites ids is not read as a ledger
+# (its trap 4). --partial keeps one malformed row from blanking the whole owned set.
+if [ "$MAP_GIVEN" -eq 1 ]; then
+  set -- "$MAP"
+else
+  . "$HERE/scenario-map-layout.sh"
+  set --
+  while IFS= read -r mf; do set -- "$@" "$mf"; done <<EOF
+$(scenario_map_files "$PROJECT")
+EOF
+fi
+ROWS_RC=0
+sh "$HERE/scenario-map-rows.sh" --partial "$@" > "$TMP/rows" 2> "$TMP/rows.err" || ROWS_RC=$?
+case "$ROWS_RC" in
+  0|4) ;;
+  *) echo "fixture-map-ids: NOT RUN — scenario-map-rows.sh could not read $MAP (exit $ROWS_RC): $(head -1 "$TMP/rows.err")" >&2
+     exit 3 ;;
+esac
+cut -f1 "$TMP/rows" | awk 'match($0, /SC-[0-9]+/) { print substr($0, RSTART + 3, RLENGTH - 3) + 0 }' \
+  | sort -u > "$TMP/owned"
 
 OWNED_COUNT=$(grep -c . "$TMP/owned" || true)
 if [ "$OWNED_COUNT" -eq 0 ]; then

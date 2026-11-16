@@ -15,6 +15,12 @@ export LC_ALL=C
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOC="$SELF_DIR/sync-prompt.md"
+# The block lives in a template-only file: /project-update fetches sync-prompt.md from GitHub, so a
+# project's copy is not the code under test, and a project may hold none (spec 102).
+if [ "$(. "$SELF_DIR/template-identity.sh" && self_test_subject "$SELF_DIR/..")" = downstream ]; then
+  echo "SKIP: downstream — the sync-prompt.md this would test is fetched from GitHub by /project-update"
+  exit 0
+fi
 TMP="${TMPDIR:-/tmp}/sync-prompt-zsh.$$"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }

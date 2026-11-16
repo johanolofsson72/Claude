@@ -333,7 +333,7 @@ PYEOF
 py() { python3 -c "$PY" "$@"; }
 
 # ------------------------------------------------------------------ the target table
-TARGETS_DEFAULT='scripts/template-autosync.sh scripts/test-drive-sync.sh scripts/test-template-autosync-arms.sh scripts/test-sync-count-honesty.sh scripts/test-core-owed-tick-guard.sh scripts/test-core-machinery-guard.sh scripts/test-template-autosync-owed.sh scripts/test-template-autosync-stranded.sh scripts/test-template-autosync-eol.sh scripts/test-template-autosync-unlisted.sh scripts/test-template-autosync-supply-chain.sh scripts/test-template-autosync-sandbox-writes.sh scripts/test-template-clone-refresh.sh
+TARGETS_DEFAULT='scripts/template-autosync.sh scripts/test-drive-sync.sh scripts/test-template-autosync-arms.sh scripts/test-sync-count-honesty.sh scripts/test-core-owed-tick-guard.sh scripts/test-core-machinery-guard.sh scripts/test-template-autosync-owed.sh scripts/test-template-autosync-stranded.sh scripts/test-template-autosync-eol.sh scripts/test-template-autosync-unlisted.sh scripts/test-template-autosync-supply-chain.sh scripts/test-template-autosync-sandbox-writes.sh scripts/test-template-clone-refresh.sh scripts/test-template-autosync-ships.sh
 scripts/project-maintenance.sh scripts/test-project-maintenance.sh scripts/test-maintenance-trust.sh scripts/test-workload-placement.sh
 scripts/project-freshness.sh scripts/test-project-freshness.sh
 scripts/validate-scenario-traceability.sh scripts/test-validate-scenario-traceability.sh

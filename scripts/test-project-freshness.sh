@@ -719,6 +719,22 @@ bounded_keyscan 20 "$P"
 expect_contains "092-AC-4 the unterminated last line is applied" "[ALLOWED] tests/fixtures/throwaway.pem — PEM private key (RSA) — at HEAD — fixture key, never deployed" "$OUT"
 expect_absent   "092-AC-4 …and it is not named as reasonless" ".secret-shapes-allow:2 has no" "$OUT"
 
+printf '\n  -- K12c [102] the scanner and its self-test are allowed with no .secret-shapes-allow at all\n'
+# Every project holds this file's printf fixtures in its history, and .secret-shapes-allow is
+# project-owned. The built-in exemption is two exact paths: a neighbour or a copy elsewhere still flags.
+P=$(mkrepo k12c); mkdir -p "$P/scripts" "$P/vendor/scripts"
+pem "RSA " "$BODY" > "$P/scripts/test-project-freshness.sh"
+pem "RSA " "$BODY" > "$P/scripts/project-freshness.sh"
+pem "RSA " "$BODY" > "$P/scripts/test-project-freshness.sh.bak"
+pem "RSA " "$BODY" > "$P/vendor/scripts/test-project-freshness.sh"
+commit_all "$P"
+bounded_keyscan 20 "$P"
+expect_contains "[102] the self-test is ALLOWED, with the built-in reason" "[ALLOWED] scripts/test-project-freshness.sh — PEM private key (RSA) — at HEAD — built in:" "$OUT"
+expect_contains "[102] the scanner itself is ALLOWED" "[ALLOWED] scripts/project-freshness.sh — PEM private key (RSA) — at HEAD — built in:" "$OUT"
+expect_contains "[102] a neighbour with a suffix still flags" "[FINDING] scripts/test-project-freshness.sh.bak" "$OUT"
+expect_contains "[102] the same name in another directory still flags" "[FINDING] vendor/scripts/test-project-freshness.sh" "$OUT"
+expect_contains "[102] the summary counts both" "Keys:    2 KEY FILE(S) FOUND — rotate now, 2 allowed" "$OUT"
+
 printf '\n  -- K13 outside git: the working tree is scanned\n'
 P="$TMP/k13"; mkdir -p "$P/cfg" "$P/node_modules/x"
 pem "" "$BODY" > "$P/cfg/signing.txt"; pem "" "$BODY" > "$P/node_modules/x/k.pem"

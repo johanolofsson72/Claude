@@ -397,8 +397,13 @@ rem <= 0 {
 
 # .secret-shapes-allow → "$KS_TMP/allow" as "<glob>\t<reason>". A line with no reason is
 # ignored and named: an exemption that does not say why is not one.
+# Two exact paths are built in first (spec 102): this scanner and its self-test ship to every project
+# with key-shaped fixtures, and .secret-shapes-allow is project-owned, so it cannot carry them.
 load_key_allow() {
-  : > "$KS_TMP/allow"
+  printf '%s\t%s\n' \
+    scripts/project-freshness.sh "built in: the scanner's own shape patterns name the key headers it finds" \
+    scripts/test-project-freshness.sh "built in: printf fixtures build throwaway keys at runtime; the template ships this file" \
+    > "$KS_TMP/allow"
   [ -f "$ROOT/.secret-shapes-allow" ] || return 0
   ka_n=0
   while IFS= read -r ka_line || [ -n "$ka_line" ]; do
