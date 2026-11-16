@@ -1525,3 +1525,11 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 099 — maintenance-script-fixes
 
 - [x] 099 — maintenance-script-fixes — light track — project-maintenance false RATCHET failures, carve-excess acknowledgement, context budget over cap in synced projects, archive-completed-rows honesty. F166–F169
+
+## H6 — integration-hardening
+
+- [x] H6 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 095–099.
+
+## 103 — unlisted-fires-on-a-test-fixture
+
+- [x] 103 — unlisted-fires-on-a-test-fixture — trivial — rocky 2026-10-30 (T0): test-project-maintenance.sh C107 writes e2e-gate-census.py as a fixture; declared optional like C88, so core-owed-tick-guard clears.

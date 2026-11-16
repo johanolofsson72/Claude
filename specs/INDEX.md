@@ -114,7 +114,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 097 — prompt-audit-cleanup — spec-only — apply the Opus 5.5 prompt audit: CLAUDE.md self-contradictions, the stale wizard CLAUDE.md, two stop lists, ui-ux-pro-max path, language wording. — approved F149
 - [x] 098 — guard-hole-sweep-2 — full track [hardened] — close the allow paths H5 and 095 found: symlinked dir into .git, refs/remotes trust, silent missing-file exits, git with no timeout, mutant env leak, notice stamp, bash false deny, mcp matcher. F139–F144 F155 F159
 - [x] 099 — maintenance-script-fixes — light track — project-maintenance false RATCHET failures, carve-excess acknowledgement, context budget over cap in synced projects, archive-completed-rows honesty. F166–F169
-- [ ] H6 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 095–099.
+- [x] H6 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 095–099.
 - [ ] 100 — kill-surviving-mutants-2 — spec-only — arm guard allow cases with rc==0, then kill the H4/H5/090/091/095 survivors; mark equivalents. F123–F125 F129 F136 F138 F150–F152 F160
 - [ ] 101 — guard-parser-dedupe — spec-only — one sed-purity parser, by_name scoped per simple command, sync-prompt reuses template_url_matches. F132 F153 F154
 - [ ] 102 — downstream-core-red — spec-only — fundit 2026-10-05: freshness flags its own PuTTY fixture as a key; 9 CORE self-tests red downstream; 14 dangling citations (testing-mobile.md).
@@ -122,14 +122,10 @@ Order of execution. Tick when done. Append new rows to the end.
 
 ## Register history (newest first)
 
+- 2026-11-16 — H6 ticked: suite 96/96 stamped after two in-place test fixes; F184–F195, F224, F225 recorded, no row carved.
 - 2026-10-30 — 103 fixed in place from rocky's T0: an undeclared test fixture kept --unlisted red downstream.
 - 2026-10-06 — 102 added from fundit's maintenance run (T0): CORE defects that are red downstream only.
 
 - 2026-10-03 — finding review (38 open): 098–101 + H6 added from F123–F170; F147 F161 F170 resolved; F156–F158 F162–F165 accepted as bounds; F130 F131 F146 stay open.
 
 - 2026-10-03 — 095a mod-loading-guard inserted before 096 (developer, register rewrite): a loaded mod's allow skips all settings hooks, so 096's mod needs a guard first.
-- 2026-10-03 — H5 ticked; 096 guard-notice-mod and 097 prompt-audit-cleanup added after 095 (approved F148, F149, from the Claude Code 2026-10 update).
-
-- 2026-10-03 — finding review (approved sort): 094 + 095 added; F119 F133 F134 F137 dropped; F130–F132 kept as debt; mutation survivors wait for the next run.
-
-- 2026-10-02 — finding review decided 31: F078 fixed, F086 F088 F089 dropped, 27 folded into 089–093 (+ H4 after 089).

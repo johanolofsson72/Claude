@@ -3,6 +3,12 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-10-03 — H5 ticked; 096 guard-notice-mod and 097 prompt-audit-cleanup added after 095 (approved F148, F149, from the Claude Code 2026-10 update).
+
+- 2026-10-03 — finding review (approved sort): 094 + 095 added; F119 F133 F134 F137 dropped; F130–F132 kept as debt; mutation survivors wait for the next run.
+
+- 2026-10-02 — finding review decided 31: F078 fixed, F086 F088 F089 dropped, 27 folded into 089–093 (+ H4 after 089).
+
 - 2026-10-01 — added 088 guard-trust-anchors from the H3 checkpoint (approved F098).
 
 - 2026-10-01 — freeze lifted (0 open rows); finding review decided all 66: 3 stale, 2 fixed, 9 dropped, 52 folded into rows 082–087 (+ H3 after 084).
