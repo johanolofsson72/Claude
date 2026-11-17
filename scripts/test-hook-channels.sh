@@ -470,14 +470,16 @@ done
 # twinned allium-check-hook only. Every Edit(<glob>) gate in a group whose matcher takes Write
 # needs a Write(<same glob>) twin running the same command.
 MISSING=$(jq -r '[.hooks.PostToolUse[]
-    | select(.matcher | split("|") | index("Write"))
+    | select((.matcher // "") | split("|") | index("Write"))
     | .hooks as $h | $h[]
     | select((.if // "") | startswith("Edit("))
     | . as $e | ("Write" + ($e.if | ltrimstr("Edit"))) as $w
     | select([$h[] | select(.if == $w and .command == $e.command)] | length == 0)
     | "\($e.if) -> \([$e.command | scan("[A-Za-z0-9_-]+\\.sh")] | .[0] // "inline command")"]
-    | .[]' "$ROOT/.claude/settings.json" 2>/dev/null)
-if [ -z "$MISSING" ]; then
+    | .[]' "$ROOT/.claude/settings.json" 2>/dev/null); JQ_RC=$?
+if [ "$JQ_RC" -ne 0 ]; then
+  bad "F235 twin check could not read the PostToolUse groups (jq exit $JQ_RC)"   # H7: an error is not a pass
+elif [ -z "$MISSING" ]; then
   ok "F235 every PostToolUse Edit(<glob>) gate has a Write(<glob>) twin"
 else
   while IFS= read -r m; do bad "F235 no Write twin for $m (the developer's edit, 089 O3)"; done <<<"$MISSING"

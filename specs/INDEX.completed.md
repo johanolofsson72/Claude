@@ -1549,3 +1549,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 104 — allium-check-on-write
 
 - [x] 104 — allium-check-on-write — trivial — agentcrm 2026-11-16 (183): allium-check-hook.sh is wired `if: Edit(**/*.allium)` only; a Write of a new .allium (every elicit) is never checked — five parse errors passed.
+
+## H7 — integration-hardening
+
+- [x] H7 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 100–104.

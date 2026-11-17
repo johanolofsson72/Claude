@@ -3,6 +3,10 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-10-03 — finding review (38 open): 098–101 + H6 added from F123–F170; F147 F161 F170 resolved; F156–F158 F162–F165 accepted as bounds; F130 F131 F146 stay open.
+
+- 2026-10-03 — 095a mod-loading-guard inserted before 096 (developer, register rewrite): a loaded mod's allow skips all settings hooks, so 096's mod needs a guard first.
+
 - 2026-10-03 — H5 ticked; 096 guard-notice-mod and 097 prompt-audit-cleanup added after 095 (approved F148, F149, from the Claude Code 2026-10 update).
 
 - 2026-10-03 — finding review (approved sort): 094 + 095 added; F119 F133 F134 F137 dropped; F130–F132 kept as debt; mutation survivors wait for the next run.
