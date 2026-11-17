@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-10-30 — 103 fixed in place from rocky's T0: an undeclared test fixture kept --unlisted red downstream.
+
 - 2026-10-06 — 102 added from fundit's maintenance run (T0): CORE defects that are red downstream only.
 
 

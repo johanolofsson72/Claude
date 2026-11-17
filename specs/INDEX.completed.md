@@ -1561,3 +1561,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 106 — downstream-core-red-2
 
 - [x] 106 — downstream-core-red-2 — spec-only — CORE self-tests still red downstream after 102, plus sync parity for RULE_DOCS. F196 F203 F205 F207 F211 F233 F234
+
+## 107 — maintenance-report-honesty
+
+- [x] 107 — maintenance-report-honesty — spec-only — the pass quotes every FAIL, emits per section, bounds mutation and ratchets, scans the right register. F180 F181 F191 F200–F202 F204 F224 F225
