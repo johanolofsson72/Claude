@@ -379,16 +379,12 @@ def _git_out(where, *args):
     return out if rc == 0 else None
 
 
-def _add_commit(root, path, oldest):
-    """The oldest (or newest) commit that added `path`, or None. The interview takes the NEWEST add:
-    a spec directory deleted and re-created at the same path is a new spec (088 adversarial #7)."""
-    args = ["log", "--diff-filter=A", "--format=%H"] + ([] if oldest else ["-1"]) + ["--", path]
+def _first_add(root, path):
+    """The oldest commit that added `path` (the 080 sync's arrival), or None. --topo-order with
+    --full-history: the last line is the oldest add in history, whatever the commit dates say."""
+    args = ["log", "--topo-order", "--full-history", "--diff-filter=A", "--format=%H", "--", path]
     shas = (_git_out(root, *args) or "").split()
     return shas[-1] if shas else None
-
-
-def _strictly_before(root, older, newer):
-    return older != newer and _git_out(root, "merge-base", "--is-ancestor", older, newer) is not None
 
 
 def _grandfathered(root, spec_dir):
@@ -402,9 +398,19 @@ def _grandfathered(root, spec_dir):
         return False
     if not ticked:
         return False
-    interview = _add_commit(root, os.path.relpath(os.path.join(spec_dir, "interview.md"), root), oldest=False)
-    arrival = _add_commit(root, ARRIVAL_PATH, oldest=True)
-    return bool(interview and arrival and _strictly_before(root, interview, arrival))
+    # Spec 105 R10 (F178): begun before 080 means the interview is in the tree the arrival commit built on
+    # (its first parent, so an interview added by the arrival itself is not before it), and nothing after
+    # the arrival adds the file again. The pre-105 test took "the newest add" from a path-limited
+    # log, which simplifies a merge to one TREESAME parent: a crafted merge whose interview.md bytes
+    # equal an old spec's walked only the old add, an ancestor of the arrival, and grandfathered a spec
+    # re-created after it. --full-history walks every parent; a git that fails is no exemption.
+    rel = os.path.relpath(os.path.join(spec_dir, "interview.md"), root)
+    arrival = _first_add(root, ARRIVAL_PATH)
+    if not arrival or _git_out(root, "cat-file", "-e", "%s^:%s" % (arrival, rel)) is None:
+        return False
+    readded = _git_out(root, "log", "--full-history", "--diff-filter=A", "--format=%H",
+                       "%s..HEAD" % arrival, "--", rel)
+    return readded is not None and not readded.strip()
 
 
 HOW_TO_CONFIRM = """How to get it confirmed:
@@ -478,7 +484,7 @@ def gate(root, info, file_path):
             "directory linked into another repository would be backed by that repository's answers " \
             "(spec 098). Keep the spec's files in this project." % (rel_dir, real_spec, real_top)
     try:
-        backed = answer_bound(root, conf["quote"], parsed["digest"], strict=True)
+        backed = answer_bound(root, conf["quote"], parsed["digest"], strict=True, spec=spec_name(spec_dir))
     except ScanFailed:
         # Spec 095 R5 (developer O2): this is the forgery route, so a timeout denies here.
         return head + "could not be checked against the recorded answers: git timed out " \
@@ -600,7 +606,7 @@ def question_text(spec_dir, parsed=None):
 
 
 def _disk_digests(start):
-    """Digests of every specs/*/acceptance.md on disk now (the repository root, .specify/, and one
+    """{digest: {spec name: question text}} for every specs/*/acceptance.md on disk now (the repository root, .specify/, and one
     package level down for a monorepo). A digest the question shows counts only if it is one of these
     (/tla GAP-1, spec 088): otherwise the agent could show a digest it precomputed for case text that
     is not on disk yet, get a yes for what is, then write the other text and confirm it."""
@@ -612,8 +618,14 @@ def _disk_digests(start):
         except Exception:
             continue
         if parsed and parsed.get("digest"):
-            found.setdefault(parsed["digest"], _collapse(question_text(os.path.dirname(f), parsed)))
+            d = os.path.dirname(f)
+            found.setdefault(parsed["digest"], {})[spec_name(d)] = _collapse(question_text(d, parsed))
     return found
+
+
+def spec_name(spec_dir):
+    """The name a confirm question shows and an answer is bound to (spec 105 R9)."""
+    return os.path.basename(os.path.normpath(spec_dir))
 
 
 # Where an acceptance.md can live under a project root. One list for the digest filter above and for
@@ -636,10 +648,14 @@ def record_answers(payload, start):
 
     # Spec 091 R8 (F104, O3). A digest is bound only to a click on Confirm, to the --question text for
     # the cases on disk. "No" to an unrelated question that happened to show the digest binds nothing.
+    # Spec 105 R9 (F173): bound to <digest>@<spec name>, the spec whose question text was shown. Cases
+    # copied verbatim into another spec digest the same, and a bare digest would confirm both.
     def bound(q, v):
         if _collapse(v).casefold() != CONFIRM_LABEL.casefold():
             return []
-        return [d for d in _DIGEST_TOKEN.findall(q) if on_disk.get(d) == _collapse(q)]
+        cq = _collapse(q)
+        return ["%s@%s" % (d, name) for d in _DIGEST_TOKEN.findall(q)
+                for name, text in sorted(on_disk.get(d, {}).items()) if text == cq]
 
     lines = "".join("%d %s%s\n" % (now, answer_hash(v), "".join(" " + d for d in bound(q, v)))
                     for q, v in pairs)
@@ -661,21 +677,31 @@ def record_answers(payload, start):
     return len(pairs)
 
 
-def answer_bound(start, quote, digest, strict=False):
-    """True when the store holds an answer equal to `quote` given to a question showing `digest`."""
+def answer_bound(start, quote, digest, strict=False, spec=None, legacy=True):
+    """True when the store holds an answer equal to `quote` given to the question of spec `spec` showing
+    `digest` (spec 105 R9: the token <digest>@<spec>). A bare <digest> token, recorded before R9, keeps
+    an existing Confirmed line valid (legacy=True: the gate and check) only while exactly one
+    acceptance.md on disk carries the digest and it is this spec's (developer O4). It never writes a new
+    line (--confirm passes legacy=False): tla/AnswerBinding.tla found the route where it would, copy the
+    cases to a new spec and edit the original's, and the copy's digest is unique."""
     path = _words_path(start, strict)
     if not path or not os.path.isfile(path):
         return False
     want = answer_hash(quote)
+    bare = False
     try:
         with open(path, "r", encoding="ascii", errors="replace") as fh:
             for line in fh:
                 f = line.split()
-                if len(f) >= 3 and f[1] == want and digest in f[2:]:
-                    return True
+                if len(f) >= 3 and f[1] == want:
+                    if spec and "%s@%s" % (digest, spec) in f[2:]:
+                        return True
+                    bare = bare or digest in f[2:]
     except OSError:
         return False
-    return False
+    if not bare or not spec or not legacy:
+        return False
+    return list(_disk_digests(start).get(digest, {})) == [spec]
 
 
 NOT_BOUND = """acceptance-cases: not confirmed — no AskUserQuestion answer matches this quote for digest {digest}.
@@ -706,7 +732,7 @@ def _confirm(spec_dir, quote):
         print("acceptance-cases: cannot confirm, the cases do not parse:\n" +
               "\n".join("  - " + p for p in problems), file=sys.stderr)
         return 1
-    if not answer_bound(spec_dir, quote, parsed["digest"]):
+    if not answer_bound(spec_dir, quote, parsed["digest"], spec=spec_name(spec_dir), legacy=False):
         print(NOT_BOUND.format(digest=parsed["digest"], spec_dir=spec_dir), file=sys.stderr)
         return 3
     today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
@@ -780,11 +806,16 @@ def main(argv):
             if parsed["problems"]:
                 return 1
             conf = parsed["confirmed"]
+            # Spec 105 R10 (F178): a Confirmed line no recorded answer backs is not confirmed.
+            backed = conf is not None and conf["digest"] == parsed["digest"] and \
+                answer_bound(spec_dir, conf["quote"], parsed["digest"], spec=spec_name(spec_dir))
             state = "unconfirmed" if conf is None else (
-                "confirmed %s" % conf["date"] if conf["digest"] == parsed["digest"]
-                else "digest mismatch (confirmed %s, now %s)" % (conf["digest"], parsed["digest"]))
+                "digest mismatch (confirmed %s, now %s)" % (conf["digest"], parsed["digest"])
+                if conf["digest"] != parsed["digest"] else
+                "confirmed %s" % conf["date"] if backed else
+                "confirmed line not backed by a recorded answer in this clone (ask the confirm question here)")
             print("%d cases, %s" % (len(parsed["cases"]), state))
-            return 0 if conf is not None and conf["digest"] == parsed["digest"] else 3
+            return 0 if backed else 3
         if cmd == "coverage":
             root, spec_id = argv[3], argv[4]
             named = named_cases(root, spec_id)

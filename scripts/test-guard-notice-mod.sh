@@ -40,8 +40,57 @@ fi
 
 printf '\n[096-R5] the installer\n'
 export GUARD_NOTICE_SKIP_VALIDATE=1
+export GUARD_NOTICE_PIN_STORE="$WORK/pins"     # never this repository's own git dir
 T="$CLAUDE_CONFIG_DIR/skills/guard-notice"
-bash "$INSTALL" >/dev/null 2>&1 && ok "a fresh install exits 0" || bad "a fresh install failed"
+
+printf '\n[105-R8] the source is pinned by a digest the developer names\n'
+D=$(bash "$INSTALL" --digest)
+case "$D" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) [ "${#D}" -eq 16 ] && ok "105-R8 --digest prints a 16-hex digest" || bad "105-R8 digest [$D]" ;; *) bad "105-R8 digest [$D]" ;; esac
+OUT=$(bash "$INSTALL" 2>&1); rc=$?
+[ "$rc" -eq 4 ] && [ ! -e "$T" ] && ok "105-R8 an unaccepted source exits 4 and installs nothing" || bad "105-R8 unaccepted: rc $rc"
+case "$OUT" in *"--accept $D"*) ok "  and names the command with its digest" ;; *) bad "  the refusal does not name --accept $D" ;; esac
+bash "$INSTALL" --accept 0000000000000000 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && [ ! -e "$T" ] && ok "105-R8 a wrong --accept exits 4" || bad "105-R8 wrong accept: rc $rc"
+bash "$INSTALL" --accept "$D" >/dev/null 2>&1 && ok "a fresh install with --accept exits 0" || bad "a fresh install failed"
+grep -qx "guard-notice $D" "$GUARD_NOTICE_PIN_STORE" && ok "105-R8 the accepted digest is recorded in the store" || bad "105-R8 nothing recorded"
+grep -qx "digest $D" "$T/.guard-notice-installed" && ok "  and in the marker, for the developer to read" || bad "  the marker lacks the digest"
+M2="$WORK/repo2"; mkdir -p "$M2/scripts" "$M2/mods"; cp "$INSTALL" "$M2/scripts/"; cp -R "$SRC" "$M2/mods/"
+printf '// changed by the agent\n' >> "$M2/mods/guard-notice/lib.ts"
+D2=$(bash "$M2/scripts/install-guard-notice-mod.sh" --digest)
+[ "$D2" != "$D" ] && ok "105-R8 a changed source digests differently" || bad "105-R8 the digest ignored a change"
+printf 'installed by x\ndigest %s\n' "$D2" > "$T/.guard-notice-installed"     # threat #30: a marker the agent wrote
+bash "$M2/scripts/install-guard-notice-mod.sh" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ! grep -q 'changed by the agent' "$T/hooks/lib.ts" && ok "105-R8 a changed source is refused, a planted marker digest notwithstanding" || bad "105-R8 changed source installed: rc $rc"
+SABI="$WORK/sabinst"; mkdir -p "$SABI/scripts" "$SABI/mods"; cp -R "$M2/mods/guard-notice" "$SABI/mods/"
+sed 's/^if \[ "\$ACCEPT" != "\$DIGEST" \] && ! accepted; then$/if false; then/' "$INSTALL" > "$SABI/scripts/install-guard-notice-mod.sh"
+if cmp -s "$INSTALL" "$SABI/scripts/install-guard-notice-mod.sh"; then bad "105-R8 sabotage target not found"; else
+  GUARD_NOTICE_PIN_STORE="$WORK/sabpins" bash "$SABI/scripts/install-guard-notice-mod.sh" --target "$WORK/sabt" >/dev/null 2>&1 && ok "105-R8 sabotage: without the pin a changed source installs" || bad "105-R8 sabotage: the mutant refused"
+fi
+printf 'installed by scripts/install-guard-notice-mod.sh\n' > "$T/.guard-notice-installed"
+bash "$INSTALL" >/dev/null 2>&1 && ok "105-R8 a recorded digest reinstalls with no --accept" || bad "105-R8 a recorded digest was refused"
+[ "$(grep -c "^guard-notice $D\$" "$GUARD_NOTICE_PIN_STORE")" = 1 ] && ok "  and is recorded once, not again" || bad "  the store holds the digest $(grep -c "$D" "$GUARD_NOTICE_PIN_STORE") times"
+bash "$INSTALL" --digest >/dev/null 2>&1 && ok "105-R8 --digest exits 0" || bad "105-R8 --digest failed"
+bash "$INSTALL" --accept >/dev/null 2>&1; [ $? -eq 2 ] && ok "105-R8 --accept without a digest exits 2" || bad "105-R8 --accept alone"
+OUT=$(bash "$INSTALL" --help 2>&1); rc=$?
+[ "$rc" -eq 0 ] && case "$OUT" in *"--accept <digest>"*) true ;; *) false ;; esac && ok "--help exits 0 and documents --accept" || bad "--help: rc $rc"
+OUT=$(bash "$M2/scripts/install-guard-notice-mod.sh" 2>&1); rc=$?
+[ "$rc" -eq 4 ] && ok "105-R8 the changed source is still refused (exit 4)" || bad "105-R8 the changed source: rc $rc"
+case "$OUT" in *"does not match"*) bad "105-R8 a refusal with no --accept claims a mismatch" ;; *) ok "105-R8 a refusal with no --accept names no mismatch" ;; esac
+case "$OUT" in *"--target"*) bad "  and names no --target for the default target" ;; *) ok "  and names no --target for the default target" ;; esac
+OUT=$(bash "$M2/scripts/install-guard-notice-mod.sh" --accept 0000000000000000 --target "$WORK/t2" 2>&1); rc=$?
+[ "$rc" -eq 4 ] && [ ! -e "$WORK/t2" ] && ok "105-R8 a wrong --accept installs nothing (exit 4)" || bad "105-R8 wrong --accept: rc $rc"
+case "$OUT" in *"does not match"*) ok "105-R8 a wrong --accept says it does not match" ;; *) bad "105-R8 a wrong --accept was not named" ;; esac
+case "$OUT" in *"--target \"$WORK/t2\""*) ok "  and the command it prints keeps the --target" ;; *) bad "  the printed command lost the --target" ;; esac
+M3="$WORK/repo3"; mkdir -p "$M3/scripts" "$M3/mods"; cp "$INSTALL" "$M3/scripts/"; cp -R "$SRC" "$M3/mods/"
+ln -sf /etc/hosts "$M3/mods/guard-notice/lib.ts"
+bash "$M3/scripts/install-guard-notice-mod.sh" --digest >/dev/null 2>&1; [ $? -eq 1 ] && ok "105-R8 a staged file that is a link is refused" || bad "105-R8 a linked staged file was hashed"
+cp "$SRC/lib.ts" "$M3/mods/guard-notice/lib.ts.real"; rm "$M3/mods/guard-notice/lib.ts"; mv "$M3/mods/guard-notice/lib.ts.real" "$M3/mods/guard-notice/lib.ts"
+chmod 000 "$M3/mods/guard-notice/lib.ts"
+bash "$M3/scripts/install-guard-notice-mod.sh" --digest >/dev/null 2>&1; rc=$?; chmod 644 "$M3/mods/guard-notice/lib.ts"
+[ "$rc" -eq 1 ] && ok "105-R8 an unreadable staged file stops it (exit 1)" || bad "105-R8 an unreadable staged file: rc $rc"
+git init -q "$M3"; D3=$(bash "$M3/scripts/install-guard-notice-mod.sh" --digest)
+env -u GUARD_NOTICE_PIN_STORE bash "$M3/scripts/install-guard-notice-mod.sh" --accept "$D3" --target "$WORK/t3" >/dev/null 2>&1
+grep -qx "guard-notice $D3" "$M3/.git/claude-mod-accepted" 2>/dev/null && ok "105-R8 with no seam the accepted digest lands in the project's git dir" || bad "105-R8 nothing recorded in the git dir"
 for f in .claude-plugin/plugin.json hooks/hooks.json hooks/register.tsx hooks/lib.ts types/index.d.ts .guard-notice-installed; do
   [ -f "$T/$f" ] && ok "  installed: $f" || bad "  not installed: $f"
 done

@@ -420,6 +420,131 @@ if cmp -s "$GUARD" "$MUT1/trust-anchor-guard-hook.sh"; then bad "098-R1 sabotage
 fi
 rm -f "$P/gd"
 
+printf '\n[105-R1] removing, creating or linking a path in the git dir  (105-AC-1)\n'
+for c in 'rm -r .git' 'rm -R ./.git' 'rmdir .git/refs/x' 'unlink .git/index' 'truncate -s0 .git/HEAD' \
+         'touch .git/claude-hook-notices/s/x' 'mkdir -p .git/hooks/x' 'ln -s /tmp/h .git/hooks/pre-commit' \
+         'cp /tmp/h .git/hooks/pre-commit' 'dd if=/dev/zero of=.git/index count=1' 'sudo rm -r "$PWD/.git"'; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105-AC-1 $c" deny
+done
+for c in 'cat .git/HEAD' 'git rev-parse --git-dir' 'rm -rf build/' 'cp .gitignore /tmp/x' 'mkdir -p .github/workflows' \
+         'touch docs/.gitkeep' 'git status'; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105-R1 control: $c" none
+done
+
+printf '\n[105-R2] the notice stamps and the git dir spelled by git  (105-AC-1)\n'
+for c in 'mkdir -p "$(git rev-parse --git-dir)/claude-hook-notices/s"' 'touch "$(git rev-parse --git-dir)/x"' \
+         'cp /tmp/h "$(git rev-parse --git-common-dir)/hooks/pre-commit"' 'D=$(git rev-parse --absolute-git-dir); touch $D/x' \
+         'touch "$(git rev-parse --git-path hooks)/pre-commit"' 'rm -r "$TMPDIR/claude-hook-notices"' \
+         '/bin/rm -r .git' 'rm -r .g[i]t' 'rm -r .gi?' 'rm -r .git;ls' 'cp -t .git/hooks /tmp/h'; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105-R2 $c" deny
+done
+run "$GUARD" "$(bash_p 'touch "$(git rev-parse --git-dir)/x"')"
+case "$(reason)" in *claude-hook-notices*rev-parse*|*rev-parse*) ok "105-R2 the reason names the git rev-parse spelling" ;; *) bad "105-R2 the reason does not say why: $(reason | head -c 120)" ;; esac
+run "$GUARD" "$(bash_p 'git rev-parse --git-dir --show-toplevel')"; expect "105-R2 control: printing the git dir" none
+run "$GUARD" "$(bash_p 'echo "$(git rev-parse --show-toplevel)"')";  expect "105-R2 control: substituting the toplevel" none
+run "$GUARD" "$(bash_p 'grep -rn claude-hook-notices scripts/')";     expect "105-R2 control: grepping for the stamp dir's name" none
+run "$GUARD" "$(bash_p 'cat "$(git rev-parse --git-dir)/HEAD"')";     expect "105-R2 control: reading through the git dir" none
+run "$GUARD" "$(bash_p 'cp -r .git/hooks /tmp/backup')";               expect "105-R1 control: copying out of the git dir" none
+
+printf '\n[105-R4] a write into a PATH directory  (105-AC-3)\n'
+PB="$WORK/pbin"; mkdir -p "$PB"
+pathrun() { PATH="$PB:$WORK/notyet:$PATH" run "$@"; }
+pathrun "$GUARD" "$(write_p "$PB/git" "#!/bin/sh")";             expect "105-AC-3 Write of <PATH dir>/git" deny
+case "$(reason)" in *PATH*) ok "105-R4 the reason names PATH" ;; *) bad "105-R4 the reason does not name PATH" ;; esac
+pathrun "$GUARD" "$(write_p "$PB/anything-at-all" "x")";          expect "105-R4 any name, not a tool list (O2)" deny
+pathrun "$GUARD" "$(write_p "$WORK/notyet/perl" "x")";            expect "105-R4 a PATH directory that does not exist yet" deny
+ln -s "$PB" "$WORK/pbin-link"
+pathrun "$GUARD" "$(write_p "$WORK/pbin-link/git" "x")";          expect "105-R4 through a link to a PATH directory" deny
+pathrun "$GUARD" "$(bash_p "ln -s /tmp/x $PB/git")";             expect "105-AC-3 ln -s into a PATH directory" deny
+pathrun "$GUARD" "$(bash_p "cp /tmp/x $PB/")";                   expect "105-R4 cp into a PATH directory" deny
+pathrun "$GUARD" "$(bash_p "chmod +x $PB/git")";                 expect "105-R4 chmod in a PATH directory" deny
+pathrun "$GUARD" "$(bash_p "install -m 755 /tmp/x $PB/timeout")"; expect "105-R4 install into a PATH directory" deny
+pathrun "$GUARD" "$(bash_p "echo x > $PB/jq")";                  expect "105-R4 a redirect into a PATH directory" deny
+pathrun "$GUARD" "$(bash_p "dd if=/tmp/x of=$PB/perl")";         expect "105-R4 dd of= into a PATH directory" deny
+pathrun "$GUARD" "$(jq -cn --arg p "$PB/git" '{tool_name:"mcp__fs__write_file",tool_input:{path:$p,content:"x"}}')"
+expect "105-R4 an MCP write into a PATH directory" deny
+pathrun "$GUARD" "$(write_p "$P/docs/notes.md" "x")";            expect "105-AC-3 control: a Write in the project" none
+pathrun "$GUARD" "$(bash_p "ls $PB; $PB/git --version")";        expect "105-R4 control: listing and running from PATH" none
+pathrun "$GUARD" "$(bash_p "echo x > /dev/null")";               expect "105-R4 control: /dev/null" none
+PATH="/dev:$PATH" run "$GUARD" "$(bash_p "echo x > /dev/null")";  expect "105-R4 control: /dev/null with /dev on PATH is no PATH write" none
+
+printf '\n[105-R6] an edit that would leave a script unparseable  (105-AC-3)\n'
+mkdir -p "$P/scripts"
+printf '#!/bin/bash\nx=$(echo ok)\necho "$x"\n' > "$P/scripts/x-guard-hook.sh"
+printf 'import os\nprint(os.sep)\n' > "$P/scripts/m.py"
+run "$GUARD" "$(edit_p "$P/scripts/x-guard-hook.sh" 'x=$(echo ok)' 'x=$(echo ok')"
+expect "105-AC-3 an Edit adding an unclosed \$( is refused" deny
+case "$(reason)" in *unparseable*line*) ok "105-R6 the reason names the parse error and its line" ;; *) bad "105-R6 reason: $(reason | head -c 160)" ;; esac
+run "$GUARD" "$(edit_p "$P/scripts/x-guard-hook.sh" 'echo "$x"' 'echo "$x" >&2')"
+expect "105-AC-3 control: an Edit that keeps it parseable" none
+run "$GUARD" "$(jq -cn --arg p "$P/scripts/m.py" '{tool_name:"MultiEdit",tool_input:{file_path:$p,edits:[{old_string:"print(os.sep)",new_string:"print(os.sep"}]}}')"
+expect "105-R6 a MultiEdit leaving python unparseable" deny
+run "$GUARD" "$(write_p "$P/scripts/m.py" "def f(:")";           expect "105-R6 a Write of broken python over good python" deny
+run "$GUARD" "$(write_p "$P/scripts/new.sh" 'if then')";         expect "105-R6 control: a new file is never refused" none
+printf 'if then\n' > "$P/scripts/broken.sh"
+run "$GUARD" "$(edit_p "$P/scripts/broken.sh" 'if then' 'if true; then')"; expect "105-R6 control: a broken file can be repaired" none
+run "$GUARD" "$(edit_p "$P/scripts/broken.sh" 'if then' 'case')";  expect "105-R6 control: a broken file stays writable" none
+printf 'x=$(echo ok)\n' > "$P/docs/x.sh"
+run "$GUARD" "$(edit_p "$P/docs/x.sh" 'x=$(echo ok)' 'x=$(echo ok')"; expect "105-R6 control: outside scripts/ is not checked" none
+
+printf '\n[105] adversarial review: attached options, more writers, nested substitutions\n'
+for c in 'cp -t.git/hooks evil' 'install -m755 -t.git/hooks x' 'mv -t.git/hooks x' 'cp -at .git/hooks x' \
+         'rsync -a hooks/ .git/hooks/' 'tar xf x.tar -C .git' 'tar -xf x.tar --directory=.git/hooks' 'unzip -o x.zip -d .git' \
+         'ditto src .git/hooks' 'patch .git/config < p.diff' 'curl -o .git/hooks/pre-commit file:///x' \
+         'touch "$(: $(:); git rev-parse --git-dir)/hooks/x"' 'curl -o "$(git rev-parse --git-dir)/hooks/x" file:///x'; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105 review: $c" deny
+done
+pathrun "$GUARD" "$(bash_p "curl -o $PB/jq https://x")";        expect "105 review: curl -o into a PATH directory" deny
+pathrun "$GUARD" "$(bash_p "tar xf a.tar -C $PB")";             expect "105 review: tar -C into a PATH directory" deny
+pathrun "$GUARD" "$(bash_p "wget -O $PB/git https://x")";       expect "105 review: wget -O into a PATH directory" deny
+for c in 'tar xf x.tar -C build' 'curl -o out.json https://x' 'rsync -a .git/hooks/ /tmp/backup/' 'tar cf /tmp/b.tar .git'; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105 review control: $c" none
+done
+# edit_p passes the strings with --arg: under bash 3.2 a ) inside single quotes inside "$( )" ends the
+# substitution, and a literal jq filter here sent the guard an empty payload.
+run "$GUARD" "$(edit_p "$P/SCRIPTS/x-guard-hook.sh" 'x=$(echo ok)' 'x=$(echo ok')"
+expect "105 review #6: SCRIPTS/ on a folding file system is parse-checked" "$( [ -e "$P/SCRIPTS" ] && echo deny || echo none)"
+
+printf '\n[105] /security-review: wrappers with options, the mod pin store\n'
+for c in 'timeout 60 rm -r .git' 'timeout 5 chmod 000 .git' 'nice -n 5 mv .git /tmp/g' 'sudo -u someone chmod 000 .git' \
+         'env -i chmod 000 .git' 'busybox chmod 000 .git' 'timeout -s KILL 5 rm -r .git' \
+         'xargs chmod 000 <<< .git' \
+         'flock /tmp/l rm -r .git' 'timeout 5 touch .git/claude-hook-notices/s/x' 'timeout 5 cp /tmp/acc .git/claude-mod-accepted' \
+         'echo x > /tmp/claude-mod-accepted'; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105 /security-review: $c" deny
+done
+pathrun "$GUARD" "$(bash_p "timeout 5 cp /tmp/x $PB/git")";    expect "105 /security-review: timeout 5 cp into a PATH directory" deny
+run "$GUARD" "$(write_p "$P/.git/claude-mod-accepted" "guard-notice 0123456789abcdef")"; expect "105 /security-review: a Write of the mod pin store" deny
+run "$GUARD" "$(bash_p 'timeout 5 git status')";                expect "105 /security-review control: timeout 5 git status" none
+SABW="$WORK/sabw"; mkdir -p "$SABW"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$SABW"/ 2>/dev/null
+python3 - "$SABW/trust-anchor-guard-hook.sh" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+old = "        if wrapped and w.startswith(\"-\"):"
+assert old in s, "sabotage target not found"
+open(p, "w").write(s.replace(old, "        if False:", 1))
+PY
+run "$SABW/trust-anchor-guard-hook.sh" "$(bash_p 'nice -n 5 mv .git /tmp/g')"; expect "105 /security-review sabotage: without skipping wrapper options the verb is -n" none
+
+printf '\n[105] sabotage: each new rule is the one that denies\n'
+MUT5="$WORK/mut5"; mkdir -p "$MUT5"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT5"/ 2>/dev/null
+python3 - "$MUT5/trust-anchor-guard-hook.sh" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+for old, new in (('if verb in META_VERBS and any(names_git(a) for a in destinations(verb, args)):', 'if False:'),
+                 ('if ("claude-hook-notices" in n or GIT_DIR_SUBST.search(n)) and line_writes(text):', 'if False:'),
+                 ('if on_path(p):\n    print("path-write")', 'if False:\n    print("path-write")'),
+                 ('            print("syntax\\t"', '            pass; print("none"); sys.exit(0); print("syntax\\t"')):
+    assert old in s, "sabotage target not found: " + old[:40]
+    s = s.replace(old, new)
+open(p, "w").write(s)
+PY
+run "$MUT5/trust-anchor-guard-hook.sh" "$(bash_p 'rm -r .git')";                      expect "105-R1 sabotage: without the verbs rm -r .git passes" none
+run "$MUT5/trust-anchor-guard-hook.sh" "$(bash_p 'touch "$(git rev-parse --git-dir)/x"')"; expect "105-R2 sabotage: without the rule the substitution passes" none
+PATH="$PB:$PATH" run "$MUT5/trust-anchor-guard-hook.sh" "$(write_p "$PB/git" "x")";    expect "105-R4 sabotage: without on_path the shim Write passes" none
+run "$MUT5/trust-anchor-guard-hook.sh" "$(edit_p "$P/scripts/x-guard-hook.sh" 'x=$(echo ok)' 'x=$(echo ok')"
+expect "105-R6 sabotage: without the check the broken Edit passes" none
+
 printf '\n[R3] sabotage: without the Confirmed-line rule the forged Edit passes\n'
 MUT="$WORK/mut"; mkdir -p "$MUT"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$MUT"/ 2>/dev/null
 python3 - "$MUT/trust-anchor-guard-hook.sh" <<'PY'

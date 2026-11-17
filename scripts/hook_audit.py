@@ -242,25 +242,21 @@ def matcher_covers_mcp(matcher):
     if not isinstance(matcher, str):
         return False, "the matcher is not a string"
     if matcher in ("", "*"):
-        return True, ""
+        return True, ""                  # matches every tool; "*" is no regular expression
     try:
-        rx = re.compile(matcher)
+        re.compile(matcher)
     except re.error as e:
         return False, "the matcher does not compile (%s)" % e
-    missed = [p for p in MCP_PROBES if not rx.fullmatch(p)]
+    missed = [p for p in MCP_PROBES if not matcher_covers(matcher, p)]   # one reading of a matcher (105)
     return (not missed), ("it does not match %s" % ", ".join(missed) if missed else "")
 
 
-def mcp_matcher_findings(docs):
+def mcp_matcher_findings(wired):
+    """wired: [(guard basename, matcher, hook)] for the committed file's PreToolUse hooks (spec 105 R11)."""
     seen = {}
-    for label, _, d in docs:
-        if not label.startswith("project"):
-            continue
-        for event, matcher, h in hooks_of(d):
-            cmd = h.get("command") if isinstance(h.get("command"), str) else ""
-            for guard in MCP_GUARDS:
-                if event == "PreToolUse" and guard in cmd:
-                    seen.setdefault(guard, []).append((label, matcher) + matcher_covers_mcp(matcher))
+    for guard, matcher, _ in wired:
+        if guard in MCP_GUARDS:
+            seen.setdefault(guard, []).append(("project", matcher) + matcher_covers_mcp(matcher))
     out = []
     for guard, rows in sorted(seen.items()):
         if any(covers for _, _, covers, _ in rows):
@@ -269,6 +265,63 @@ def mcp_matcher_findings(docs):
             out.append("MATCHER %s PreToolUse[%s]: %s does not run for MCP tools: %s. Add |mcp__.* to "
                        "that matcher (the developer edits it, or the next template sync carries it)."
                        % (label, matcher, guard, why))
+    return out
+
+
+# Spec 105 R11 (F190): the tool names each guard must see, as the template wires it. A guard present in
+# the project's scripts/ that no committed PreToolUse hook runs is UNWIRED; one whose matchers miss a
+# tool is MATCHER. Only the committed settings file counts: the local file and the user's file are one
+# machine's, and a covering group there hid an uncovered committed one. A hook wires a guard when its
+# resolved script is <root>/scripts/<guard>, never by substring (an echo or a .bak named it). The MCP
+# probes stay with mcp_matcher_findings above.
+EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+GUARD_TOOLS = {
+    "trust-anchor-guard-hook.sh": EDIT_TOOLS + ("Bash", "AskUserQuestion"),
+    "settings-edit-guard-hook.sh": EDIT_TOOLS + ("Bash",),
+    "sensitive-file-guard-hook.sh": ("Read",) + EDIT_TOOLS + ("Bash",),
+    "spec-register-guard-hook.sh": EDIT_TOOLS,
+    "pipeline-state-guard-hook.sh": EDIT_TOOLS,
+    "spec-interview-guard-hook.sh": EDIT_TOOLS,
+    "core-machinery-guard-hook.sh": EDIT_TOOLS,
+    "core-owed-tick-guard-hook.sh": EDIT_TOOLS,
+    "bash-write-guard-hook.sh": ("Bash",),
+    "destructive-command-guard-hook.sh": ("Bash",),
+    "stryker-guard-hook.sh": ("Bash",),
+}
+
+
+def matcher_covers(matcher, tool):
+    if not isinstance(matcher, str):
+        return False
+    if matcher in ("", "*"):
+        return True
+    try:
+        return bool(re.fullmatch(matcher, tool))
+    except re.error:
+        return False
+
+
+def wiring_findings(root, wired):
+    out = []
+    for guard, tools in sorted(GUARD_TOOLS.items()):
+        if not os.path.isfile(os.path.join(root, "scripts", guard)):
+            continue
+        groups = [(m, h) for g, m, h in wired if g == guard]
+        if not groups:
+            out.append("UNWIRED project PreToolUse: scripts/%s is in this project and no hook in the "
+                       "committed .claude/settings.json runs it, so it never runs. The local and the user's "
+                       "settings do not count: they are one machine's. The next template sync wires it, or "
+                       "the developer adds it." % guard)
+            continue
+        missed = [t for t in tools if not any(matcher_covers(m, t) for m, _ in groups)]
+        if missed:
+            out.append("MATCHER project PreToolUse[%s]: %s does not run for %s. Add them to that matcher "
+                       "(the developer edits it, or the next template sync carries it)."
+                       % ("; ".join(str(m) for m, _ in groups), guard, ", ".join(missed)))
+        for m, h in groups:
+            if h.get("async") is True:
+                out.append("ASYNC project PreToolUse[%s]: %s runs async, so its deny arrives after the call "
+                           "has run. Remove \"async\": true." % (m, guard))
     return out
 
 
@@ -330,6 +383,7 @@ def main(argv):
                 break
 
     total = 0
+    wired = []
     base_env = {"CLAUDE_PROJECT_DIR": root, "HOME": home}
     for label, path, d, plugin_root in [(a, b, c, None) for a, b, c in docs] + plugin_docs:
         env = dict(base_env)
@@ -342,6 +396,9 @@ def main(argv):
             cmd = h["command"]
             where = "%s %s%s" % (label, event, "[%s]" % matcher if matcher else "")
             problems, script = judge(cmd, h.get("args"), env, home, root)
+            if label == "project" and event == "PreToolUse" and script \
+                    and os.path.dirname(os.path.realpath(script)) == os.path.realpath(os.path.join(root, "scripts")):
+                wired.append((os.path.basename(script), matcher, h))
             shown = re.sub(r"\s+", " ", cmd)[:120]
             for why, word in problems:
                 findings.append("UNRESOLVED %s: %s '%s' — %s" % (where, why, word, shown))
@@ -350,7 +407,8 @@ def main(argv):
                 for why in channel_defects(script):
                     findings.append("CHANNEL %s: %s %s" % (where, os.path.relpath(script, root), why))
 
-    findings.extend(mcp_matcher_findings(docs))
+    findings.extend(mcp_matcher_findings(wired))
+    findings.extend(wiring_findings(root, wired))
     for err in unreadable:
         findings.append("UNREADABLE %s" % err)
     for f in findings:

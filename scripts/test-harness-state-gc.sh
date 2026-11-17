@@ -55,5 +55,20 @@ run_gc "$P"
 [ ! -e "$GN/old-session" ] && ok "098-R6 a stale stamp directory in the git dir is swept" || bad "098-R6 the git-dir stamps are never collected"
 [ -d "$GN/new-session" ] && [ -d "$GN" ] && ok "  a fresh one, and the base, stay" || bad "  the sweep removed a fresh session or the base"
 
+echo "== 105-R3. the sweep follows the base guard_announce writes to =="
+WT="$TMP/wt105"; mkproj "$WT"; rm -rf "$WT/.git"; mkdir -p "$TMP/wtgd/.git/worktrees/w"
+echo "gitdir: $TMP/wtgd/.git/worktrees/w" > "$WT/.git"
+GW="$TMP/wtgd/.git/worktrees/w/claude-hook-notices"; mkdir -p "$GW/old-session" "$GW/new-session"; touch -t 202001010000 "$GW/old-session"
+run_gc "$WT"
+[ ! -e "$GW/old-session" ] && ok "105-R3 a worktree's stamps, in the git dir its .git file names, are swept" || bad "105-R3 the .git-file route is never collected"
+[ -d "$GW/new-session" ] && ok "  a fresh one stays" || bad "  a fresh session was removed"
+mkdir -p "$GW/old-dry"; touch -t 202001010000 "$GW/old-dry"
+run_gc "$WT" --dry-run
+[ -d "$GW/old-dry" ] && ok "105-R3 --dry-run sweeps no stamp directory" || bad "105-R3 --dry-run removed a stamp directory"
+SL="$TMP/sl105"; mkproj "$SL"; mkdir -p "$TMP/victim105/old-session"; touch -t 202001010000 "$TMP/victim105/old-session"
+mkdir -p "$SL/.git"; rm -rf "$SL/.git/claude-hook-notices"; ln -s "$TMP/victim105" "$SL/.git/claude-hook-notices"
+run_gc "$SL"
+[ -d "$TMP/victim105/old-session" ] && ok "105-R3 a symlinked base is not followed (threat model #11)" || bad "105-R3 the sweep followed a symlinked base"
+
 printf '\npassed %d, failed %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

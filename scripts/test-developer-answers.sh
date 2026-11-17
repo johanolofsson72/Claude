@@ -110,7 +110,7 @@ answered "$Q" "Confirm"; HRC=$?
 expect "the hook exits 0" 0 "$HRC"
 expect "one more line recorded" "$((N0 + 1))" "$(lines)"
 L=$(tail -1 "$STORE")
-case "$L" in *" $(sha Confirm) $DIG") ok "the line is <epoch> <sha256(answer)> <digest>" ;; *) bad "line shape: $L" ;; esac
+case "$L" in *" $(sha Confirm) $DIG@$(basename "$D")") ok "the line is <epoch> <sha256(answer)> <digest>@<spec> (105 R9)" ;; *) bad "line shape: $L" ;; esac
 case "$(cat "$STORE")" in *"Confirm"*|*"Acceptance cases"*) bad "plaintext on disk" ;; *) ok "no plaintext answer or question on disk" ;; esac
 expect "the store is private (0600)" 600 "$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$STORE")"
 
@@ -125,7 +125,7 @@ bash "$HELPER" --check "$D" >/dev/null 2>&1; expect "it checks clean" 0 $?
 confirm "confirm"
 expect "case is kept: a different-case quote does not match" 3 "$RC"
 answered "$Q" "CONFIRM"
-expect "R8 the label is compared ignoring case: CONFIRM binds" "$(sha CONFIRM) $DIG" "$(tail -1 "$STORE" | cut -d' ' -f2-)"
+expect "R8 the label is compared ignoring case: CONFIRM binds" "$(sha CONFIRM) $DIG@$(basename "$D")" "$(tail -1 "$STORE" | cut -d' ' -f2-)"
 QNODASH=$(printf '%s\n' "$Q" | sed 's/^\(AC-[0-9]*\) — /\1 - /')
 answered "$QNODASH" "Confirm"
 expect "R8 any edit of the --question text (a hyphen for the em dash) binds nothing" "" "$(tail -1 "$STORE" | cut -d' ' -f3)"
@@ -134,7 +134,7 @@ Extra words the agent appended." "Confirm"
 expect "R8 text appended to the --question text binds nothing" "" "$(tail -1 "$STORE" | cut -d' ' -f3)"
 QWS=$(printf '%s\n' "$Q" | tr '\n' ' ')
 answered "$QWS" "Confirm"
-expect "R8 the same text with other whitespace still binds" "$DIG" "$(tail -1 "$STORE" | cut -d' ' -f3)"
+expect "R8 the same text with other whitespace still binds" "$DIG@$(basename "$D")" "$(tail -1 "$STORE" | cut -d' ' -f3)"
 
 printf '\n[R5] edited cases need a new answer\n'
 sed -i.bak 's/\*\*Then\*\* e/**Then** e2/' "$D/acceptance.md"; rm -f "$D/acceptance.md.bak"
@@ -164,7 +164,7 @@ answered_nogit=$(jq -cn '{tool_name:"AskUserQuestion",tool_response:{answers:{"q
 expect "outside a git repository: exit 0, nothing written" "rc=0" "$answered_nogit"
 SUB="$P/sub"; mkdir -p "$SUB"
 jq -cn --arg w "$SUB" --arg q "$Q2" '{tool_name:"AskUserQuestion",cwd:$w,tool_response:{answers:{($q):"Confirm"}}}' | env -u CLAUDE_PROJECT_DIR bash "$HOOK"
-case "$(tail -1 "$STORE")" in *" $DIG2") ok "no CLAUDE_PROJECT_DIR: the payload cwd finds the repository" ;; *) bad "cwd fallback" ;; esac
+case "$(tail -1 "$STORE")" in *" $DIG2@$(basename "$D")") ok "no CLAUDE_PROJECT_DIR: the payload cwd finds the repository" ;; *) bad "cwd fallback" ;; esac
 
 printf '\n[R4] the store keeps its last 500 lines\n'
 python3 - "$STORE" <<'PY'
@@ -192,7 +192,7 @@ MUT="$WORK/mut"; mkdir -p "$MUT"; cp "$SELF_DIR"/acceptance-cases.sh "$SELF_DIR"
 python3 - "$MUT/acceptance_cases.py" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = 'if not answer_bound(spec_dir, quote, parsed["digest"]):'
+old = 'if not answer_bound(spec_dir, quote, parsed["digest"], spec=spec_name(spec_dir), legacy=False):'
 assert old in s, "sabotage target not found"
 open(p, "w").write(s.replace(old, "if False:"))
 PY

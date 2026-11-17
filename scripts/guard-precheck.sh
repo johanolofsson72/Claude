@@ -48,10 +48,17 @@ guard_precheck_link() {
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
     case "$p" in "${CLAUDE_PROJECT_DIR%/}"/*) stop="${CLAUDE_PROJECT_DIR%/}" ;; esac
   fi
-  # Ends at the anchor, or at "" (the parent of "/a") when there is none.
-  while [ "$p" != "$stop" ]; do
+  # Ends at the anchor's depth, or at "" (the parent of "/a") when there is none. By length, not by
+  # string equality: the caller's `case` above may run under nocasematch, so `Claude/x` is "inside"
+  # `claude`, and `[ "$p" != "$stop" ]` then never met its stop and spun at "" until the harness timed
+  # the hook out, which ALLOWS the call (spec 105 R13, found 2026-11-17 on this repository: the harness
+  # spells CLAUDE_PROJECT_DIR .../Claude, the disk .../claude).
+  local prev
+  while [ -n "$p" ] && [ "${#p}" -gt "${#stop}" ]; do
     [ -L "$p" ] && return 0
+    prev=$p
     p="${p%/*}"
+    [ "$p" = "$prev" ] && break       # no / left (a relative cwd "."): ${p%/*} cannot shrink it (threat model #24)
   done
   return 1
 }

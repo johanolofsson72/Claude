@@ -243,7 +243,7 @@ rm -rf "$PL/specs/080-demo"; ln -s "$PO/specs/080-demo" "$PL/specs/080-demo"
 printf '// 080-AC-1 080-AC-2 080-AC-3\n' > "$PL/tests/app.test.ts"
 expect "098 threat #11 a spec dir linked into another repository is denied" "$PL/src/app.ts" deny "live outside this project"
 SABR2="$TMP/sabr2"; mkdir -p "$SABR2"; cp "$SELF_DIR"/*.py "$SELF_DIR"/*.sh "$SABR2"/
-sed 's/backed = answer_bound(root, conf\["quote"\], parsed\["digest"\], strict=True)/backed = True/' "$SELF_DIR/acceptance_cases.py" > "$SABR2/acceptance_cases.py"
+sed 's/backed = answer_bound(root, conf\["quote"\], parsed\["digest"\], strict=True, spec=spec_name(spec_dir))/backed = True/' "$SELF_DIR/acceptance_cases.py" > "$SABR2/acceptance_cases.py"
 if cmp -s "$SELF_DIR/acceptance_cases.py" "$SABR2/acceptance_cases.py"; then fail "098-R2 sabotage target not found"; else
   rm -f "$P/.git/claude-developer-words"
   OUTS=$(jq -cn --arg p "$P/src/app.ts" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}' \
@@ -625,6 +625,95 @@ for _ in 1 2 3; do
   [ "$ms" -lt "$best" ] && best=$ms
 done
 [ "$best" -lt 400 ] && ok "step-2 deny in ${best} ms, best of 3 (< 400)" || fail "step-2 deny took ${best} ms, best of 3"
+
+echo
+echo "[105-R9] an answer binds its own spec, not a copy of its cases  (105-AC-5)"
+P5=$(mk_project p105 105 "full track [hardened]"); write_cases "$P5" 105 3
+mkdir -p "$P5/specs/106-demo"; cp "$P5/specs/105-demo/acceptance.md" "$P5/specs/106-demo/acceptance.md"
+confirm "$P5" 105
+D5=$(bash "$HELPER" --digest "$P5/specs/105-demo")
+[ "$(bash "$HELPER" --digest "$P5/specs/106-demo")" = "$D5" ] && ok "105-AC-5 the copied cases digest the same" || fail "105-AC-5 fixture: digests differ"
+grep -q " $D5@105-demo" "$P5/.git/claude-developer-words" && ok "105-R9 the store token names the spec ($D5@105-demo)" || fail "105-R9 no spec-bound token recorded"
+bash "$HELPER" --confirm "$P5/specs/106-demo" --quote "Confirm" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 3 ] && ! grep -q '^\*\*Confirmed:\*\*' "$P5/specs/106-demo/acceptance.md" && ok "105-AC-5 --confirm on the copy refuses with no answer to its own question" || fail "105-AC-5 the copy confirmed (rc $rc)"
+answer "$P5" 106 "Confirm"
+bash "$HELPER" --confirm "$P5/specs/106-demo" --quote "Confirm" >/dev/null 2>&1 && ok "105-AC-5 after Confirm on its own question it records the line" || fail "105-AC-5 the copy's own answer did not confirm"
+# Developer O4: a bare token (recorded before R9) binds only while its digest is unique on disk.
+P6=$(mk_project p105b 107 "full track"); write_cases "$P6" 107 4
+D6=$(bash "$HELPER" --digest "$P6/specs/107-demo")
+printf '%s %s %s\n' "$(date +%s)" "$(printf 'Confirm' | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)" "$D6" >> "$P6/.git/claude-developer-words"
+bash "$HELPER" --confirm "$P6/specs/107-demo" --quote "Confirm" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 3 ] && ok "105-R9 O4: a bare token never writes a new Confirmed line (tla/AnswerBinding)" || fail "105-R9 O4: --confirm wrote a line from a bare token (rc $rc)"
+# The line a pre-R9 --confirm wrote (here by the fixture, as the old helper did):
+{ printf '**Confirmed:** 2026-10-01 · %s — "Confirm"\n\n' "$D6"; cat "$P6/specs/107-demo/acceptance.md"; } > "$P6/a.tmp" && mv "$P6/a.tmp" "$P6/specs/107-demo/acceptance.md"
+bash "$HELPER" --check "$P6/specs/107-demo" >/dev/null 2>&1 && ok "105-R9 O4: a unique bare token keeps the existing line valid (check exits 0)" || fail "105-R9 O4: the in-flight spec lost its confirmation"
+mkdir -p "$P6/specs/108-demo"; grep -v '^\*\*Confirmed:\*\*' "$P6/specs/107-demo/acceptance.md" > "$P6/specs/108-demo/acceptance.md"
+bash "$HELPER" --confirm "$P6/specs/108-demo" --quote "Confirm" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 3 ] && ok "105-R9 O4: the copy is refused" || fail "105-R9 O4: the copy confirmed through a bare token (rc $rc)"
+bash "$HELPER" --check "$P6/specs/107-demo" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 3 ] && ok "105-R9 O4: …and with two on disk the original re-asks too (check exits 3)" || fail "105-R9 O4: the original stayed bound (rc $rc)"
+# The route TLC found: copy the cases, then edit the original's, so the copy's digest is unique.
+printf '## AC-9 — added\n**Given** g\n**When** w\n**Then** t\n' >> "$P6/specs/107-demo/acceptance.md"
+bash "$HELPER" --confirm "$P6/specs/108-demo" --quote "Confirm" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 3 ] && ok "105-R9 the copy stays refused after the original is edited away (TLC trace)" || fail "105-R9 the copy confirmed once its digest was unique (rc $rc)"
+SAB9="$TMP/sab105r9"; mkdir -p "$SAB9"; cp "$SELF_DIR"/*.py "$SELF_DIR"/*.sh "$SAB9"/ 2>/dev/null
+python3 - "$SAB9/acceptance_cases.py" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+for a, b in (("return list(_disk_digests(start).get(digest, {})) == [spec]", "return True"),
+             ("if not bare or not spec or not legacy:", "if not bare or not spec:")):
+    assert a in s, a
+    s = s.replace(a, b)
+open(p, "w").write(s)
+PY
+P7=$(mk_project p105c 105 "full track"); write_cases "$P7" 105 3
+mkdir -p "$P7/specs/106-demo"; cp "$P7/specs/105-demo/acceptance.md" "$P7/specs/106-demo/acceptance.md"
+D7=$(bash "$HELPER" --digest "$P7/specs/105-demo")
+printf '%s %s %s\n' "$(date +%s)" "$(printf 'Confirm' | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)" "$D7" >> "$P7/.git/claude-developer-words"
+bash "$SAB9/acceptance-cases.sh" --confirm "$P7/specs/106-demo" --quote "Confirm" >/dev/null 2>&1 \
+  && ok "105-R9 sabotage: without the uniqueness check a bare token confirms the copy" || fail "105-R9 sabotage: the mutant still refuses the copy"
+
+echo
+echo "[105-R10] check needs the answer; the newest add is the newest in history"
+P8=$(mk_project p105d 109 "full track"); write_cases "$P8" 109 3
+D8=$(bash "$HELPER" --digest "$P8/specs/109-demo")
+{ printf '**Confirmed:** 2026-11-17 · %s — "Confirm"\n\n' "$D8"; cat "$P8/specs/109-demo/acceptance.md"; } > "$P8/forged" && mv "$P8/forged" "$P8/specs/109-demo/acceptance.md"
+OUT=$(bash "$HELPER" --check "$P8/specs/109-demo" 2>&1); rc=$?
+[ "$rc" -eq 3 ] && ok "105-R10 a forged Confirmed line with the right digest: check exits 3" || fail "105-R10 check passed a forged line (rc $rc)"
+case "$OUT" in *"not backed by a recorded answer"*) ok "  and says it is not backed" ;; *) fail "  check said: $OUT" ;; esac
+answer "$P8" 109 "Confirm"
+bash "$HELPER" --check "$P8/specs/109-demo" >/dev/null 2>&1 && ok "105-R10 control: once the answer is recorded, check exits 0" || fail "105-R10 a backed line failed check"
+P9=$(mk_project p105e 110 "full track")
+gcommit() { ( cd "$P9" && GIT_AUTHOR_DATE="$1T12:00:00" GIT_COMMITTER_DATE="$1T12:00:00" git -c user.name=t -c user.email=t@t commit -qm "$2" ) >/dev/null 2>&1; }
+( cd "$P9" && git add specs >/dev/null 2>&1 ); gcommit 2026-01-01 "old spec 110"
+( cd "$P9" && git rm -rq specs/110-demo ) >/dev/null 2>&1; gcommit 2026-02-01 "drop it"
+arrive "$P9"
+mkdir -p "$P9/specs/110-demo"; printf '# i\n' > "$P9/specs/110-demo/interview.md"; printf -- '- [x] T1\n' > "$P9/specs/110-demo/tasks.md"
+( cd "$P9" && git add specs >/dev/null 2>&1 ); gcommit 2025-06-01 "re-created spec, backdated"
+# The crafted merge: second parent the old add itself, and interview.md set back to the old bytes. A
+# path-limited log simplifies the merge to that TREESAME parent and never walks the new add.
+OLD=$(git -C "$P9" log --format=%H --grep='^old spec 110$')
+git -C "$P9" show "$OLD:specs/110-demo/interview.md" > "$P9/specs/110-demo/interview.md"
+git -C "$P9" add specs/110-demo/interview.md
+MRG=$(cd "$P9" && GIT_COMMITTER_DATE=2026-03-01T12:00:00 GIT_AUTHOR_DATE=2026-03-01T12:00:00 \
+      git -c user.name=t -c user.email=t@t commit-tree "$(git write-tree)" -p HEAD -p "$OLD" -m merge)
+git -C "$P9" update-ref HEAD "$MRG"
+V=$(cd "$SELF_DIR" && python3 -c 'import sys, acceptance_cases as a; print(a._grandfathered(sys.argv[1], sys.argv[1] + "/specs/110-demo"))' "$P9")
+[ "$V" = False ] && ok "105-R10 a re-created spec with a backdated add is not grandfathered" || fail "105-R10 the backdated add grandfathered it ($V)"
+python3 - "$SELF_DIR/acceptance_cases.py" "$TMP/ac_sab10.py" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+a = s.index('    rel = os.path.relpath(os.path.join(spec_dir, "interview.md"), root)\n    arrival = _first_add')
+b = s.index("    return readded is not None and not readded.strip()\n") + len("    return readded is not None and not readded.strip()\n")
+old = ('    rel = os.path.relpath(os.path.join(spec_dir, "interview.md"), root)\n'
+       '    sh = (_git_out(root, "log", "--diff-filter=A", "--format=%H", "-1", "--", rel) or "").split()\n'
+       '    arrival = _first_add(root, ARRIVAL_PATH)\n'
+       '    return bool(sh and arrival and sh[0] != arrival and\n'
+       '                _git_out(root, "merge-base", "--is-ancestor", sh[0], arrival) is not None)\n')
+open(sys.argv[2], "w").write(s[:a] + old + s[b:])
+PY
+V=$(cd "$TMP" && PYTHONPATH="$SELF_DIR" python3 -c 'import sys, ac_sab10 as a; print(a._grandfathered(sys.argv[1], sys.argv[1] + "/specs/110-demo"))' "$P9")
+[ "$V" = True ] && ok "105-R10 sabotage: the pre-105 newest-add test grandfathers the crafted merge" || fail "105-R10 sabotage: the mutant read $V"
 
 echo
 echo "acceptance cases: $PASSES passed, $FAILURES failed"

@@ -361,5 +361,25 @@ unit "precheck: a relative path whose cwd holds a backslash goes to the parser" 
 unit "precheck: the walk stops at CLAUDE_PROJECT_DIR" 1 'mkdir -p real lnk2; ln -s real up 2>/dev/null; CLAUDE_PROJECT_DIR="$PWD/up/p" guard_precheck_link "{\"tool_input\":{\"file_path\":\"$PWD/up/p/a.txt\"}}"; echo $?'
 unit "precheck: without an anchor a linked ancestor is found" 0 'mkdir -p real; ln -s real up2 2>/dev/null; guard_precheck_link "{\"tool_input\":{\"file_path\":\"$PWD/up2/p/a.txt\"}}"; echo $?'
 
+printf '\n[105-R13] the pre-check walk always ends\n'
+# CLAUDE_PROJECT_DIR spelled in another case than the file_path, under nocasematch (as core-machinery calls
+# it): the "inside" test matched, the case-sensitive stop never did, and the walk spun at "" until the
+# harness timed the hook out, which runs the call (F258).
+mkdir -p "$WORK/CaseProj/sub"
+T0=$(date +%s)
+got=$(cd "$WORK" && timeout 10 "$BASH_BIN" -c '. "$1/guard-precheck.sh"; shopt -s nocasematch; CLAUDE_PROJECT_DIR="$2/caseproj" guard_precheck_link "{\"tool_input\":{\"file_path\":\"$2/CaseProj/sub/x.txt\"}}"; echo $?' _ "$SELF_DIR" "$WORK" 2>/dev/null)
+T1=$(date +%s)
+expect "105-R13 a case-mismatched project dir ends the walk (no link: 1)" 1 "$got"
+[ $((T1 - T0)) -lt 5 ] && ok "  in $((T1 - T0)) s" || bad "  the walk took $((T1 - T0)) s"
+got=$(cd "$WORK" && timeout 10 "$BASH_BIN" -c '. "$1/guard-precheck.sh"; guard_precheck_link "{\"cwd\":\".\",\"tool_input\":{\"file_path\":\"a.txt\"}}"; echo $?' _ "$SELF_DIR" 2>/dev/null)
+expect "105-R13 a relative cwd (threat #24) ends the walk" 1 "$got"
+SAB13="$WORK/sab13"; mkdir -p "$SAB13"
+sed -e 's/  while \[ -n "\$p" \] && \[ "\${#p}" -gt "\${#stop}" \]; do/  while [ "$p" != "$stop" ]; do/' \
+    -e '/\[ "\$p" = "\$prev" \] && break/d' "$SELF_DIR/guard-precheck.sh" > "$SAB13/guard-precheck.sh"
+if cmp -s "$SELF_DIR/guard-precheck.sh" "$SAB13/guard-precheck.sh"; then bad "105-R13 sabotage target not found"; else
+  got=$(cd "$WORK" && timeout 3 "$BASH_BIN" -c '. "$1/guard-precheck.sh"; shopt -s nocasematch; CLAUDE_PROJECT_DIR="$2/caseproj" guard_precheck_link "{\"tool_input\":{\"file_path\":\"$2/CaseProj/sub/x.txt\"}}"; echo $?' _ "$SAB13" "$WORK" 2>/dev/null; echo "rc=$?")
+  case "$got" in *rc=124*) ok "105-R13 sabotage: the pre-105 stop spins until killed" ;; *) bad "105-R13 sabotage: the mutant ended [$got]" ;; esac
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

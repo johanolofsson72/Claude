@@ -814,5 +814,62 @@ PY
 run "$M7/settings-edit-guard-hook.sh" "$(bash_p "grep hooks $S ; bash scripts/test-x.sh")"
 expect "sabotage 098-R7: the line-wide rule refuses F155's command again" deny
 
+printf '\n[105-R7] runners the list missed, and a name handed on  (105-AC-4)\n'
+for c in "</dev/null bash f $S" "cat $S > f; </dev/null bash f" "cat $S; sed -i x \"\$_\"" "cat $S; sed -i x \"\${_}\"" \
+         "cat $S > f; python3.12 f" "echo $S >f; sed -i x \$(cat f)" "cat $S > f; gawk -f f" "cat $S > f; perl5.30 f" \
+         "cat $S > f; find . -name x -exec sh f {} +" "cat $S > f; make -f f" "cat $S > f; flock /tmp/l bash f" \
+         "cat $S > f; tcsh f" "cat $S > f; rbash f"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105-AC-4 denied: ${c//$P\//}" deny
+done
+for c in "grep hooks $S ; bash scripts/test-x.sh \"\$(pwd)\"" "cat $S; echo '\$_'" "grep hooks $S; cd \"\$(git rev-parse --show-toplevel)\"" \
+         "jq .hooks $S; make test"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105-AC-4 allowed: ${c//$P\//}" none
+done
+sabotage "sabotage 105-R7: an input redirect's operand read as the command word hides the runner" \
+  '                pending_input = False                 # < f: read from f, not a word (105 R7)' \
+  '                words.append(tok); pending_input = False' \
+  "$(bash_p "cat $S > f; </dev/null bash f")"
+sabotage "sabotage 105-R7: without the version strip python3.12 is no runner" \
+  'return b in EXEC_COMMANDS or re.sub(r"[\d.]+$", "", b) in EXEC_COMMANDS' 'return b in EXEC_COMMANDS' \
+  "$(bash_p "cat $S > f; python3.12 f")"
+sabotage "sabotage 105-R7: without the handed-on rule \$_ carries the name to sed" \
+  'return ["settings-bash", seen_name]' 'pass' \
+  "$(bash_p "cat $S; sed -i x \"\$_\"")"
+sabotage "sabotage 105-R7: without find -exec, find runs the file" \
+  'return True                                   # find -exec runs a program per file (105 R7)' 'pass' \
+  "$(bash_p "cat $S > f; find . -name x -exec sh f {} +")"
+
+printf '\n[105-R8] a mod installer inside a program string\n'
+for c in "bash -c 'scripts/install-guard-notice-mod.sh --target /tmp/x'" "timeout 5 bash -c 'bash scripts/install-guard-notice-mod.sh'" \
+         "sh -c 'cd /tmp && ./install-x-mod.sh'"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105-R8 denied: $c" deny
+done
+for c in "grep -n install-guard-notice-mod.sh scripts/*.sh" "git log --oneline -- scripts/install-guard-notice-mod.sh" "bash -c 'echo hello world'" \
+         "bash scripts/finding.sh --add 'install-*-mod.sh is found by name; a copy is the bound' --spec 105"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105-R8 allowed: $c" none
+done
+for c in "bash -c -- 'echo {} > $S'" "bash -c -x 'echo {} > $S'" "env bash -c 'echo {} > $S'" \
+         "timeout --signal KILL 5 bash -c 'echo {} > $S'" "find . -name x -exec bash -c 'echo {} > $S' \\;" \
+         "xargs -I{} bash -c 'echo {} > $S'" "/usr/bin/env sh -c 'echo {} > $S'"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105 review #4/#5 denied: ${c//$P\//}" deny
+done
+for c in "bash <<< 'git checkout $REV -- .'" "sh <<<\"git restore --source=$REV .\"" "bash -s <<< 'git checkout $REV -- .'" \
+         "bash <<< 'claude plugin install x'"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105 /security-review vuln 1 denied: ${c//$P\//}" deny
+done
+for c in "env bash -c 'git checkout $REV -- .'" "xargs -I{} bash -c 'git checkout $REV -- .'" "/usr/bin/env sh -c 'git checkout $REV -- .'"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "105 review #5 denied (only the nested re-judge sees it): ${c//$P\//}" deny
+done
+sabotage "sabotage 105 /security-review vuln 1: without the here-string a shell's stdin program goes unjudged" \
+  'bool(HEREDOC.search(cmd)) or "<<<" in cmd' 'bool(HEREDOC.search(cmd))' \
+  "$(bash_p "bash <<< 'git checkout $REV -- .'")"
+sabotage "sabotage 105 review #4: the word right after -c (here --) is taken as the program" \
+  'return [x for x in words[i + 1:] if not x.startswith("-")][:1]' 'return words[i + 1:i + 2]' \
+  "$(bash_p "bash -c -- 'git checkout $REV -- .'")"
+run "$GUARD" "$(bash_p "bash -c -- 'git checkout $REV -- .'")"; expect "105 review #4 denied: bash -c -- '<git checkout that rewrites settings>'" deny
+sabotage "sabotage 105-R8: re-judging only program strings that name git or claude misses the installer" \
+  '                if re.search(r"\s", w):' '                if re.search(r"\s", w) and re.search(r"\b(git|claude)\b", w):' \
+  "$(bash_p "bash -c 'scripts/install-guard-notice-mod.sh --target /tmp/x'")"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -183,9 +183,14 @@ NOTICE_BASE="${NOTICE_BASE%/}/claude-hook-notices"
 if [ -d "$NOTICE_BASE" ] && [ "$MODE" = "clean" ]; then
   find "$NOTICE_BASE" -maxdepth 1 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null
 fi
-# Spec 098 R6: guard_announce keeps its stamps in the git dir, one directory per session.
-GIT_NOTICES="$PROJECT_ROOT/.git/claude-hook-notices"
-if [ -d "$GIT_NOTICES" ] && [ "$MODE" = "clean" ]; then
+# Spec 098 R6: guard_announce keeps its stamps in the git dir, one directory per session. Spec 105 R3
+# (F188): the base is the one guard_announce writes to (guard-lib.sh _guard_notice_base, which follows
+# a .git file), not a fixed <root>/.git path; a symlinked base, or one not named claude-hook-notices, is
+# never swept (threat model #11).
+GIT_NOTICES=$(CLAUDE_PROJECT_DIR="$ROOT" bash -c '. "$1" && _guard_notice_base' _ "$(dirname -- "$0")/guard-lib.sh" 2>/dev/null) || GIT_NOTICES=""
+case "$GIT_NOTICES" in */claude-hook-notices) ;; *) GIT_NOTICES="" ;; esac
+[ -n "$GIT_NOTICES" ] && [ -L "$GIT_NOTICES" ] && GIT_NOTICES=""   # mutant-equivalent: find never follows a link given as its start (-P), so a linked base is listed, not entered; kept so the intent does not rest on a find default
+if [ -n "$GIT_NOTICES" ] && [ -d "$GIT_NOTICES" ] && [ "$MODE" = "clean" ]; then
   find "$GIT_NOTICES" -mindepth 1 -maxdepth 1 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null
 fi
 

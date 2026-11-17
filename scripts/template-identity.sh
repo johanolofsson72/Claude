@@ -17,7 +17,8 @@
 #
 # impostor = the URL says template and the history does not (a shallow clone of the template lands
 # here too). Callers that exempt do so only for `template`; a missing library means `project`.
-# bash 3.2-safe; one `git remote get-url`, plus one rev-list only when the URL matches (22 ms).
+# bash 3.2-safe; one `git config`, plus one rev-list only when the URL matches (22 ms). Every git call is
+# bounded and runs with GIT_* dropped (spec 105 R5): no answer reads as `project`.
 
 TEMPLATE_ROOT_COMMIT=d3cf8238372ce7a37d5d66b115cbcbf9d57bb2b9
 
@@ -35,14 +36,39 @@ template_url_matches() {
 # _template_roots DIR -> HEAD's root commit(s). Replace refs off and grafts read from /dev/null: both
 # can fake a parentless commit (see the header).
 _template_roots() {
-  GIT_GRAFT_FILE=/dev/null \
-    git --no-replace-objects -c core.commitGraph=false -C "$1" rev-list --max-parents=0 HEAD 2>/dev/null </dev/null
+  _TI_GRAFT=1 _ti_git --no-replace-objects -c core.commitGraph=false -C "$1" rev-list --max-parents=0 HEAD
+}
+
+# _ti_git <args…>: spec 105 R5 (F189). git with every GIT_* variable dropped (GIT_GRAFT_FILE set back
+# to /dev/null when _TI_GRAFT=1), stdin closed, bounded by GUARD_GIT_TIMEOUT seconds (default 5) with
+# timeout, gtimeout or perl. core-machinery, core-owed-tick and guard-lib call this file, so a git that
+# hangs used to stall the guard until the harness timed it out, which runs the call. No answer (no git,
+# nothing to bound it with, a timeout) prints nothing and returns 125: the callers read that as
+# "project" (never the exemption) and "upstream" (nothing skipped).
+# The bounding tool, looked up once per process, not per git call (/simplify).
+if command -v timeout >/dev/null 2>&1; then _TI_BOUND=timeout
+elif command -v gtimeout >/dev/null 2>&1; then _TI_BOUND=gtimeout
+elif command -v perl >/dev/null 2>&1; then _TI_BOUND=perl
+else _TI_BOUND=""; fi
+
+_ti_git() {
+  (
+    for _v in $(compgen -e -X '!GIT_*' 2>/dev/null || env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_v"; done   # mutant-equivalent: with && both lists run and name the same variables
+    [ "${_TI_GRAFT:-0}" = 1 ] && export GIT_GRAFT_FILE=/dev/null
+    _to=${GUARD_GIT_TIMEOUT:-5}
+    command -v git >/dev/null 2>&1 || exit 125   # mutant-equivalent: every caller reads the output, empty either way, never the code
+    case "$_TI_BOUND" in
+      timeout|gtimeout) "$_TI_BOUND" "$_to" git "$@" ;;
+      perl) perl -e 'alarm shift; exec @ARGV' "$_to" git "$@" ;;
+      *) exit 125 ;;   # mutant-equivalent: as above
+    esac
+  ) 2>/dev/null </dev/null
 }
 
 template_identity() {
   # The raw value, not `remote get-url`, which applies url.*.insteadOf (threat model A1): the URL that is
   # compared is the one written in this repository's own config.
-  _ti_url=$(git -C "$1" config --local --get remote.origin.url 2>/dev/null </dev/null)
+  _ti_url=$(_ti_git -C "$1" config --local --get remote.origin.url)
   if ! template_url_matches "$_ti_url"; then echo project; return 0; fi
   if [ "$(_template_roots "$1")" = "$TEMPLATE_ROOT_COMMIT" ]; then echo template; else echo impostor; fi
 }
@@ -56,11 +82,11 @@ template_identity() {
 # upstream; otherwise origin's URL decides, with the sync stamp as the fallback. Only DIR's own toplevel counts: a fixture inside another checkout must not
 # inherit that checkout's origin. Neither signal answering means upstream, so nothing is skipped.
 self_test_subject() {
-  _st_top=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null </dev/null)
+  _st_top=$(_ti_git -C "$1" rev-parse --show-toplevel)
   _st_phys=$(CDPATH='' cd -- "$1" 2>/dev/null && pwd -P)
   _st_url=""; _st_root=""
   if [ -n "$_st_top" ] && [ "$_st_top" = "$_st_phys" ]; then
-    _st_url=$(git -C "$1" config --local --get remote.origin.url 2>/dev/null </dev/null)
+    _st_url=$(_ti_git -C "$1" config --local --get remote.origin.url)
     _st_root=$(_template_roots "$1")
   fi
   # A credentialed, mirrored or local-path origin on a real template checkout is still upstream.

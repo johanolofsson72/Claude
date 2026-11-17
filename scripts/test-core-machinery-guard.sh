@@ -398,6 +398,16 @@ else
 fi
 rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID"
 
+printf '\n[105-R1] a synced project whose .git is gone is still judged  (105-AC-2)\n'
+NG=$(make_project ng105); : > "$NG/.claude/.template-sync"; mkdir -p "$NG/specs"; : > "$NG/specs/INDEX.md"; rm -rf "$NG/.git"
+OUT=$(run_hook "$NG/scripts/spec_active.py" CLAUDE_PROJECT_DIR="$NG")
+[ "$(decision "$OUT")" = deny ] && ok "105-AC-2 the CORE edit is denied with no .git" || bad "105-AC-2 the CORE edit was not denied: $(printf '%s' "$OUT" | head -c 120)"
+case "$(reason "$OUT")" in *"has no .git"*) ok "  and the reason says the root has no .git" ;; *) bad "  the reason does not name the missing .git" ;; esac
+OUT=$(run_hook "$NG/scripts/project-specific-thing.sh" CLAUDE_PROJECT_DIR="$NG")
+case "$OUT" in *additionalContext*"has no .git"*) ok "105-R1 a non-CORE edit is allowed aloud, naming the missing .git" ;; *) bad "105-R1 the allow was silent: [$OUT]" ;; esac
+NG2=$(make_project ng105b); rm -rf "$NG2/.git"
+[ -z "$(run_hook "$NG2/scripts/spec_active.py" CLAUDE_PROJECT_DIR="$NG2")" ] && ok "105-R1 control: no register and no stamp is no project (silent)" || bad "105-R1 a loose directory was judged"
+
 mkdir -p "$WORK/norepo/scripts"
 [ -z "$(run_hook "$WORK/norepo/scripts/x.sh" CLAUDE_PROJECT_DIR="$WORK/norepo")" ] && ok "a file under no git root: silent" || bad "a file under no git root spoke"
 [ -s "$WORK/nonzero-exits" ] && { bad "the hook exited non-zero (a deny would be read as an allow)"; info "$(head -5 "$WORK/nonzero-exits")"; } \

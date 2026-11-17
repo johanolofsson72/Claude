@@ -1,0 +1,249 @@
+-- allium: 3
+--
+-- 105 — guard bypasses.
+--
+-- Each rule closes a shape a guard never parsed (R1, R2, R7, R8), an oracle the agent could reach or
+-- that did not say when it was wrong (R3, R4, R5, R9, R10, R11), a guard edit that locks the agent out
+-- (R6), or a walk that never ended (R13). Rules cite R1..R13 (spec.md) and the developer's overflow
+-- answers O1..O4 (interview.md). Tests name the acceptance cases 105-AC-n.
+
+enum Verdict { allow | deny | announce_allow }
+
+enum Identity { template | impostor | project }
+
+enum Coverage { covered | partial | unwired }
+
+-- ----------------------------------------------------------------------------- R1 R2 the git dir
+
+entity GitDirShellCall {
+    verb_touches_paths: Boolean            -- rm rmdir unlink shred truncate touch mkdir ln install cp dd chmod … mv
+    a_word_has_git_component: Boolean      -- `.git` as a whole component, not .gitignore
+    names_notice_dir: Boolean              -- the text spells claude-hook-notices
+    substitutes_git_dir: Boolean           -- rev-parse --git-dir|--git-common-dir|--absolute-git-dir|--git-path
+    line_writes: Boolean                   -- a redirect, or a writer verb, on the same line (threat model #7)
+    verdict: Verdict?
+}
+
+rule GitDirIsTheDevelopers {
+    when: GitDirShellCallJudged(c)
+    ensures:
+        if (c.verb_touches_paths and c.a_word_has_git_component)
+                or ((c.names_notice_dir or c.substitutes_git_dir) and c.line_writes):
+            c.verdict = deny                         -- 105-AC-1
+        else:
+            c.verdict = allow                        -- cat .git/HEAD, git rev-parse --git-dir
+}
+
+entity RootWalk {
+    boundary_found: Boolean
+    file_under_project_dir: Boolean
+    project_dir_has_git_entry: Boolean
+    project_dir_registered_or_synced: Boolean   -- specs/INDEX.md or .claude/.template-sync
+    git_unsure: Boolean?
+    core_root_is_project_dir: Boolean?
+}
+
+-- O1: deny + judge.
+rule NoGitAtARegisteredRootIsNeverSilent {
+    when: RootWalked(w)
+    requires: not w.boundary_found
+    ensures:
+        if w.file_under_project_dir and not w.project_dir_has_git_entry
+                and w.project_dir_registered_or_synced:
+            w.git_unsure = true                      -- pipeline guards deny (105-AC-2)
+            w.core_root_is_project_dir = true        -- CORE guards judge from it and announce
+        else:
+            w.git_unsure = false
+            w.core_root_is_project_dir = false
+}
+
+-- ----------------------------------------------------------------------------- R3 notice base
+
+entity NoticeBase {
+    git_entry_is_directory: Boolean
+    git_file_at_project_dir: Boolean
+    gitdir_target_has_git_component: Boolean
+    stamp_kept: Boolean?
+}
+
+rule StampOnlyWhereTrustAnchorGuards {
+    when: NoticeBaseFound(b)
+    ensures:
+        b.stamp_kept = b.git_entry_is_directory or b.git_file_at_project_dir
+                       or b.gitdir_target_has_git_component
+        -- no stamp: the notice is said every time; the gc sweeps exactly this base
+}
+
+-- ----------------------------------------------------------------------------- R4 PATH writes (O2)
+
+entity ToolWrite {
+    target_dir_on_path: Boolean            -- as spelled or resolved, existing or not
+    target_is_device: Boolean              -- /dev/*
+    verdict: Verdict?
+}
+
+rule NoWriteIntoPath {
+    when: ToolWriteJudged(w)
+    ensures:
+        if w.target_dir_on_path and not w.target_is_device:
+            w.verdict = deny                         -- any name (O2), 105-AC-3
+        else:
+            w.verdict = allow
+}
+
+-- ----------------------------------------------------------------------------- R5 template identity
+
+entity IdentityQuery {
+    url_matches: Boolean
+    git_answered: Boolean                  -- bounded, GIT_* dropped
+    root_is_templates: Boolean
+    identity: Identity?
+}
+
+rule IdentityNeverExemptsOnAGuess {
+    when: IdentityAsked(q)
+    ensures:
+        if not q.git_answered or not q.url_matches:
+            q.identity = project
+        else:
+            if q.root_is_templates:
+                q.identity = template
+            else:
+                q.identity = impostor
+}
+
+-- ----------------------------------------------------------------------------- R6 parse check
+
+entity ScriptEdit {
+    under_scripts_dir: Boolean
+    is_shell_or_python: Boolean
+    carries_bytes: Boolean                 -- Edit, MultiEdit, Write
+    current_parses: Boolean
+    new_parses: Boolean
+    checker_answered: Boolean              -- bash present, no timeout
+    verdict: Verdict?
+}
+
+rule AGuardEditMustStillParse {
+    when: ScriptEditJudged(e)
+    ensures:
+        if e.under_scripts_dir and e.is_shell_or_python and e.carries_bytes and e.checker_answered
+                and e.current_parses and not e.new_parses:
+            e.verdict = deny                         -- 105-AC-3
+        else:
+            e.verdict = allow                        -- a broken or new file can always be written
+}
+
+-- ----------------------------------------------------------------------------- R7 R8 settings guard
+
+entity SettingsLine {
+    names_guarded_file: Boolean
+    runner_reached: Boolean                -- version-stripped name, wider list, find -exec, past wrappers and input redirects
+    handed_on_name_in_writer: Boolean      -- $_ ${_} !$ !! !* !: in a non-read command
+    substitution_in_writer_and_line_writes_file: Boolean
+    installer_word: Boolean                -- install-*-mod.sh anywhere in a word
+    verdict: Verdict?
+}
+
+rule ReadsHandedOnAreWrites {
+    when: SettingsLineJudged(l)
+    ensures:
+        if l.installer_word:
+            l.verdict = deny
+        else:
+            if l.names_guarded_file and (l.runner_reached or l.handed_on_name_in_writer
+                    or l.substitution_in_writer_and_line_writes_file):
+                l.verdict = deny                     -- 105-AC-4
+            else:
+                l.verdict = allow                    -- grep x S ; bash t.sh "$(pwd)"
+}
+
+entity ModInstall {
+    staged_digest_known: Boolean
+    accepted_digest_matches: Boolean       -- --accept <digest>
+    store_digest_matches: Boolean          -- accepted before, recorded in the git dir's pin store
+                                           -- (never the agent-writable target folder, threat model #30)
+    installed: Boolean?
+}
+
+-- O3: the developer names the digest.
+rule ModSourceIsPinned {
+    when: ModInstallRun(m)
+    ensures:
+        m.installed = m.staged_digest_known and (m.accepted_digest_matches or m.store_digest_matches)
+}
+
+-- ----------------------------------------------------------------------------- R9 R10 answers
+
+entity ConfirmBinding {
+    token_names_this_spec: Boolean         -- <digest>@<spec-name>
+    bare_token: Boolean                    -- recorded before R9
+    digest_on_disk_count: Integer          -- acceptance.md files carrying the digest
+    writes_new_line: Boolean               -- --confirm (true) versus the gate and check (false)
+    bound: Boolean?
+}
+
+-- O4: honour a bare token only when unique, and only for a line that already stands.
+rule AnswersAreBoundToTheirSpec {
+    when: ConfirmBindingChecked(b)
+    ensures:
+        if b.writes_new_line:
+            b.bound = b.token_names_this_spec
+            -- tla/AnswerBinding.tla: copy a legacy spec's cases, edit the original's, and a bare
+            -- token would confirm the copy
+        else:
+            b.bound = b.token_names_this_spec or (b.bare_token and b.digest_on_disk_count = 1)
+            -- 105-AC-5: a copy makes the count 2, so neither spec is backed by a bare token
+}
+
+entity CheckReport {
+    digest_matches: Boolean
+    answer_bound: Boolean
+    exit_code: Integer?
+}
+
+rule CheckNeedsTheAnswer {
+    when: CheckRun(c)
+    ensures:
+        if c.digest_matches and c.answer_bound:
+            c.exit_code = 0
+        else:
+            c.exit_code = 3
+}
+
+-- ----------------------------------------------------------------------------- R11 wiring
+
+entity GuardWiring {
+    script_present: Boolean
+    committed_groups_covering_all: Integer
+    committed_groups_covering_some: Integer
+    coverage: Coverage?
+}
+
+rule CommittedWiringDecides {
+    when: WiringAudited(g)
+    requires: g.script_present
+    ensures:
+        if g.committed_groups_covering_all > 0:
+            g.coverage = covered
+        else:
+            if g.committed_groups_covering_some > 0:
+                g.coverage = partial                 -- MATCHER finding
+            else:
+                g.coverage = unwired                 -- UNWIRED finding
+}
+
+-- ----------------------------------------------------------------------------- R13 precheck walk
+
+entity PrecheckWalk {
+    path_length: Integer
+    stop_length: Integer
+    steps_left: Integer?
+}
+
+rule WalkAlwaysEnds {
+    when: PrecheckWalked(w)
+    ensures:
+        w.steps_left = w.path_length - w.stop_length
+        -- each step strips a component, so the walk ends at the stop's depth or at "" whatever the case
+}

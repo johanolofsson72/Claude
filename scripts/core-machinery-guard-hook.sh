@@ -114,6 +114,7 @@ esac
 # ------------------------------------------------------------------- project root
 # spec 088 R1 (F090) anchors the walk; spec 090: an empty worktree takes the project's sync.
 guard_core_root "$FILE"
+guard_no_git_announce core-machinery-guard     # spec 105 R1: no .git at a registered root, judged from the project dir
 ROOT=$GUARD_CORE_ROOT; SYNC_ROOT=$GUARD_SYNC_ROOT
 # Spec 098 R4 (F142, developer O3): git could not answer, so the root is a guess. Fail open, aloud, keyed
 # by file so a git that stays slow is heard for every file it lets through (threat model #7).

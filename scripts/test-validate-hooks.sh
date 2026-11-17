@@ -109,7 +109,7 @@ m8() { # m8 <name> <matcher> [local-matcher]: a project wiring both guards under
     "$(cmdhook 'bash "$CLAUDE_PROJECT_DIR/scripts/trust-anchor-guard-hook.sh"'),$(cmdhook 'bash "$CLAUDE_PROJECT_DIR/scripts/settings-edit-guard-hook.sh"')"
   audit "$d" HOOK_AUDIT_CORE="$(printf 'settings-edit-guard-hook.sh\ntrust-anchor-guard-hook.sh\n')"
 }
-m8 m1 'Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*'; rc "098-R8 the template's matcher is clean" 0
+m8 m1 'Edit|Write|MultiEdit|NotebookEdit|Bash|AskUserQuestion|mcp__.*'; rc "098-R8 the template's matcher is clean" 0
 m8 m2 'Edit|Write|MultiEdit|NotebookEdit|Bash'; rc "098-R8 a matcher without mcp__ is a finding" 1
 has "  named, with the guard" "MATCHER project PreToolUse[Edit|Write|MultiEdit|NotebookEdit|Bash]: trust-anchor-guard-hook.sh does not run for MCP tools"
 has "  and the settings guard too" "settings-edit-guard-hook.sh does not run for MCP tools"
@@ -117,7 +117,7 @@ has "  with the fix" "Add |mcp__.* to"
 m8 m3 'Edit|mcp__x__.*'; rc "threat #14: one server's tools only is a finding" 1; has "  naming the probe it missed" "does not match mcp__y__edit"
 m8 m4 'Edit|mcp__('; rc "threat #14: a matcher that does not compile is a finding" 1; has "  said as such" "does not compile"
 m8 m5 '*'; rc "'*' covers everything" 0
-m8 m6 'Edit|Bash' 'mcp__.*'; rc "a covering group in settings.local.json is enough" 0
+m8 m6 'Edit|Bash' 'mcp__.*'; rc "105-R11 a covering group in settings.local.json no longer hides the committed one" 1
 m8 m7 'Write|Edit|mcp__'; rc "threat #14: a prefix that only a search would accept is a finding (fullmatch)" 1
 no_matcher() { case "$OUT" in *MATCHER*) bad "$1" "$OUT" ;; *) ok "$1" ;; esac; }
 # Not judged: the user's settings, and a wiring on any event but PreToolUse (clarification R8).
@@ -127,10 +127,37 @@ audit "$D9"; no_matcher "098-R8 a user-level wiring is not judged"
 D10=$(fix m10); settings "$D10/proj/.claude/settings.json" PostToolUse 'Edit|Bash' "$G2"
 audit "$D10"; no_matcher "098-R8 a PostToolUse wiring is not judged"
 SAB8="$T/sab8"; mkdir -p "$SAB8"
-sed 's/    findings.extend(mcp_matcher_findings(docs))/    pass/' "$AUDIT" > "$SAB8/hook_audit.py"
+sed 's/    findings.extend(mcp_matcher_findings(wired))/    pass/' "$AUDIT" > "$SAB8/hook_audit.py"
 if cmp -s "$AUDIT" "$SAB8/hook_audit.py"; then bad "098-R8 sabotage target not found"; else
   D8="$T/m2"; OUT=$(env HOOK_AUDIT_HOME="$D8/home" HOOK_AUDIT_CORE="$(printf 'settings-edit-guard-hook.sh\ntrust-anchor-guard-hook.sh\n')" python3 "$SAB8/hook_audit.py" "$D8/proj" 2>&1); RC=$?
-  rc "098-R8 sabotage: without the check the bare matcher passes" 0
+  hasnt "098-R8 sabotage: without the check the MCP gap goes unnamed" "does not run for MCP tools"
+fi
+
+echo "[105-R11] every guard in scripts/ is wired, by its resolved script, in the committed file"
+w11() { # w11 <name> <matcher> <command> [local-command]: trust-anchor present, wired by <command>
+  local d; d=$(fix "$1")
+  printf '#!/bin/bash\nexit 0\n' > "$d/proj/scripts/trust-anchor-guard-hook.sh"
+  settings "$d/proj/.claude/settings.json" PreToolUse "$2" "$(cmdhook "$3")"
+  [ -n "${4:-}" ] && settings "$d/proj/.claude/settings.local.json" PreToolUse "$2" "$(cmdhook "$4")"
+  audit "$d" HOOK_AUDIT_CORE="trust-anchor-guard-hook.sh"
+}
+FULL='Edit|Write|MultiEdit|NotebookEdit|Bash|AskUserQuestion|mcp__.*'
+w11 r1 "$FULL" 'bash "$CLAUDE_PROJECT_DIR/scripts/trust-anchor-guard-hook.sh"'; rc "105-R11 control: a fully wired guard is clean" 0
+w11 r2 "$FULL" 'echo ok'; rc "105-R11 a guard in scripts/ that nothing runs is a finding" 1
+has "  named UNWIRED" "UNWIRED project PreToolUse: scripts/trust-anchor-guard-hook.sh"
+w11 r3 "$FULL" 'echo trust-anchor-guard-hook.sh'; rc "105-R11 a command that only names the guard does not wire it" 1; has "  UNWIRED" "UNWIRED"
+w11 r4 "$FULL" 'echo ok' 'bash "$CLAUDE_PROJECT_DIR/scripts/trust-anchor-guard-hook.sh"'; rc "105-R11 wiring in settings.local.json alone is UNWIRED" 1; has "  UNWIRED" "UNWIRED"
+w11 r5 'Edit|Write|mcp__.*' 'bash "$CLAUDE_PROJECT_DIR/scripts/trust-anchor-guard-hook.sh"'; rc "105-R11 a matcher missing Bash is a finding" 1
+has "  naming the tools it misses" "does not run for MultiEdit, NotebookEdit, Bash, AskUserQuestion"
+D11=$(fix r6); printf '#!/bin/bash\nexit 0\n' > "$D11/proj/scripts/trust-anchor-guard-hook.sh"
+printf '{"hooks":{"PreToolUse":[{"matcher":"%s","hooks":[{"type":"command","async":true,"command":"bash \\"$CLAUDE_PROJECT_DIR/scripts/trust-anchor-guard-hook.sh\\""}]}]}}\n' "$FULL" > "$D11/proj/.claude/settings.json"
+audit "$D11" HOOK_AUDIT_CORE="trust-anchor-guard-hook.sh"; rc "105-R11 an async guard is a finding (threat #34)" 1; has "  named ASYNC" "ASYNC project"
+D12=$(fix r7); audit "$D12"; rc "105-R11 control: a guard the project never received needs no wiring" 0
+SAB11="$T/sab11"; mkdir -p "$SAB11"
+sed 's/    findings.extend(wiring_findings(root, wired))/    pass/' "$AUDIT" > "$SAB11/hook_audit.py"
+if cmp -s "$AUDIT" "$SAB11/hook_audit.py"; then bad "105-R11 sabotage target not found"; else
+  OUT=$(env HOOK_AUDIT_HOME="$T/r2/home" HOOK_AUDIT_CORE="trust-anchor-guard-hook.sh" python3 "$SAB11/hook_audit.py" "$T/r2/proj" 2>&1); RC=$?
+  rc "105-R11 sabotage: without the audit an unwired guard passes" 0
 fi
 
 # V14 — the wrapper refuses a root that is not there, rather than calling it clean

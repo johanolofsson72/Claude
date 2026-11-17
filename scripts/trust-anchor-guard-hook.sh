@@ -37,6 +37,12 @@
 #   (g) spec 098: chmod, chown, chgrp, chflags, chattr, setfacl, xattr, mv or rename on a path with a
 #       .git component. None writes bytes, so bash-write-guard never delegated them, and each makes git
 #       fail at once, which the root walk reads as an answer.
+#   (h) spec 105: rm, rmdir, unlink, shred, truncate, touch, mkdir, ln, install, cp and dd join (g),
+#       judged per simple command on the destination (R1); a line that writes and names
+#       claude-hook-notices or substitutes git rev-parse --git-dir|--git-common-dir|--absolute-git-dir|
+#       --git-path (R2); any write into a directory on PATH, by path or by a shell writer (R4, developer
+#       O2: the guards run git, perl, timeout, python3 and jq by PATH); an Edit, MultiEdit or Write that
+#       leaves a scripts/*.sh or *.py unparseable while it parses now (R6).
 #   (d) an AskUserQuestion whose tool_input already carries `answers`. An honest call never does at
 #       PreToolUse (measured 2026-10-01); the answers arrive after the developer picks them.
 #
@@ -72,7 +78,7 @@ else
   N=${TI//[\"\'\\]/}
   shopt -s nocasematch
   case "$N" in
-    *claude-*|*trusted-comm*|*developer-word*|*maintenance_tty*|*claudecode*|*confirmed:*|*acceptance*) HIT=1 ;;
+    *claude-*|*trusted-comm*|*developer-word*|*mod-accepted*|*maintenance_tty*|*claudecode*|*confirmed:*|*acceptance*) HIT=1 ;;
     # .git as a path component, not .gitignore or .github; a glob for an acceptance.md is caught below.
     *--trust*|*'.git/'*|*'.git'|*'.git'[!a-zA-Z0-9_-]*|*separate-git*) HIT=1 ;;
   esac
@@ -85,6 +91,21 @@ else
     *git_config_*|*fast-import*|*fetch-pack*|*receive-pack*|*send-pack*|*git-remote*|*git-config*) HIT=1 ;;
   esac
   case "$TI" in *"\$'"*) HIT=1 ;; esac        # ANSI-C quoting: the stripped text no longer shows it
+  # Spec 105 R2 (F177): git's own spelling of the git dir. R4 (F176): a PATH directory, which names a
+  # bin dir, a PATH entry, or the home directory a ~ or $HOME expands to.
+  case "$N" in
+    *--git-dir*|*--git-common-dir*|*--absolute-git-dir*|*--git-path*) HIT=1 ;;
+    */bin/*|*/bin|*/sbin/*|*'~/'*|*'$HOME'*|*'${HOME}'*) HIT=1 ;;   # path-shaped only: python costs ~50 ms
+  esac
+  # A glob that can spell .git (.g[i]t, .gi?, .*): the parser matches it against the name (threat model #2).
+  case "$N" in *.[g*?[]*) case "$N" in *[*?[]*) HIT=1 ;; esac ;; esac
+  if [ "$HIT" -eq 0 ]; then
+    _ifs=$IFS; IFS=:
+    for _pe in $PATH; do
+      [ -n "$_pe" ] && case "$N" in *"$_pe"*) HIT=1; break ;; esac
+    done
+    IFS=$_ifs
+  fi
   shopt -u nocasematch
   # A file_path that is a symlink may land on a store under an innocent name, and a glob (a shell write
   # bash-write-guard delegates unexpanded) may match an acceptance.md under any spelling.
@@ -92,6 +113,15 @@ else
   if [ "$HIT" -eq 0 ] && [[ $TI =~ \"(file_path|notebook_path)\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
     _fp="${BASH_REMATCH[2]}"
     case "$_fp" in *[*?{[]*) HIT=1 ;; esac
+    # Spec 105 R6 (F174): a shell or python script under scripts/ is parse-checked before it lands.
+    # Case-folded, as the parser judges it (SCRIPTS/x.SH on a folding file system; adversarial review #6).
+    shopt -s nocasematch
+    case "$_fp" in scripts/*.sh|scripts/*.py|*/scripts/*.sh|*/scripts/*.py) HIT=1 ;; esac
+    shopt -u nocasematch
+    # Spec 105 R4 (F176): a write into a directory on PATH (the parser compares resolved paths).
+    _fd=${_fp%/*}
+    case "${_fd##*/}" in bin|sbin) HIT=1 ;; esac
+    case ":$PATH:" in *":$_fd:"*|*":$_fd/:"*) HIT=1 ;; esac
     # Spec 098 R1 (F139): a link at ANY component, not only the last: with gd -> .git in the tree,
     # gd/info/exclude names no trigger word. The shared ancestor walk (spec 090 R2(b)) reads the
     # payload's cwd for a relative path, so it gets the whole payload. Not loadable: look.
@@ -132,7 +162,7 @@ sys.path.insert(0, sys.argv[1])
 from acceptance_cases import ACCEPTANCE_GLOBS, CONFIRMED_PREFIX as PREFIX   # the parser's own rules
 from shell_glob import ANSI_C, BRACE_CAP, TooMany, ansi_c, brace_alts      # bash's word rules (spec 090)
 
-STORES = ("claude-trusted-commands", "claude-developer-words")
+STORES = ("claude-trusted-commands", "claude-developer-words", "claude-mod-accepted")   # 105 R8: the mod pin
 GLOBCH = re.compile(r"[*?\[{]")
 
 try:
@@ -338,13 +368,220 @@ def trust_option(cmd):
 # byte write, so bash-write-guard never delegated them, and each makes git fail in milliseconds with an
 # answer (exit 128) that moves the root the guards walk to, or hides the stores. `.git` as a path
 # component only: .gitignore and .github are not it.
-GIT_META = re.compile(r"(?:^|[\s;&|(])(?:chmod|chown|chgrp|chflags|chattr|setfacl|xattr|mv|rename)\b"
-                      r"[^;&|\n]*?(?:^|[\s/=])\.git(?:/|\s|$)")
+# Spec 105 R1 (F184, F187): removing, creating or linking a path there is the same move. rm -r .git
+# (without -f) passed every guard, and with .git gone the walk found no root; touch and mkdir under
+# .git/claude-hook-notices pre-planted the once-per-session stamp. Judged per simple command: the verb by
+# its basename past wrappers (/bin/rm, a backtick before it), and for cp, ln, install and dd only the
+# destination, so copying out of .git stays a read. A glob component that can match .git counts
+# (.g[i]t, .gi?, .*). Threat model #1, #2, #4. GIT_META, the regex, is the fallback for text the
+# splitter cannot read.
+META_VERBS = frozenset("chmod chown chgrp chflags chattr setfacl xattr mv rename rm rmdir unlink shred "
+                       "truncate touch mkdir ln install cp dd rsync ditto tar unzip patch curl wget".split())
+GIT_META = re.compile(r"(?:^|[\s;&|(/])(?:" + "|".join(sorted(META_VERBS)) + r")\b"
+                      r"[^;&|\n]*?(?:^|[\s/=])\.git(?:/|[\s;&|)]|$)")
+WRAPPERS = frozenset("sudo doas command builtin exec nice nohup env time stdbuf caffeinate timeout gtimeout "
+                     "xargs busybox flock setsid ionice chroot".split())
+# Options of a wrapper that take a value (sudo -u USER, timeout -s KILL, xargs -I {}), and wrappers whose
+# first operand is not the command (flock LOCKFILE cmd, chroot DIR cmd). /security-review, spec 105:
+# verb_of returned the option (-n) or the wrapper itself (timeout), and every per-command rule passed.
+WRAPPER_VALUED = frozenset("-u -g -h -p -C -D -U -s -k -n -c -I -L -P -d -E -a -S -o -w --signal --kill-after "
+                           "--user --group --chdir --unset --split-string".split())
+WRAPPER_OPERAND = frozenset(("flock", "chroot"))
+SEGCH = ";&|<>()"
+
+_SEGS = {}
+
+def segments(text):
+    """Split once per text: git_meta, line_writes and path_write all read the same command (/simplify)."""
+    if text not in _SEGS:
+        _SEGS[text] = _split_segments(text)
+    return _SEGS[text]
+
+def _split_segments(text):
+    """[(words, redirect_targets)] per simple command, quotes removed; None when it cannot be split."""
+    out = []
+    for line in text.split("\n"):
+        lex = shlex.shlex(line, posix=True, punctuation_chars=SEGCH)
+        lex.whitespace_split = True
+        lex.commenters = ""
+        words, targets, pend = [], [], None
+        try:
+            for t in lex:
+                if t and all(c in SEGCH for c in t):
+                    if ">" in t and not t.endswith("&") and "<" not in t:
+                        pend = "out"                         # > f, >> f, &> f
+                        if words and words[-1].isdigit():
+                            words.pop()
+                    elif t.endswith("<<<"):
+                        pend = None                          # a here-string is data the command reads: kept as
+                                                             # a word (xargs chmod 000 <<< .git)
+                    elif "<" in t or ">" in t:
+                        pend = "skip"                        # < f, << EOF, >&2: no file written
+                    else:
+                        if words or targets:
+                            out.append((words, targets))
+                        words, targets, pend = [], [], None
+                    continue
+                if pend == "out":
+                    targets.append(t)
+                elif pend is None:
+                    words.append(t)
+                pend = None
+        except ValueError:
+            return None
+        if words or targets:
+            out.append((words, targets))
+    return out
+
+def verb_of(words):
+    """(basename of the command word past assignments, wrappers and the wrappers' own options, values
+    and operands, its arguments)."""
+    i, wrapped = 0, False
+    while i < len(words):
+        w = words[i].lstrip("\x60")
+        b = w.rpartition("/")[2].lower()
+        if re.match(r"^[A-Za-z_]\w*=", w):
+            i += 1
+            continue
+        if b in WRAPPERS:
+            wrapped = True
+            i += 2 if b in WRAPPER_OPERAND else 1
+            continue
+        if wrapped and w.startswith("-"):
+            i += 2 if (w in WRAPPER_VALUED and "=" not in w) else 1
+            continue
+        if wrapped and (re.fullmatch(r"[\d.]+[smhd]?", w) or re.fullmatch(r"(?:SIG)?[A-Z]+\d*", w)):
+            i += 1                                       # timeout 5, timeout -s KILL 5
+            continue
+        return b, words[i + 1:]
+    return "", []
+
+def names_git(w):
+    for c in w.replace("\\", "/").split("/"):
+        c = c.strip("\x60").lower()
+        if c == ".git" or (c.startswith(".") and GLOBCH.search(c) and fnmatch.fnmatchcase(".git", widen(c))):
+            return True
+    return False
+
+# The option that names where a writer writes, per verb: (short letter, long names). A short option is
+# read bare (-t d), attached (-td), or at the end of a cluster (-at d); adversarial review #1, #2, #9.
+DEST_OPTS = {"cp": ("t", ("--target-directory",)), "ln": ("t", ("--target-directory",)),
+             "install": ("t", ("--target-directory",)), "mv": ("t", ("--target-directory",)),
+             "tar": ("C", ("--directory",)), "unzip": ("d", ()), "patch": ("d", ("--directory",)),
+             "curl": ("o", ("--output",)), "wget": ("O", ("--output-document", "--directory-prefix"))}
+
+def option_values(args, short, longs):
+    out = []
+    for i, a in enumerate(args):
+        nxt = args[i + 1] if i + 1 < len(args) else ""
+        if a in longs:
+            out.append(nxt)
+        elif any(a.startswith(l + "=") for l in longs):
+            out.append(a.split("=", 1)[1])
+        elif re.fullmatch(r"-[A-Za-z]*" + short, a):
+            out.append(nxt)
+        else:
+            m = re.fullmatch(r"-[A-Za-z]*?" + short + r"(.+)", a)
+            if m and not a.startswith("--"):
+                out.append(m.group(1))
+    return [v for v in out if v]
+
+def destinations(verb, args):
+    if verb == "dd":
+        return [a[3:] for a in args if a.lower().startswith("of=")]
+    named = option_values(args, *DEST_OPTS[verb]) if verb in DEST_OPTS else []
+    ops = [a for a in args if not a.startswith("-")]
+    if verb in ("cp", "ln", "install", "rsync", "ditto"):
+        return named or ops[-1:]                     # the sources are read
+    if verb in ("tar", "unzip", "curl", "wget"):
+        return named                                 # where it extracts or downloads to
+    return named + ops                               # mv moves its sources away; patch writes its file
+
+def git_meta(text):
+    segs = segments(text)
+    if segs is None:
+        return bool(GIT_META.search(re.sub(r"[\"'\\]", "", text).lower()))
+    for words, _ in segs:
+        verb, args = verb_of(words)
+        if verb in META_VERBS and any(names_git(a) for a in destinations(verb, args)):
+            return True
+    return False
+
+# Spec 105 R2 (F177): git spells the git dir without a .git component, so a substitution of it on a line
+# that writes is a write into it. Printing it, or reading through it, is not; neither is grepping for the
+# stamp directory's name (threat model #7). \x60 is a backtick, never written literally in this program
+# (098 incident).
+# Matched anywhere on the line, not only inside a $( ) the regex can balance: a nested $(:) before git
+# hid it (adversarial review #3). A line that writes and asks git for its git dir is judged as writing there.
+GIT_DIR_SUBST = re.compile(r"\brev-parse\b[^;&|\n]*--(?:git-dir|git-common-dir|absolute-git-dir|git-path)\b")
+LINE_WRITERS = META_VERBS | frozenset("tee sed perl python python3 ruby node".split())
+
+def line_writes(text):
+    segs = segments(text)
+    if segs is None:
+        return True
+    return any(targets or verb_of(words)[0] in LINE_WRITERS for words, targets in segs)
+
+# Spec 105 R4 (F176, developer O2): the guards run git, timeout, perl, python3 and jq by PATH, so a file
+# written into a PATH directory can answer for any of them. Any name: a list of tool names would drift.
+FOLD = sys.platform in ("darwin", "win32", "cygwin")
+
+def path_dirs():
+    out = set()
+    for e in (os.environ.get("PATH") or "").split(os.pathsep):
+        if not os.path.isabs(e):
+            continue          # an empty or relative entry is the cwd: recorded as F261, not judged here
+        for v in (os.path.normpath(e), os.path.realpath(e)):
+            out.add(v.casefold() if FOLD else v)
+    return out
+
+_PATH_DIRS = []
+
+def _norm_dir(d):
+    return [v.casefold() if FOLD else v for v in (os.path.normpath(d), os.path.realpath(d))]
+
+def on_path(q, as_dir=False):
+    """q (absolute) is in a PATH directory, or is one when as_dir."""
+    if not _PATH_DIRS:
+        _PATH_DIRS.append(path_dirs())
+    q = os.path.normpath(q)
+    if q == "/dev" or q.startswith("/dev/"):
+        return False
+    d = q if as_dir else os.path.dirname(q)
+    return any(v in _PATH_DIRS[0] for v in _norm_dir(d))
+
+# rm and unlink too: a guard whose jq or perl is gone fails open (threat model #14).
+PATH_WRITERS = frozenset("ln install touch chmod cp mv rsync ditto dd tee mkdir truncate rm unlink tar unzip curl wget patch".split())
+INTO_DIR = frozenset("ln install cp mv rsync ditto tar unzip wget".split())
+
+def _expand_home(w):
+    home = os.environ.get("HOME") or os.path.expanduser("~")
+    for pre in ("~/", "$HOME/", "${HOME}/"):
+        if w.startswith(pre):
+            return os.path.join(home, w[len(pre):])
+    if w in ("~", "$HOME", "${HOME}"):
+        return home
+    return w
+
+def path_write(text):
+    def hit(a, verb=""):
+        a = _expand_home(a)
+        if not a or "$" in a:
+            return False
+        q = a if os.path.isabs(a) else os.path.join(cwd, a)
+        return on_path(q) or (verb in INTO_DIR and on_path(q, as_dir=True))
+    for words, targets in segments(text) or ():
+        if any(hit(t) for t in targets):
+            return True
+        verb, args = verb_of(words)
+        if verb in PATH_WRITERS and any(hit(a, verb) for a in destinations(verb, args)):
+            return True
+    return False
 
 def shell_verdict(cmd):
     n = ANSI_C.sub(ansi_c, cmd)                              # $'\x63laude' -> claude (adversarial #2)
     n = re.sub(r"[\"'\\]", "", n).lower()
-    if (re.search(r"claude-(trusted|developer)|trusted-comm|developer-word", n)
+    if (re.search(r"claude-(trusted|developer|mod-acc)|trusted-comm|developer-word|mod-accepted", n)
             or re.search(r"\.git/\S*[*?\[{]", n) or re.search(r"\.git\S*[*?\[{]\S*/", n)
             or re.search(r"claude-[^\s/]*[*?\[{]", n)):
         return "bash-store"
@@ -352,8 +589,13 @@ def shell_verdict(cmd):
         return "bash-tty"
     if ".git/worktrees" in n or "separate-git-dir" in n or re.search(r"\bln\b[^;&|]*acceptance\.md", n):
         return "bash-gitdir"
-    if GIT_META.search(n):
+    text = ANSI_C.sub(ansi_c, cmd)
+    if git_meta(text):
         return "bash-gitmeta"
+    if ("claude-hook-notices" in n or GIT_DIR_SUBST.search(n)) and line_writes(text):
+        return "bash-notice"
+    if path_write(text):
+        return "bash-path-write"
     if "confirmed:**" in n:
         return "bash-confirmed"
     if trust_option(cmd):
@@ -386,6 +628,8 @@ if tool.startswith("mcp__"):
             print("store"); sys.exit(0)
         if path_hits(q, lambda ps: ps[-2:] == [".claude", "workload-placement.tsv"]):
             print("placement"); sys.exit(0)
+        if on_path(q):
+            print("path-write"); sys.exit(0)
         if is_acceptance(q):
             print("acceptance-shell"); sys.exit(0)
     for s in commands:
@@ -404,6 +648,73 @@ if touches_git(p):
 # Spec 091 R7 (O2): which jobs may be stamped done from the cloud is the developer's decision.
 if path_hits(p, lambda ps: ps[-2:] == [".claude", "workload-placement.tsv"]):
     print("placement"); sys.exit(0)
+if on_path(p):
+    print("path-write"); sys.exit(0)
+
+# Spec 105 R6 (F174): an edit that leaves a script under scripts/ unparseable. A live PreToolUse guard
+# that does not parse exits 2 on every call it matches, its own repair included. Refused only when the
+# current bytes parse: a new or already-broken file can always be written. A check that cannot run is no
+# verdict.
+def parse_error(path, text):
+    try:
+        if path.endswith(".py"):
+            try:
+                compile(text, path, "exec")
+            except SyntaxError as e:
+                return "line %s: %s" % (e.lineno, e.msg)
+            except ValueError as e:                      # a NUL byte before 3.12 (adversarial review #7)
+                return str(e)
+            return ""
+        import subprocess
+        # The interpreter the shebang names, when it is a shell that has -n (threat model #23).
+        sh = "bash"
+        m = re.match(r"#!\s*(?:/usr/bin/env\s+)?(?:\S*/)?(sh|bash|zsh|dash|ksh)\b", text)
+        if m and m.group(1) != "bash":
+            sh = m.group(1)
+        r = subprocess.run([sh, "-n"], input=text.encode("utf-8", "replace"),
+                           capture_output=True, timeout=5)
+        if r.returncode == 0:
+            return ""
+        msg = r.stderr.decode("utf-8", "replace").strip().splitlines()
+        return re.sub(r"^bash: (?:line |-: line )?", "line ", msg[0]) if msg else "bash -n exit %d" % r.returncode
+    except Exception:
+        return None
+
+def after_of(cur):
+    if isinstance(ti.get("content"), str):
+        return ti["content"]
+    if isinstance(ti.get("edits"), list):
+        out = cur
+        for e in ti["edits"]:
+            out = apply(out, e)
+        return out
+    if "old_string" in ti:
+        return apply(cur, ti)
+    raise ValueError("no bytes")
+
+# scripts/ judged case-folded and resolved (SCRIPTS/x.sh, a link s -> scripts); only a regular file under
+# 2 MB is read, never a FIFO (threat model #21, #22).
+_rp = os.path.realpath(p)
+if tool in ("Edit", "Write", "MultiEdit") and _rp.lower().endswith((".sh", ".py")) \
+        and "scripts" in (os.path.basename(os.path.dirname(p)).lower(), os.path.basename(os.path.dirname(_rp)).lower()):
+    _cur = None
+    try:
+        if os.path.isfile(_rp) and os.path.getsize(_rp) <= 2 * 1024 * 1024:
+            with open(_rp, "r", encoding="utf-8", errors="replace", newline="") as fh:
+                _cur = fh.read()
+    except OSError:
+        _cur = None
+    if _cur is not None:
+        try:
+            _new = after_of(_cur)
+        except Exception:
+            _new = None
+        _kind = ".py" if _rp.lower().endswith(".py") else ".sh"
+        # The new bytes first: an edit that parses (the common case) costs one check, not two (/simplify).
+        _err = parse_error(_kind, _new) if _new is not None else None
+        if _err and parse_error(_kind, _cur) == "":
+            print("syntax\t" + " ".join(_err.split())[:200]); sys.exit(0)
+
 if not is_acceptance(p):
     print("none"); sys.exit(0)
 
@@ -466,9 +777,21 @@ The first picks where project-maintenance.sh --trust reads the human's \`yes\`; 
 
 A linked worktree below the project is a root the pipeline guards stop at, recognised by the link git keeps in this project's own git dir. Create one with \`git worktree add\`, which this guard allows; making the link by hand, or a repository whose git dir lives elsewhere, is not allowed. A hard link would let an acceptance.md be edited under a name this guard does not judge." ;;
   bash-gitmeta)
-    guard_deny "BLOCKED — this shell command changes the mode, owner, flags or name of the git dir (spec 098).
+    guard_deny "BLOCKED — this shell command removes, creates, links or changes the mode, owner, flags or name of a path in the git dir (specs 098, 105 R1).
 
-chmod, chown, chflags, setfacl, xattr or mv on .git makes git fail at once. The pipeline guards read that failure as an answer and walk to another root, and the trust stores in .git stop being readable. Only the developer changes the git dir; ask them, and they can run it themselves with the ! prefix." ;;
+rm or rmdir on .git leaves the guards with no root to walk to; touch or mkdir there can pre-plant a notice stamp; chmod, chown, chflags, setfacl, xattr or mv on .git makes git fail at once. The pipeline guards read that failure as an answer and walk to another root, and the trust stores in .git stop being readable. Only the developer changes the git dir; ask them, and they can run it themselves with the ! prefix." ;;
+  bash-notice)
+    guard_deny "BLOCKED — this shell command names the guards' notice stamps (claude-hook-notices), or spells the git dir through git rev-parse inside a substitution (spec 105, R2).
+
+A stamp there marks a fail-open guard's notice as already said this session; one made in advance silences the notice for you and the developer's toast. \$(git rev-parse --git-dir) is the git dir without a .git in the text, so it is judged as the git dir. Printing it on its own (git rev-parse --git-dir) is fine." ;;
+  bash-path-write|path-write)
+    guard_deny "BLOCKED — this call writes into a directory on PATH (spec 105, R4).
+
+The guards run git, timeout, perl, python3 and jq by name through PATH, so a file placed in a PATH directory (~/.local/bin, /opt/homebrew/bin, …) can answer for any of them and switch every guard off. Installing a tool there is the developer's step; ask them, and they can run it with the ! prefix." ;;
+  syntax*)
+    guard_deny "BLOCKED — this edit leaves the script unparseable: ${VERDICT#syntax	} (spec 105, R6).
+
+The file parses now and would not after this edit. A PreToolUse guard that does not parse fails every call it matches, its own repair included, and only the developer can fix it with !. Fix the edit (check quoting, an unclosed \$( or heredoc, a backtick inside a \$( <<'PY' program) and try again. A file that is already broken, or a new one, is never refused by this check." ;;
   bash-trust)
     guard_deny "BLOCKED — this shell command passes --trust (spec 088, R3).
 

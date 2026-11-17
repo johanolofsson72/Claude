@@ -285,6 +285,57 @@ if cmp -s "$LIB" "$SAB6B/guard-lib.sh"; then bad "098-R6 sabotage target not fou
 fi
 rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID6"
 
+printf '\n[105-R3] a stamp only in a git dir trust-anchor guards\n'
+SID5="t105-$$"
+A1="$WORK/anc1"; mkdir -p "$A1/pkg" "$WORK/sepgd1"; echo "gitdir: $WORK/sepgd1" > "$A1/.git"
+[ "$(ann "$A1/pkg" "$SID5" r1)$(ann "$A1/pkg" "$SID5" r1)" = 11 ] && ok "105-R3 an ancestor's gitdir with no .git component: said every time" || bad "105-R3 an unguarded ancestor git dir deduplicated"
+[ -e "$WORK/sepgd1/claude-hook-notices" ] && bad "  …and left a stamp there" || ok "  and no stamp was left there"
+A2="$WORK/anc2"; mkdir -p "$A2/pkg" "$WORK/main/.git/worktrees/w"; echo "gitdir: $WORK/main/.git/worktrees/w" > "$A2/.git"
+[ "$(ann "$A2/pkg" "$SID5" r2)$(ann "$A2/pkg" "$SID5" r2)" = 10 ] && ok "105-R3 an ancestor worktree's gitdir under .git/ dedupes" || bad "105-R3 a guarded ancestor git dir did not dedupe"
+mkdir -p "$WORK/tricky/.git" "$WORK/elsewhere"; A3="$WORK/anc3"; mkdir -p "$A3/pkg"; echo "gitdir: $WORK/tricky/.git/../../elsewhere" > "$A3/.git"
+[ "$(ann "$A3/pkg" "$SID5" r3)$(ann "$A3/pkg" "$SID5" r3)" = 11 ] && ok "105-R3 a .git component only as spelled (threat #9) is judged resolved" || bad "105-R3 a spelled-only .git component deduplicated"
+[ "$(ann "$J3" "$SID5" r4)$(ann "$J3" "$SID5" r4)" = 10 ] && ok "105-R3 control: the project dir's own .git file still dedupes (098 TB1)" || bad "105-R3 the project's own gitdir: stopped deduping"
+A4="$WORK/anc4"; mkdir -p "$A4/pkg" "$WORK/locked/.git/worktrees/w"; echo "gitdir: $WORK/locked/.git/worktrees/w" > "$A4/.git"
+chmod 000 "$WORK/locked/.git/worktrees/w"
+[ "$(ann "$A4/pkg" "$SID5" r6)$(ann "$A4/pkg" "$SID5" r6)" = 11 ] && ok "105-R3 an ancestor gitdir that cannot be resolved: said every time" || bad "105-R3 an unresolvable gitdir deduplicated"
+chmod 755 "$WORK/locked/.git/worktrees/w"
+SAB5="$WORK/sab105r3"; mkdir -p "$SAB5"; cp "$(dirname "$IG")"/*.sh "$SAB5"/
+sed 's|case "\$g/" in \*/.git/\*) ;; \*) return 1 ;; esac|:|' "$LIB" > "$SAB5/guard-lib.sh"
+if cmp -s "$LIB" "$SAB5/guard-lib.sh"; then bad "105-R3 sabotage target not found"; else
+  [ "$(ann "$A1/pkg" "$SID5" r5 "$SAB5/guard-lib.sh")$(ann "$A1/pkg" "$SID5" r5 "$SAB5/guard-lib.sh")" = 10 ] \
+    && ok "105-R3 sabotage: without the check the unguarded git dir keeps a stamp" || bad "105-R3 sabotage: the mutant still says it every time"
+fi
+
+printf '\n[105-R1] no .git at a registered or synced root  (105-AC-2)\n'
+NGP="$WORK/nogitproj"; mkdir -p "$NGP/src" "$NGP/specs" "$NGP/.claude"; : > "$NGP/specs/INDEX.md"; : > "$NGP/.claude/.template-sync"; : > "$NGP/package.json"
+SRG="$(dirname "$IG")/spec-register-guard-hook.sh"
+ask_ng() { jq -cn --arg p "$2/src/app.py" '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}' | CLAUDE_PROJECT_DIR="$2" bash "$1" 2>/dev/null; }
+OUT=$(ask_ng "$SRG" "$NGP")
+case "$OUT" in *'"deny"'*"has no .git"*) ok "105-AC-2 spec-register-guard denies naming the missing .git" ;; *) bad "105-AC-2 spec-register-guard: [$(printf '%s' "$OUT" | head -c 140)]" ;; esac
+case "$OUT" in *'with the ! prefix'*) ok "  and names the developer's route" ;; *) bad "  no route in the reason" ;; esac
+for g in pipeline-state spec-interview; do
+  case "$(ask_ng "$(dirname "$IG")/$g-guard-hook.sh" "$NGP")" in *'"deny"'*"has no .git"*) ok "105-R1 $g denies too" ;; *) bad "105-R1 $g did not deny" ;; esac
+done
+for one in specs/INDEX.md .claude/.template-sync; do
+  N1="$WORK/ngone-${one##*/}"; mkdir -p "$N1/src" "$N1/specs" "$N1/.claude"; : > "$N1/$one"; : > "$N1/package.json"
+  case "$(ask_ng "$SRG" "$N1")" in *'"deny"'*"has no .git"*) ok "105-R1 $one alone makes it a project" ;; *) bad "105-R1 $one alone was not judged" ;; esac
+done
+ND="$WORK/ngdangle"; mkdir -p "$ND/src" "$ND/specs"; : > "$ND/specs/INDEX.md"; : > "$ND/package.json"; ln -s "$WORK/nowhere-git" "$ND/.git"
+case "$(ask_ng "$SRG" "$ND")" in *'"deny"'*"has no .git"*) ok "105-R1 a dangling .git link is as gone as a removed .git" ;; *) bad "105-R1 a dangling .git link went silent" ;; esac
+V=$(bash -c 'set -e; . "$0"; guard_walk "/nonexistent-105/a.py"; echo "rc=$?"' "$LIB")
+[ "$V" = "rc=0" ] && ok "105-R1 guard_walk returns 0 when it found no root and no fallback (a caller under set -e lives)" || bad "guard_walk read as [$V]"
+V=$(GUARD_NO_GIT="the project root /x has no .git" GUARD_GIT_UNSURE="the project root /x has no .git" bash -c '. "$0"; guard_unsure_deny g >/dev/null; echo "rc=$?"' "$LIB")
+[ "$V" = "rc=0" ] && ok "105-R1 guard_unsure_deny returns 0 after the no-.git deny (the caller exits on it)" || bad "no-.git deny read as [$V]"
+V=$(bash -c '. "$0"; unset GUARD_NO_GIT; guard_no_git_announce g; echo "rc=$?"' "$LIB")
+[ "$V" = "rc=0" ] && ok "105-R1 guard_no_git_announce returns 0 when there is nothing to announce" || bad "guard_no_git_announce read as [$V]"
+NGL="$WORK/nogitloose"; mkdir -p "$NGL/src"; : > "$NGL/package.json"
+[ -z "$(ask_ng "$SRG" "$NGL")" ] && ok "105-R1 control: no register and no stamp stays silent" || bad "105-R1 a loose directory was denied"
+SAB1="$WORK/sab105r1"; mkdir -p "$SAB1"; cp "$(dirname "$IG")"/*.sh "$(dirname "$IG")"/*.py "$SAB1"/ 2>/dev/null
+sed 's/^  \[ -z "\$GUARD_GIT_ROOT" \] && _guard_no_git_root && GUARD_GIT_UNSURE="\$GUARD_NO_GIT"$/  :/' "$LIB" > "$SAB1/guard-lib.sh"
+if cmp -s "$LIB" "$SAB1/guard-lib.sh"; then bad "105-R1 sabotage target not found"; else
+  [ -z "$(ask_ng "$SAB1/spec-register-guard-hook.sh" "$NGP")" ] && ok "105-R1 sabotage: without the fallback the guard is silent with .git gone" || bad "105-R1 sabotage: the mutant still speaks"
+fi
+
 printf '\n[100] return codes the callers rely on\n'
 # guard_json_str succeeds on every tier: one literal on stdout and exit 0, so a caller that checks the
 # status (`s=$(guard_json_str "$x") || …`) never mistakes a written literal for a failure.

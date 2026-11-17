@@ -107,12 +107,18 @@ guard_json_str() {
 # guard_deny <reason>: the PreToolUse deny, with hookEventName (spec 046: without it the CLI drops
 # the whole object). The caller exits 0 afterwards — the CLI reads stdout JSON on exit 0 only.
 guard_deny() {
+  GUARD_SPOKE=1                         # spec 105 R1: an announce queued for EXIT stays quiet after a verdict
+  local r="$1"
+  case "$r" in *"${GUARD_NO_GIT:-}"*) ;; *) r="$r
+
+Note: $GUARD_NO_GIT; this guard judged from CLAUDE_PROJECT_DIR (spec 105 R1)." ;; esac
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' \
-    "$(guard_json_str "$1")"
+    "$(guard_json_str "$r")"
 }
 
 # guard_context <text>: additionalContext for the model, no decision.
 guard_context() {
+  GUARD_SPOKE=1
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":%s}}\n' \
     "$(guard_json_str "$1")"
 }
@@ -140,15 +146,23 @@ guard_announce() {
 # package directory has no .git of its own) and through a .git file's gitdir: line. Builtins only.
 # Exit 1 when there is none.
 _guard_notice_base() {
-  local d="${CLAUDE_PROJECT_DIR:-}" g
+  local d="${CLAUDE_PROJECT_DIR:-}" g top
   [ -n "$d" ] || return 1
-  d="${d%/}"
+  d="${d%/}"; top=$d
   while [ -n "$d" ]; do
     if [ -d "$d/.git" ] && [ ! -L "$d/.git" ]; then printf '%s/.git/claude-hook-notices' "$d"; return 0; fi
     if [ -f "$d/.git" ]; then
       _guard_gitdir_of "$d" || return 1
       g=$GUARD_GITDIR
       [ -d "$g" ] || return 1
+      # Spec 105 R3 (F188): only a git dir trust-anchor guards. It guards the project dir's own .git file
+      # target (098 TB1) and any path with a .git component; an ancestor's gitdir kept elsewhere (a
+      # --separate-git-dir worktree or submodule above a package) is neither, so no stamp there. Judged on
+      # the resolved path (threat model #9: /tmp/.git/../x has the component only as spelled).
+      if [ "$d" != "$top" ]; then
+        g=$(_guard_realdir "$g") || return 1
+        case "$g/" in */.git/*) ;; *) return 1 ;; esac
+      fi
       printf '%s/claude-hook-notices' "${g%/}"; return 0
     fi
     [ -e "$d/.git" ] && return 1            # a symlinked or odd .git: no stamp, say it every time
@@ -629,6 +643,22 @@ guard_walk() {
       if [ -n "$GUARD_REGISTER" ]; then GUARD_LANG_MARKER="specs/INDEX.md"; else GUARD_LANG_MARKER=".claude/.template-sync"; fi
     fi
   fi
+  # Spec 105 R1 (F184, developer O1): no boundary anywhere above a file in a project that shows it is one.
+  [ -z "$GUARD_GIT_ROOT" ] && _guard_no_git_root && GUARD_GIT_UNSURE="$GUARD_NO_GIT"
+  return 0
+}
+
+# _guard_no_git_root: spec 105 R1 (F184, developer O1). Called when a walk found no git boundary at all.
+# 0, with GUARD_NO_GIT set to the cause, when CLAUDE_PROJECT_DIR holds the file (GUARD_ANCHOR), has no
+# .git entry, and shows it is a project: a register or the sync stamp. Before 105 a removed .git (rm -r
+# without -f passed every guard) turned spec-register, core-machinery and core-owed-tick off in silence.
+_guard_no_git_root() {
+  GUARD_NO_GIT=""
+  [ -n "${GUARD_ANCHOR:-}" ] || return 1      # mutant-equivalent: an empty anchor reads /.git and /specs, which line 3 refuses
+  # A .git that resolves is a .git; a dangling .git link is as gone as a removed one (mutation 105).
+  [ -e "$GUARD_ANCHOR/.git" ] && return 1
+  [ -f "$GUARD_ANCHOR/specs/INDEX.md" ] || [ -f "$GUARD_ANCHOR/.claude/.template-sync" ] || return 1
+  GUARD_NO_GIT="the project root $GUARD_ANCHOR has no .git (it was removed or moved)"
   return 0
 }
 
@@ -646,6 +676,12 @@ guard_core_synced() {
 # was sure. The CORE guards announce instead (guard_announce), keyed by file (threat model #7).
 guard_unsure_deny() {
   [ -n "${GUARD_GIT_UNSURE:-}" ] || return 1
+  if [ -n "${GUARD_NO_GIT:-}" ] && [ "$GUARD_GIT_UNSURE" = "$GUARD_NO_GIT" ]; then
+    guard_deny "BLOCKED — $1: $GUARD_NO_GIT (spec 105 R1).
+
+This project has a register or the template-sync stamp, so it is a git project; with .git gone the guards have no root to anchor the scripts/ specs/ .claude/ exemptions at, and they no longer go silent. Restoring it is the developer's step (re-clone, restore .git from a backup, or git init and re-add the remote), run with the ! prefix. This is not something an edit can fix."
+    return 0
+  fi
   guard_deny "BLOCKED — $1 could not find this project's root: $GUARD_GIT_UNSURE (spec 098).
 
 The walk from the edited file up to the git root asks git whether a .git file is a linked worktree of this project, or whether the session's own .git is the real one. Without an answer the root, and the scripts/ specs/ .claude/ exemptions anchored at it, would be a guess. Put git on PATH or make it answer (GUARD_GIT_TIMEOUT, default 5 s), then retry. This is not something an edit can fix."
@@ -660,7 +696,7 @@ The walk from the edited file up to the git root asks git whether a .git file is
 # the project's sync above it.
 guard_core_root() {
   local dir="${1%/*}"
-  GUARD_CORE_ROOT=""; GUARD_SYNC_ROOT=""
+  GUARD_CORE_ROOT=""; GUARD_SYNC_ROOT=""; GUARD_NO_GIT=""
   guard_anchor_for "$1"
   while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do
     if guard_git_boundary "$dir"; then
@@ -674,6 +710,19 @@ guard_core_root() {
     dir="${dir%/*}"
   done
   [ -n "$GUARD_SYNC_ROOT" ] || GUARD_SYNC_ROOT="$GUARD_CORE_ROOT"
+  # Spec 105 R1 (developer O1): no .git at a registered or synced project root. The CORE guards judge
+  # from the project dir and announce GUARD_NO_GIT (guard_no_git_announce); they never go silent.
+  if [ -z "$GUARD_CORE_ROOT" ] && _guard_no_git_root; then
+    GUARD_CORE_ROOT=$GUARD_ANCHOR; GUARD_SYNC_ROOT=$GUARD_ANCHOR
+  fi
+}
+
+# guard_no_git_announce <guard>: spec 105 R1. Queue the announcement for the hook's exit, so a deny the
+# guard prints first stands alone (a hook prints one JSON object).
+guard_no_git_announce() {
+  [ -n "${GUARD_NO_GIT:-}" ] || return 0
+  _GUARD_NG_NAME=$1
+  trap '[ -n "${GUARD_SPOKE:-}" ] || guard_announce "$_GUARD_NG_NAME" "$GUARD_NO_GIT; it judged from CLAUDE_PROJECT_DIR"' EXIT
 }
 
 # guard_walk_exempt <canonical-file>: the directory allow list of spec 083 R5, anchored at the git root

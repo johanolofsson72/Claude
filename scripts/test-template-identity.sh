@@ -210,5 +210,24 @@ PY
 expect "sabotage: the mutant exempts the impostor" none "$(hook_verdict "$(jq -n --arg p "$IMP/scripts/spec_active.py" \
   '{tool_name:"Edit",tool_input:{file_path:$p,old_string:"x",new_string:"y"}}' | CLAUDE_PROJECT_DIR="$IMP" bash "$MUT/core-machinery-guard-hook.sh" 2>/dev/null)")"
 
+printf '\n[105-R5] git is bounded and runs with GIT_* dropped\n'
+SLOWB="$WORK/slowgit"; mkdir -p "$SLOWB"
+printf '#!/bin/sh\nsleep 30\n' > "$SLOWB/git"; chmod +x "$SLOWB/git"
+T0=$(date +%s)
+V=$(PATH="$SLOWB:$PATH" GUARD_GIT_TIMEOUT=1 bash -c '. "$0"; template_identity "$1"; self_test_subject "$1"' "$SELF_DIR/template-identity.sh" "$SELF_DIR/..")
+T1=$(date +%s)
+[ "$V" = "project
+upstream" ] && ok "105-R5 a git that hangs reads as project (no exemption) and upstream (nothing skipped)" || bad "105-R5 a hanging git read as [$V]"
+[ $((T1 - T0)) -lt 10 ] && ok "  within the bound ($((T1 - T0)) s), not the 30 s the git sleeps" || bad "  it waited $((T1 - T0)) s"
+V=$(GIT_DIR=/nonexistent GIT_WORK_TREE=/nonexistent GIT_CONFIG_PARAMETERS="'remote.origin.url=https://github.com/x/y'" \
+    bash -c '. "$0"; template_identity "$1"' "$SELF_DIR/template-identity.sh" "$SELF_DIR/..")
+[ "$V" = "$(template_identity "$SELF_DIR/..")" ] && ok "105-R5 GIT_DIR, GIT_WORK_TREE and GIT_CONFIG_PARAMETERS change nothing" || bad "105-R5 the environment moved the answer to [$V]"
+SABT="$WORK/sab105r5"; mkdir -p "$SABT"
+sed 's/^    for _v in \$(compgen.*/    :/' "$SELF_DIR/template-identity.sh" > "$SABT/template-identity.sh"
+if cmp -s "$SELF_DIR/template-identity.sh" "$SABT/template-identity.sh"; then bad "105-R5 sabotage target not found"; else
+  V=$(GIT_DIR=/nonexistent bash -c '. "$0"; template_identity "$1"' "$SABT/template-identity.sh" "$SELF_DIR/..")
+  [ "$V" = project ] && ok "105-R5 sabotage: without the scrub GIT_DIR moves the answer" || bad "105-R5 sabotage: the mutant read [$V]"
+fi
+
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" -eq 0 ]

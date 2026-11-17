@@ -79,7 +79,16 @@ OUTPUT_OPTIONS = frozenset(("-o", "--output", "--output-file", "--output-directo
 OUTPUT_PREFIXES = ("--output=", "--output-file=", "--output-directory=")   # git diff --output=f (098 review)
 EXEC_COMMANDS = frozenset(
     "sh bash zsh dash ksh fish eval source . exec xargs env python python3 perl ruby node php awk "
-    "osascript parallel at batch crontab busybox".split())
+    "osascript parallel at batch crontab busybox "
+    # Spec 105 R7 (F175): more interpreters and make; a versioned name is stripped first (is_runner).
+    "gawk mawk nawk tcsh csh rbash mksh ash yash lua tclsh expect pwsh make gmake".split())
+FIND_EXEC = frozenset(("-exec", "-execdir", "-ok", "-okdir"))
+
+
+def is_runner(w):
+    """A runner by basename, with a trailing version stripped (python3.12, perl5.30, bash5)."""
+    b = w.rpartition("/")[2]
+    return b in EXEC_COMMANDS or re.sub(r"[\d.]+$", "", b) in EXEC_COMMANDS
 SYSTEM_BIN = frozenset(("/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/usr/sbin", "/sbin"))
 MISSING = object()
 
@@ -531,6 +540,9 @@ def word_hit(word, g, bases, by_name, dots):
 
 MOD_WORDS = frozenset(("skills", "plugins", "dev-mods"))
 MOD_TEXT = re.compile(r"claude-plugin|hooks|skills|plugins|dev-mods")
+# A whole word's basename. A program string with arguments (bash -c 'scripts/install-x-mod.sh --target y')
+# is judged by the nested re-judge, where the installer is a word of its own (spec 105 R8); matching
+# inside any word refused prose that named it (threat model #31).
 MOD_INSTALLER = re.compile(r"^install-.*-mod\.sh$", re.I)
 
 
@@ -691,18 +703,21 @@ def strip_comments(text):
     return "".join(out)
 
 
-def split_commands(text, strip=False, flow=None):
+def split_commands(text, strip=False, flow=None, substs=None):
     """[(words, redirect_targets)] per simple command, or None when the text cannot be split. strip:
     remove bash comments first (see bash_verdict for why both readings are judged). flow: a list that
     receives one pipeline id per command; a pipe (`|`, `|&`) keeps the id, any other separator moves it
-    on (spec 098 R7)."""
+    on (spec 098 R7). substs: a list that receives, per command, whether a $( ) or backtick substitution
+    began among its words (spec 105 R7). An input redirect's operand (< f) is no word of the command
+    (105 R7: `</dev/null bash f` read /dev/null as the command word)."""
     lex = shlex.shlex(strip_comments(text) if strip else text, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"
     lex.commenters = ""
     lex.whitespace_split = True
     out = []
     words, targets = [], []
-    pending_redirect = pending_dup = False
+    pending_redirect = pending_dup = pending_input = False
+    had_subst = [False]
     depth = 0                                         # inside $( ), >( ), <( ): output flows on
     group = 0
     def flush():
@@ -710,18 +725,22 @@ def split_commands(text, strip=False, flow=None):
             out.append((words, targets, depth > 0))
             if flow is not None:
                 flow.append(group)
+            if substs is not None:
+                substs.append(had_subst[0])
+        had_subst[0] = False
     try:
         for tok in lex:
             if tok and all(ch in "();<>|&\n" for ch in tok):
                 if "(" in tok or ")" in tok:          # >(…) <(…) $(…) (…): a new command starts
                     subst = ("<" in tok or ">" in tok) or (words and words[-1].endswith("$"))
                     if words and words[-1].endswith("$"):
+                        had_subst[0] = True
                         words[-1] = words[-1][:-1]
                         if not words[-1]:
                             words.pop()
                     flush()
                     words, targets = [], []
-                    pending_redirect = False
+                    pending_redirect = pending_input = False
                     depth = depth + tok.count("(") * (1 if subst else 0) - tok.count(")")
                     depth = max(depth, 0)
                     continue
@@ -730,13 +749,14 @@ def split_commands(text, strip=False, flow=None):
                     continue
                 if ">" in tok or "<" in tok:
                     pending_redirect = ">" in tok
+                    pending_input = not pending_redirect
                     pending_dup = tok.endswith("&") and not tok.startswith("&")   # >&2, not &> f
                     if words and words[-1].isdigit():     # 2>&1: the 2 is a descriptor, not a word
                         words.pop()
                     continue
                 flush()
                 words, targets = [], []
-                pending_redirect = False
+                pending_redirect = pending_input = False
                 if "|" not in tok or "||" in tok:
                     group += 1
                 continue
@@ -744,6 +764,8 @@ def split_commands(text, strip=False, flow=None):
                 if not (pending_dup and (tok.isdigit() or tok == "-")):
                     targets.append(tok)               # >&2 and >&- name a descriptor; > 2 is a file (098 review)
                 pending_redirect = pending_dup = False
+            elif pending_input:
+                pending_input = False                 # < f: read from f, not a word (105 R7)
             else:
                 words.append(tok)
     except ValueError:
@@ -758,7 +780,8 @@ def split_commands(text, strip=False, flow=None):
 # writes. Any line this reading cannot follow (a group, a subshell, $( ), coproc, exec, a here-string,
 # a descriptor above 2) keeps the old rule (threat model #1, #2).
 STDOUT_FILTERS = frozenset("grep egrep fgrep wc head tail cut tr nl column jq cat".split())
-RUN_WRAPPERS = frozenset("! time command builtin nice nohup stdbuf setsid timeout gtimeout caffeinate sudo doas { exec".split())
+RUN_WRAPPERS = frozenset("! time command builtin nice nohup stdbuf setsid timeout gtimeout caffeinate sudo doas { exec "
+                         "flock watch".split())   # flock and watch: spec 105 R7
 # Judged on the raw text, quotes included: a quoted exec still reads as unplain, and a line with an
 # expansion ($_, $OLDPWD, $(…)), a backtick or a backslash (e\xec) is never plain (098 review, R7-2/R7-3).
 UNPLAIN = re.compile(r"[(){}`$\\]|<<<|\bcoproc\b|\bexec\b|[<>]&\s*(?:[3-9]|\d\d|-)|\d{2,}[<>]")
@@ -776,16 +799,17 @@ def runs_text(words):
     """The command, past wrappers (`command sh`, `timeout 9 bash`, `nice -n 5 sh`), is a runner. Never
     less than the pre-098 test (command_word); after a wrapper, any runner name counts, so an option
     value (`sudo -u root bash`, `timeout -s KILL 9 sh`) cannot hide one (098 review R7-4)."""
-    if (command_word(words) or "").rpartition("/")[2] in EXEC_COMMANDS:
+    if is_runner(command_word(words) or ""):
         return True
-    if words and words[0].rpartition("/")[2] in RUN_WRAPPERS \
-            and any(w.rpartition("/")[2] in EXEC_COMMANDS for w in words[1:]):
+    if words and words[0].rpartition("/")[2] in RUN_WRAPPERS and any(is_runner(w) for w in words[1:]):
         return True
+    if (command_word(words) or "").rpartition("/")[2] == "find" and any(w in FIND_EXEC for w in words):
+        return True                                   # find -exec runs a program per file (105 R7)
     for i, w in enumerate(words):
         b = w.rpartition("/")[2]
         if NAME_ASSIGN.match(w) or b in RUN_WRAPPERS or (i > 0 and (w.startswith("-") or re.fullmatch(r"[\d.]+[smhd]?", w))):
             continue
-        return b in EXEC_COMMANDS
+        return is_runner(b)
     return False
 
 
@@ -1441,6 +1465,46 @@ def _where(args, g, base, strict=True):
 
 
 PROGRAM_RUNNERS = frozenset("sh bash zsh dash ksh fish eval".split())
+HANDED_ON = re.compile(r"\$(?:_|\{_\})(?!\w)")
+
+
+def program_words(words, sw, heredoc=False):
+    """The words a shell runs as program text: eval's arguments, or the operand of -c (also in a cluster,
+    -lc, -ec). A script's own arguments are data: `bash scripts/finding.sh --add '<prose>'` named an
+    installer in prose and was refused (105 threat model #31)."""
+    if sw == "eval":
+        return words[1:]
+    for i, w in enumerate(words[1:], 1):
+        if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", w):
+            # The program is the first operand after -c, past other options and -- (bash -c -- '…',
+            # bash -c -x '…'; adversarial review #4).
+            return [x for x in words[i + 1:] if not x.startswith("-")][:1]
+    # No -c: the program is stdin, which a heredoc or a here-string fills (/security-review, spec 105:
+    # bash <<< 'git restore …' was judged by nothing); a heredoc body arrives attached as words (see
+    # attach_heredocs). Without one, the operands are a script path and that script's data.
+    return words[1:] if heredoc else []
+
+
+def shell_word(words):
+    """(the command word past assignments, run wrappers and their options, version stripped; the words
+    from it on). env, xargs and a signal name (timeout --signal KILL) are passed over, and find's
+    -exec names the command it runs (adversarial review #5)."""
+    i = 0
+    while i < len(words):
+        w = words[i]
+        b = w.rpartition("/")[2]
+        if b == "find":
+            j = next((k for k in range(i + 1, len(words)) if words[k] in FIND_EXEC), None)
+            if j is None:
+                return b, words[i:]
+            i = j + 1
+            continue
+        if NAME_ASSIGN.match(w) or b in RUN_WRAPPERS or b in GIT_WRAPPERS or w == "{}" \
+                or (i > 0 and (w.startswith("-") or re.fullmatch(r"[\d.]+[smhd]?", w) or re.fullmatch(r"[A-Z]+\d*", w))):
+            i += 1
+            continue
+        return (re.sub(r"[\d.]+$", "", b) if b not in PROGRAM_RUNNERS else b), words[i:]
+    return "", []
 GIT_WRAPPERS = frozenset("env command exec nohup nice time timeout sudo xargs stdbuf ionice caffeinate".split())
 
 
@@ -1617,8 +1681,8 @@ def _bash_verdict(cmd, g, strip):
     parts = text.split("`")
     text = "".join(p + ("" if i == len(parts) - 1 else (" $( " if i % 2 == 0 else " ) "))
                    for i, p in enumerate(parts))
-    flow = []
-    cmds = split_commands(text, strip, flow)
+    flow, substs = [], []
+    cmds = split_commands(text, strip, flow, substs)
     if cmds is None:
         low = cmd.lower()
         if "settings" in low or ".claude" in low:
@@ -1641,8 +1705,19 @@ def _bash_verdict(cmd, g, strip):
                 by_name = dots = True
             bases.append(full)
     tainted = prelude_taints(cmds, text)
-    plain = len(flow) == len(cmds) and not UNPLAIN.search(text)
+    # Spec 105 R7: a simple $( ) (no nested parentheses) does not make the line unplain. It cannot carry
+    # the read's stdout: a read inside one is in_subst and denied, and a file it reads is line_spills.
+    # `grep hooks <settings> ; bash t.sh "$(pwd)"` was refused (105-AC-4). Other expansions keep 098's
+    # reading, and $_ is the handed-on rule.
+    plain = len(flow) == len(cmds) and "\x60" not in cmd \
+        and not UNPLAIN.search(re.sub(r"\$\([^()$\x60]*\)", "S", text))      # backticks stay unplain (098 review)
     runners = [runs_text(w) for w, _, _ in cmds]
+    # Spec 105 R7(c) (F175): a name handed on to a writer. $_ (outside single quotes, where bash expands
+    # it) is the previous command's last word; a substitution can read a file this line wrote. History
+    # expansion (!$, !!) is off in a non-interactive shell, so it is not counted (threat model #28).
+    handed = bool(HANDED_ON.search(re.sub(r"'[^']*'", "", text)))
+    line_spills = any(not SAFE_TARGET.match(t) for _, ts, _ in cmds for t in ts)
+    seen_name = None
     # 095a TM-5: in a mod zone (the payload cwd, a cd or -C target) a write names no path at all:
     # `cd ~/.claude/skills && git clone URL`, `tar xf m.tar`.
     mod_base = next((b for b in bases if not GLOBCH.search(b) and g.mods.kind(g.absolute(b)) == "hard"), None)
@@ -1673,7 +1748,13 @@ def _bash_verdict(cmd, g, strip):
         naming = [(i, h) for i, h in naming if h and not (moves and h in g.mod_hits)
                   and (g.mod_hits.get(h) != "soft" or placing_target(words, i))]
         if not naming:
+            if seen_name and not reads(words) and words \
+                    and (command_word(words) or "").rpartition("/")[2] not in ("cd", "pushd", "popd") \
+                    and ((handed and any(HANDED_ON.search(w) for w in words))
+                         or (k < len(substs) and substs[k] and line_spills)):
+                return ["settings-bash", seen_name]
             continue
+        seen_name = seen_name or naming[0][1]
         if not reads(words) or in_subst or tainted:
             return ["settings-bash", naming[0][1]]
         if read_flows(k, cmds, flow, plain, runners):
@@ -1684,12 +1765,15 @@ def _bash_verdict(cmd, g, strip):
     # A program inside a word (bash -c '…', a heredoc body handed on) that runs git is judged as a
     # command of its own (095 adversarial #2).
     # Only a shell or eval runs the text: a heredoc handed to cat is data.
+    # Spec 105 R8 (F186): any program string, not only one naming git or claude (a mod installer with
+    # arguments named neither), and a shell reached past a wrapper (timeout 5 bash -c '…').
     if g.depth < 3:
         for words, _, _ in cmds:
-            if (command_word(words) or "").rpartition("/")[2] not in PROGRAM_RUNNERS:
+            sw, from_sw = shell_word(words)
+            if sw not in PROGRAM_RUNNERS:
                 continue
-            for w in words[1:]:
-                if re.search(r"\s", w) and re.search(r"\b(git|claude)\b", w):
+            for w in program_words(from_sw, sw, bool(HEREDOC.search(cmd)) or "<<<" in cmd):
+                if re.search(r"\s", w):
                     g.depth += 1
                     try:
                         v = bash_verdict(w, g)
