@@ -2,7 +2,7 @@
 
 Track: spec-only, hardened. Hardened by the risk-domain trigger: R5 changes what the key-shape
 scanner exempts (secrets). No entity, state machine or concurrency, so no `.allium` and no `/tla`.
-Findings: F196 (4), F206, F209, F211, F216, verbatim in `specs/FINDINGS.md`.
+Findings: F196 (4), F206, F239 (was F209), F211, F246 (was F216), verbatim in `specs/FINDINGS.md`.
 
 ## Problem
 
@@ -27,7 +27,7 @@ specs 086–101 or depend on a bare tree with no stack. They stay out of scope.
 
 ## Requirements
 
-- **R1 — Data files in CORE_SCRIPTS ship (F209 core-parity).** The scripts copy loop copies every
+- **R1 — Data files in CORE_SCRIPTS ship (F239 core-parity).** The scripts copy loop copies every
   CORE_SCRIPTS name that is not `*.sh` or `*.py` by name, instead of naming `speckit-version` alone.
   Adding a data file to CORE_SCRIPTS is then enough to ship it.
 - **R2 — sync-prompt checks skip downstream (F211 local-llm-host, sync-prompt-zsh).** The checks
@@ -37,10 +37,10 @@ specs 086–101 or depend on a bare tree with no stack. They stay out of scope.
 - **R3 — Every stack receives every doc under its own name (F206).** The web gate stops withholding
   the three mobile docs. A mobile project additionally keeps the canonical-name overlays it gets
   today. No validator learns a stack list.
-- **R4 — fixture-map-ids reads the split layout (F209).** Without `--map`, the owned set comes from
+- **R4 — fixture-map-ids reads the split layout (F239).** Without `--map`, the owned set comes from
   `scenario_map_files` (index plus `specs/scenarios/*.md`). The NOT RUN exits stay for a missing
   index and for zero rows across all files.
-- **R5 — The scanner exempts its own two files (F196 (4), F216).** `project-freshness.sh` carries a
+- **R5 — The scanner exempts its own two files (F196 (4), F246).** `project-freshness.sh` carries a
   built-in exemption for exactly `scripts/project-freshness.sh` and `scripts/test-project-freshness.sh`,
   printed as `[ALLOWED]` with its reason like any other. Exact paths with no glob character; a
   project cannot extend the built-in list, only its own `.secret-shapes-allow`.
