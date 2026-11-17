@@ -1565,3 +1565,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 107 — maintenance-report-honesty
 
 - [x] 107 — maintenance-report-honesty — spec-only — the pass quotes every FAIL, emits per section, bounds mutation and ratchets, scans the right register. F180 F181 F191 F200–F202 F204 F224 F225
+
+## 108 — settings-guard-false-positives
+
+- [x] 108 — settings-guard-false-positives — spec-only — read-only pipes, sed -n, scratch paths and quoted patterns derived as settings writes. F193 F221 F229 F232
