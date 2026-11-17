@@ -121,7 +121,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 103 — unlisted-fires-on-a-test-fixture — trivial — rocky 2026-10-30 (T0): test-project-maintenance.sh C107 writes e2e-gate-census.py as a fixture; declared optional like C88, so core-owed-tick-guard clears.
 - [x] 104 — allium-check-on-write — trivial — agentcrm 2026-11-16 (183): allium-check-hook.sh is wired `if: Edit(**/*.allium)` only; a Write of a new .allium (every elicit) is never checked — five parse errors passed.
 - [x] H7 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 100–104.
-- [ ] 105 — guard-bypasses — full track [hardened] — rm -r .git, PATH shims, pre-planted notice stamps, missed runners, unbound acceptance digest. F173–F178 F184 F186–F190
+- [x] 105 — guard-bypasses — full track [hardened] — rm -r .git, PATH shims, pre-planted notice stamps, missed runners, unbound acceptance digest. F173–F178 F184 F186–F190
 - [ ] 106 — downstream-core-red-2 — spec-only — CORE self-tests still red downstream after 102, plus sync parity for RULE_DOCS. F196 F203 F205 F207 F211 F233 F234
 - [ ] 107 — maintenance-report-honesty — spec-only — the pass quotes every FAIL, emits per section, bounds mutation and ratchets, scans the right register. F180 F181 F191 F200–F202 F204 F224 F225
 - [ ] 108 — settings-guard-false-positives — spec-only — read-only pipes, sed -n, scratch paths and quoted patterns derived as settings writes. F193 F221 F229 F232
@@ -130,6 +130,7 @@ Order of execution. Tick when done. Append new rows to the end.
 
 ## Register history (newest first)
 
+- 2026-11-17 — 105 ticked: R1–R13 built, F258 fixed in place, F259–F270 recorded (F264 resolved), no row carved.
 - 2026-11-17 — H7 ticked: suite 97/97 stamped; F247–F257 recorded (sweep + mutation), one test fail-open fixed in place, no row carved.
 - 2026-11-17 — finding review (77 open): H7 + 105–110 added; 11 duplicate finding ids renumbered F236–F246; 6 resolved as fixed, 17 dropped; F235 open until the developer applies its settings twins.
 - 2026-11-16 — H6 ticked: suite 96/96 stamped after two in-place test fixes; F184–F195, F224, F225 recorded, no row carved.
