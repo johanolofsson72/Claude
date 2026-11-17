@@ -465,6 +465,24 @@ for g in settings-edit-guard-hook.sh trust-anchor-guard-hook.sh; do
   fi
 done
 
+# F235: an `if: Edit(<glob>)` gate never fires on Write, so a file born by Write (spec.md from
+# /speckit-specify, a new .cs or .md) skipped every PostToolUse check gated that way. Row 104
+# twinned allium-check-hook only. Every Edit(<glob>) gate in a group whose matcher takes Write
+# needs a Write(<same glob>) twin running the same command.
+MISSING=$(jq -r '[.hooks.PostToolUse[]
+    | select(.matcher | split("|") | index("Write"))
+    | .hooks as $h | $h[]
+    | select((.if // "") | startswith("Edit("))
+    | . as $e | ("Write" + ($e.if | ltrimstr("Edit"))) as $w
+    | select([$h[] | select(.if == $w and .command == $e.command)] | length == 0)
+    | "\($e.if) -> \([$e.command | scan("[A-Za-z0-9_-]+\\.sh")] | .[0] // "inline command")"]
+    | .[]' "$ROOT/.claude/settings.json" 2>/dev/null)
+if [ -z "$MISSING" ]; then
+  ok "F235 every PostToolUse Edit(<glob>) gate has a Write(<glob>) twin"
+else
+  while IFS= read -r m; do bad "F235 no Write twin for $m (the developer's edit, 089 O3)"; done <<<"$MISSING"
+fi
+
 echo
 printf 'passed %s, failed %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

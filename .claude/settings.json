@@ -167,7 +167,17 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.cs)",
+            "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(cs|csproj)$'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Reminder: run dotnet build to verify compilation\"}}'; fi"
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.csproj)",
+            "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(cs|csproj)$'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Reminder: run dotnet build to verify compilation\"}}'; fi"
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.csproj)",
             "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '\\.(cs|csproj)$'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Reminder: run dotnet build to verify compilation\"}}'; fi"
           }
         ]
@@ -203,7 +213,19 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.md)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-md-coverage-reminder-hook.sh\"",
+            "statusMessage": "Validating spec completeness..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.md)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/scenario-map-reminder-hook.sh\"",
+            "statusMessage": "Checking scenario map (SCENARIOS.md)..."
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.md)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/scenario-map-reminder-hook.sh\"",
             "statusMessage": "Checking scenario map (SCENARIOS.md)..."
           },
@@ -215,7 +237,19 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.cs)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.ts)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.ts)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
             "statusMessage": "Checking functional test coverage..."
           },
@@ -227,7 +261,19 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.js)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.tsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.tsx)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
             "statusMessage": "Checking functional test coverage..."
           },
@@ -239,7 +285,19 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.jsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.dart)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.dart)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
             "statusMessage": "Checking functional test coverage..."
           },
@@ -251,7 +309,19 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.cs)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.ts)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.ts)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
             "statusMessage": "Checking for TLA+ verification..."
           },
@@ -263,7 +333,19 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.js)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.tsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.tsx)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
             "statusMessage": "Checking for TLA+ verification..."
           },
@@ -275,7 +357,19 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.jsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.dart)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.dart)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
             "statusMessage": "Checking for TLA+ verification..."
           },
@@ -287,7 +381,19 @@
           },
           {
             "type": "command",
+            "if": "Write(**/*.y*ml)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.md)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/allium-hook.sh\"",
+            "statusMessage": "Checking for Allium specification..."
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.md)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/allium-hook.sh\"",
             "statusMessage": "Checking for Allium specification..."
           },
@@ -311,12 +417,28 @@
           },
           {
             "type": "command",
+            "if": "Write(**/spec.md)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/after-specify-hook.sh\"",
+            "statusMessage": "after_specify: auto-commit check..."
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.md)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-run-log-hook.sh\""
           },
           {
             "type": "command",
+            "if": "Write(**/*.md)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-run-log-hook.sh\""
+          },
+          {
+            "type": "command",
             "if": "Edit(**/*.allium)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-run-log-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Write(**/*.allium)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-run-log-hook.sh\""
           }
         ]
