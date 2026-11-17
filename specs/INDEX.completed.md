@@ -1545,3 +1545,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 102 — downstream-core-red
 
 - [x] 102 — downstream-core-red — spec-only — fundit 2026-10-05: freshness flags its own PuTTY fixture as a key; 9 CORE self-tests red downstream; 14 dangling citations (testing-mobile.md).
+
+## 104 — allium-check-on-write
+
+- [x] 104 — allium-check-on-write — trivial — agentcrm 2026-11-16 (183): allium-check-hook.sh is wired `if: Edit(**/*.allium)` only; a Write of a new .allium (every elicit) is never checked — five parse errors passed.
