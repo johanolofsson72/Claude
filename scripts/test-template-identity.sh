@@ -214,10 +214,18 @@ printf '\n[105-R5] git is bounded and runs with GIT_* dropped\n'
 SLOWB="$WORK/slowgit"; mkdir -p "$SLOWB"
 printf '#!/bin/sh\nsleep 30\n' > "$SLOWB/git"; chmod +x "$SLOWB/git"
 T0=$(date +%s)
-V=$(PATH="$SLOWB:$PATH" GUARD_GIT_TIMEOUT=1 bash -c '. "$0"; template_identity "$1"; self_test_subject "$1"' "$SELF_DIR/template-identity.sh" "$SELF_DIR/..")
+V=$(PATH="$SLOWB:$PATH" GUARD_GIT_TIMEOUT=1 bash -c '. "$0"; template_identity "$1"' "$SELF_DIR/template-identity.sh" "$SELF_DIR/..")
 T1=$(date +%s)
-[ "$V" = "project
-upstream" ] && ok "105-R5 a git that hangs reads as project (no exemption) and upstream (nothing skipped)" || bad "105-R5 a hanging git read as [$V]"
+[ "$V" = project ] && ok "105-R5 a git that hangs reads as project (no exemption)" || bad "105-R5 a hanging git read as [$V]"
+# Spec 106: with git silenced only the sync stamp is left to answer self_test_subject. Asked of two
+# fixtures, so both answers are checked in the template and in every project alike (expecting the
+# template's own answer from the live tree made this case red in every synced project).
+mkdir -p "$WORK/r5-stamped/.claude" "$WORK/r5-plain"; : > "$WORK/r5-stamped/.claude/.template-sync"
+for c in "r5-stamped downstream" "r5-plain upstream"; do
+  set -- $c
+  V=$(PATH="$SLOWB:$PATH" GUARD_GIT_TIMEOUT=1 bash -c '. "$0"; self_test_subject "$1"' "$SELF_DIR/template-identity.sh" "$WORK/$1")
+  [ "$V" = "$2" ] && ok "105-R5 hanging git, $1: $2 (only the sync stamp can answer)" || bad "105-R5 hanging git, $1 read as [$V], want $2"
+done
 [ $((T1 - T0)) -lt 10 ] && ok "  within the bound ($((T1 - T0)) s), not the 30 s the git sleeps" || bad "  it waited $((T1 - T0)) s"
 V=$(GIT_DIR=/nonexistent GIT_WORK_TREE=/nonexistent GIT_CONFIG_PARAMETERS="'remote.origin.url=https://github.com/x/y'" \
     bash -c '. "$0"; template_identity "$1"' "$SELF_DIR/template-identity.sh" "$SELF_DIR/..")

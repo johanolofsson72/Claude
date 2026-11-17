@@ -108,6 +108,31 @@ out=$(bash "$d/core-gates.sh" 2>&1); rc=$?
 [ "$rc" -eq 2 ] && grep -qF "template-autosync.sh is missing" <<< "$out" \
   && ok "f: a missing template-autosync.sh is refused" || bad "f: missing template-autosync.sh — exit $rc: $out"
 
+# [106] F203. gawk escape-processes a -v value and warns on stderr about `\.`; macOS awk does not, so
+# the warning was invisible here and a Linux pass ran it as a test name. A stand-in awk that refuses
+# any -v value holding a backslash makes the Linux behaviour visible on every platform.
+REAL_AWK=$(command -v awk)
+mkdir -p "$T/strictawk"
+cat > "$T/strictawk/awk" <<EOF
+#!/bin/bash
+prev=""
+for a in "\$@"; do
+  if [ "\$prev" = "-v" ] && [ "\${a#*\\\\}" != "\$a" ]; then echo "awk: warning: escape sequence in -v \$a" >&2; fi
+  prev="\$a"
+done
+exec "$REAL_AWK" "\$@"
+EOF
+chmod +x "$T/strictawk/awk"
+err=$(PATH="$T/strictawk:$PATH" bash "$SUT" 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ -z "$err" ] && ok "[106] core-gates.sh prints nothing on stderr under an awk that warns on -v escapes" \
+  || bad "[106] stderr under a strict awk (exit $rc): $err"
+# Sabotage: the stand-in has to catch the old spelling, or the case above proves nothing.
+cp "$SUT" "$T/sab-core-gates.sh"; cp "$SD/template-autosync.sh" "$T/template-autosync.sh"
+sed -i.bak 's/GATE_SHAPE="\$GATE_SHAPE" awk '"'"'/awk -v shape="$GATE_SHAPE" '"'"'/' "$T/sab-core-gates.sh"
+err=$(PATH="$T/strictawk:$PATH" bash "$T/sab-core-gates.sh" 2>&1 >/dev/null)
+grep -q 'escape sequence' <<< "$err" && ok "[106] sabotage: the -v spelling warns under the stand-in" \
+  || bad "[106] sabotage did not warn — the stand-in or the sed is broken: $err"
+
 echo
 echo "test-core-gates.sh: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -115,6 +115,10 @@ for m in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer
   [ -f "$REPO/$m" ] && is_template=0
 done
 ls "$REPO"/*.csproj "$REPO"/*.sln >/dev/null 2>&1 && is_template=0
+# Spec 106 (F196 (3)). A project whose manifests sit only in subdirectories (billing: src/*.csproj,
+# web/package.json) has no root marker and was taken for the template, so the ratchet ran against a
+# baseline the sync never ships. self_test_subject answers from origin and the sync stamp instead.
+[ "$(. "$SELF_DIR/template-identity.sh" && self_test_subject "$REPO")" = downstream ] && is_template=0
 if [ "$is_template" -eq 0 ]; then
   ok "not the template repo: ratchet skipped"
 else

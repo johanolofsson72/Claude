@@ -18,7 +18,7 @@ ssh -i ~/ubuntu/ubuntu ubuntu@51.12.246.54     # Manager (port 22 or 7222)
 ```
 
 **Private Docker Registry:** `10.2.0.4:5000`
-**NFS mount:** `/mnt/nfs/` — shared storage exported from the manager (`live4-mgr-01`) via Azure managed disk, mounted on every worker. This is the **only durable storage** available to the spot fleet, so it holds runtime databases, seed data, build artifacts, and compose files. NFS+SQLite has sharp edges (no WAL, no `mmap`, single writer) — see `.claude/rules/sqlite.md` for the mandatory rules.
+**NFS mount:** `/mnt/nfs/` — shared storage exported from the manager (`live4-mgr-01`) via Azure managed disk, mounted on every worker. This is the **only durable storage** available to the spot fleet, so it holds runtime databases, seed data, build artifacts, and compose files. NFS+SQLite has sharp edges (no WAL, no `mmap`, single writer) — see the `sqlite.md` rule for the mandatory rules.
 **Reverse proxy:** Nginx Proxy Manager (external overlay network `nginx_npm_network`)
 **Worker fleet:** All workers are Azure Spot VMs and can be evicted with ~30 seconds notice. Stateful services run on the spot fleet with `replicas: 1` and durable state on the NFS share — see `.claude/docs/spot-architecture.md`.
 
@@ -70,7 +70,7 @@ The org shares ONE free tier: 3000 Actions minutes/month. iskvalp burned the who
 
 ### Mandatory container `deploy:` block (cluster standard)
 
-Every service deployed to the live4 Swarm cluster MUST carry this `deploy:` block. The restart policy and update_config are the cluster defaults — `order: stop-first` and `replicas: 1` are also required by the single-writer rules in `.claude/rules/sqlite.md` and `.claude/rules/spot-resilience.md`, so this completes (does not conflict with) those:
+Every service deployed to the live4 Swarm cluster MUST carry this `deploy:` block. The restart policy and update_config are the cluster defaults — `order: stop-first` and `replicas: 1` are also required by the single-writer rules in `sqlite.md` and the `spot-resilience.md` rule, so this completes (does not conflict with) those:
 
 ```yaml
 deploy:
@@ -91,7 +91,7 @@ deploy:
 
 - **restart_policy** — `condition: any` restarts on any exit; `delay: 2m` between attempts; `max_attempts: 0` is unlimited; `window: 30s` is the evaluation window.
 - **update_config** — `parallelism: 1` + `order: stop-first` means one task at a time, old stopped before new starts; `delay: 30s` between tasks; `failure_action: pause` stops a bad rollout instead of churning.
-- A stateful (SQLite) service additionally keeps `stop_grace_period: 30s` and `replicas: 1` per `.claude/rules/spot-resilience.md`.
+- A stateful (SQLite) service additionally keeps `stop_grace_period: 30s` and `replicas: 1` per the `spot-resilience.md` rule.
 
 ## Environment variables and secrets
 
@@ -105,7 +105,7 @@ deploy:
 **Production environment (non-secret config, in appsettings.Production.json):**
 
 - `ASPNETCORE_ENVIRONMENT=Production`
-- `ConnectionStrings` point to `/data/` — bound from `/mnt/nfs/<project>/db/` (the NFS share exported from `live4-mgr-01`). The managed disk on the manager provides durability across spot eviction; the NFS export makes the same file reachable from any spot worker. See `.claude/rules/sqlite.md` for the mandatory pragmas and the single-writer constraints that make NFS+SQLite safe.
+- `ConnectionStrings` point to `/data/` — bound from `/mnt/nfs/<project>/db/` (the NFS share exported from `live4-mgr-01`). The managed disk on the manager provides durability across spot eviction; the NFS export makes the same file reachable from any spot worker. See the `sqlite.md` rule for the mandatory pragmas and the single-writer constraints that make NFS+SQLite safe.
 
 ## Storage layout per project
 
@@ -126,7 +126,7 @@ Everything durable lives on the NFS share. The split below is by purpose, not by
 └── docker-compose-stack-*.yml   # Resolved compose file
 ```
 
-The DB lives on NFS because there is no other durable storage available to the spot fleet — the workers' local disks die on spot eviction. To make NFS+SQLite work safely the project must follow the rules in `.claude/rules/sqlite.md`: rollback-journal mode (no WAL), `mmap_size=0`, `busy_timeout=30000`, `synchronous=FULL`, NFS mount with `noac,actimeo=0`, and single-writer enforcement (`replicas: 1`, `update_config.order: stop-first`, `stop_grace_period: 30s`). Skipping any of these turns NFS+SQLite into a corruption generator under load.
+The DB lives on NFS because there is no other durable storage available to the spot fleet — the workers' local disks die on spot eviction. To make NFS+SQLite work safely the project must follow the rules in `sqlite.md`: rollback-journal mode (no WAL), `mmap_size=0`, `busy_timeout=30000`, `synchronous=FULL`, NFS mount with `noac,actimeo=0`, and single-writer enforcement (`replicas: 1`, `update_config.order: stop-first`, `stop_grace_period: 30s`). Skipping any of these turns NFS+SQLite into a corruption generator under load.
 
 ## Docker Swarm commands
 

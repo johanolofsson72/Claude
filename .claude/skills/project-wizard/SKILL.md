@@ -758,7 +758,7 @@ If the user wants a persisted design system, create `design-system/MASTER.md` wi
 render several editable artboards for the first screen or two on a single canvas, reading the tokens you just wrote so the options
 come back in the project's own colors and type rather than a stock palette. Offer it when Category 6 left the *layout* open — the
 user picked a mood and a palette but nobody has seen a screen yet. It is optional and never a gate: the artboard is a pick, and the
-picked screen is still built through the `frontend-design` skill (BLOCKING, per `.claude/rules/frontend.md`). Do not run it before
+picked screen is still built through the `frontend-design` skill (BLOCKING, per the frontend rule, `frontend.md`). Do not run it before
 MASTER.md exists — artboards drawn against an empty design system inherit nothing.
 
 If the project will grow a real component library, mention `/design-sync` as the later two-way bridge between that library and a

@@ -125,7 +125,7 @@ Execute all instructions between the `---` markers in the fetched sync-prompt. S
 
 Use `AskUserQuestion` to confirm the project's tech stack (the sync-prompt has the exact question). Remove irrelevant files based on the answer.
 
-**IMPORTANT**: If this is a re-sync (files already exist and tech stack was already decided), check if `.claude/rules/dotnet.md` etc. have been previously removed. If they were, don't re-add them — respect the previous tech stack decision. Ask the user:
+**IMPORTANT**: If this is a re-sync (files already exist and tech stack was already decided), check if the stack rules (`dotnet.md` etc. in the rules folder) have been previously removed. If they were, don't re-add them — respect the previous tech stack decision. Ask the user:
 
 > This project was previously synced. Should I re-evaluate the tech stack, or keep the current file selection?
 

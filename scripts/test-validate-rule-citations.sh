@@ -111,6 +111,25 @@ has  "SC-J …and calls it unmeasurable, not clean" "$OUT" "unmeasurable"
 R="$TMP/nogit"; rm -rf "$R"; mkdir -p "$R"; run "$R"
 same "SC-K not a git work tree exits 2" "$RC" 2
 
+# [106] F234. A project's scripts/sync-prompt.md is a stale snapshot of a template-only file;
+# downstream it is not scanned, upstream it is, and nothing else downstream is skipped with it.
+snapshot_fixture() {  # $1 name, $2 origin URL ('' for none)
+  _s=$(fixture "$1"); cp "$REPO/scripts/template-identity.sh" "$_s/scripts/"
+  printf '# per %s\n' "$NOWHERE" > "$_s/scripts/sync-prompt.md"
+  [ -n "$2" ] && git -C "$_s" remote add origin "$2"
+  printf '%s\n' "$_s"
+}
+R=$(snapshot_fixture snap-down https://github.com/someone/a-project.git); track "$R"; run "$R"
+same "[106] downstream: the sync-prompt snapshot is not scanned" "$RC" 0
+R=$(snapshot_fixture snap-stamp ''); : > "$R/.claude/.template-sync"; track "$R"; run "$R"
+same "[106] downstream by the sync stamp alone: not scanned either" "$RC" 0
+R=$(snapshot_fixture snap-up ''); track "$R"; run "$R"
+same "[106] upstream (neither signal): it is scanned" "$RC" 1
+has  "[106] …and its dangling citation is named" "$OUT" "scripts/sync-prompt.md:1: $NOWHERE does not exist"
+R=$(snapshot_fixture snap-narrow https://github.com/someone/a-project.git)
+printf '# per %s\n' "$NOWHERE" > "$R/scripts/sync-prompt.sh"; track "$R"; run "$R"
+same "[106] downstream: a neighbour of the snapshot is still scanned" "$RC" 1
+
 # THE KNOWN POSITIVE. Red on HEAD before spec 041: ten citations of a file that did not exist.
 run "$REPO"
 same "SC-L the template's own citations all resolve" "$RC" 0

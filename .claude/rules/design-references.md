@@ -47,7 +47,7 @@ Claude Design **design-system project** in step in both directions, incrementall
 when the project has a real component library worth pushing to the canvas — and re-run it after tokens move, because it does not
 watch the repo.
 
-Neither is a gate. `frontend-design` remains the only BLOCKING design step (`.claude/rules/frontend.md`); these two are upstream
+Neither is a gate. `frontend-design` remains the only BLOCKING design step (the frontend rule, `frontend.md`); these two are upstream
 conveniences that feed it.
 
 ## Write it down, then build

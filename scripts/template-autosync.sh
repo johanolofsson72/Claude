@@ -376,8 +376,18 @@ if [ "$MODE_LIST_RULES"   -eq 1 ]; then printf '%s\n' $CORE_RULES;   exit 0; fi
 # rationale docs and this script cite them by name on every stack, and without them
 # validate-rule-citations reported 15 dangling citations in every web project. workload-placement.md
 # is cited by scripts/workload-placement.tsv, which ships since the same spec.
+# Spec 106 (F233) made the rule general: every template doc that a file every project receives
+# (a CORE rule or script, a RULE_DOC, a RULE_ADDS rule, a skill) cites by path is listed here, and
+# test-template-autosync-ships.sh fails on one that is not. The third line is that sweep: on
+# 2026-11-17, 6 of 47 synced projects lacked at least one of them.
 RULE_DOCS="supply-chain.md carve-budget-rationale.md continuous-execution-rationale.md feature-pipeline-rationale.md github-actions-rationale.md lane-handoff-rationale.md project-workflow-rationale.md spec-hardening-rationale.md spec-interview-rationale.md spec-register-rationale.md validation-followup-rationale.md
-testing-mobile.md spec-testing-checklist-mobile.md deployment-mobile.md workload-placement.md"
+testing-mobile.md spec-testing-checklist-mobile.md deployment-mobile.md workload-placement.md
+agents-templates.md conventions.md design-reference-library.md git.md project-template.md security.md skills.md stress-testing.md testing.md workflows.md"
+# Spec 106 (F233). Rules added when missing, then manifest-protected like a RULE_DOC. Other non-CORE
+# rules are stack rules (dotnet, frontend, sqlite, wordpress): a project removes them on purpose, and
+# a file every project receives names them without the path. design-references.md is cited by the
+# project-wizard skill and frontend.md, and is path-scoped to frontend files, so it is inert elsewhere.
+RULE_ADDS="design-references.md"
 
 is_core() {
   case "$2" in
@@ -1014,6 +1024,7 @@ fi
 ALLOW_DIRTY=0
 { [ "$FORCE" -eq 1 ] || [ "${CLAUDE_TEMPLATE_ALLOW_DIRTY:-}" = "1" ]; } && ALLOW_DIRTY=1
 DIRTY_REFUSED=""
+UNREADABLE_CLONE=""
 TEMPLATE_SHA=""
 TEMPLATE_TMP=""
 
@@ -1356,12 +1367,32 @@ resolve_local_template() {
         warn "[pin] template clone at $cand is not a clean checkout of CLAUDE_TEMPLATE_PIN on its main — fetching the pinned commit instead"
         return 1
       fi
+      # Spec 106 R1 (F196). A git that cannot run here (billing 2026-10-05: an x86 git first on PATH
+      # on an arm64 Mac without Rosetta) makes the dirty test below print nothing, so the clone read
+      # as clean, and the stamp became `local-unknown`, a SHA nobody read. Asked first, because the
+      # dirty test cannot tell "clean" from "git said nothing". A directory with no .git keeps the
+      # documented "use it as-is" fallback (refresh_local_template); only a clone git cannot read is
+      # passed over. The walk goes on (a stale CLAUDE_TEMPLATE_DIR must not hide a good ~/repos/Claude),
+      # and the run refuses only when no candidate resolves (106 review #3).
+      _isclone=0; { [ -e "$cand/.git" ] || [ -L "$cand/.git" ]; } && _isclone=1
+      if [ "$_isclone" -eq 1 ] && ! git -C "$cand" rev-parse --verify -q 'HEAD^{commit}' >/dev/null 2>&1 </dev/null; then
+        [ -n "$UNREADABLE_CLONE" ] || UNREADABLE_CLONE="$cand"
+        continue
+      fi
       # Spec 082 R3 (F037). Uncommitted content has no SHA that describes it, and this run would
       # commit it and push it into the project. Asked BEFORE the refresh, so a refused run neither
       # fetches nor prints the refresh's "syncing from the working tree as-is".
-      if [ "$ALLOW_DIRTY" -eq 0 ] && [ -n "$(git -C "$cand" status --porcelain 2>/dev/null </dev/null | sed -n 1p)" ]; then
-        DIRTY_REFUSED="$cand"
-        return 3
+      # A status that FAILS is not a clean one (106 review #2: a corrupt or locked index, a
+      # safe.directory refusal, all leave HEAD readable).
+      if [ "$ALLOW_DIRTY" -eq 0 ]; then
+        if ! _pre=$(git -C "$cand" status --porcelain 2>/dev/null </dev/null) && [ "$_isclone" -eq 1 ]; then
+          [ -n "$UNREADABLE_CLONE" ] || UNREADABLE_CLONE="$cand"
+          continue
+        fi
+        if [ -n "$_pre" ]; then
+          DIRTY_REFUSED="$cand"
+          return 3
+        fi
       fi
       refresh_local_template "$cand" </dev/null   # stdin is the candidate list; keep git off it
       TEMPLATE_DIR="$cand"
@@ -1373,7 +1404,10 @@ resolve_local_template() {
       # subtraction inside eol_divergent_paths. The `| head -1` it used to carry was an efficiency
       # that stopped being available the moment a second consumer needed the whole list — and the
       # alternative, a second call, is the added cost spec 007bi's success criteria cap at one process.
-      _st=$(git -C "$cand" status --porcelain 2>/dev/null)
+      if ! _st=$(git -C "$cand" status --porcelain 2>/dev/null </dev/null) && [ "$_isclone" -eq 1 ]; then
+        UNREADABLE_CLONE="$cand"
+        return 5
+      fi
       if [ -n "$_st" ]; then
         TEMPLATE_SHA="$TEMPLATE_SHA-dirty-$(date -u '+%Y%m%d%H%M%S')"
       fi
@@ -1387,6 +1421,7 @@ resolve_local_template() {
   done <<CANDIDATES
 $(template_candidates)
 CANDIDATES
+  [ -n "$UNREADABLE_CLONE" ] && return 5
   return 1
 }
 
@@ -1799,7 +1834,13 @@ report_tracked() {
   fi
   _hg=$(harness_gitignore_script)
   [ -n "$_hg" ] || return 0
-  _tr=$(bash "$_hg" --tracked "$PROJECT_ROOT" 2>/dev/null)
+  # Spec 106 R1 (F196 (2)). Exit 4 is "could not list", which an empty answer used to look like.
+  # On exit 4 stdout is the reason, not a list.
+  _tr=$(bash "$_hg" --tracked "$PROJECT_ROOT" 2>/dev/null); _trc=$?
+  if [ "$_trc" -eq 4 ]; then
+    tell "[tracked] the committed machine-local paths could not be listed: ${_tr#harness-gitignore: }"
+    return 0   # mutant-equivalent: every caller runs report_tracked as a bare statement and exits 0 after it
+  fi
   [ -n "$_tr" ] || return 0
   _n=$(printf '%s\n' "$_tr" | grep -c .)
   tell "[tracked] $_n path(s) the harness writes machine-local are committed in this repository:"
@@ -1877,6 +1918,15 @@ if [ "$LOCAL_RC" -eq 3 ]; then
   warn "[warn] template clone at $DIRTY_REFUSED has uncommitted changes — not synced."
   warn "       Commit or stash them, or sync the work in progress on purpose with --force"
   warn "       or CLAUDE_TEMPLATE_ALLOW_DIRTY=1 (stamped -dirty-)."
+  [ "$MODE_ACCEPT" -eq 1 ] && exit 1
+  exit 0
+fi
+if [ "$LOCAL_RC" -eq 5 ]; then
+  # Spec 106 R1 (F196, developer Q20). Refused like a dirty clone: nothing written, exit 0 at
+  # SessionStart. The remote path needs git as well, and this project could not commit the result.
+  warn "[warn] git could not read the template clone at $UNREADABLE_CLONE — not synced."
+  warn "       git on PATH: $(command -v git 2>/dev/null || echo 'none'). A binary for another"
+  warn "       architecture first on PATH does this. Nothing was stamped, so the next run tries again."
   [ "$MODE_ACCEPT" -eq 1 ] && exit 1
   exit 0
 fi
@@ -2242,6 +2292,9 @@ atomic_copy() {
 }
 
 # copy_file <template-abs> <project-rel> <class> [<template-rel>]
+# in_words <word> <list…>: is <word> one of the (word-split) list? No subshell and no grep: it is asked
+# for every file a project lacks, on every sync (spec 106).
+in_words() { _w="$1"; shift; for _x in "$@"; do [ "$_x" = "$_w" ] && return 0; done; return 1; }
 copy_file() {
   SRC="$1"; REL="$2"; CLASS="$3"; SRCREL="${4:-$2}"
   DEST="$PROJECT_ROOT/$REL"
@@ -2361,7 +2414,8 @@ $SRCREL
     # predates the skill. Skills are add-if-missing yet manifest-protected on
     # update (they are not in the CORE set), so a customized skill is still safe.
     is_core "$BASE" "$CLASS" || [ "$CLASS" = "skills" ] \
-      || { [ "$CLASS" = "docs" ] && grep -qx "$BASE" <<< "$(printf '%s\n' $RULE_DOCS)"; } || return 0
+      || { [ "$CLASS" = "docs" ] && in_words "$BASE" $RULE_DOCS; } \
+      || { [ "$CLASS" = "rules" ] && in_words "$BASE" $RULE_ADDS; } || return 0   # mutant-equivalent: copy_file is always a bare statement; its status is read nowhere
     [ "$MODE_CHECK" -eq 1 ] || { mkdir -p "$(dirname "$DEST")"; atomic_copy "$SRC" "$DEST"; }
     ADDED="$ADDED $REL"
   fi

@@ -59,7 +59,10 @@ esac
 
 # Validate the table before answering from it. A malformed line would otherwise drop silently out of
 # the exclusions, and the runner would run a library or hang on a hook.
-TABLE_NAMES=$(printf '%s\n' "$NON_GATES" | awk -v shape="$GATE_SHAPE" '
+# The shape reaches awk through ENVIRON, not -v: awk escape-processes a -v value, and gawk warns that
+# `\.` is a plain `.` on stderr, which a reader of `2>&1` took for a test name (F203, spec 106).
+TABLE_NAMES=$(printf '%s\n' "$NON_GATES" | GATE_SHAPE="$GATE_SHAPE" awk '
+  BEGIN { shape = ENVIRON["GATE_SHAPE"] }
   /^[[:space:]]*$/ { next }
   {
     i = index($0, "|")

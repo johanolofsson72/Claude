@@ -4,7 +4,7 @@ This doc covers how to deploy stateful services (SQLite, Redis with persistence,
 
 The cluster has one manager (`live4-mgr-01`) with an attached Azure managed disk, exported as NFS to all workers. Workers are spot. State lives on the NFS share; compute lives on the spot fleet.
 
-The companion rules are `.claude/rules/sqlite.md` (DB pragmas, NFS mount options, single-writer enforcement) and `.claude/rules/spot-resilience.md` (eviction watcher, drain, idempotency, outbox). Read those first if you have not.
+The companion rules are the `sqlite.md` rule (DB pragmas, NFS mount options, single-writer enforcement) and the `spot-resilience.md` rule (eviction watcher, drain, idempotency, outbox). Read those first if you have not.
 
 ## The three reference architectures
 
@@ -18,7 +18,7 @@ The default for new live4 projects. The DB file lives on `/mnt/nfs/<project>/db/
 
 **When to use:** single-writer workload, modest write throughput, RPO of "the last committed transaction" is acceptable, RTO of "30-60 seconds for Swarm to reschedule" is acceptable.
 
-**Trade-off:** SQLite-on-NFS is a sharp tool. It works only when the NFS export is configured with `noac`, the SQLite pragmas are correct (no WAL, no `mmap_size`, `synchronous=FULL`, large `busy_timeout`), and the service is enforced to single-writer (`replicas: 1`, `stop-first`, 30 s grace period). The rules in `.claude/rules/sqlite.md` are mandatory, not advisory — skipping any of them produces silent corruption that surfaces hours or days later.
+**Trade-off:** SQLite-on-NFS is a sharp tool. It works only when the NFS export is configured with `noac`, the SQLite pragmas are correct (no WAL, no `mmap_size`, `synchronous=FULL`, large `busy_timeout`), and the service is enforced to single-writer (`replicas: 1`, `stop-first`, 30 s grace period). The rules in `sqlite.md` are mandatory, not advisory — skipping any of them produces silent corruption that surfaces hours or days later.
 
 **Compose template:**
 
@@ -124,7 +124,7 @@ Move the database to [Azure Database for PostgreSQL Flexible Server](https://lea
 
 | Volume                                        | Spot-safe | OK for SQLite writes |
 |-----------------------------------------------|-----------|----------------------|
-| NFS export from manager (`/mnt/nfs/...`)      | Yes       | Yes — with the SQLite rules in `.claude/rules/sqlite.md` |
+| NFS export from manager (`/mnt/nfs/...`)      | Yes       | Yes — with the SQLite rules in `sqlite.md` |
 | Local bind on a spot worker                   | No        | Never — disk dies on eviction |
 | Local bind on the manager                     | No        | Never — manager is not a workload host |
 | Azure Files (SMB, any tier)                   | Yes       | No (`mmap` unsafe + lock semantics differ) |
@@ -135,7 +135,7 @@ The cardinal rule: **one writer at a time on the NFS-backed file.** That is what
 
 ## Required application components
 
-Every service deployed to the cluster must include the following. Code is in `.claude/rules/spot-resilience.md`; this section explains why each piece exists.
+Every service deployed to the cluster must include the following. Code is in the `spot-resilience.md` rule; this section explains why each piece exists.
 
 ### Spot eviction watcher
 

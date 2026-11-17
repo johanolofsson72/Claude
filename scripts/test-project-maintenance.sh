@@ -1437,6 +1437,14 @@ expect_contains "C132 a listed test that is missing is SETUP"        "[SETUP] CO
 D=$(core_fix c133 0); printf '#!/bin/bash\necho "core-gates.sh: cannot list"\nexit 2\n' > "$D/scripts/core-gates.sh"
 OUT=$(run_full "$D")
 expect_contains "C133 a core-gates.sh that cannot answer is SETUP"   "[SETUP] CORE self-tests did not run — scripts/core-gates.sh exit 2" "$OUT"
+# [106] F203: stdout is the list, stderr the reason. gawk's warning read through 2>&1 became a test name.
+D=$(core_fix c106a 0); printf '#!/bin/bash\necho "awk: warning: escape sequence" >&2\nprintf "test-a.sh\\ntest-b.sh\\n"\n' > "$D/scripts/core-gates.sh"
+OUT=$(run_full "$D")
+expect_absent   "[106] a stderr line from core-gates.sh is not a test name" "awk: warning" "$OUT"
+expect_contains "[106] …and the two listed tests still run green"            "CORE self-tests: 2 of 2 green" "$OUT"
+D=$(core_fix c106b 0); printf '#!/bin/bash\necho "core-gates.sh: the table is malformed" >&2\nexit 2\n' > "$D/scripts/core-gates.sh"
+OUT=$(run_full "$D")
+expect_contains "[106] a refusal quotes its stderr reason"                   "the table is malformed" "$OUT"
 D=$(core_fix c134 3); rm -f "$D/.claude/.template-sync"
 OUT=$(run_full "$D")
 expect_contains "C134 the template (no sync stamp) does not run them" "CORE self-tests: not run — no .claude/.template-sync" "$OUT"

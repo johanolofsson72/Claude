@@ -1406,10 +1406,14 @@ if [ "$FULL" -eq 1 ]; then
   elif [ ! -f scripts/core-gates.sh ]; then
     add "[SETUP] CORE self-tests did not run — scripts/core-gates.sh missing. Run /project-update to restore it."
   else
-    CG_OUT=$(bash scripts/core-gates.sh 2>&1); CG_RC=$?
+    # stdout is the list and stderr is the reason, read apart: a stray stderr line (gawk's escape
+    # warning, F203) read through 2>&1 became a test name called `scripts/awk: warning…` (spec 106).
+    CG_ERR=$(mktemp "${TMPDIR:-/tmp}/core-gates-err.XXXXXX" 2>/dev/null) || CG_ERR=""
+    CG_OUT=$(bash scripts/core-gates.sh 2>"${CG_ERR:-/dev/null}"); CG_RC=$?
+    CG_WHY=""; [ -n "$CG_ERR" ] && { CG_WHY=$(sed -n 1,3p "$CG_ERR"); rm -f "$CG_ERR"; }
     if [ "$CG_RC" -ne 0 ]; then
       add "[SETUP] CORE self-tests did not run — scripts/core-gates.sh exit $CG_RC:
-$(sed -n 1,3p <<< "$CG_OUT")"
+${CG_WHY:-$(sed -n 1,3p <<< "$CG_OUT")}"
     else
       CT_LIMIT=${MAINTENANCE_CORE_TEST_TIMEOUT:-300}
       case "$CT_LIMIT" in (''|*[!0-9]*) CT_LIMIT=300 ;; esac

@@ -341,9 +341,9 @@ function is_query(i, textual,   k, w, skip) {
   return 0
 }
 # I/F: a run of the sync (top level / in a function). J/G: the same for the hook (spec 084).
-function report(i, textual, hk) {
+function report(i, textual, hk, evalsub) {
   if (!hk && is_query(i, textual)) { print "Q\t" FILENAME "\t" TL[i] "\t" segment(i); return }
-  print (hk ? (FNB > 0 ? "G" : "J") : (FNB > 0 ? "F" : "I")) "\t" FILENAME "\t" TL[i] "\t" segment(i)
+  print (hk ? (FNB > 0 ? "G" : "J") : (FNB > 0 ? "F" : "I")) "\t" FILENAME "\t" TL[i] "\t" segment(i) "\t" (evalsub ? "sub" : "-")
 }
 function scan_invoke(   i, j, w, near, allt, pre, k, found, np, P, m, cmdv, wr, hk, nx) {
   for (i = 1; i <= NT; i++) {
@@ -361,7 +361,10 @@ function scan_invoke(   i, j, w, near, allt, pre, k, found, np, P, m, cmdv, wr, 
       if (pre) {
         found = 0; hk = 0
         for (k = i + 1; k <= NT && !(TK[k] == "s" && TF[k] == TF[i]); k++) if (TK[k] != "s" && mentions(TT[k])) { found = 1; hk = (index(TT[k], "autosync-hook.sh") > 0 || (hhandles != "" && TT[k] ~ ("\\$\\{?(" hhandles ")([^A-Za-z0-9_]|$)"))); break }
-        if (found) { report(i, 1, hk); continue }
+        # Spec 106 (F207). A target inside a substitution (`eval "$(sed … "$SYNC")"`) is still a run:
+        # eval runs text read out of the sync, and a sed range cannot be told from a cat. Only the
+        # report changes, because its segment printed as `eval ""` and read as a false positive.
+        if (found) { m = 0; for (j = i + 1; j <= k; j++) if (TY[j] == 4 || TY[j] == 6) m = 1; report(i, 1, hk, m); continue }
       }
     }
     if (!is_target(w) || TY[i] == 5) continue
@@ -485,7 +488,7 @@ SCAN=""
 [ -n "$FILES" ] && SCAN=$(printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 awk "$LEXER" 2>>"$SCAN_ERR")
 
 DEFINERS="|"; TAMPER=""; CANNOT=""; RUNS=""; RUN_FILES="|"; QUERY_FILES="|"; CHECKED=0
-while IFS="$TAB" read -r kind file num text; do
+while IFS="$TAB" read -r kind file num text flag; do
   [ -n "$kind" ] || continue
   rel="${file#$ROOT/}"
   case "$kind" in
@@ -500,7 +503,7 @@ while IFS="$TAB" read -r kind file num text; do
        # top level would fire at source time in every driver, so only function bodies are exempt.
        [ "$rel" = "$HELPER_REL" ] && { [ "$kind" = "F" ] || [ "$kind" = "G" ]; } && continue
        case "$kind" in J|G) what=hook ;; *) what=sync ;; esac
-       RUNS="$RUNS$rel$TAB$num$TAB$what$TAB$text
+       RUNS="$RUNS$rel$TAB$num$TAB$what$TAB${flag:--}$TAB$text
 "
        inlist "$RUN_FILES" "$rel" || { RUN_FILES="$RUN_FILES$rel|"; CHECKED=$((CHECKED + 1)); } ;;
   esac
@@ -551,7 +554,7 @@ while [ -n "$_q" ]; do
   inlist "$RUN_FILES" "$_f" || EXEMPT_QUERY=$((EXEMPT_QUERY + 1))
 done
 
-while IFS="$TAB" read -r rel num what text; do
+while IFS="$TAB" read -r rel num what flag text; do
   [ -n "$rel" ] || continue
   VIOLATIONS=$((VIOLATIONS + 1))
   if [ "$what" = hook ]; then
@@ -560,6 +563,11 @@ while IFS="$TAB" read -r rel num what text; do
     say "  $rel:$num — runs template-autosync.sh directly instead of through drive_sync"
   fi
   say "      $(printf '%s' "$text" | cut -c1-100)"
+  # Spec 106 (F207): a target inside a substitution is text read out of the sync and then run.
+  if [ "$flag" = sub ]; then
+    say "      This runs text read out of the sync (eval, -c, watch). To read its lists, ask it instead:"
+    say "      DRIVE_SYNC_SCRIPT=\"\$SYNC\" drive_sync_readonly \"\$P\" --list-core-scripts   (or --list-core-rules)"
+  fi
 done <<EOF
 $RUNS
 EOF

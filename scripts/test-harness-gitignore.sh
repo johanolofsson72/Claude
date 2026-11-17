@@ -166,6 +166,16 @@ git -C "$D" init -q; mkdir -p "$D/src"; touch "$D/src/app.cs"; git -C "$D" add -
 same "clean project: nothing"              "$(bash "$HG" --tracked "$D")" ""
 D=$(fresh sc11b)
 same "not a repo: nothing, exit 0"         "$(bash "$HG" --tracked "$D"; echo "rc=$?")" "rc=0"
+# [106] F196 (2): a git that cannot run (an x86 binary on arm64 without Rosetta exits 126) printed
+# nothing, which reads as "nothing tracked". It is exit 4 with the reason on stdout now.
+D=$(fresh sc106); git -C "$D" init -q
+mkdir -p "$D/badbin"; printf '#!/bin/sh\necho "cannot execute binary file" >&2\nexit 126\n' > "$D/badbin/git"; chmod +x "$D/badbin/git"
+OUT=$(PATH="$D/badbin:$PATH" bash "$HG" --tracked "$D" 2>&1; echo "rc=$?")
+has "[106] git that cannot run: exit 4"     "$OUT" "rc=4"
+has "[106] ...naming why and which git"     "$OUT" "git cannot run ($D/badbin/git)"
+D=$(fresh sc106b); mkdir -p "$D/.git"     # a .git that git will not read
+OUT=$(bash "$HG" --tracked "$D" 2>&1; echo "rc=$?")
+has "[106] a .git git will not read: exit 4, not an empty answer" "$OUT" "rc=4"
 
 echo "== SC-040-15: an earlier negation is overridden, a later one is left alone =="
 D=$(fresh sc15)

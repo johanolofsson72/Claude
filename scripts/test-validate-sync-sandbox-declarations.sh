@@ -406,6 +406,22 @@ has  "eval executes its quoted argument"            "$OUT" "test-bypasses.sh:13"
 has  "an exported handle is still a handle"         "$OUT" "test-bypasses.sh:14"
 has  "…and all seven are counted"                   "$OUT" "7 violation(s)"
 
+hasnt "[106] a quoted eval gets no substitution hint" "$OUT" "runs text read out of the sync"
+
+echo "== [106] F207: eval of text read out of the sync is a run, and the report says why =="
+R=$(fixture evalsub)
+cat > "$R/scripts/divergence.sh" <<'EOS'
+#!/bin/bash
+SYNC="$PWD/scripts/template-autosync.sh"
+eval "$(sed -n '/^CORE_SCRIPTS=/,/"$/p' "$SYNC")"
+EOS
+OUT=$(gate "$R"); RC=$?
+same  "[106] still a violation"                        "$RC" "1"
+has   "[106] …at the eval line"                        "$OUT" "divergence.sh:3"
+has   "[106] …saying it runs text read out of it"     "$OUT" "runs text read out of the sync"
+has   "[106] …and naming the query mode to use"        "$OUT" "drive_sync_readonly"
+hasnt "[106] the flag field is not printed as text"    "$OUT" "	sub"
+
 echo "== AC-53 (H7bo AC-39): a here-string does not swallow the rest of the file =="
 # The failure this guards is silence, not a wrong answer: the scanner returned early with exit 0
 # and no stderr, so SCAN_ERR could not catch it either. The assertion is that a real invocation

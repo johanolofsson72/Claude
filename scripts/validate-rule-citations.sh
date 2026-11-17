@@ -9,7 +9,10 @@
 # nothing noticed, because nothing checked that a cited rule is there.
 #
 # WHAT IT READS. Every file in the git index under <root>, except specs/. Specs are history: a
-# diagnosis legitimately names the file that was missing when it was written.
+# diagnosis legitimately names the file that was missing when it was written. Downstream (spec 106,
+# F234) also except scripts/sync-prompt.md: /project-update fetches it from GitHub, so a project's
+# copy is a stale snapshot nobody reads, and its citations of stack rules the project removed are not
+# the project's. `self_test_subject` (template-identity.sh) decides; upstream it is scanned.
 #
 # WHAT IT REPORTS, one `path:line: reason` per problem:
 #   - a cited .claude/rules/<name>.md or .claude/docs/<name>.md that does not exist;
@@ -40,7 +43,12 @@ fi
 command -v python3 >/dev/null 2>&1 || { echo "validate-rule-citations: python3 is required" >&2; exit 2; }
 TOP=$(git -C "$ROOT" rev-parse --show-toplevel) || exit 2
 
-TOP="$TOP" python3 - <<'PY'
+SUBJECT=upstream
+if [ -f "$TOP/scripts/template-identity.sh" ]; then
+  SUBJECT=$(. "$TOP/scripts/template-identity.sh" && self_test_subject "$TOP")
+fi
+
+TOP="$TOP" SUBJECT="$SUBJECT" python3 - <<'PY'
 import os, re, subprocess, sys
 
 top = os.environ["TOP"]
@@ -73,7 +81,7 @@ def resolve_bare(name):
 
 problems, checked, citing_files = [], 0, set()
 for rel in files:
-    if rel.startswith("specs/"):
+    if rel.startswith("specs/") or (os.environ.get("SUBJECT") == "downstream" and rel == "scripts/sync-prompt.md"):
         continue
     path = os.path.join(top, rel)
     try:

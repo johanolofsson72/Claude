@@ -31,8 +31,10 @@
 #
 # --tracked prints each tracked path collapsed to the directory a directory pattern matched
 # (`.claude/state`, not 109 attempt files). Empty when nothing matches or <root> is not a git
-# repository. Ignoring a tracked file changes nothing, so the sync reports these with the
-# `git rm -r --cached` line to run. It never runs it: rewriting what the next commit records,
+# repository. Exit 4 when it could not list (spec 106): git cannot run, or <root> has a .git that
+# git refuses to read (dubious ownership, a broken index). An empty answer would say "nothing
+# tracked". 4, not 2, because 2 is the usage error; the reason goes to stdout. Ignoring a tracked
+# file changes nothing, so the sync reports these with the `git rm -r --cached` line to run. It never runs it: rewriting what the next commit records,
 # unattended, at a session start, is not a sync's call.
 
 set -u
@@ -160,7 +162,20 @@ apply_block() {  # $1 = apply|check  $2 = root
 # ------------------------------------------------------------------------------------ --tracked
 tracked() {  # $1 = root
   _root="$1"
-  git -C "$_root" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  # Spec 106 R1 (F196 (2)). A git that cannot run printed nothing here, which reads as "nothing
+  # tracked" (billing 2026-10-05). Not a repository is still an empty answer; no working git is not.
+  # Exit 4 prints its reason on STDOUT, which carries no paths in that case, so a caller needs no
+  # second stream to quote it. Asked only on the failure path: this runs at every SessionStart.
+  if ! git -C "$_root" rev-parse --git-dir >/dev/null 2>&1; then
+    if ! git --version >/dev/null 2>&1 </dev/null; then
+      printf 'harness-gitignore: git cannot run (%s), so the tracked paths cannot be listed\n' \
+        "$(command -v git 2>/dev/null || echo 'none on PATH')"
+      exit 4
+    fi
+    { [ -e "$_root/.git" ] || [ -L "$_root/.git" ]; } || return 0
+    printf 'harness-gitignore: git will not read %s/.git, so the tracked paths cannot be listed\n' "$_root"
+    exit 4
+  fi
   _top=$(git -C "$_root" rev-parse --show-toplevel 2>/dev/null) || return 0
   _pat=$(mktemp 2>/dev/null || mktemp -t harness-gitignore) || return 0
   patterns > "$_pat"
