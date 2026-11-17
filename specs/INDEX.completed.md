@@ -1557,3 +1557,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 105 — guard-bypasses
 
 - [x] 105 — guard-bypasses — full track [hardened] — rm -r .git, PATH shims, pre-planted notice stamps, missed runners, unbound acceptance digest. F173–F178 F184 F186–F190
+
+## 106 — downstream-core-red-2
+
+- [x] 106 — downstream-core-red-2 — spec-only — CORE self-tests still red downstream after 102, plus sync parity for RULE_DOCS. F196 F203 F205 F207 F211 F233 F234

@@ -3,6 +3,9 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-10-06 — 102 added from fundit's maintenance run (T0): CORE defects that are red downstream only.
+
+
 - 2026-10-03 — finding review (38 open): 098–101 + H6 added from F123–F170; F147 F161 F170 resolved; F156–F158 F162–F165 accepted as bounds; F130 F131 F146 stay open.
 
 - 2026-10-03 — 095a mod-loading-guard inserted before 096 (developer, register rewrite): a loaded mod's allow skips all settings hooks, so 096's mod needs a guard first.
