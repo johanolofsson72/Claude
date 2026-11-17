@@ -38,6 +38,7 @@
 #   bash scripts/register-similarity.sh --dir ~/repos/rocky   # one project
 #   bash scripts/register-similarity.sh --text "a new row"    # would this be a duplicate?
 #   bash scripts/register-similarity.sh --threshold 0.80 --top 30
+#   bash scripts/register-similarity.sh --dir . --open-only     # pairs with at least one open row
 #
 # Thresholds differ by mode and are calibrated, not guessed -- see the block below.
 #

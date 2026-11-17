@@ -19,9 +19,20 @@ PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS+1)); }
 bad() { echo "  FAIL  $1"; FAIL=$((FAIL+1)); }
 
+# [107] F201: the pair filter is pure, so it is checked without Ollama. Under --open-only a pair is
+# reported when at least one side is open ([ ], [/], [!]); two ticked rows never are.
+PW=$(python3 -I -c '
+import sys; sys.path.insert(0, sys.argv[1]); from register_similarity import pair_wanted as w
+r = lambda s: {"status": s}
+cases = [(r("x"), r(" "), True, True), (r("x"), r("/"), True, True), (r("!"), r("x"), True, True),
+         (r("x"), r("x"), True, False), (r("x"), r("x"), False, True), (r(" "), r(" "), True, True)]
+bad = [i for i, (a, b, o, want) in enumerate(cases) if w(a, b, o) != want]
+print("ok" if not bad else "bad %s" % bad)' "$SCRIPT_DIR" 2>&1)
+[ "$PW" = ok ] && ok "[107] pair_wanted: a pair needs one open side under --open-only" || bad "[107] pair_wanted: $PW"
+
 if ! curl -s -o /dev/null -m 3 "$HOST/api/tags" || ! grep -q "\"$MODEL" <<< "$(curl -s -m 3 "$HOST/api/tags")"; then
-  echo "register-similarity: SKIPPED — no Ollama at $HOST with model '$MODEL'."
-  exit 0
+  echo "register-similarity: SKIPPED — no Ollama at $HOST with model '$MODEL' (the [107] pure case ran)."
+  [ "$FAIL" -eq 0 ]; exit
 fi
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
@@ -95,6 +106,19 @@ grep -q 'looks like new work' <<<"$OUT" && ok "query mode says new work is new" 
 # 6. A missing model is a usage error, not a silent clean report.
 REGISTER_SIMILARITY_MODEL=no-such-model-xyz bash "$SUT" --dir "$TMP/dup" >/dev/null 2>&1
 [ "$?" = 2 ] && ok "a missing model exits 2, not 0" || bad "a missing model did not exit 2"
+
+# [107] F201 live: an open row that duplicates a ticked one is found under --open-only, and the same
+# pair with both rows ticked is not. The header counts the open rows.
+mkdir -p "$TMP/oneopen/specs" "$TMP/bothdone/specs"
+sed 's/^- \[ \] 001/- [x] 001/' "$TMP/dup/specs/INDEX.md" > "$TMP/oneopen/specs/INDEX.md"
+OUT=$(bash "$SUT" --dir "$TMP/oneopen" --open-only --threshold 0.82 2>&1)
+grep -q '\[x\] oneopen/001' <<<"$OUT" && grep -q '\[ \] oneopen/002' <<<"$OUT" \
+  && ok "[107] --open-only finds an open row duplicating a ticked one" \
+  || bad "[107] --open-only missed the open/ticked pair: $(head -4 <<<"$OUT")"
+grep -q 'rows (2 open)' <<<"$OUT" && ok "[107] --open-only header counts open rows" || bad "[107] header: $(head -2 <<<"$OUT")"
+sed 's/^- \[ \] \(00[12]\)/- [x] \1/' "$TMP/dup/specs/INDEX.md" > "$TMP/bothdone/specs/INDEX.md"
+bash "$SUT" --dir "$TMP/bothdone" --open-only --threshold 0.82 >/dev/null 2>&1
+[ "$?" = 0 ] && ok "[107] --open-only: two ticked rows are not reported" || bad "[107] two ticked rows were reported"
 
 echo "register-similarity: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

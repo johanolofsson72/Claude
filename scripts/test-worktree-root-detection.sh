@@ -4,7 +4,7 @@
 # a worktree they walked to / and reported "not inside a git repository". template-autosync.sh --owed then
 # exited 0 ("owed"), and the tick guard refused every tick in every worktree (msroute spec 028, 2026-11-03).
 set -euo pipefail
-here=$(cd "$(dirname "$0")/.." && pwd)
+here=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d); trap 'rm -r "$work"' EXIT
 git -C "$work" init -q main && git -C "$work/main" commit -q --allow-empty -m init
 git -C "$work/main" worktree add -q "$work/wt" -b wt

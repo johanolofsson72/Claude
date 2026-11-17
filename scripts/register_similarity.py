@@ -89,6 +89,16 @@ def dot(a, b):
     return sum(x * y for x, y in zip(a, b))
 
 
+OPEN = (" ", "/", "!")
+
+
+def pair_wanted(a, b, open_only):
+    """Spec 107 (F201): under --open-only every row is embedded and a pair is reported when at least
+    one side is still open. Dropping ticked rows up front meant an open row duplicating finished
+    work, the question this check exists for, could never be found."""
+    return not open_only or a["status"] in OPEN or b["status"] in OPEN
+
+
 def load_rows(dirs):
     rows = []
     for d in dirs:
@@ -101,8 +111,6 @@ def load_rows(dirs):
             if not m:
                 continue
             status, rid, slug, track, body = m.groups()
-            if OPEN_ONLY and status not in (" ", "!"):
-                continue
             # Structural rows, not work. The integration-hardening checkpoint and
             # the standing harness-defects pointer are written from the same
             # template text in every project, so they match each other at 1.000
@@ -128,7 +136,8 @@ def main():
         print("register-similarity: fewer than two rows to compare.")
         return 0
 
-    scope = "open rows" if OPEN_ONLY else "rows"
+    n_open = sum(1 for r in rows if r["status"] in OPEN)
+    scope = f"rows ({n_open} open)" if OPEN_ONLY else "rows"
     print(f"register-similarity: {len(rows)} {scope} from {len(dirs)} project(s), "
           f"model {MODEL}, threshold {THRESHOLD}\n", file=sys.stderr)
 
@@ -163,7 +172,7 @@ def main():
         if vecs[i] is None:
             continue
         for j in range(i + 1, len(rows)):
-            if vecs[j] is None:
+            if vecs[j] is None or not pair_wanted(rows[i], rows[j], OPEN_ONLY):
                 continue
             s = dot(vecs[i], vecs[j])
             if s >= THRESHOLD:

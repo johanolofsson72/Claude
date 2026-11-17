@@ -1141,7 +1141,7 @@ expect_contains "C93 the note says the marker was ignored"       "scripts/check-
 D=$(mkfix r099a); mkratchet "$D" check-api-up.sh 'echo "probing :5175"; echo "API not up on :5175"; echo; exit 77'
 OUT=$(run "$D"); RC=$?
 expect_absent   "099-R1 exit 77 — no RATCHET finding"            "[RATCHET]" "$OUT"
-expect_contains "099-R1 exit 77 — listed as precondition absent" "ratchets skipped, precondition absent (exit 77):" "$OUT"
+expect_contains "099-R1 exit 77 — listed as precondition absent" "1 of 1 ratchet(s) skipped, precondition absent (exit 77):" "$OUT"
 expect_contains "099-R1 the reason is its last output line"      "scripts/check-api-up.sh — API not up on :5175" "$OUT"
 expect_rc       "099-R1 exit 77 alone — verdict is green" 0 "$RC"
 D=$(mkfix r099b); mkratchet "$D" check-quiet.sh 'exit 77'
@@ -1636,6 +1636,118 @@ printf '#!/bin/bash\necho "tests/E2E/Waits.cs: drift"\nexit 1\n' > "$D/scripts/e
 OUT=$(run "$D"); RC=$?
 expect_contains "[100] project-maintenance.sh:1523 a red census is a finding" "[CENSUS] A drift census is RED" "$OUT"
 expect_rc       "[100] project-maintenance.sh:1523 a red census — exit 1" 1 "$RC"
+
+# ============================================================== [107] maintenance report honesty
+HAVE_TIMEOUT=0
+{ command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; } && HAVE_TIMEOUT=1
+NO_TIMEOUT_PATH=$(path_without timeout gtimeout)
+
+# R1 (F181, F224): a FAIL early in a long suite loop is quoted, not cut off with the tail.
+SUITE_TEXT=$(printf 'ok   scripts/test-a.sh\nFAIL scripts/test-early.sh\n'; i=0; while [ $i -lt 28 ]; do i=$((i+1)); printf 'ok   scripts/test-%s.sh\n' "$i"; done; printf 'suite: 30 scripts')
+D=$(mkdecl c107a 1); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+OUT=$(run_suite "$D")
+expect_contains "[107] R1 an early FAIL line is quoted"              "  FAIL scripts/test-early.sh" "$OUT"
+expect_contains "[107] R1 the failure lines are counted"              "failure lines (1):" "$OUT"
+expect_contains "[107] R1 the tail is still quoted after them"        "suite: 30 scripts" "$OUT"
+SUITE_TEXT=$(i=0; while [ $i -lt 45 ]; do i=$((i+1)); printf 'FAIL scripts/test-%s.sh\n' "$i"; done; printf 'TIMEOUT scripts/test-slow.sh — unmeasured\n  Failed Ns.Test [3 ms]\nnot ok 7 - thing\nsuite: 48 scripts')
+D=$(mkdecl c107b 1); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+OUT=$(run_suite "$D")
+expect_contains "[107] R1 FAIL, TIMEOUT, Failed and not ok all count" "failure lines (48):" "$OUT"
+expect_contains "[107] R1 more than 40 is capped with a count"        "… and 8 more failure line(s)" "$OUT"
+expect_absent   "[107] R1 the 41st line is not quoted"               "  FAIL scripts/test-41.sh" "$OUT"
+SUITE_TEXT=$(printf 'build broke\nsomething fail-ish happened\nexit')
+D=$(mkdecl c107c 1); printf 'sh tests/run.sh\n' > "$D/.claude/.suite-command"
+OUT=$(run_suite "$D")
+expect_absent   "[107] R1 no failure line — no failure-lines header"  "failure lines" "$OUT"
+expect_contains "[107] R1 …and the tail is quoted as before"          "build broke" "$OUT"
+SUITE_TEXT='20 passed, 0 failed'
+
+# R2 (F202): a pass stopped by a signal still reports, and leaves its entries in the git dir.
+mk_interruptible() { # mk_interruptible NAME — check-a fails, check-b signals readiness and sleeps
+  local d; d=$(mkfix "$1")
+  mkratchet "$d" check-a.sh 'echo "a broke"; exit 1'
+  mkratchet "$d" check-b.sh "touch '$d/.ready'; sleep 1; exit 0"
+  chmod +x "$d"/scripts/*.sh
+  printf '%s' "$d"
+}
+interrupt_pass() { # interrupt_pass DIR SIGNAL — run the pass, send SIGNAL once check-b is running
+  ( cd "$1" && exec bash "$MAINT" > "$1/.out" 2>&1 ) & local pid=$! n=0
+  while [ ! -f "$1/.ready" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n+1)); done
+  kill "-$2" "$pid" 2>/dev/null; wait "$pid"
+}
+D=$(mk_interruptible c107d); interrupt_pass "$D" TERM; RC=$?; OUT=$(cat "$D/.out")
+expect_rc       "[107] R2 TERM — exit 128+15"                          143 "$RC"
+expect_contains "[107] R2 TERM — the header says it was interrupted"   "INTERRUPTED by SIGTERM — partial report, 1 finding(s) before the stop" "$OUT"
+expect_contains "[107] R2 TERM — the finding before the stop is printed" "[RATCHET] scripts/check-a.sh failed (exit 1)" "$OUT"
+expect_contains "[107] R2 TERM — says nothing was stamped"             "Nothing was stamped" "$OUT"
+expect_contains "[107] R2 TERM — the partial file holds the finding"   "check-a.sh failed" "$(cat "$D/.git/maintenance-report.partial" 2>/dev/null)"
+D=$(mk_interruptible c107e); interrupt_pass "$D" KILL
+expect_contains "[107] R2 SIGKILL — the partial file survives with the finding" "check-a.sh failed" "$(cat "$D/.git/maintenance-report.partial" 2>/dev/null)"
+D=$(mkfix c107f); mkratchet "$D" check-a.sh 'echo "a broke"; exit 1'
+OUT=$(run "$D")
+expect_rc       "[107] R2 a pass that reaches its verdict removes the partial file" 1 "$( [ -e "$D/.git/maintenance-report.partial" ]; echo $?)"
+D=$(mkfix c107g); rm -rf "$D/.git"; OUT=$(run "$D"); RC=$?
+expect_rc       "[107] R2 outside a git repository the pass still completes" 0 "$RC"
+OUT=$( cd "$D" && bash "$MAINT" --quiet 2>&1 ); RC=$?
+expect_rc       "[107] a clean --quiet pass exits 0 (mutation survivor, line 2002)" 0 "$RC"
+expect_rc       "[107] …and prints nothing"                            0 "$( [ -z "$OUT" ]; echo $?)"
+
+# R3 (F204): the mutation run is bounded, and the bare tool is refused when it cannot be.
+if [ "$HAVE_TIMEOUT" -eq 1 ]; then
+  D=$(mkfix_mut c107h 79); printf '#!/bin/bash\necho "Stryker.NET starting"\nsleep 20\n' > "$D/bin/dotnet"; chmod +x "$D/bin/dotnet"
+  T0=$(date +%s); OUT=$(MAINTENANCE_MUTATION_TIMEOUT=1 run_full "$D"); T1=$(date +%s)
+  expect_contains "[107] R3 a run past its bound is UNMEASURED"         "[MUTATION] UNMEASURED — \`dotnet stryker\` did not finish within 1s" "$OUT"
+  expect_contains "[107] R3 …and quotes what it printed"                "Stryker.NET starting" "$OUT"
+  expect_rc       "[107] R3 the pass did not wait the 20 s out"         0 "$( [ $((T1 - T0)) -lt 15 ]; echo $?)"
+  D=$(mkfix_mut c107i 79); mk_dotnet "$D" 90.00 0
+  OUT=$(MAINTENANCE_MUTATION_TIMEOUT=abc run_full "$D")
+  expect_absent   "[107] R3 a non-number bound falls back, the run completes" "[MUTATION]" "$OUT"
+fi
+D=$(mkfix_mut c107j 79); mk_dotnet_ran "$D"
+OUT=$( cd "$D" && chmod +x scripts/*.sh; PATH="$D/bin:$NO_TIMEOUT_PATH" bash "$MAINT" --full 2>&1 )
+expect_contains "[107] R3 no timeout binary — the bare tool is refused" "[MUTATION] NOT RUN — no timeout or gtimeout to bound \`dotnet stryker\`" "$OUT"
+expect_rc       "[107] R3 …and never started"                          1 "$( [ -f "$D/dotnet-ran" ]; echo $?)"
+D=$(mkfix_mut c107k 79); mk_dotnet "$D" 90.00 0
+printf '#!/bin/bash\necho "settings: break 79"\ndotnet stryker\n' > "$D/scripts/run-mutation-gate.sh"
+OUT=$( cd "$D" && chmod +x scripts/*.sh; PATH="$D/bin:$NO_TIMEOUT_PATH" bash "$MAINT" --full 2>&1 )
+expect_contains "[107] R3 no timeout binary — a project runner still runs, with a note" "could not bound scripts/run-mutation-gate.sh" "$OUT"
+expect_absent   "[107] R3 …and is not refused"                         "[MUTATION] NOT RUN" "$OUT"
+
+# R4 (F191): exit-77 skips are counted, and a ratchet that skips itself pass after pass is a finding.
+D=$(mkfix c107l); mkratchet "$D" check-up.sh 'echo "API not up"; exit 77'; mkratchet "$D" check-ok.sh 'exit 0'
+OUT=$(run "$D" MAINTENANCE_RATCHET_ABSENT_CAP=3)
+expect_contains "[107] R4 the note counts skipped of started"          "1 of 2 ratchet(s) skipped, precondition absent (exit 77):" "$OUT"
+expect_absent   "[107] R4 pass 1 of 3 — no finding yet"                "[RATCHET]" "$OUT"
+OUT=$(run "$D" MAINTENANCE_RATCHET_ABSENT_CAP=3)
+expect_absent   "[107] R4 pass 2 of 3 — no finding yet"                "[RATCHET]" "$OUT"
+OUT=$(run "$D" MAINTENANCE_RATCHET_ABSENT_CAP=3); RC=$?
+expect_contains "[107] R4 pass 3 reaches the cap — a finding"          "[RATCHET] scripts/check-up.sh has skipped itself (exit 77) on 3 passes in a row" "$OUT"
+expect_rc       "[107] R4 …and the verdict is red"                     1 "$RC"
+mkratchet "$D" check-up.sh 'exit 0'; OUT=$(run "$D" MAINTENANCE_RATCHET_ABSENT_CAP=3)
+expect_absent   "[107] R4 a run that is not 77 — no finding"           "[RATCHET]" "$OUT"
+expect_absent   "[107] R4 …and the streak is reset"                   "check-up.sh" "$(cat "$D/.git/claude-ratchet-absent" 2>/dev/null)"
+mkratchet "$D" check-up.sh 'exit 77'; OUT=$(run "$D" MAINTENANCE_RATCHET_ABSENT_CAP=3)
+expect_absent   "[107] R4 after a reset, one skip is not a finding"    "[RATCHET]" "$OUT"
+mkratchet "$D" check-up.sh '# maintenance: skip offline this week
+exit 77'
+OUT=$(run "$D" MAINTENANCE_RATCHET_ABSENT_CAP=3)
+expect_contains "[107] R4 a marker-skipped ratchet keeps its count"    "1 check-up.sh" "$(cat "$D/.git/claude-ratchet-absent" 2>/dev/null)"
+D=$(mkfix c107m); mkratchet "$D" check-x.sh "echo ran > '$D/.ran'; exit 0"
+OUT=$( cd "$D" && chmod +x scripts/*.sh; PATH="$NO_TIMEOUT_PATH" bash "$MAINT" --unattended 2>&1 )
+expect_contains "[107] R4 --unattended with no bound — none run, one finding" "[RATCHET] NOT RUN — --unattended and no timeout or gtimeout, so none of 1 ratchet(s) ran" "$OUT"
+expect_rc       "[107] R4 …and the ratchet never started"              1 "$( [ -f "$D/.ran" ]; echo $?)"
+OUT=$( cd "$D" && chmod +x scripts/*.sh; PATH="$NO_TIMEOUT_PATH" bash "$MAINT" 2>&1 )
+expect_rc       "[107] R4 attended with no bound — it still runs"     0 "$( [ -f "$D/.ran" ]; echo $?)"
+
+# R5a (F200): the duplicate scan is pointed at this project.
+D=$(mkfix c107n); mkdir -p "$D/specs" "$D/bin"; printf '# Spec register\n\n## Specs\n\n- [ ] 001 — a — light — b\n' > "$D/specs/INDEX.md"
+printf '#!/bin/bash\nprintf "%%s\\n" "$@" > "%s/.sim-args"\nexit 0\n' "$D" > "$D/scripts/register-similarity.sh"
+printf '#!/bin/bash\n[ "$1" = --stamp ] && echo "$2" >> "%s/stamped"\nexit 0\n' "$D" > "$D/scripts/maintenance-due.sh"
+OUT=$(run_full "$D")
+SIM_ARGS=$(tr '\n' ' ' < "$D/.sim-args" 2>/dev/null)
+expect_contains "[107] R5a --dir is passed"                            "--dir " "$SIM_ARGS"
+expect_contains "[107] R5a …and it is this project, open-only"        "/c107n --open-only " "$SIM_ARGS"
+expect_contains "[107] R5a a scan that ran is stamped"                 "similarity" "$(cat "$D/stamped" 2>/dev/null)"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

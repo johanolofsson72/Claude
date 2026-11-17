@@ -58,6 +58,13 @@
 # finding. A ratchet opts out with `# maintenance: skip <reason>` in its first 30 lines, or exits 77
 # when its precondition is absent on this pass (listed as skipped, not a finding; row 099).
 # MAINTENANCE_RATCHET_TIMEOUT=N  seconds per ratchet (default 300; needs timeout or gtimeout).
+# MAINTENANCE_RATCHET_ABSENT_CAP=N  consecutive exit-77 passes before a ratchet is a finding (default 5,
+#   counted in <git-dir>/claude-ratchet-absent). --unattended without timeout/gtimeout runs none (107).
+# MAINTENANCE_MUTATION_TIMEOUT=N  outer bound on the --full mutation run (default 7200). Without
+#   timeout/gtimeout a bare Stryker run is refused; a project runner runs (spec 107).
+#
+# A pass stopped by TERM/INT/HUP prints its partial report and exits 128+signal. Every finding and note
+# is also appended to <git-dir>/maintenance-report.partial as it lands, removed at the verdict (107).
 #
 # --full also runs every CORE self-test scripts/core-gates.sh names (spec 086), in a synced project
 # only; a red one is a [CORE SELF-TEST] finding for the template. Every pass runs
@@ -357,17 +364,40 @@ fi
 
 FINDINGS=0
 REPORT=""
+# Spec 107 (F202): the report used to exist only in REPORT/NOTES and print on the last line, so a pass
+# stopped by a time bound reported nothing (agentcrm 2026-10-16: a 0-byte log after four hours). Each
+# entry is now also appended to a file in the git dir as it lands, removed once the verdict has
+# printed, so even a SIGKILL leaves the evidence behind; and TERM/INT/HUP print what the pass has.
+NOTES=""
+PARTIAL=""
+if [ -n "${_gd:-}" ] && : > "$_gd/maintenance-report.partial" 2>/dev/null; then
+  PARTIAL="$_gd/maintenance-report.partial"
+fi
+partial() { [ -z "$PARTIAL" ] || printf '%s\n' "$1" >> "$PARTIAL" 2>/dev/null; return 0; }
+on_signal() { # on_signal NAME NUMBER
+  trap - TERM INT HUP
+  echo "project-maintenance: INTERRUPTED by SIG$1 — partial report, $FINDINGS finding(s) before the stop"
+  echo
+  printf '%s' "$REPORT"
+  [ -n "$NOTES" ] && printf '%s' "$NOTES"
+  echo "Nothing was stamped: the pass stopped before its verdict.${PARTIAL:+ The same entries are in $PARTIAL.}"
+  exit $((128 + $2))
+}
+trap 'on_signal TERM 15' TERM
+trap 'on_signal INT 2' INT
+trap 'on_signal HUP 1' HUP
 add() { REPORT="${REPORT}$1
-"; FINDINGS=$((FINDINGS + 1)); }
+"; FINDINGS=$((FINDINGS + 1)); partial "$1"; }
+info() { REPORT="${REPORT}$1
+"; partial "$1"; } # a report line that is not a finding
 
 # A second buffer, for sections that must REPORT without FAILING. `add` is both the finding
 # counter and the only route to output, so a section using it can only speak by making the run
 # red -- and a run that is red forever is a run nobody reads. `note` speaks without voting, and
 # the verdict prints NOTES in BOTH branches (clean and findings), or a note would only ever
 # surface when something else had already gone wrong.
-NOTES=""
 note() { NOTES="${NOTES}$1
-"; }
+"; partial "$1"; }
 
 # Every job that costs real time goes through the ledger (row 074), so the local-vs-cloud placement
 # in row 075 is decided from measured duration and peak memory rather than a guess. The wrapper is
@@ -736,16 +766,18 @@ Harmless under \`bash X\`, silent under an \`-x\` guard. Fix: chmod +x scripts/<
 fi
 
 # ------------------------------------------------- 3d. is a row already written?
-# Local embedding pass over every register on the machine. Slow-ish (minutes on a
-# few hundred rows) and needs Ollama, so it runs only in --full, and its absence is
+# Local embedding pass over THIS project's register (spec 107, F200: without --dir it read
+# ~/repos/*/ and never a project kept elsewhere, then stamped). Every row is embedded and only
+# pairs with an open row are reported (F201). Cross-project scanning is the manual run. Slow-ish
+# (minutes on a few hundred rows) and needs Ollama, so it runs only in --full, and its absence is
 # not a finding -- a maintenance pass that fails because a service is off gets
 # switched off.
 if [ "$SIM_RUN" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-similarity.sh ]; then
   # Exit 2 is "never started" (no Ollama, model not pulled): not a run, so no ledger line (F074).
   if [ "$LEDGER_OK" -eq 1 ]; then
-    SIM_OUT=$(python3 scripts/maintenance_ledger.py run similarity --skip-rc 2 -- bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
+    SIM_OUT=$(python3 scripts/maintenance_ledger.py run similarity --skip-rc 2 -- bash scripts/register-similarity.sh --dir "$PWD" --open-only 2>/dev/null); SIM_RC=$?
   else
-    SIM_OUT=$(bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
+    SIM_OUT=$(bash scripts/register-similarity.sh --dir "$PWD" --open-only 2>/dev/null); SIM_RC=$?
   fi
   case "$SIM_RC" in
     1) add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | sed -n 1,20p)" ;;
@@ -1270,6 +1302,12 @@ $(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2
     add "[MUTATION] NOT RUN — an interrupted in-place Stryker run left a backup in the tree:
 $(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '$1 == "backup" { printf "  %s\n", $3 }')
   Not stamped: the job stays due."
+  elif [ "$MUT_RUN" -eq 1 ] && [ -z "$GUARD_TIMEOUT_BIN" ] && [ "$MUTATION_CMD" != "bash scripts/run-mutation-gate.sh" ]; then
+    # Spec 107 (F204): the bare tool unbounded is the documented runaway (fundit 2026-09-08, five hours;
+    # agentcrm 2026-10-16, the whole four-hour pass and no score). Without a way to bound it, refuse.
+    add "[MUTATION] NOT RUN — no timeout or gtimeout to bound \`$MUTATION_CMD\`, and a bare Stryker run has gone
+  for hours without a score. Install coreutils (timeout/gtimeout), or declare a bounded runner as
+  $MUTATION_RUNNER. Not stamped: the job stays due."
   elif [ "$MUT_RUN" -eq 1 ]; then
     # Row 053: what the sweep just removed or kept (it ran in the condition above).
     [ -n "${MUT_SWEEP:-}" ] && note "[note] Stryker sweep before the run:
@@ -1292,8 +1330,16 @@ $(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '{ printf "  %s %s — %s\n", $1, $2, 
     [ "$MUT_IS_RUNNER" -eq 1 ] && MUT_SCOPE="the project runner decides what it mutates ($MUTATION_RUNNER)"
 
     MUT_MARKER=$(mktemp "${TMPDIR:-/tmp}/mutation-marker.XXXXXX")
-    MUT_OUT=$(measured mutation bash -c "$MUT_EXEC" 2>&1)
+    # Spec 107 (F204): the run has its own outer bound. A runner bounds its passes by contract; this
+    # catches the one that does not, and the bare tool always.
+    MUT_BOUND=${MAINTENANCE_MUTATION_TIMEOUT:-7200}
+    case "$MUT_BOUND" in (''|*[!0-9]*|0) MUT_BOUND=7200 ;; esac
+    [ -z "$GUARD_TIMEOUT_BIN" ] &&
+      note "[note] mutation: neither timeout nor gtimeout is installed, so this pass could not bound $MUTATION_RUNNER; its own bounds were all there was."
+    MUT_OUT=$(measured mutation ${GUARD_TIMEOUT_BIN:+"$GUARD_TIMEOUT_BIN" -k 30 "$MUT_BOUND"} bash -c "$MUT_EXEC" 2>&1)
     MUT_RC=$?
+    MUT_CUT=0
+    guard_timed_out "$MUT_RC" && MUT_CUT=1
     # Gone as soon as it has run: later sections scan scripts/, and a stray copy is not theirs to see.
     [ "$MUT_EXEC" != "$MUTATION_CMD" ] && rm -f "${MUT_EXEC#bash }"
     SCORE=$(printf '%s' "$MUT_OUT" | grep -oE 'mutation score[^0-9]*[0-9]+(\.[0-9]+)?' | tail -1 | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1)
@@ -1345,7 +1391,11 @@ $MUT_MOD_UNDER"
     fi
     rm -f "$MUT_MARKER"
 
-    if [ "$MUT_RC" -ne 0 ] && [ -n "$SCORE" ]; then
+    if [ "$MUT_CUT" -eq 1 ]; then
+      add "[MUTATION] UNMEASURED — \`$MUTATION_CMD\` did not finish within ${MUT_BOUND}s (exit $MUT_RC), so it neither
+  passed nor failed. Raise MAINTENANCE_MUTATION_TIMEOUT, or narrow what it mutates. Not stamped: the job stays due.
+$(printf '%s' "$MUT_OUT" | tail -8 | sed 's/^/  /')"
+    elif [ "$MUT_RC" -ne 0 ] && [ -n "$SCORE" ]; then
       # A number came back, so the tool ran. Non-zero here is the gate doing its job.
       MUT_MEASURED=1
       add "[MUTATION] GATE FAILED — $MUT_SCORE_LABEL ${SCORE}% against $MUT_LIMIT_SRC ($MUT_LIMIT).
@@ -1380,8 +1430,7 @@ $MUT_MODULES"
   of any tool that happens to be in the output. Not stamped: the job stays due."
     fi
   elif [ "$MUT_AWAY" -eq 0 ]; then
-    REPORT="${REPORT}[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow, and it covers only the working-directory config).
-"
+    info "[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow, and it covers only the working-directory config)."
   fi
 elif [ "$MUT_RUN" -eq 1 ] && [ "$MUT_NOEXEC" -eq 1 ]; then
   add "[MUTATION] NOT RUN — scripts/run-mutation-gate.sh exists but is not executable, so nothing ran in its place.
@@ -1658,13 +1707,29 @@ fi
 # output line as the reason, never a finding. The ratchet decides; this never runs a probe for it.
 RATCHET_LIMIT=${MAINTENANCE_RATCHET_TIMEOUT:-300}
 case "$RATCHET_LIMIT" in (''|*[!0-9]*) RATCHET_LIMIT=300 ;; esac
-RATCHET_TIMEOUT=""
-command -v timeout >/dev/null 2>&1 && RATCHET_TIMEOUT=timeout
-[ -z "$RATCHET_TIMEOUT" ] && command -v gtimeout >/dev/null 2>&1 && RATCHET_TIMEOUT=gtimeout
+RATCHET_TIMEOUT=$GUARD_TIMEOUT_BIN
 RATCHET_SKIPS=""
 RATCHET_ABSENT=""
 RATCHET_UNBOUNDED=0
-for ratchet in scripts/check-*.sh; do
+# Spec 107 (F191): exit 77 was a note with no count and no limit, so a ratchet could skip itself on
+# every pass forever. Each ratchet's run of consecutive 77s is kept in the git dir; any other outcome
+# resets it, and at the cap it is a finding. A ratchet not started this pass keeps its count.
+RATCHET_STARTED=0
+RATCHET_ABSENT_N=0
+RATCHET_CAP=${MAINTENANCE_RATCHET_ABSENT_CAP:-5}
+case "$RATCHET_CAP" in (''|*[!0-9]*|0) RATCHET_CAP=5 ;; esac
+STREAK_FILE=""
+[ -n "${_gd:-}" ] && STREAK_FILE="$_gd/claude-ratchet-absent"
+STREAK_UPDATES=""
+# Spec 107 (F191): the nightly has nobody to stop a hung ratchet, so without a bound it runs none.
+RATCHET_LIST=scripts/check-*.sh
+if [ "$UNATTENDED" -eq 1 ] && [ -z "$RATCHET_TIMEOUT" ]; then
+  RATCHET_REFUSED=$(find scripts -maxdepth 1 -type f -name 'check-*.sh' 2>/dev/null | grep -c .)
+  [ "$RATCHET_REFUSED" -gt 0 ] && add "[RATCHET] NOT RUN — --unattended and no timeout or gtimeout, so none of $RATCHET_REFUSED ratchet(s) ran:
+  a hung one would hang the nightly with nobody to stop it. Install coreutils (timeout/gtimeout)."
+  RATCHET_LIST=""
+fi
+for ratchet in $RATCHET_LIST; do
   [ -f "$ratchet" ] || continue
   skip_line=$(awk 'NR > 30 { exit } /^#[[:space:]]*maintenance:[[:space:]]*skip([[:space:]]|$)/ { print; exit }' "$ratchet")
   if [ -n "$skip_line" ]; then
@@ -1693,6 +1758,7 @@ for ratchet in scripts/check-*.sh; do
     fi
   fi
   ratchet_out=$(mktemp "${TMPDIR:-/tmp}/ratchet.XXXXXX")
+  RATCHET_STARTED=$((RATCHET_STARTED + 1))
   if [ -n "$RATCHET_TIMEOUT" ]; then
     "$RATCHET_TIMEOUT" "$RATCHET_LIMIT" bash "$ratchet_exec" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
   else
@@ -1704,6 +1770,7 @@ for ratchet in scripts/check-*.sh; do
   Raise MAINTENANCE_RATCHET_TIMEOUT, or mark it \`# maintenance: skip <why>\` if it cannot run here.
 $(tail -8 "$ratchet_out" | sed 's/^/  /')"
   elif [ "$ratchet_rc" -eq 77 ]; then
+    RATCHET_ABSENT_N=$((RATCHET_ABSENT_N + 1))
     RATCHET_ABSENT="${RATCHET_ABSENT}  $ratchet — $(awk 'NF { l = $0 } END { print (l == "" ? "(no output)" : l) }' "$ratchet_out")
 "
   elif [ "$ratchet_rc" -ne 0 ]; then
@@ -1712,13 +1779,34 @@ $(tail -12 "$ratchet_out" | sed 's/^/  /')
   If it cannot run without something this pass lacks, exit 77 when that is absent (listed as skipped);
   if it can never run here, mark it \`# maintenance: skip <why>\`."
   fi
+  ratchet_name=$(basename "$ratchet")
+  if [ -n "$STREAK_FILE" ] && safe_label "ratchet:$ratchet_name"; then
+    if [ "$ratchet_rc" -eq 77 ]; then
+      ratchet_streak=$(awk -v n="$ratchet_name" '$2 == n { print $1; exit }' "$STREAK_FILE" 2>/dev/null)
+      case "$ratchet_streak" in (''|*[!0-9]*) ratchet_streak=0 ;; esac
+      ratchet_streak=$((ratchet_streak + 1))
+      [ "$ratchet_streak" -ge "$RATCHET_CAP" ] &&
+        add "[RATCHET] $ratchet has skipped itself (exit 77) on $ratchet_streak passes in a row — it has not run since.
+  Its precondition has been absent every time. Bring it up for one pass, or mark it \`# maintenance: skip <why>\`."
+    else
+      ratchet_streak=0
+    fi
+    STREAK_UPDATES="${STREAK_UPDATES}$ratchet_streak $ratchet_name
+"
+  fi
   rm -f "$ratchet_out"
   [ "$ratchet_exec" != "$ratchet" ] && rm -f "$ratchet_exec"
 done
+if [ -n "$STREAK_FILE" ] && [ -n "$STREAK_UPDATES" ]; then
+  # Keep the counts of ratchets not started this pass; replace the rest; drop zeros.
+  { printf '%s' "$STREAK_UPDATES" | sed 's/^/new /'; [ ! -f "$STREAK_FILE" ] || sed 's/^/old /' "$STREAK_FILE"; } |
+    awk '$1 == "new" { seen[$3] = 1; if ($2 > 0) print $2, $3; next } !($3 in seen) && $2 > 0 { print $2, $3 }' \
+    > "$STREAK_FILE.tmp" 2>/dev/null && mv "$STREAK_FILE.tmp" "$STREAK_FILE"
+fi
 [ -n "$RATCHET_SKIPS" ] && note "[note] ratchets skipped by their own marker:
 ${RATCHET_SKIPS%
 }"
-[ -n "$RATCHET_ABSENT" ] && note "[note] ratchets skipped, precondition absent (exit 77):
+[ -n "$RATCHET_ABSENT" ] && note "[note] $RATCHET_ABSENT_N of $RATCHET_STARTED ratchet(s) skipped, precondition absent (exit 77)$([ -z "$STREAK_FILE" ] && printf ' — not a git repository, so consecutive skips are not counted'):
 ${RATCHET_ABSENT%
 }"
 [ "$RATCHET_UNBOUNDED" -eq 1 ] && note "[note] ratchets ran unbounded — neither timeout nor gtimeout is installed, so a hung one hangs this pass."
@@ -1831,7 +1919,20 @@ $(suite_identity "$SUITE_CMD" 2>/dev/null | cat -v | sed 's/^/  /')
   Not stamped: the job stays due (spec 082)."
   else
     SUITE_OUT=$(measured suite bash -c "$SUITE_CMD" 2>&1); SUITE_RC=$?
+    # Spec 107 (F181, F224): the tail alone cut off a FAIL early in a 95-script loop, and the report
+    # said `failed (exit 1)` naming no test. Every failure line first (capped), then the tail.
+    SUITE_FAILS=$(printf '%s\n' "$SUITE_OUT" | grep -E '^(FAIL|TIMEOUT|not ok)([[:space:]:]|$)|^[[:space:]]+Failed[[:space:]]')
+    SUITE_FAIL_N=$(printf '%s' "$SUITE_FAILS" | grep -c .)
     SUITE_TAIL=$(printf '%s' "$SUITE_OUT" | tail -12)
+    if [ "$SUITE_FAIL_N" -gt 0 ]; then
+      SUITE_MORE=""
+      [ "$SUITE_FAIL_N" -gt 40 ] && SUITE_MORE="
+  … and $((SUITE_FAIL_N - 40)) more failure line(s)"
+      SUITE_TAIL="failure lines ($SUITE_FAIL_N):
+$(sed -n '1,40s/^/  /p' <<< "$SUITE_FAILS")$SUITE_MORE
+last lines:
+$SUITE_TAIL"
+    fi
     # Spec 031: never `$?` alone. rocky's crashed test host printed `Passed!` for the 55% that ran,
     # and an abort that exits 0 would be stamped green here. The helper is CORE; without it the
     # verdict falls back to the exit code, and the pass says so.
@@ -1895,6 +1996,8 @@ fi
 
 # ------------------------------------------------------------------------ verdict
 [ "$LEDGER_OK" -eq 1 ] && python3 scripts/maintenance_ledger.py record pass "$(( $(date +%s) - PASS_START ))" "$([ "$FINDINGS" -eq 0 ] && echo 0 || echo 1)" 2>/dev/null
+trap - TERM INT HUP
+[ -n "$PARTIAL" ] && rm -f "$PARTIAL"
 if [ "$FINDINGS" -eq 0 ]; then
   [ "$QUIET" -eq 1 ] && exit 0
   echo "project-maintenance: clean — no secrets, no CVEs, no register drift, no context bloat.$([ "$FULL" -eq 0 ] && [ -n "$MUTATION_CMD" ] && printf ' (mutation pass skipped — use --full)')"
