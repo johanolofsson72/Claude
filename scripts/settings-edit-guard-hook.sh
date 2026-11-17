@@ -247,7 +247,8 @@ This guard judges a settings write by what it does to the guarded keys, and this
 
 $ROUTES" ;;
   settings-bash)
-    guard_deny "BLOCKED — this shell command writes, or may write, a guarded settings file (spec 089). Derived target: ${TARGET}
+    guard_deny "BLOCKED — this shell command writes, or may write, a guarded settings file (spec 089). Derived target: ${TARGET}${KEYS:+
+Rule: ${KEYS} (spec 108: the reason this guard derived a write)}
 
 The command is not shown here. Only reads pass when a command names one of the three settings files (cat, head, tail, grep, rg, jq, wc, diff, ls, stat, python3 -m json.tool <file>, git diff/log/show/status/add/commit, …). A redirection into one, an output option naming one, sed, cp, mv, rm, ln, touch, an interpreter or a script handed one are refused. If the file is only mentioned in prose (a message, a finding), drop the .claude/ prefix or use the Write tool for the text.
 

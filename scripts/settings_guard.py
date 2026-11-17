@@ -489,20 +489,33 @@ def expand_vars(w, g):
     return w
 
 
-def word_hit(word, g, bases, by_name, dots):
+# Spec 108 R4 (F221): a regex such as `"(.*?)"` in python3 -c is no path, and as a glob `.*?` matched
+# .claude. A fragment is skipped only when it reads as a regex (a lazy quantifier, +, ^ or a backslash
+# class), has no / and carries no literal piece of a guarded name. `glob.glob('.*/s*.json')` and
+# `.?laude/?ettings.json` are still judged (108 adversarial review B3).
+FRAGMENT_ANCHOR = re.compile(r"(?i)sett|\.c|claude|plugin|skill|hook|mods")
+REGEX_SHAPED = re.compile(r"[*+?]\?|\+|\^|\\[dswbDSWB]")
+
+
+def regex_fragment(f):
+    return bool(GLOBCH.search(f) and REGEX_SHAPED.search(f)) and "/" not in f and not FRAGMENT_ANCHOR.search(f)
+
+
+def word_hit(word, g, bases, by_name, dots, fragments=True):
     """The guarded file or directory a shell word names, or None.
 
     bases: the directories a relative word may be relative to (the payload cwd, every cd/-C target).
     by_name: a bare settings.json / settings.local.json counts (after a cd that cannot be resolved,
     or a command that finds files by name). dots: `.`, `..`, `./` count too (after a cd into a
-    guarded directory, or one that cannot be resolved)."""
+    guarded directory, or one that cannot be resolved). fragments: a word holding a program is split
+    into its path-shaped pieces (False for a script's own argument, spec 108 R7)."""
     cands = [word]
     if "=" in word:
         cands.append(word.split("=", 1)[1])
     if re.match(r"^-[A-Za-z]", word) and len(word) > 2:
         cands.append(word[2:])
-    if re.search(r"[\s;&|()<>'\"]", word):          # a program inside a word: bash -c "…", python3 -c
-        cands.extend(PATHISH.findall(word))
+    if fragments and re.search(r"[\s;&|()<>'\"]", word):   # a program inside a word: bash -c "…", python3 -c
+        cands.extend(f for f in PATHISH.findall(word) if not regex_fragment(f))
     for c in cands:
         for w in brace_expand(c):
             w = expand_vars(w, g)
@@ -528,7 +541,8 @@ def word_hit(word, g, bases, by_name, dots):
                     hit = g.file_of(p) or (p if g.is_dir(p.rstrip("/") or "/") else None)
                 if hit:
                     return hit
-            if dots and re.fullmatch(r"[./]+", w):
+            # Spec 108 R2 (F193): `.`, `..`, `./` name the cwd; `/` and `//` are the root.
+            if dots and re.fullmatch(r"\.[./]*", w):
                 return w
             if by_name:
                 b = w.rstrip("/").rpartition("/")[2].lower()
@@ -620,8 +634,20 @@ def dir_targets(cmds):
     return out
 
 
+# Spec 108 R6 (F229): a reserved word that opens a compound command's body is no command. `do grep …`
+# read `do` as the command, so a grep in a for loop was no read; `then cd .claude` was no cd.
+KEYWORDS = frozenset("do then else elif if while until".split())
+
+
+def past_keywords(words):
+    i = 0
+    while i < len(words) and words[i] in KEYWORDS:
+        i += 1
+    return words[i:] if i else words
+
+
 def command_word(words):
-    for w in words:
+    for w in past_keywords(words):
         if NAME_ASSIGN.match(w):
             continue
         return w
@@ -629,6 +655,7 @@ def command_word(words):
 
 
 def reads(words):
+    words = past_keywords(words)
     rest = list(words)
     while rest and NAME_ASSIGN.match(rest[0]):
         rest.pop(0)
@@ -703,13 +730,14 @@ def strip_comments(text):
     return "".join(out)
 
 
-def split_commands(text, strip=False, flow=None, substs=None):
+def split_commands(text, strip=False, flow=None, substs=None, seps=None):
     """[(words, redirect_targets)] per simple command, or None when the text cannot be split. strip:
     remove bash comments first (see bash_verdict for why both readings are judged). flow: a list that
     receives one pipeline id per command; a pipe (`|`, `|&`) keeps the id, any other separator moves it
     on (spec 098 R7). substs: a list that receives, per command, whether a $( ) or backtick substitution
     began among its words (spec 105 R7). An input redirect's operand (< f) is no word of the command
-    (105 R7: `</dev/null bash f` read /dev/null as the command word)."""
+    (105 R7: `</dev/null bash f` read /dev/null as the command word). seps: a list that receives, per
+    command, the separator token that ended it, newlines dropped, or "" at the end (spec 108 R5)."""
     lex = shlex.shlex(strip_comments(text) if strip else text, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"
     lex.commenters = ""
@@ -720,9 +748,11 @@ def split_commands(text, strip=False, flow=None, substs=None):
     had_subst = [False]
     depth = 0                                         # inside $( ), >( ), <( ): output flows on
     group = 0
-    def flush():
+    def flush(sep=""):
         if words or targets:
             out.append((words, targets, depth > 0))
+            if seps is not None:
+                seps.append(sep.replace("\n", ""))
             if flow is not None:
                 flow.append(group)
             if substs is not None:
@@ -738,7 +768,7 @@ def split_commands(text, strip=False, flow=None, substs=None):
                         words[-1] = words[-1][:-1]
                         if not words[-1]:
                             words.pop()
-                    flush()
+                    flush(tok)
                     words, targets = [], []
                     pending_redirect = pending_input = False
                     depth = depth + tok.count("(") * (1 if subst else 0) - tok.count(")")
@@ -754,7 +784,7 @@ def split_commands(text, strip=False, flow=None, substs=None):
                     if words and words[-1].isdigit():     # 2>&1: the 2 is a descriptor, not a word
                         words.pop()
                     continue
-                flush()
+                flush(tok)
                 words, targets = [], []
                 pending_redirect = pending_input = False
                 if "|" not in tok or "||" in tok:
@@ -779,7 +809,7 @@ def split_commands(text, strip=False, flow=None, substs=None):
 # the output can reach a runner only through the read's own pipeline, or through a file that pipeline
 # writes. Any line this reading cannot follow (a group, a subshell, $( ), coproc, exec, a here-string,
 # a descriptor above 2) keeps the old rule (threat model #1, #2).
-STDOUT_FILTERS = frozenset("grep egrep fgrep wc head tail cut tr nl column jq cat".split())
+STDOUT_FILTERS = frozenset("grep egrep fgrep wc head tail cut tr nl column jq cat sort uniq rev tac paste".split())
 RUN_WRAPPERS = frozenset("! time command builtin nice nohup stdbuf setsid timeout gtimeout caffeinate sudo doas { exec "
                          "flock watch".split())   # flock and watch: spec 105 R7
 # Judged on the raw text, quotes included: a quoted exec still reads as unplain, and a line with an
@@ -813,18 +843,43 @@ def runs_text(words):
     return False
 
 
+# Spec 108 R1 (F193): sort, uniq, rev, tac and paste joined the filters. sort runs a program with
+# --compress-program, and uniq writes a second operand, so those two are judged by their words.
+UNIQ_VALUED = frozenset(("-f", "-s", "-w"))
+
+
+def pipe_filter(words):
+    """True when the command only turns its stdin into stdout (spec 108 R1)."""
+    cw = command_word(words) or ""
+    if cw == "sed":
+        return reads(words)                           # a pure script and no -i (spec 095 R8)
+    if cw not in STDOUT_FILTERS:
+        return False                                  # | sh, | dd of=f, | pbcopy, | command sh, | ./grep
+    rest = past_keywords(words)[1:]
+    if cw == "sort":                                  # -o/tmp/f: an attached output (review minor)
+        return not any(w.startswith(("--compress-program", "-o", "--output")) for w in rest)
+    if cw == "uniq":
+        end = rest.index("--") if "--" in rest else len(rest)    # after --, every word is an operand
+        operands = [w for i, w in enumerate(rest[:end])
+                    if (w == "-" or not w.startswith("-")) and not (i and rest[i - 1] in UNIQ_VALUED)]
+        return len(operands) + len(rest[end + 1:]) < 2
+    return True
+
+
 def read_flows(k, cmds, flow, plain, runners):
-    """True when command k's output can reach a runner elsewhere on the line. plain and runners (one
-    flag per command) are computed once per line by the caller."""
+    """The first command command k's output can reach that runs text elsewhere on the line, or None.
+    plain and runners (one flag per command) are computed once per line by the caller."""
     others = [j for j in range(len(cmds)) if j != k]
+    first_runner = next((j for j in others if runners[j]), None)
     if not plain:
-        return any(runners[j] for j in others)
+        return first_runner
     mates = [j for j in others if flow[j] == flow[k]]
-    if any((command_word(cmds[j][0]) or "") not in STDOUT_FILTERS for j in mates):
-        return True                                   # | sh, | dd of=f, | pbcopy, | command sh, | ./grep
+    mate = next((j for j in mates if not pipe_filter(cmds[j][0])), None)
+    if mate is not None:
+        return mate
     spills = any(not SAFE_TARGET.match(t) for j in mates + [k] for t in cmds[j][1]) \
         or any(w in OUTPUT_OPTIONS or w.startswith(OUTPUT_PREFIXES) for j in mates + [k] for w in cmds[j][0])
-    return spills and any(runners[j] for j in others)
+    return first_runner if spills else None
 
 
 # Spec 095 R7 (F121): a read is trusted only in a command that does not first change what a read runs.
@@ -864,14 +919,21 @@ GREP_VALUED = frozenset("-f -m -A -B -C -g -t -T -j -M --file --max-count --glob
 
 def pattern_indices(words):
     cw = command_word(words)
-    if not cw or cw.rpartition("/")[2] != "xargs":
-        # mutant-equivalent: dropping the xargs test lets a direct grep in, and a direct grep is named
+    tree = cw.rpartition("/")[2] if cw else ""
+    end = len(words)
+    if tree == "xargs":
+        start = words.index(cw) + 1
+        while start < len(words) and words[start].startswith("-"):
+            start += 2 if words[start] in ("-I", "-n", "-L", "-P", "-s", "-d", "-E", "-a") else 1
+    elif tree == "find":
+        # Spec 108 R8 (F232): find -exec grep PATTERN {} + carries a pattern too, up to its ; or +.
+        start = next((i + 1 for i, w in enumerate(words) if w in FIND_EXEC), len(words))
+        end = next((i for i in range(start, len(words)) if words[i] in (";", "+")), len(words))
+    else:
+        # mutant-equivalent: dropping the tree test lets a direct grep in, and a direct grep is named
         # only after a cd that also sets dots, which discards these indices (spec 101 R3).
         return set()
-    start = words.index(cw) + 1
-    while start < len(words) and words[start].startswith("-"):
-        start += 2 if words[start] in ("-I", "-n", "-L", "-P", "-s", "-d", "-E", "-a") else 1
-    if start >= len(words):
+    if start >= end:
         return set()
     cw = words[start]
     start += 1
@@ -879,10 +941,10 @@ def pattern_indices(words):
         return set()
     pats, positional, with_e = set(), [], False
     i = start
-    while i < len(words):
+    while i < end:
         w = words[i]
         if w == "--":
-            positional.extend(range(i + 1, len(words)))
+            positional.extend(range(i + 1, end))
             break
         if w in ("-e", "--regexp"):
             with_e = True
@@ -1660,6 +1722,95 @@ def judge_pull(args, where, g):
     raise GitUnknown("a pull from something that is not a configured remote")
 
 
+# Spec 108 R5 (F221, F229): `cd <scratch>/fx && printf '{}' > .claude/settings.json` writes the fixture,
+# but every relative word was also joined to the payload cwd. After `cd D &&` the next command runs in D
+# or not at all, so it is judged against D alone. Anything this reading cannot follow keeps every base on
+# the line: a function definition or group, a cd reached through || or a pipe, a target with $, a glob
+# or an option (`cd -` returns to the cwd), any separator but &&, and any command in the chain that can
+# move the shell itself (`time cd -`, `command cd -`, `eval 'cd -'`, `source f`, pushd, popd). A relative
+# target is chained only without CDPATH on the line.
+MOVERS = frozenset("cd pushd popd builtin command eval source . exec time ! coproc".split())
+
+
+def chain_bases(cmds, seps, g, line_bases, grouped, cdpath):
+    """Per command, the directories its relative words may be relative to."""
+    out, cur, prev = [], None, ""
+    for k, (words, _, in_subst) in enumerate(cmds):
+        out.append(cur or line_bases)
+        sep = seps[k] if k < len(seps) else ""
+        cw = command_word(words) or ""
+        if grouped or sep != "&&":
+            cur = None
+        elif cw == "cd" and not in_subst and prev not in ("||", "|", "|&"):
+            args = words[words.index(cw) + 1:]
+            d = expand_vars(args[0], g) if args else os.path.expanduser("~")
+            # ~- is OLDPWD, ~+ is PWD, ~user a home; and bash's cd is logical, so `lnk/..` is not the
+            # directory realpath gives (108 adversarial review B1, B2).
+            if len(args) > 1 or d.startswith(("-", "~")) or "$" in d or "`" in d or GLOBCH.search(d) \
+                    or ".." in d.split("/"):
+                cur = None
+            elif os.path.isabs(d):
+                cur = [d]
+            elif (cur or k == 0) and not cdpath:
+                cur = [os.path.join(b, d) for b in (cur or [g.cwd])]
+            else:
+                cur = None
+        elif any(w in MOVERS for w in words):
+            cur = None
+        prev = sep
+    return out
+
+
+SCRIPT_SHELLS = frozenset("sh bash zsh dash ksh".split())
+SCRIPT_PYTHONS = frozenset(("python", "python3"))
+SHELL_SCRIPT_FLAGS = re.compile(r"[-+][xeuvn]+")
+PYTHON_SCRIPT_FLAGS = re.compile(r"-[uBEIOsS]+")
+
+
+def script_data(words, g, bases, elsewhere):
+    """Spec 108 R7 (F229): the indices of a script's own arguments, when a shell or python runs a script
+    file or the command word is one. Their multi-word values are prose, not programs:
+    `bash scripts/finding.sh --add '<a sentence naming .claude>'` was refused. Only a script that already
+    exists inside the project and that no other command on the line names (elsewhere: their words and
+    redirect targets) counts, so `printf … > /tmp/e.sh && bash /tmp/e.sh '<program>'` is still split
+    (108 adversarial review B4). -c, -m, -s, a heredoc word or an option this reading does not know: none."""
+    rest = past_keywords(words)
+    off = len(words) - len(rest)
+    i = 0
+    while i < len(rest) and NAME_ASSIGN.match(rest[i]):
+        i += 1
+    if i >= len(rest):
+        return set()
+    cw = rest[i]
+    base = re.sub(r"[\d.]+$", "", cw.rpartition("/")[2]) or cw
+    if "/" in cw and re.search(r"\.(sh|bash|py)$", cw):
+        j = i
+    else:
+        if base in SCRIPT_SHELLS:
+            flags, valued = SHELL_SCRIPT_FLAGS, ("-o", "+o")
+        elif base in SCRIPT_PYTHONS:
+            flags, valued = PYTHON_SCRIPT_FLAGS, ("-W", "-X")
+        else:
+            return set()
+        j = i + 1
+        while j < len(rest) and rest[j].startswith(("-", "+")):
+            if rest[j] in valued:
+                j += 2
+            elif flags.fullmatch(rest[j]):
+                j += 1
+            else:
+                return set()                          # -c, -m, -s, --login, anything unknown
+        if j >= len(rest) or re.search(r"\s", rest[j]):
+            return set()                              # no script operand, or a heredoc body in its place
+    proj = os.path.realpath(g.proj)
+    for b in bases:                                   # after `cd D &&` the script is D's
+        script = os.path.realpath(os.path.join(b, rest[j]))
+        if not (script.startswith(proj + os.sep) and os.path.isfile(script)) \
+                or rest[j].rpartition("/")[2] in elsewhere:
+            return set()
+    return set(range(off + j + 1, len(words)))
+
+
 def bash_verdict(cmd, g):
     """The text judged twice, as the lexer reads it and with bash comments removed. Neither reading is
     bash's: a `# '` pair hides a command from the first (095 adversarial #5), a quote inside "$( )"
@@ -1681,12 +1832,12 @@ def _bash_verdict(cmd, g, strip):
     parts = text.split("`")
     text = "".join(p + ("" if i == len(parts) - 1 else (" $( " if i % 2 == 0 else " ) "))
                    for i, p in enumerate(parts))
-    flow, substs = [], []
-    cmds = split_commands(text, strip, flow, substs)
+    flow, substs, seps = [], [], []
+    cmds = split_commands(text, strip, flow, substs, seps)
     if cmds is None:
         low = cmd.lower()
         if "settings" in low or ".claude" in low:
-            return ["settings-bash", "an unbalanced quote"]
+            return ["settings-bash", "an unbalanced quote", "the command cannot be split into words"]
         return ["mod-bash", "an unbalanced quote"] if MOD_TEXT.search(low) else ["none"]
     bases = [g.cwd]
     by_name = dots = lost = lost_mod = False
@@ -1721,7 +1872,13 @@ def _bash_verdict(cmd, g, strip):
     # 095a TM-5: in a mod zone (the payload cwd, a cd or -C target) a write names no path at all:
     # `cd ~/.claude/skills && git clone URL`, `tar xf m.tar`.
     mod_base = next((b for b in bases if not GLOBCH.search(b) and g.mods.kind(g.absolute(b)) == "hard"), None)
+    # A $( ) runs even inside double quotes, and its own cd (`"$(cd -; …)"`) is a word this reading
+    # does not split, so any substitution keeps the line-wide bases.
+    grouped = bool(re.search(r"[(){}]", blank_quotes(text))) or "$(" in text
+    chained = chain_bases(cmds, seps, g, bases, grouped, "CDPATH" in text)
+    heredoc = "<<" in cmd                             # a heredoc or a here-string feeds a script stdin
     for k, (words, targets, in_subst) in enumerate(cmds):
+        here = chained[k]
         why = claude_cli_verdict(words)
         if why:
             return ["mod-bash", "the claude CLI " + why]
@@ -1735,14 +1892,17 @@ def _bash_verdict(cmd, g, strip):
         # turns it on for the rest of the line.
         named = by_name or (command_word(words) or "").rpartition("/")[2] in TREE_COMMANDS
         for t in targets:
-            hit = word_hit(t, g, bases, named, dots)
+            hit = word_hit(t, g, here, named, dots)
             if hit and g.mod_hits.get(hit) != "soft":
-                return ["settings-bash", hit]
+                return ["settings-bash", hit, "a redirect writes to it"]
         if (mod_base or lost_mod) and words and not reads(words) \
                 and (command_word(words) or "").rpartition("/")[2] not in ("cd", "pushd", "popd"):
             return ["mod-bash", mod_base or "a directory this guard cannot follow, in a command naming a mod location"]
         pats = pattern_indices(words) if not dots else set()
-        naming = [(i, word_hit(w, g, bases, named and i not in pats, dots)) for i, w in enumerate(words)]
+        elsewhere = {w.rpartition("/")[2] for j, (ws, ts, _) in enumerate(cmds) if j != k for w in ws + ts}
+        data = set() if heredoc else script_data(words, g, here, elsewhere)
+        naming = [(i, word_hit(w, g, here, named and i not in pats, dots, i not in data))
+                  for i, w in enumerate(words)]
         # A cd into a mod zone writes nothing; what runs there is judged by mod_base above.
         moves = (command_word(words) or "").rpartition("/")[2] in ("cd", "pushd")
         naming = [(i, h) for i, h in naming if h and not (moves and h in g.mod_hits)
@@ -1752,16 +1912,25 @@ def _bash_verdict(cmd, g, strip):
                     and (command_word(words) or "").rpartition("/")[2] not in ("cd", "pushd", "popd") \
                     and ((handed and any(HANDED_ON.search(w) for w in words))
                          or (k < len(substs) and substs[k] and line_spills)):
-                return ["settings-bash", seen_name]
+                return ["settings-bash", seen_name, "a name handed on ($_ or a substitution) to a command that is not a read"]
             continue
         seen_name = seen_name or naming[0][1]
-        if not reads(words) or in_subst or tainted:
-            return ["settings-bash", naming[0][1]]
-        if read_flows(k, cmds, flow, plain, runners):
-            return ["settings-bash", naming[0][1]]
+        if not reads(words):
+            return ["settings-bash", naming[0][1],
+                    "named by " + (command_word(words) or "an assignment") + ", which is not a read"]
+        if in_subst:
+            return ["settings-bash", naming[0][1], "a read inside $( ) or <( )"]
+        if tainted:
+            return ["settings-bash", naming[0][1],
+                    "a read on a line that first changes what reads run (export, alias, a function, source)"]
+        j = read_flows(k, cmds, flow, plain, runners)
+        if j is not None:
+            return ["settings-bash", naming[0][1],
+                    "a read whose output can reach " + (command_word(cmds[j][0]) or "another command")
+                    + ", which runs text or is no stdout filter"]
         for i, h in naming:
             if words[i].startswith("-") or (i > 0 and words[i - 1] in OUTPUT_OPTIONS):
-                return ["settings-bash", h]
+                return ["settings-bash", h, "an option names it as an output"]
     # A program inside a word (bash -c '…', a heredoc body handed on) that runs git is judged as a
     # command of its own (095 adversarial #2).
     # Only a shell or eval runs the text: a heredoc handed to cat is data.
@@ -1781,7 +1950,32 @@ def _bash_verdict(cmd, g, strip):
                         g.depth -= 1
                     if v[0] != "none":
                         return v
+        # Spec 108: a $( ) inside double quotes reaches the lexer as one word, so its commands were never
+        # split: `echo "$(printf x > <settings>)"` passed as an echo. Each body is judged as a command
+        # line of its own (found while testing R5).
+        for words, _, _ in cmds:
+            for body in (b for w in words if "$(" in w for b in substitutions(w)):
+                g.depth += 1
+                try:
+                    v = bash_verdict(body, g)
+                finally:
+                    g.depth -= 1
+                if v[0] != "none":
+                    return v
     return git_verdicts(cmds, g, bases, lost, text)
+
+
+def substitutions(word):
+    """The body of every $( ) in a word, the outermost ones; an unclosed one runs to the end."""
+    out, i = [], word.find("$(")
+    while i >= 0:
+        depth, j = 1, i + 2
+        while j < len(word) and depth:
+            depth += {"(": 1, ")": -1}.get(word[j], 0)
+            j += 1
+        out.append(word[i + 2:j - 1] if not depth else word[i + 2:])
+        i = word.find("$(", j)
+    return out
 
 
 def git_verdicts(cmds, g, bases, lost, text):

@@ -373,6 +373,78 @@ run "$GUARD" "$(bash_p "find . -name x > settings.json")";                      
 run "$GUARD" "$(bash_p "tar cf x.tar settings.local.json")";                               expect "[101] the tree command's own word is read by name" deny
 run "$GUARD" "$(bash_p 'cd "$X"; find . -name x; cp a.txt settings.json')";                expect "[101] control: a cd nobody can follow still by-names the whole line" deny
 
+printf '\n[108] read-only commands the guard derived as settings writes  (F193 F221 F229 F232)\n'
+FX="$WORK/scratch/fx"
+printf '#!/usr/bin/env bash\n' > "$P/scripts/finding.sh"; printf 'print(1)\n' > "$P/scripts/x.py"
+for c in "git log --oneline -- .claude | sort | uniq" "git log -- .claude/settings.json | rev | tac" \
+         "git show HEAD:.claude/settings.json | paste -sd, -" "git log -- .claude/settings.json | sed -n 1,5p" \
+         "git log -- .claude/settings.json | uniq -f 2 -c" "grep -rn 'no .claude dir' scripts | sort"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "[108] R1 allowed: $c" none
+done
+for c in "git log -- .claude/settings.json | sort --compress-program=sh" "git log -- .claude/settings.json | uniq - out.txt" \
+         "git log -- .claude/settings.json | uniq -f 2 in out" "git log -- .claude/settings.json | sed -i s/a/b/ x" \
+         "git log -- .claude/settings.json | tee out.txt" "git log -- .claude/settings.json | ./sort"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "[108] R1 control denied: $c" deny
+done
+run "$GUARD" "$(bash_p 'cd "$X" && printf "{\"cwd\":\"//\"}" | bash scripts/x.sh')";      expect "[108] R2 // after a lost cd is the root" none
+run "$GUARD" "$(bash_p 'cd "$X" && rm -rf ./')";                                            expect "[108] R2 control: ./ after a lost cd is the cwd" deny
+run "$GUARD" "$(bash_p "printf x > .claude/settings.json")"
+R=$(reason)
+grep -q '^Rule: a redirect writes to it' <<< "$R" && ok "[108] R3 the deny names its rule" || bad "[108] R3 no Rule: line in: $R"
+run "$GUARD" "$(bash_p "git log -- .claude/settings.json | sort --compress-program=sh")"
+R=$(reason)
+grep -q 'Rule: a read whose output can reach sort' <<< "$R" && ok "[108] R3 a flow names the command it reaches" || bad "[108] R3 flow cause missing"
+run "$GUARD" "$(bash_p "curl -s https://x.invalid | python3 -c 'import re,sys; print(re.findall(r\"\\\"(.*?)\\\"\", sys.stdin.read()))'")"
+expect "[108] R4 a regex in a program string is no glob" none
+for c in "python3 -c \"import glob; open(glob.glob('.cl*/s*.json')[0],'w')\"" "bash -c 'cp x .*/settings.json'" \
+         "eval \"printf x > .*/settings.local.json\""; do
+  run "$GUARD" "$(bash_p "$c")"; expect "[108] R4 control denied: $c" deny
+done
+for c in "cd $FX && printf '{}' > .claude/settings.json" "cd $FX && mkdir -p .claude && printf '{}\\n' > .claude/settings.json" \
+         "cd /tmp && cd sub && printf x > .claude/settings.json"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "[108] R5 allowed: ${c//$WORK/\$WORK}" none
+done
+for c in "cd $FX; printf x > .claude/settings.json" "cd $FX && a || printf x > .claude/settings.json" \
+         "a || cd $FX && printf x > .claude/settings.json" "(cd $FX && a) && printf x > .claude/settings.json" \
+         "{ cd $FX; } && printf x > .claude/settings.json" "cd $FX && cd - && printf x > .claude/settings.json" \
+         "cd $FX & printf x > .claude/settings.json" "cd $FX | true && printf x > .claude/settings.json" \
+         "cd $FX && pushd /tmp && popd && printf x > .claude/settings.json" "cd $FX && cd $P && printf x > .claude/settings.json" \
+         "cd $FX && echo \"\$(cd -; printf x > .claude/settings.json)\"" "cd ~/.claude && printf x > settings.json" \
+         "cd $FX && time cd - && printf x > .claude/settings.json" "cd $FX && command cd - && printf x > .claude/settings.json" \
+         "cd $FX && eval 'cd -' && printf x > .claude/settings.json" "cd $FX && source x.sh && printf x > .claude/settings.json" \
+         "f() { cd -; }; cd $FX && f && printf x > .claude/settings.json" "cd /tmp && CDPATH=/x cd y && printf x > .claude/settings.json"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "[108] R5 control denied: ${c//$WORK/\$WORK}" deny
+done
+run "$GUARD" "$(bash_p "echo \"\$(printf x > .claude/settings.json)\"")";                   expect "[108] a quoted \$( ) is judged as a command line" deny
+run "$GUARD" "$(bash_p "echo \"a \$(cat .claude/settings.json | wc -l) b\"")";              expect "[108] control: a read in a quoted \$( ) passes" none
+run "$GUARD" "$(bash_p "for f in scripts/*.sh; do grep -q 'no .claude dir' \"\$f\" && echo \"\$f\"; done")"
+expect "[108] R6 a grep after do is a read" none
+run "$GUARD" "$(bash_p "if true; then cd .claude && printf x > settings.json; fi")";       expect "[108] R6 control: then cd .claude is a cd" deny
+run "$GUARD" "$(bash_p "while true; do printf x > .claude/settings.json; done")";          expect "[108] R6 control: a write after do" deny
+for c in "bash scripts/finding.sh --add 'the skip text no .claude dir was derived' --spec 100" \
+         "scripts/finding.sh --add 'prose about .claude/settings.json'" "python3 -u scripts/x.py 'x .claude/settings.json y'"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "[108] R7 allowed: $c" none
+done
+for c in "bash scripts/x.sh .claude/settings.json" "bash -c scripts/x.sh 'a .claude/settings.json'" \
+         "bash scripts/x.sh <<< 'x .claude/settings.json y'" "bash --login scripts/x.sh 'x .claude/settings.json y'" \
+         "python3 -m mod 'x .claude/settings.json y'"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "[108] R7 control denied: $c" deny
+done
+printf '\n[108] adversarial review: each was allowed by the first cut, denied by HEAD\n'
+for c in "cd /tmp && cd ~- && printf x > .claude/settings.json" "cd ~+ && printf x > .claude/settings.json" \
+         "cd /tmp/lnk/.. && printf x > .claude/settings.json" "cd /tmp && cd .. && printf x > .claude/settings.json" \
+         "python3 -c \"import glob;[open(p,'w') for p in glob.glob('.*/s*.json')]\"" \
+         "perl -e 'for(glob(\".?laude/?ettings.json\")){open F,\">\",\$_}'" \
+         "bash /tmp/e.sh 'printf x > .claude/settings.json'" "bash scripts/nope.sh 'printf x > .claude/settings.json'" \
+         "cd /tmp && bash scripts/finding.sh 'printf x > $P/.claude/settings.json'" \
+         "printf 'eval x' > scripts/finding.sh && bash scripts/finding.sh 'printf x > .claude/settings.json'" \
+         "cat .claude/settings.json | sort -o/tmp/p.sh ; bash /tmp/p.sh" "cat .claude/settings.json | uniq -- -x /tmp/p"; do
+  run "$GUARD" "$(bash_p "$c")"; expect "[108] review control denied: $c" deny
+done
+run "$GUARD" "$(bash_p "find . -exec grep '[a-z]*' {} +")";                                 expect "[108] R8 find -exec grep's pattern is no file name" none
+run "$GUARD" "$(bash_p "find . -exec rm '[a-z]*' {} +")";                                   expect "[108] R8 control: find -exec rm's glob is a file" deny
+run "$GUARD" "$(bash_p "find . -exec grep -e x '[a-z]*' {} +")";                            expect "[108] R8 control: after -e the glob is a file" deny
+
 printf '\n[095-R1] git verbs that rewrite the tree  (095-AC-1)\n'
 GC="git -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false"
 printf '.claude/settings.local.json\n' > "$P/.gitignore"
@@ -717,14 +789,47 @@ sabotage "sabotage: without the key comparison a hook removal passes" \
   'return ["settings-key", path, ",".join(keys)] if keys else ["none"]' 'return ["none"]' \
   "$(edit_p "$S" 'trust-anchor-guard-hook.sh' 'true.sh')"
 sabotage "sabotage: without the read list sed -i passes" \
-  'if not reads(words) or in_subst or tainted:' 'if False:' \
+  'if not reads(words):' 'if False:' \
   "$(bash_p "sed -i '' s/a/b/ .claude/settings.json")"
+sabotage "sabotage 108-R1: without the compress-program test sort runs sh" \
+  'return not any(w.startswith(("--compress-program", "-o", "--output")) for w in rest)' 'return True' \
+  "$(bash_p "git log -- .claude/settings.json | sort --compress-program=sh")"
+sabotage "sabotage 108-R1: without the operand count uniq writes a file" \
+  'return len(operands) + len(rest[end + 1:]) < 2' 'return True' \
+  "$(bash_p "git log -- .claude/settings.json | uniq - out.txt")"
+sabotage "sabotage 108-R4: a glob fragment with a / is skipped too" \
+  'and "/" not in f and not FRAGMENT_ANCHOR.search(f)' 'and not FRAGMENT_ANCHOR.search(f)' \
+  "$(bash_p "python3 -c \"import glob;[open(p,'w') for p in glob.glob('.*?/s*.json')]\"")"
+sabotage "sabotage 108-R4: any glob fragment without regex syntax is skipped" \
+  'return bool(GLOBCH.search(f) and REGEX_SHAPED.search(f))' 'return bool(GLOBCH.search(f))' \
+  "$(bash_p "python3 -c \"import glob,shutil;[shutil.rmtree(p) for p in glob.glob('.*')]\"")"
+sabotage "sabotage 108-R5: a ~- or .. target starts a chain" \
+  'or ".." in d.split("/"):' 'or False:' \
+  "$(bash_p "cd /tmp/lnk/.. && printf x > .claude/settings.json")"
+sabotage "sabotage 108-R7: a script outside the project counts as data" \
+  'if not (script.startswith(proj + os.sep) and os.path.isfile(script)) \' 'if False \' \
+  "$(bash_p "bash /tmp/e.sh 'printf x > .claude/settings.json'")"
+sabotage "sabotage 108-R5: an || in a cd chain keeps the chain" \
+  '        if grouped or sep != "&&":' '        if grouped or sep not in ("&&", "||"):' \
+  "$(bash_p "cd $WORK/scratch/fx && a || printf x > .claude/settings.json")"
+sabotage "sabotage 108-R5: a cd after || starts a chain" \
+  'prev not in ("||", "|", "|&")' 'True' \
+  "$(bash_p "a || cd $WORK/scratch/fx && printf x > .claude/settings.json")"
+sabotage "sabotage 108-R5: a group does not keep the line-wide bases" \
+  'grouped = bool(re.search(r"[(){}]", blank_quotes(text))) or "$(" in text' 'grouped = False' \
+  "$(bash_p "f() { cd -; }; cd $WORK/scratch/fx && f && printf x > .claude/settings.json")"
+sabotage "sabotage 108: a quoted \$( ) is not re-judged" \
+  'for body in (b for w in words if "$(" in w for b in substitutions(w)):' 'for body in ():' \
+  "$(bash_p "echo \"\$(printf x > .claude/settings.json)\"")"
+sabotage "sabotage 108-R7: -c leaves the script data reading on" \
+  '                return set()                          # -c, -m, -s, --login, anything unknown' '                j += 1' \
+  "$(bash_p "bash -c scripts/x.sh 'a .claude/settings.json'")"
 sabotage "sabotage: without the redirect check printf > passes" \
-  'hit = word_hit(t, g, bases, named, dots)' 'hit = None' \
+  'hit = word_hit(t, g, here, named, dots)' 'hit = None' \
   "$(bash_p "printf x > .claude/settings.json")"
 sabotage "sabotage: without the cd bases ../.claude passes" \
   'bases.append(full)' 'pass' \
-  "$(bash_p "cd sub && rm ../.claude/settings.json")"
+  "$(bash_p "cd sub; rm ../.claude/settings.json")"
 sabotage "sabotage 095-R1: without the tree-write judge git checkout REV -- . passes" \
   '    if verb == "apply":
         if "--cached"' '    return None
@@ -797,10 +902,10 @@ sabotage "sabotage 098-R7: a target after > read as a descriptor lets > 7; xargs
   'if not (pending_dup and (tok.isdigit() or tok == "-")):' 'if not (tok.isdigit() or tok == "-"):' \
   "$(bash_p "grep -l hooks $S > 7 ; xargs rm < 7")"
 sabotage "sabotage 098-R7: if any pipe mate may run, cat | sh passes" \
-  'return True                                   # | sh, | dd of=f, | pbcopy, | command sh, | ./grep' 'pass' \
+  'return False                                  # | sh, | dd of=f, | pbcopy, | command sh, | ./grep' 'return True' \
   "$(bash_p "cat $S | sh")"
 sabotage "sabotage 098-R7: without the spill rule cat > f; sh f passes" \
-  'return spills and any(runners[j] for j in others)' 'return False' \
+  'return first_runner if spills else None' 'return None' \
   "$(bash_p "cat $S > f; sh f")"
 # The other direction: the pre-098 rule refuses F155's command again.
 M7="$WORK/mut7"; mkdir -p "$M7"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$M7"/
@@ -833,7 +938,7 @@ sabotage "sabotage 105-R7: without the version strip python3.12 is no runner" \
   'return b in EXEC_COMMANDS or re.sub(r"[\d.]+$", "", b) in EXEC_COMMANDS' 'return b in EXEC_COMMANDS' \
   "$(bash_p "cat $S > f; python3.12 f")"
 sabotage "sabotage 105-R7: without the handed-on rule \$_ carries the name to sed" \
-  'return ["settings-bash", seen_name]' 'pass' \
+  'return ["settings-bash", seen_name, "a name handed on ($_ or a substitution) to a command that is not a read"]' 'pass' \
   "$(bash_p "cat $S; sed -i x \"\$_\"")"
 sabotage "sabotage 105-R7: without find -exec, find runs the file" \
   'return True                                   # find -exec runs a program per file (105 R7)' 'pass' \
