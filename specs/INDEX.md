@@ -119,6 +119,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 101 — guard-parser-dedupe — spec-only — one sed-purity parser, by_name scoped per simple command, sync-prompt reuses template_url_matches. F132 F153 F154
 - [x] 102 — downstream-core-red — spec-only — fundit 2026-10-05: freshness flags its own PuTTY fixture as a key; 9 CORE self-tests red downstream; 14 dangling citations (testing-mobile.md).
 - [x] 103 — unlisted-fires-on-a-test-fixture — trivial — rocky 2026-10-30 (T0): test-project-maintenance.sh C107 writes e2e-gate-census.py as a fixture; declared optional like C88, so core-owed-tick-guard clears.
+- [ ] 104 — allium-check-on-write — trivial — agentcrm 2026-11-16 (183): allium-check-hook.sh is wired `if: Edit(**/*.allium)` only; a Write of a new .allium (every elicit) is never checked — five parse errors passed.
 
 ## Register history (newest first)
 

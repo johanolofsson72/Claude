@@ -185,6 +185,17 @@ echo "== ignored paths"
 out=$(run "$HOOK" "$TMP/readme.md" ALLIUM_BIN="$FAKE/garbage"); [ -z "$out" ] && ok "non-.allium ignored" || bad "md: $out"
 out=$(run "$HOOK" "$TMP/gone.allium" ALLIUM_BIN="$FAKE/garbage"); [ -z "$out" ] && ok "missing file ignored" || bad "gone: $out"
 
+echo "== wiring (template row 104: a Write of a new .allium went unchecked)"
+SETTINGS="$SCRIPT_DIR/../.claude/settings.json"
+for tool in Edit Write; do
+  n=$(jq --arg if "$tool(**/*.allium)" '[.hooks.PostToolUse[]
+        | select(.matcher | split("|") | index("'"$tool"'"))
+        | .hooks[] | select(.if == $if and (.command | test("allium-check-hook\\.sh")))] | length' \
+      "$SETTINGS" 2>/dev/null)
+  [ "${n:-0}" -ge 1 ] && ok "PostToolUse wires allium-check-hook for $tool(**/*.allium)" \
+    || bad "no PostToolUse $tool(**/*.allium) → allium-check-hook.sh in settings.json"
+done
+
 echo
 echo "allium-check-hook: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
