@@ -178,6 +178,7 @@ fi
 TEMPLATE_LEDGER="$SCRIPT_DIR/../specs/FINDINGS.md"
 LEDGER_BEFORE=$(cat "$TEMPLATE_LEDGER" 2>/dev/null | cksum)
 cp "$SCRIPT_DIR/finding.sh" "$BIG/scripts/finding.sh" 2>/dev/null || { mkdir -p "$BIG/scripts"; cp "$SCRIPT_DIR/finding.sh" "$BIG/scripts/finding.sh"; }
+cp "$SCRIPT_DIR/max-id-in-refs.sh" "$BIG/scripts/"   # finding.sh's allocator (row 110: missing is exit 2)
 ( cd "$BIG" && bash "$SCRIPT_DIR/project-maintenance.sh" >/dev/null 2>&1 )
 if grep -Fq "scenario-map canary: specs/SCENARIOS.md " "$BIG/specs/FINDINGS.md" 2>/dev/null; then
     ok "oversized map: recorded in the fixture's own ledger"

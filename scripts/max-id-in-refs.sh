@@ -26,21 +26,48 @@
 # Prints the highest id's digits exactly as written (padding kept, so a caller can keep the width),
 # or nothing when no id exists anywhere. The digits are the trailing run of each match.
 #
-# Exit: 0 ok (with or without a result) · 2 usage
+# --next <count> [--block <B>] prints instead the first id of a run of <count> free ids above the
+# highest (row 110). With SPEC_LANE_SLOT=<k>/<n> (per machine, next to SPEC_OWNER) the id space is cut
+# into blocks of B ids (block 0 = ids 1..B) and this lane only takes ids from blocks whose index is
+# k-1 mod n, never crossing a block edge. Two lanes with different slots cannot draw the same id even
+# when neither has pushed: the residual above, closed by construction. Unset: max + 1, as before.
+# The --next output is bare digits; the caller pads.
+#
+# Exit: 0 ok (with or without a result) · 2 usage, a malformed SPEC_LANE_SLOT, or a run longer than B
 set -uo pipefail
 export LC_ALL=C
 
-RE=""; DIR="."
+RE=""; DIR="."; NEXT=""; BLOCK=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --regex) RE="${2:-}"; shift 2 || { echo "max-id-in-refs.sh: --regex needs a pattern" >&2; exit 2; } ;;
     --dir)   DIR="${2:-.}"; shift 2 || { echo "max-id-in-refs.sh: --dir needs a path" >&2; exit 2; } ;;
+    --next)  NEXT="${2:-}"; shift 2 || { echo "max-id-in-refs.sh: --next needs a count" >&2; exit 2; } ;;
+    --block) BLOCK="${2:-}"; shift 2 || { echo "max-id-in-refs.sh: --block needs a size" >&2; exit 2; } ;;
     --)      shift; break ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "max-id-in-refs.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
 [ -n "$RE" ] || { echo "max-id-in-refs.sh: --regex is required" >&2; exit 2; }
+case "$BLOCK" in ''|*[!0-9]*|0) echo "max-id-in-refs.sh: --block wants a positive integer, got '$BLOCK'" >&2; exit 2 ;; esac
+SLOT_K=1; SLOT_N=1
+if [ -n "$NEXT" ]; then
+  case "$NEXT" in ''|*[!0-9]*|0) echo "max-id-in-refs.sh: --next wants a positive integer, got '$NEXT'" >&2; exit 2 ;; esac
+  if [ -n "${SPEC_LANE_SLOT:-}" ]; then
+    # Fail fast: a slot that silently fell back to max + 1 is the collision with no sign of it.
+    case "$SPEC_LANE_SLOT" in
+      [1-9]*/[1-9]*) SLOT_K=${SPEC_LANE_SLOT%%/*}; SLOT_N=${SPEC_LANE_SLOT#*/} ;;
+      *) SLOT_K=x ;;
+    esac
+    case "$SLOT_K$SLOT_N" in *[!0-9]*)
+      echo "max-id-in-refs.sh: SPEC_LANE_SLOT='$SPEC_LANE_SLOT' is not <k>/<n> (for example 1/2)" >&2; exit 2 ;; esac
+    [ "$SLOT_K" -le "$SLOT_N" ] || {
+      echo "max-id-in-refs.sh: SPEC_LANE_SLOT='$SPEC_LANE_SLOT' names lane $SLOT_K of $SLOT_N" >&2; exit 2; }
+    [ "$NEXT" -le "$BLOCK" ] || {
+      echo "max-id-in-refs.sh: a run of $NEXT does not fit a lane block of $BLOCK ids (raise --block)" >&2; exit 2; }
+  fi
+fi
 [ $# -gt 0 ] || { echo "max-id-in-refs.sh: name at least one pathspec after --" >&2; exit 2; }
 
 hits() {
@@ -67,6 +94,19 @@ hits() {
   fi
 }
 
-hits "$@" | sed -E 's/.*[^0-9]//' | grep -E '^[0-9]+$' |
-  awk '{ n = $0 + 0; if (!seen || n > best) { best = n; raw = $0; seen = 1 } } END { if (seen) print raw }'
+MAX=$(hits "$@" | sed -E 's/.*[^0-9]//' | grep -E '^[0-9]+$' |
+  awk '{ n = $0 + 0; if (!seen || n > best) { best = n; raw = $0; seen = 1 } } END { if (seen) print raw }')
+if [ -z "$NEXT" ]; then
+  [ -n "$MAX" ] && printf '%s\n' "$MAX"
+  exit 0
+fi
+# The first id past the max whose whole run sits inside one of this lane's blocks.
+awk -v max="${MAX:-0}" -v c="$NEXT" -v b="$BLOCK" -v k="$((SLOT_K - 1))" -v n="$SLOT_N" 'BEGIN {
+  s = max + 1
+  if (n == 1) { print s; exit }
+  blk = int((s - 1) / b)
+  if (blk % n != k) { blk += (k - blk % n + n) % n; s = blk * b + 1 }
+  if (s + c - 1 > (blk + 1) * b) { blk += n; s = blk * b + 1 }
+  print s
+}'
 exit 0

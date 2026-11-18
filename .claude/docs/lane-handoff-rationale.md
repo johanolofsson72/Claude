@@ -103,7 +103,9 @@ Only when the register actually carries an owner tag, and only when there is som
 
 ## Claiming a row
 
-An owner tag is last on the register row: `— @sam`. Putting a tag on an **unclaimed** row is
+An owner tag goes last on the register row: `— @sam`. Text after it, such as `approved F612`,
+does not hide it. All three readers take the last `@name` that follows a space or an em dash
+(row 110). Putting a tag on an **unclaimed** row is
 ordinary — it is how somebody says "I'll take it". Moving a tag that is already there is not:
 the other lane's row is not yours to take, tick, or renumber
 (`.claude/rules/spec-register.md`). Propose, and let the owner answer.
@@ -111,6 +113,21 @@ the other lane's row is not yours to take, tick, or renumber
 When Claude assigns a row, it writes that as a **proposal in the register**, not as a decision
 in the chat. Changing a tag takes the developer a second; asking first costs a round trip and
 a wait.
+
+## Ids two lanes cannot both draw (`SPEC_LANE_SLOT`)
+
+`finding.sh --add` and `next-scenario-id.sh` read the highest id in the working tree and every
+ref, which covers whatever the other lane has pushed but not what it hasn't. agentcrm drew
+F595/F596 twice that way, and scenario blocks for 123 and 126. Set a slot per machine, next to
+`SPEC_OWNER` in `.claude/settings.local.json`:
+
+```json
+{ "env": { "SPEC_OWNER": "sam", "SPEC_LANE_SLOT": "2/2" } }
+```
+
+`<k>/<n>` means lane k of n. Finding ids alternate between the lanes and scenario ids come in
+100-id blocks (`next-scenario-id.sh --block` changes the size), so two slots never meet, pushed
+or not. A malformed slot exits 2 instead of falling back. Unset, nothing changes.
 
 ## The merge cost is in the coordination files, not the code
 

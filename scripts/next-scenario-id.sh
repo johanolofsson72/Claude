@@ -22,18 +22,23 @@
 #   bash scripts/next-scenario-id.sh              # one past the highest id
 #   bash scripts/next-scenario-id.sh --count 12   # a block for one spec
 #   bash scripts/next-scenario-id.sh --prefix UC  # a map with its own prefix
+#   bash scripts/next-scenario-id.sh --block 200  # lane block size under SPEC_LANE_SLOT (default 100)
+#
+# Two lanes (row 110): set SPEC_LANE_SLOT=<k>/<n> per machine and each lane draws only from its own
+# 100-id blocks, so an unpushed block in the other lane can no longer be drawn twice.
 #
 # Exit: 0 with ids on stdout · 2 usage
 set -uo pipefail
 export LC_ALL=C
 
-COUNT=1; PREFIX="SC"; DIR="."
+COUNT=1; PREFIX="SC"; DIR="."; BLOCK=100
 while [ $# -gt 0 ]; do
   case "$1" in
     --count)  COUNT="${2:-}"; shift 2 || { echo "next-scenario-id.sh: --count needs a number" >&2; exit 2; } ;;
     --prefix) PREFIX="${2:-}"; shift 2 || { echo "next-scenario-id.sh: --prefix needs a value" >&2; exit 2; } ;;
+    --block)  BLOCK="${2:-}"; shift 2 || { echo "next-scenario-id.sh: --block needs a number" >&2; exit 2; } ;;
     --dir)    DIR="${2:-.}"; shift 2 || { echo "next-scenario-id.sh: --dir needs a path" >&2; exit 2; } ;;
-    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "next-scenario-id.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -44,7 +49,12 @@ case "$PREFIX" in ''|*[!A-Za-z]*) echo "next-scenario-id.sh: --prefix is letters
 MAX=$(bash "$(dirname "$0")/max-id-in-refs.sh" --dir "$DIR" \
         --regex "^\| *(~~)?${PREFIX}-[0-9]+" -- 'specs/SCENARIOS*.md' 'specs/scenarios/*.md')
 WIDTH=${#MAX}; [ "$WIDTH" -ge 3 ] || WIDTH=3
-N=$(printf '%s' "$MAX" | sed 's/^0*//'); N=$(( ${N:-0} + 1 ))
+ERR=$(mktemp); trap 'rm -f "$ERR"' EXIT
+N=$(bash "$(dirname "$0")/max-id-in-refs.sh" --dir "$DIR" --next "$COUNT" --block "$BLOCK" \
+      --regex "^\| *(~~)?${PREFIX}-[0-9]+" -- 'specs/SCENARIOS*.md' 'specs/scenarios/*.md' 2>"$ERR")
+RC=$?
+grep -v '^max-id-in-refs: ' "$ERR" >&2
+[ "$RC" -eq 0 ] || exit 2
 i=0
 while [ "$i" -lt "$COUNT" ]; do
   printf '%s-%0*d\n' "$PREFIX" "$WIDTH" "$((N + i))"

@@ -163,6 +163,59 @@ M
     && bad "AC6 project-maintenance reports a checkpoint at 4 feature specs" \
     || ok "AC6 project-maintenance stays quiet at 4 feature specs"
 
+  # AC9 — rocky's milestone order (F217-F219): H16 sits ABOVE H13 in the file. Without git the
+  # newest checkpoint is still H16 (highest number), and file order below it decides.
+  local h; h=$(mk ac9 <<'M'
+- [x] H16 — integration-hardening — checkpoint — x
+- [x] 101 — a — spec-only — x
+- [x] 102 — b — spec-only — x
+- [x] 103 — c — spec-only — x
+- [x] H13 — integration-hardening — checkpoint — x
+- [x] 050 — d — spec-only — x
+- [x] 051 — e — spec-only — x
+- [x] 052 — f — spec-only — x
+- [x] 053 — g — spec-only — x
+- [x] 054 — h — spec-only — x
+M
+)
+  out=$(engine "$h")
+  [ "$out" = "since=H16 count=8 due=1" ] && ok "AC9 the highest H number is the checkpoint, not the last in the file" \
+    || bad "AC9 got '$out', want 'since=H16 count=8 due=1' (no git: file order below H16)"
+
+  # AC10 — the same register in a real repository: tick order comes from git, so the three rows
+  # ticked after H16 count and the five ticked before it do not, wherever they sit in the file.
+  local r="$T/ac10"; mkdir -p "$r/specs" "$r/scripts"; cp "$ENGINE" "$r/scripts/checkpoint-cadence.sh"
+  git -C "$r" init -q
+  gc() { git -C "$r" -c user.email=t@t -c user.name=t commit -qam "$1" >/dev/null 2>&1 || \
+         { git -C "$r" add -A; git -C "$r" -c user.email=t@t -c user.name=t commit -qm "$1" >/dev/null 2>&1; }; }
+  reg() { { echo "# Spec register"; echo; echo "## Specs"; echo; cat; } > "$r/specs/INDEX.md"; }
+  reg <<'M'
+- [ ] H16 — integration-hardening — checkpoint — x
+- [ ] 101 — a — spec-only — x
+- [ ] 102 — b — spec-only — x
+- [ ] 103 — c — spec-only — x
+- [x] H13 — integration-hardening — checkpoint — x
+- [x] 050 — d — spec-only — x
+- [x] 051 — e — spec-only — x
+- [x] 052 — f — spec-only — x
+- [x] 053 — g — spec-only — x
+- [x] 054 — h — spec-only — x
+M
+  gc "before H16"
+  sed 's/^- \[ \] H16/- [x] H16/' "$r/specs/INDEX.md" > "$r/i" && mv "$r/i" "$r/specs/INDEX.md"; gc "tick H16"
+  sed 's/^- \[ \] 101/- [x] 101/; s/^- \[ \] 102/- [x] 102/' "$r/specs/INDEX.md" > "$r/i" && mv "$r/i" "$r/specs/INDEX.md"; gc "tick 101 102"
+  sed 's/^- \[ \] 103/- [x] 103/' "$r/specs/INDEX.md" > "$r/i" && mv "$r/i" "$r/specs/INDEX.md"; gc "tick 103"
+  out=$(engine "$r"); rc=$?
+  [ "$out" = "since=H16 count=3 due=0" ] && [ "$rc" -eq 1 ] && ok "AC10 git tick order: 3 since H16, not due" \
+    || bad "AC10 got '$out' rc=$rc, want 'since=H16 count=3 due=0'"
+  # A row ticked in the checkpoint's own commit is covered by it; one ticked after it counts.
+  printf -- '- [ ] H17 — integration-hardening — checkpoint — x\n- [ ] 104 — i — spec-only — x\n- [ ] 105 — j — spec-only — x\n' >> "$r/specs/INDEX.md"; gc "add rows"
+  sed 's/^- \[ \] H17/- [x] H17/; s/^- \[ \] 104/- [x] 104/' "$r/specs/INDEX.md" > "$r/i" && mv "$r/i" "$r/specs/INDEX.md"; gc "tick H17 and 104"
+  sed 's/^- \[ \] 105/- [x] 105/' "$r/specs/INDEX.md" > "$r/i" && mv "$r/i" "$r/specs/INDEX.md"; gc "tick 105"
+  out=$(engine "$r")
+  [ "$out" = "since=H17 count=1 due=0" ] && ok "AC10 a row ticked in the checkpoint's commit is covered by it" \
+    || bad "AC10 same-commit got '$out', want 'since=H17 count=1 due=0'"
+
   # AC7 — no register is never "not due".
   mkdir -p "$T/empty"; bash "$ENGINE" --dir "$T/empty" >/dev/null 2>&1; rc=$?
   [ "$rc" -eq 4 ] && ok "AC7 no register exits 4" || bad "AC7 no register exit $rc, want 4"
@@ -179,9 +232,15 @@ TOTAL_F=$F
 # AC8 — sabotage. Each arm deletes one marked region of the engine; at least one case must go red.
 # due-at-least is replaced rather than deleted, with the modulo it was written to remove.
 echo "sabotage"
-for arm in skip-checkpoint skip-carved due-at-least; do
+for arm in skip-checkpoint skip-carved due-at-least after-checkpoint rank-highest; do
   S="$T/sabotaged-$arm.sh"
-  if [ "$arm" = due-at-least ]; then
+  if [ "$arm" = after-checkpoint ]; then
+    # The old reading: file position only, git ignored.
+    awk '/# region: after-checkpoint/{print; print "      if (fpos[i] > bpos) count++"; skip=1; next} skip && /# endregion/{skip=0} !skip {print}' "$SD/checkpoint-cadence.sh" > "$S"
+  elif [ "$arm" = rank-highest ]; then
+    # The old reading: the last checkpoint in the file wins.
+    sed 's/if (since == "" || num > bnum .*/since = id; bpos = pos/' "$SD/checkpoint-cadence.sh" > "$S"
+  elif [ "$arm" = due-at-least ]; then
     awk '/# region: due-at-least/{print; getline; print "    if (count > 0 && count % every == 0) due = 1"; next} {print}' "$SD/checkpoint-cadence.sh" > "$S"
   else
     awk -v r="$arm" '$0 ~ "# region: " r {skip=1} !skip {print} skip && /# endregion/ {skip=0}' "$SD/checkpoint-cadence.sh" > "$S"

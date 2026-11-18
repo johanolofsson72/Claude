@@ -44,7 +44,11 @@ import subprocess
 import sys
 
 ROW = re.compile(r"^- \[([ x/!])\] ([0-9]{3}[a-z]*|[A-Z][0-9]+[a-z]*) — ([^\s—]+)")
-OWNER = re.compile(r"@([a-z][a-z0-9_-]*)\s*$")
+# The LAST `@name` token on the row, preceded by whitespace or an em dash and followed by whitespace
+# or the end (row 110, F210). Anchored to the end of the line, a tag followed by `approved F<nnn>`
+# was invisible and the row read as unclaimed for both lanes. An email address is not a tag: its
+# `@` follows a letter. spec_active.py and spec-register-orientation-hook.sh read the same grammar.
+OWNER = re.compile(r"(?:^|(?<=[\s—]))@([A-Za-z0-9._-]+)(?=\s|$)")
 NEEDS = re.compile(r"needs ([0-9A-Za-z, ]+?)(?: —|$)")
 
 # The "what does this question hold up" line. English is the template's own spelling;
@@ -95,14 +99,14 @@ def parse_rows(register: str) -> list[dict]:
         m = ROW.match(line)
         if not m:
             continue
-        owner = OWNER.search(line)
+        tags = OWNER.findall(line)
         needs = NEEDS.search(line)
         rows.append(
             {
                 "state": m.group(1),
                 "id": m.group(2),
                 "slug": m.group(3),
-                "owner": owner.group(1) if owner else None,
+                "owner": tags[-1].lower() if tags else None,
                 "needs": [d.strip() for d in needs.group(1).split(",") if d.strip()]
                 if needs
                 else [],
@@ -188,6 +192,11 @@ def phase_debt_open(root: str) -> int:
             in_open = False
         if in_open and line.startswith("|"):
             if re.match(r"\|\s*(Row|-{2,}|:?-)", line) or "none yet" in line:
+                continue
+            # A row the Cleared column marks ☑ is not open debt (row 110, F214). The same reading as
+            # project-phase-banner.sh, so the two numbers at one session start agree; a row with no
+            # box at all still counts, because an unrecorded state is not a clean one.
+            if "☑" in line:
                 continue
             count += 1
     return count

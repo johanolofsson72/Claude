@@ -293,8 +293,9 @@ else fail "099-R4 the ticked text is appended and the pre-tick entry kept"; fi
 out="$(run "$d")"
 if grep -q 'all archived verbatim' <<< "$out"; then pass "099-R4 'all archived' only once every row is verbatim"
 else fail "099-R4 'all archived' only once every row is verbatim: $out"; fi
-# negative control: a longer line that holds the row as a substring is not a copy
-d="$TMP/r4c"; mk "$d" "$TICKED" "$(printf '\n## 004 — delta\n\n%s (and more)\n' "$TICKED")"
+# negative control: a longer line that holds the row as a substring is not a copy. Quoted, because
+# since row 110 a longer `- [x] 004 —` line IS the archived long form of a shortened row.
+d="$TMP/r4c"; mk "$d" "$TICKED" "$(printf '\n## 004 — delta\n\n> %s (and more)\n' "$TICKED")"
 out="$(run "$d" --dry-run)"
 if grep -q 'all archived' <<< "$out"; then defect "099-R4 substring"; else pass "099-R4 control: a longer line holding the row is not a copy"; fi
 # shortenable needs the text: an over-budget ticked row under a heading with other text
@@ -303,6 +304,28 @@ out="$(run "$d" --dry-run)"
 if grep -q 'archive first' <<< "$out" && ! grep -q 'shortenable' <<< "$out"; then
   pass "099-R4 a heading-only ticked row is 'archive first', not shortenable"
 else fail "099-R4 a heading-only ticked row is 'archive first', not shortenable: $out"; fi
+
+# ------------------------------------------- 110-R6: a shortened pointer is not re-archived
+# agentcrm F197: every row shortened to a pointer after archiving no longer matched its archived
+# text, so the first run wrote a second section per row (91 at one tick).
+d="$TMP/r6"; mk "$d" "- [x] 002 — beta — spec-only track — done; detail in INDEX.completed.md" \
+  "$(printf '\n## 002 — beta\n\n%s\n' "$LONG_ROW")"
+before="$(cat "$d/specs/INDEX.completed.md")"
+out="$(run "$d")"
+if [ "$before" = "$(cat "$d/specs/INDEX.completed.md")" ] && ! grep -q 'archived 1' <<< "$out"; then
+  pass "110-R6 a row shortened after archiving appends nothing"
+else fail "110-R6 a row shortened after archiving appends nothing: $out"; fi
+# control: the same short row against an archive whose only entry for 002 is the pre-tick form
+d="$TMP/r6c"; mk "$d" "- [x] 002 — beta — spec-only track — done; detail in INDEX.completed.md" \
+  "$(printf '\n## 002 — beta\n\n- [/] 002 — beta — spec-only track — %s\n' "$LONG")"
+out="$(run "$d")"
+if grep -q 'archived 1' <<< "$out"; then pass "110-R6 control: a pre-tick entry is still not the ticked row"
+else fail "110-R6 control: a pre-tick entry is still not the ticked row: $out"; fi
+# control: another id's long line does not cover this id
+d="$TMP/r6d"; mk "$d" "- [x] 001 — alpha — spec-only track — short." "$(printf '\n## 002 — beta\n\n%s\n' "$LONG_ROW")"
+out="$(run "$d")"
+if grep -q 'archived 1' <<< "$out"; then pass "110-R6 control: membership is per id"
+else fail "110-R6 control: membership is per id: $out"; fi
 
 # ------------------------------------------------------------- exit precedence
 # 3 BEATS 4: a refused register reports the refusal, not the byte count.

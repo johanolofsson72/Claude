@@ -121,6 +121,15 @@ expect_advisory "slug is not in the map (advisory fires)" "$F" "003-gamma"
 F=$(write_spec "$SINGLE" 004-delta inert)
 expect_silent "spec has no interactive behaviour" "$F"
 
+# Row 110, F199: a file one level deeper (spec-kit's checklists/, a states/ folder) belongs to the
+# spec directory under specs/, not to its own parent. Before the fix the slug was `checklists`.
+mkdir -p "$SINGLE/specs/001-alpha/checklists" "$SINGLE/specs/003-gamma/checklists"
+printf 'The user submits a form with a button.\n' > "$SINGLE/specs/001-alpha/checklists/requirements.md"
+expect_silent "a nested file of a mapped spec is silent" "$SINGLE/specs/001-alpha/checklists/requirements.md"
+printf 'The user submits a form with a button.\n' > "$SINGLE/specs/003-gamma/checklists/requirements.md"
+expect_advisory "a nested file of an unmapped spec names the spec, not its folder" \
+    "$SINGLE/specs/003-gamma/checklists/requirements.md" "003-gamma"
+
 # ============================================================ degenerate layouts
 echo "degenerate layouts"
 

@@ -69,8 +69,11 @@ fi
 
 MAP="$ROOT/specs/SCENARIOS.md"
 
-# Derive this spec's slug from its parent directory (e.g. specs/003-search/spec.md -> 003-search)
-SLUG=$(basename "$(dirname "$FILE")")
+# The spec's slug is the directory directly under specs/ (specs/003-search/spec.md -> 003-search),
+# not the file's parent (row 110, F199): specs/093-x/checklists/requirements.md named `checklists`
+# and reported a gap for a spec whose rows exist. A file not under specs/<dir>/ keeps the parent.
+SLUG=$(printf '%s\n' "$FILE" | sed -nE 's#^(.*/)?specs/([^/]+)/.+#\2#p')
+[ -n "$SLUG" ] || SLUG=$(basename "$(dirname "$FILE")")
 
 if [ ! -f "$MAP" ]; then
   notice_once PostToolUse "$SID" "scenario:no-map" "Scenario gap: specs/SCENARIOS.md does not exist yet and this spec has interactive behaviour. START A SCENARIO INTERVIEW now (AskUserQuestion, one feature at a time) to capture every use case — happy / edge / adversarial / error / offline — with the user as the completeness check, then write the map with SC-ids. Do NOT invent the scenarios silently and proceed. See .claude/rules/scenarios.md (Scenario gap or drift → START AN INTERVIEW)."

@@ -141,12 +141,15 @@ ALPHA_ID_RE = re.compile(r"^\**\s*([A-Za-z]+[0-9]+[A-Za-z0-9]*)\**\s*$")
 # decides what BOTH developers may edit, and whoever is not working that row is
 # blocked on artifacts belonging to somebody else's spec.
 #
-# A row's owner is a trailing "@name" tag. SPEC_OWNER (set per machine in
+# A row's owner is an "@name" tag, conventionally last. SPEC_OWNER (set per machine in
 # .claude/settings.local.json, which is gitignored) names this machine's lane.
 #   unset SPEC_OWNER -> every row is eligible: exactly the single-lane behaviour
 #   set              -> rows tagged for somebody else are skipped; untagged rows
 #                       stay eligible, so an untagged register works unchanged
-OWNER_RE = re.compile(r"—\s*@([A-Za-z0-9._-]+)\s*$")
+# The tag is the LAST `@name` token, after whitespace or an em dash and before whitespace or the end
+# (row 110, F210): a row ending `— @johan approved F612` is still @johan's. lane_status.py and
+# spec-register-orientation-hook.sh read the same grammar.
+OWNER_RE = re.compile(r"(?:^|(?<=[\s—]))@([A-Za-z0-9._-]+)(?=\s|$)")
 
 # "checkpoint" belongs here (H7b). It is a real value of the track field — it is
 # in fact the value that decides `kind` — and coercing it to "full" made the
@@ -214,8 +217,8 @@ def _rows(register_path: str):
                 token = parts[0] if parts else ""
                 ident, shape = classify_id(token)
                 kind = _kind_for(shape, track_field)
-                om = OWNER_RE.search(stripped)
-                owner = om.group(1).lower() if om else ""
+                tags = OWNER_RE.findall(stripped)
+                owner = tags[-1].lower() if tags else ""
                 yield status, ident, kind, track_field.strip(), owner
     except OSError as exc:
         raise RegisterUnreadable(str(exc)) from exc

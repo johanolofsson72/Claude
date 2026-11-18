@@ -273,7 +273,26 @@ completed_lines = archive_lines(completed)
 # is already kept, and appending the pointer once costs one short entry where
 # telling a shortened pointer from a lost diagnosis would need a guess. The
 # archive stays append-only; earlier entries are never edited.
-to_archive = [r for r in rows if r["status"] == "x" and r["text"] not in completed_lines]
+# BY ID, WHEN THE ARCHIVE ALREADY HOLDS THE LONGER FORM (row 110, F197). Text membership alone
+# appended a second section for every row shortened to a pointer after archiving: agentcrm's first
+# run after 099 wrote 91 duplicate sections in one tick. So a ticked row is also kept when the
+# archive holds a ticked line for the same id (`- [x] <id> —`) at least as long as the row: that
+# line is the diagnosis the pointer replaced. A row that GREW after archiving is still appended, and
+# a heading over a `- [/]` form or a hand summary still does not count (row 099's case).
+def archived_longest(lines):
+    best = {}
+    for l in lines:
+        m = re.match(r"^- \[x\] +\**([^\s*]+)\**\s+—", l)
+        if m:
+            best[m.group(1)] = max(best.get(m.group(1), 0), len(l.encode("utf-8")))
+    return best
+
+archived_len = archived_longest(completed_lines)
+
+def is_archived(r):
+    return r["text"] in completed_lines or archived_len.get(r["id"], -1) >= r["bytes"]
+
+to_archive = [r for r in rows if r["status"] == "x" and not is_archived(r)]
 new_ids = [r["id"] for r in to_archive if r["id"] not in in_completed]
 changed_ids = [r["id"] for r in to_archive if r["id"] in in_completed]
 
@@ -343,10 +362,10 @@ if write_pending and not dry_run:
 if over:
     print(f"\n{len(over)} row(s) over {max_bytes} bytes in {os.path.basename(index)}:")
     for r in over:
-        # A ticked row is preserved only by its own text (row 099); an open row's
-        # pending entry is written by hand, so its heading is what can be checked.
+        # A ticked row is preserved by its own text (row 099) or a longer ticked line for its id
+        # (row 110); an open row's pending entry is written by hand, so its heading is checked.
         if r["status"] == "x":
-            preserved = r["text"] in completed_lines
+            preserved = is_archived(r)
         else:
             preserved = r["id"] in in_completed or r["id"] in in_pending
         where = "INDEX.completed.md" if r["status"] == "x" or r["id"] in in_completed else "INDEX.pending.md"

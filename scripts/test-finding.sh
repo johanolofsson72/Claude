@@ -35,6 +35,7 @@ mkledger() {
   mkdir -p "$d/specs" "$d/scripts"
   ( cd "$d" && git init -q . >/dev/null 2>&1 )
   cp "$FINDING" "$d/scripts/finding.sh"
+  cp "$SELF_DIR/max-id-in-refs.sh" "$d/scripts/"
   {
     printf '# Findings\n\n'
     printf -- '- [ ] F027 — gap — 2026-01-01 · from spec 001 — twenty-seven\n'
@@ -281,6 +282,29 @@ OUT=$( cd "$D" && bash scripts/finding.sh --resolve F033 "ok" 2>&1 ); RC=$?
 
 printf '\n  -- C11 an option missing its argument exits 2 instead of spinning\n'
 D=$(mkledger missing-arg)
+# ------------------------------------- C-lane — two lanes cannot mint one id (row 110, F198)
+#
+# agentcrm F595/F596: two lanes, neither pushed, both appended max + 1. Two copies of the same
+# ledger stand in for the two machines: each sees only its own new line, as an unpushed lane does.
+printf '\n  -- C-lane  SPEC_LANE_SLOT stripes finding ids\n'
+LA=$(mkledger lane-a); LB=$(mkledger lane-b)
+( cd "$LA" && SPEC_LANE_SLOT=1/2 bash scripts/finding.sh --add "lane a" >/dev/null 2>&1 )
+( cd "$LB" && SPEC_LANE_SLOT=2/2 bash scripts/finding.sh --add "lane b" >/dev/null 2>&1 )
+IA=$(grep -oE '^- \[ \] F[0-9]+ — [a-z]+ — [0-9-]+ — lane a' "$LA/specs/FINDINGS.md" | grep -oE 'F[0-9]+' | head -1)
+IB=$(grep -oE '^- \[ \] F[0-9]+ — [a-z]+ — [0-9-]+ — lane b' "$LB/specs/FINDINGS.md" | grep -oE 'F[0-9]+' | head -1)
+[ -n "$IA" ] && [ -n "$IB" ] && [ "$IA" != "$IB" ] && ok "two unpushed lanes mint different ids ($IA, $IB)" \
+  || bad "two unpushed lanes mint different ids" "two distinct ids" "a=$IA b=$IB"
+( cd "$LA" && SPEC_LANE_SLOT=1/2 bash scripts/finding.sh --add "lane a again" >/dev/null 2>&1 )
+IA2=$(grep -E ' — lane a again$' "$LA/specs/FINDINGS.md" | grep -oE 'F[0-9]+' | head -1)
+[ $(( 10#${IA2#F} % 2 )) -eq $(( 10#${IA#F} % 2 )) ] && [ $((10#${IA2#F})) -gt $((10#${IA#F})) ] 2>/dev/null \
+  && ok "lane 1/2 stays on its own stripe ($IA then $IA2)" || bad "lane 1/2 stays on its stripe" "same parity, higher" "$IA then $IA2"
+BEFORE=$(wc -l < "$LB/specs/FINDINGS.md")
+( cd "$LB" && SPEC_LANE_SLOT=3/2 bash scripts/finding.sh --add "bad slot" >/dev/null 2>&1 ); RC=$?
+[ "$RC" = 2 ] && [ "$(wc -l < "$LB/specs/FINDINGS.md")" = "$BEFORE" ] && ok "a slot past n exits 2 and appends nothing" \
+  || bad "a slot past n exits 2 and appends nothing" "2, unchanged" "$RC, $(wc -l < "$LB/specs/FINDINGS.md") vs $BEFORE"
+( cd "$LB" && SPEC_LANE_SLOT=two bash scripts/finding.sh --add "bad slot" >/dev/null 2>&1 ); RC=$?
+[ "$RC" = 2 ] && ok "a malformed slot exits 2" || bad "a malformed slot exits 2" "2" "$RC"
+
 for opt in --approve --decline --resolve --add --spec --kind --need; do
   ( cd "$D" && bash scripts/finding.sh $opt >/dev/null 2>&1 ) & PID=$!
   i=0; while kill -0 "$PID" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done

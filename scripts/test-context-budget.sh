@@ -93,7 +93,7 @@ got=$(total_of "$F")
 
 echo "099-R3: the split, and who owns the bytes"
 F="$TMP/f6"; mkdir -p "$F/.claude/rules"
-bytes 290 > "$F/CLAUDE.md"; bytes 10 > "$F/.claude/CLAUDE.md"; bytes 700 > "$F/.claude/rules/r.md"
+bytes 290 > "$F/CLAUDE.md"; bytes 10 > "$F/.claude/CLAUDE.md"; bytes 700 > "$F/.claude/rules/spec-register.md"
 out=$(bash "$BUDGET" --root "$F" --max-bytes 900 2>&1); rc=$?
 grep -qE '^rules +700 bytes · CLAUDE.md and imports 300 bytes$' <<< "$out" && ok "the split line names rules and CLAUDE.md bytes" || fail "split: $out"
 grep -q 'Move rationale to .claude/docs/' <<< "$out" && ! grep -q 'synced from the template' <<< "$out" \
@@ -101,11 +101,29 @@ grep -q 'Move rationale to .claude/docs/' <<< "$out" && ! grep -q 'synced from t
 : > "$F/.claude/.template-sync"
 out=$(bash "$BUDGET" --root "$F" --max-bytes 900 2>&1); rc=$?
 [ "$rc" -eq 1 ] && ok "a synced project over the cap still exits 1" || fail "synced over rc $rc"
-grep -q 'The 700 bytes of rules are synced from the template' <<< "$out" && ok "a synced project is told the rules are the template's" || fail "synced text: $out"
-grep -q 'CLAUDE.md and imports are 300 bytes,' <<< "$out" && grep -q 'and 200 fit beside the rules' <<< "$out" \
+grep -q 'The 700 bytes of CORE rules are synced from the template' <<< "$out" && ok "a synced project is told the rules are the template's" || fail "synced text: $out"
+grep -q 'CLAUDE.md and imports are 300 bytes,' <<< "$out" && grep -q 'and 200 fit beside the CORE rules' <<< "$out" \
   && ok "it names the project's share and the room left" || fail "synced share: $out"
 out=$(bash "$BUDGET" --root "$F" --max-bytes 600 2>&1)
-grep -q 'and 0 fit beside the rules' <<< "$out" && ok "rules alone over the cap leave no room, not a negative" || fail "negative room: $out"
+grep -q 'and 0 fit beside the CORE rules' <<< "$out" && ok "rules alone over the cap leave no room, not a negative" || fail "negative room: $out"
+grep -q 'Trimming everything local recovers 300; file the other 100 with the template' <<< "$out" \
+  && ok "an overage past what the project owns sends only the rest upstream" || fail "upstream share: $out"
+
+echo "110-R8: local rules are the project's to trim (F215)"
+# agentcrm's shape: three non-CORE rules carry most of the overage. The whole excess is reachable
+# locally, so the advice must say so and name the files, not send the project upstream.
+F="$TMP/f7"; mkdir -p "$F/.claude/rules"
+bytes 100 > "$F/CLAUDE.md"; bytes 400 > "$F/.claude/rules/spec-register.md"
+bytes 300 > "$F/.claude/rules/project-phase.md"; bytes 200 > "$F/.claude/rules/living-docs.md"
+: > "$F/.claude/.template-sync"
+out=$(bash "$BUDGET" --root "$F" --max-bytes 700 2>&1); rc=$?
+[ "$rc" -eq 1 ] && ok "over the cap still exits 1" || fail "R8 rc $rc"
+grep -q 'The 400 bytes of CORE rules' <<< "$out" && grep -q 'owns 600 bytes: local rules 500' <<< "$out" \
+  && ok "CORE and local rule bytes are split" || fail "R8 split: $out"
+grep -q 'largest local rules: .claude/rules/project-phase.md 300, .claude/rules/living-docs.md 200' <<< "$out" \
+  && ok "the largest local rules are named" || fail "R8 names: $out"
+grep -q 'All 300 are reachable here' <<< "$out" && ! grep -q 'with the template' <<< "$out" \
+  && ok "an overage the project owns is not sent upstream" || fail "R8 advice: $out"
 out=$(bash "$BUDGET" --root "$F" --max-bytes 5000 2>&1)
 grep -q 'synced from the template' <<< "$out" && fail "within the cap, a synced project got the over text" || ok "within the cap, no over text"
 

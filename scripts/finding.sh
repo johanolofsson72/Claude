@@ -137,11 +137,15 @@ case "$MODE" in
     # handed two lanes the same F141–F143 on agentcrm, silently, because merge=union keeps both
     # sides; and a deleted line freed its number for reuse. max-id-in-refs.sh reads the working
     # tree plus every local and remote-tracking ref, so a pushed branch's ids are taken already.
-    N=$(bash "$(dirname "$0")/max-id-in-refs.sh" --dir "$ROOT" \
-          --regex '^- \[[ xX]\] F[0-9]+' -- 'specs/FINDINGS*.md' 2>/dev/null)
-    N=$(printf '%s' "$N" | sed 's/^0*//')
-    case "$N" in ''|*[!0-9]*) N=0 ;; esac
-    N=$((N + 1))
+    # --next, not max + 1 (row 110): with SPEC_LANE_SLOT set the id comes from this lane's stripe,
+    # so an id the other lane minted and has not pushed cannot be minted here too (agentcrm F595).
+    ALLOC_ERR=$(mktemp)
+    N=$(bash "$(dirname "$0")/max-id-in-refs.sh" --dir "$ROOT" --next 1 \
+          --regex '^- \[[ xX]\] F[0-9]+' -- 'specs/FINDINGS*.md' 2>"$ALLOC_ERR")
+    ALLOC_RC=$?
+    grep -v '^max-id-in-refs: ' "$ALLOC_ERR" >&2; rm -f "$ALLOC_ERR"
+    [ "$ALLOC_RC" -eq 0 ] || exit 2
+    case "$N" in ''|*[!0-9]*) N=1 ;; esac
     printf -- '- [ ] F%03d — %s — %s%s — %s%s\n' "$N" "$KIND" \
       "$(date +%Y-%m-%d)" "$([ -n "$SPEC" ] && printf ' · from spec %s' "$SPEC")" "$TEXT" \
       "$([ "$PROPOSE" -eq 1 ] && printf ' — need: %s' "$NEED")" >> "$LEDGER"

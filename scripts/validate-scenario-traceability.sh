@@ -605,6 +605,10 @@ for root in $ROOTS; do
   # and the single form in one run, so a pattern that stopped matching the underscore form at all
   # cannot pass by reporting everything uncovered for a different reason.
   #
+  # A `(` ENDS THE UNDERSCORE FORM TOO (row 110, F237, hireflow F011): `Foo_SCNNN()` names its
+  # scenario with nothing after the id, and requiring `_` there reported a covered row uncovered.
+  # The leading separator is still required, so `XSCNNN(` is not read; case46b pins both halves.
+  #
   # The `sed` normalises what grep returns — leading separator stripped, trailing `_` dropped, the
   # missing hyphen inserted — so everything downstream still sees exactly one id shape.
   #
@@ -626,9 +630,9 @@ for root in $ROOTS; do
        ! -name '*.woff' ! -name '*.woff2' ! -name '*.ttf' ! -name '*.otf' \
        -print0 2>>"$TMP/scan.err" \
     | tee "$TMP/files" \
-    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?(-[0-9][0-9A-Za-z]*)?\\b|(^|[^A-Za-z0-9])(${PREFIX}[0-9]+[a-z]?_)+" 2>>"$TMP/scan.err" \
+    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?(-[0-9][0-9A-Za-z]*)?\\b|(^|[^A-Za-z0-9])(${PREFIX}[0-9]+[a-z]?[_(])+" 2>>"$TMP/scan.err" \
       | tr '_' '\n' \
-      | sed -e "s/^[^${PREFIX}]*//" -e 's/_$//' -e "s/^${PREFIX}\\([0-9]\\)/${PREFIX}-\\1/" \
+      | sed -e "s/^[^${PREFIX}]*//" -e 's/[_(]$//' -e "s/^${PREFIX}\\([0-9]\\)/${PREFIX}-\\1/" \
       >> "$TMP/refs" || true
   # <<< build-prune
   # Files read under this root, for the zero-ids refusal below. Counted from the list the walk

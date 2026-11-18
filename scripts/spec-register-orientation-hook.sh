@@ -130,10 +130,16 @@ if [ -n "$FOUND_REG" ]; then
         # registers in Swedish.
         if ($0 ~ /—[[:space:]]*(standing|st\303\245ende)[[:space:]]*—/) next
         owner = ""
-        if (match($0, /—[[:space:]]*@[A-Za-z0-9._-]+[[:space:]]*$/)) {
-          owner = substr($0, RSTART, RLENGTH)
-          sub(/^—[[:space:]]*@/, "", owner); gsub(/[[:space:]]/, "", owner)
-          owner = tolower(owner)
+        # The LAST @name token, after whitespace or an em dash, before whitespace or the end
+        # (row 110, F210): `— @johan approved F612` belongs to johan. Same grammar as
+        # spec_active.py and lane_status.py. A literal em dash matches
+        # under either locale.
+        rest = $0
+        while (match(rest, /(^|[[:space:]]|—)@[A-Za-z0-9._-]+([[:space:]]|$)/)) {
+          tag = substr(rest, RSTART, RLENGTH)
+          rest = substr(rest, RSTART + RLENGTH - 1)
+          sub(/^[^@]*@/, "", tag); gsub(/[[:space:]]/, "", tag)
+          owner = tolower(tag)
         }
         if (lane != "" && owner != "" && owner != lane) next
         mine = (lane != "" && owner == lane)

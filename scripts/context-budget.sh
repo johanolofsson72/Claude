@@ -91,10 +91,32 @@ printf 'total %8s bytes (~%s tokens) · cap %s\n' "$TOTAL" "$((TOTAL / 4))" "$CA
 [ "$STATUS" -ne 0 ] && exit "$STATUS"
 if [ "$TOTAL" -gt "$CAP" ]; then
   if [ -f "$ROOT/.claude/.template-sync" ]; then
-    room=$((CAP - RULES)); [ "$room" -lt 0 ] && room=0
-    echo "over budget: $((TOTAL - CAP)) bytes over. The $RULES bytes of rules are synced from the template: a local"
-    echo "trim is overwritten, so file the excess there. This project's CLAUDE.md and imports are $((TOTAL - RULES)) bytes,"
-    echo "and $room fit beside the rules: move their rationale to .claude/docs/ and leave a pointer."
+    # Only the CORE rules are the template's (row 110, F215). agentcrm carried 25922 bytes of its
+    # own non-CORE rules, and this advice sent the whole overage upstream for a trim only the project
+    # could make. The list comes from template-autosync.sh, never a copy; without it every rule is
+    # treated as synced, which was the old reading.
+    CORE_LIST=$(bash "$(dirname "$0")/template-autosync.sh" --list-core-rules 2>/dev/null)
+    CORE=0; LOCAL_RULES=""
+    while IFS="$(printf '\t')" read -r n name; do
+      case "$name" in .claude/rules/*) ;; *) continue ;; esac
+      if [ -z "$CORE_LIST" ] || grep -qxF "${name#.claude/rules/}" <<< "$CORE_LIST"; then CORE=$((CORE + n))
+      else LOCAL_RULES="$LOCAL_RULES$n	$name
+"; fi
+    done < "$LIST"
+    OVER=$((TOTAL - CAP)); LOCAL=$((RULES - CORE)); MD=$((TOTAL - RULES)); OWN=$((LOCAL + MD))
+    room=$((CAP - CORE)); [ "$room" -lt 0 ] && room=0
+    echo "over budget: $OVER bytes over. The $CORE bytes of CORE rules are synced from the template: a local"
+    echo "trim is overwritten. This project owns $OWN bytes: local rules $LOCAL, CLAUDE.md and imports are $MD bytes,"
+    echo "and $room fit beside the CORE rules."
+    if [ "$LOCAL" -gt 0 ]; then
+      printf 'largest local rules: %s\n' "$(printf '%s' "$LOCAL_RULES" | sort -t "$(printf '\t')" -k1,1nr \
+        | awk -F'\t' 'NR <= 3 { printf "%s%s %s", (NR > 1 ? ", " : ""), $2, $1 }')"
+    fi
+    if [ "$OWN" -ge "$OVER" ]; then
+      echo "All $OVER are reachable here: trim the local rules or move rationale to .claude/docs/ and leave a pointer."
+    else
+      echo "Trimming everything local recovers $OWN; file the other $((OVER - OWN)) with the template."
+    fi
   else
     echo "over budget: $((TOTAL - CAP)) bytes over. Move rationale to .claude/docs/ and leave a pointer (spec 081)."
   fi

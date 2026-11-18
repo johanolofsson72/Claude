@@ -550,7 +550,7 @@ mkbig() { # mkbig FILE — a map file past the 25 KB canary
 open_map_lines() { grep -E '^- \[ \] F[0-9]+ ' "$1/specs/FINDINGS.md" 2>/dev/null | grep -cF "scenario-map canary: $2 "; }
 
 # --- C31: single-file map over the canary — split hint, recorded once as debt ---------------------
-D=$(mkfix c31); cp "$DIR/finding.sh" "$D/scripts/"; mkbig "$D/specs/SCENARIOS.md"
+D=$(mkfix c31); cp "$DIR/finding.sh" "$DIR/max-id-in-refs.sh" "$D/scripts/"; mkbig "$D/specs/SCENARIOS.md"
 OUT=$(run "$D"); RC=$?
 expect_contains "C31 single-file map — the hint says split"        "split it per .claude/rules/scenarios.md" "$OUT"
 expect_absent   "C31 single-file map — not the INDEX archiver"     "archive-completed-rows" "$OUT"
@@ -564,7 +564,7 @@ expect_rc       "C32 second pass — still one open finding" 1 "$(open_map_lines
 expect_absent   "C32 second pass — no 'recorded' note"      "recorded in specs/FINDINGS.md" "$OUT"
 
 # --- C33: split layout, one oversize feature file — named, with the feature-file hint -------------
-D=$(mkfix c33); cp "$DIR/finding.sh" "$D/scripts/"
+D=$(mkfix c33); cp "$DIR/finding.sh" "$DIR/max-id-in-refs.sh" "$D/scripts/"
 mkdir -p "$D/specs/scenarios"; printf '# Scenario map (index)\n' > "$D/specs/SCENARIOS.md"
 printf '# small\n' > "$D/specs/scenarios/001-small.md"; mkbig "$D/specs/scenarios/002-big.md"
 OUT=$(run "$D")
@@ -573,7 +573,7 @@ expect_rc       "C33 the feature file is recorded" 1 "$(open_map_lines "$D" spec
 expect_rc       "C33 the small index is not" 0 "$(open_map_lines "$D" specs/SCENARIOS.md)"
 
 # --- C34: a map under the canary — nothing recorded, no ledger created -----------------------------
-D=$(mkfix c34); cp "$DIR/finding.sh" "$D/scripts/"; mkdir -p "$D/specs"; printf '# small map\n' > "$D/specs/SCENARIOS.md"
+D=$(mkfix c34); cp "$DIR/finding.sh" "$DIR/max-id-in-refs.sh" "$D/scripts/"; mkdir -p "$D/specs"; printf '# small map\n' > "$D/specs/SCENARIOS.md"
 OUT=$(run "$D"); RC=$?
 expect_absent   "C34 small map — no CONTEXT-COST line" "[CONTEXT-COST]" "$OUT"
 if [ -f "$D/specs/FINDINGS.md" ]; then bad "C34 small map — no ledger created" "no specs/FINDINGS.md" "created"; else ok "C34 small map — no ledger created"; fi

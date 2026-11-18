@@ -64,6 +64,24 @@ mkdir -p "$T/b/specs/scenarios"
 printf '%s\n| SC-1700 | happy | a | b | ☐ |\n' "$HDR" > "$T/b/specs/scenarios/055.md"
 [ "$(nx "$T/b")" = "SC-1701" ] && ok "an untracked feature file is read" || bad "untracked: $(nx "$T/b")"
 
+# Row 110 (F213): SPEC_LANE_SLOT stripes blocks, so two lanes that have pushed nothing still
+# cannot draw one block. lane-b's clone sees max SC-1700 (untracked file above); so does a copy.
+[ "$(SPEC_LANE_SLOT=1/2 nx "$T/b" --count 3)" = "SC-1801 SC-1802 SC-1803" ] \
+  && ok "slot 1/2 takes the next even-indexed 100-block (SC-1801..)" || bad "slot 1/2: $(SPEC_LANE_SLOT=1/2 nx "$T/b" --count 3)"
+[ "$(SPEC_LANE_SLOT=2/2 nx "$T/b" --count 3)" = "SC-1701 SC-1702 SC-1703" ] \
+  && ok "slot 2/2 continues in its own block (SC-1701..)" || bad "slot 2/2: $(SPEC_LANE_SLOT=2/2 nx "$T/b" --count 3)"
+printf '| SC-1790 | happy | a | b | ☐ |\n' >> "$T/b/specs/scenarios/055.md"
+[ "$(SPEC_LANE_SLOT=2/2 nx "$T/b" --count 20)" = "$(seq -f 'SC-%g' 1901 1920 | tr '\n' ' ' | sed 's/ $//')" ] \
+  && ok "a run that would cross its block edge jumps to the lane's next block" || bad "edge: $(SPEC_LANE_SLOT=2/2 nx "$T/b" --count 20)"
+[ "$(SPEC_LANE_SLOT=2/2 nx "$T/b" --count 10)" = "$(seq -f 'SC-%g' 1791 1800 | tr '\n' ' ' | sed 's/ $//')" ] \
+  && ok "a run that exactly fills the block stays in it" || bad "fill: $(SPEC_LANE_SLOT=2/2 nx "$T/b" --count 10)"
+[ "$(nx "$T/b")" = "SC-1791" ] && ok "no slot: max + 1, unchanged" || bad "no slot: $(nx "$T/b")"
+SPEC_LANE_SLOT=1/2 bash "$SUT" --dir "$T/b" --count 101 >/dev/null 2>&1; [ $? -eq 2 ] \
+  && ok "a run longer than the block exits 2" || bad "run > block"
+SPEC_LANE_SLOT=0/2 bash "$SUT" --dir "$T/b" >/dev/null 2>&1; [ $? -eq 2 ] && ok "slot 0/2 exits 2" || bad "slot 0/2"
+SPEC_LANE_SLOT=1/2 bash "$SUT" --dir "$T/b" --count 101 --block 200 >/dev/null 2>&1; [ $? -eq 0 ] \
+  && ok "--block widens the stripe" || bad "--block 200"
+
 bash "$SUT" --count 0 >/dev/null 2>&1; [ $? -eq 2 ] && ok "--count 0 is a usage error" || bad "count 0"
 bash "$SUT" --prefix 'S.C' >/dev/null 2>&1; [ $? -eq 2 ] && ok "a non-letter prefix is refused" || bad "prefix regex"
 

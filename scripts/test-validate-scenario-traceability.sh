@@ -330,6 +330,22 @@ else
   bad "case17-duplicate-id" "expected exit 6 naming the id under duplicate, got $RC: $OUT"
 fi
 
+# case17b — the same collision across two FEATURE FILES of a split map (row 110, F213). That is how
+# two lanes produce it: each spec writes its own scenarios/<slug>.md, and neither file has a
+# duplicate on its own. F213 reported no gate catching it; this gate did, and this case keeps it so.
+proj=$(new_project)
+mkdir -p "$proj/specs/scenarios"
+{ map_header; } > "$proj/specs/SCENARIOS.md"
+{ map_header; row 917 "$V"; } > "$proj/specs/scenarios/123-lane-a.md"
+{ map_header; row 917 "$V"; } > "$proj/specs/scenarios/126-lane-b.md"
+write_test "$proj" "a.test.ts" 917
+run_gate "$proj"
+if [ "$RC" -eq 6 ] && grep -q 'duplicate' <<< "$OUT" && grep -q "$(id 917)" <<< "$OUT"; then
+  ok "case17b-duplicate-across-feature-files"
+else
+  bad "case17b-duplicate-across-feature-files" "expected exit 6 naming the id, got $RC: $OUT"
+fi
+
 # case16 — an EMPTY cell, which is the trap the tab delimiter brought with it. A tab is IFS
 # whitespace, so `IFS=<tab> read -r a b c d e f` collapses the empty Type cell below and shifts
 # every field after it: status would be read as "0" and the row would quietly stop counting as
@@ -947,6 +963,26 @@ if [ "$RC" -eq 0 ]; then
   ok "case46-chained-underscore-ids-both-count"
 else
   bad "case46-chained-underscore-ids-both-count" "expected exit 0, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
+# case46b — THE UNDERSCORE FORM ALSO ENDS AT A PAREN (row 110, F237, from hireflow F011). A method
+# named for its scenario and nothing else is `Foo_SC040()`: no trailing `_`, so the id was not read
+# and a covered row was reported uncovered. The negative beside it keeps the leading-separator rule:
+# `X<id>(` has a letter before the prefix and must stay invisible, so row 904 is uncovered (exit 1).
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$V"; row 903 "$V"; row 904 "$V"; } > "$proj/specs/SCENARIOS.md"
+{
+  printf 'public void Checkout_%s901()\n' "$P"
+  printf 'public void %s902_%s903(int x)\n' "$P" "$P"
+  printf 'var y = X%s904(1);\n' "$P"
+} > "$proj/tests/Paren.cs"
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "$(id 904)" <<< "$OUT" \
+   && ! grep -qE "$(id 901)|$(id 902)|$(id 903)" <<< "$(sed -n '/^uncovered/,/^$/p' <<< "$OUT")"; then
+  ok "case46b-underscore-id-before-paren"
+else
+  bad "case46b-underscore-id-before-paren" "expected 901-903 covered and 904 uncovered (exit 1), got $RC: $OUT"
 fi
 rm -rf "$proj"
 

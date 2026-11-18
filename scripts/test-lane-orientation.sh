@@ -194,6 +194,35 @@ OUT=$(orient)
 check "9i a row ticked only in the archive counts as ticked" "$OUT" "⚠ blocked" absent
 check "9j and as a row that exists"                 "$OUT" "names no row" absent
 
+# 10. Row 110, F210 — a tag followed by `approved F<nnn>` is still the row's owner, in all three
+#     readers. Anchored to the end of the line, agentcrm row 125 read as unclaimed for both lanes.
+fixture '- [ ] 120 — shared — full track — unowned, higher up
+- [ ] 125 — dashboard — full track — x — @sam approved F612
+- [ ] 126 — other — full track — y — @alex approved F613'
+OUT=$(run alex)
+check "10a lane_status: @sam's row is @sam's"     "$OUT" "@sam: 125" present
+check "10b lane_status: not offered as unclaimed" "$OUT" "unclaimed and runnable: 125" absent
+ORIENT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/spec-register-orientation-hook.sh"
+: > "$ROOT/package.json"
+OOUT=$(cd "$ROOT" && SPEC_OWNER=alex bash "$ORIENT" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // .systemMessage // ""')
+check "10c orientation: next is my own tagged row" "$OOUT" "Next: 126 — other" present
+SA="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/spec_active.py"
+SOUT=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import spec_active as s
+print([o for *_, o in s._rows(sys.argv[2])])' "$(dirname "$SA")" "$ROOT/specs/INDEX.md" 2>&1)
+check "10d spec_active: owners read past the tag" "$SOUT" "['', 'sam', 'alex']" present
+fixture '- [ ] 130 — mail — full track — tell johan@example.se — @sam'
+OUT=$(run alex)
+check "10e an email address is not a tag"        "$OUT" "@example" absent
+check "10f the real tag after it still is"       "$OUT" "@sam: 130" present
+
+# 11. Row 110, F214 — PHASE-DEBT rows the Cleared column marks ☑ are not open debt, the same
+#     reading project-phase-banner.sh uses (agentcrm: 218 here against the banner's 113).
+fixture '- [ ] 140 — a — full track — x — @alex
+- [ ] 141 — b — full track — y — @sam'
+printf '# Phase debt\n\n## Open\n\n| Row | Deferred | Why | Cleared |\n|---|---|---|---|\n| 009b | a | b | ☐ |\n| 009b | c | d | ☑ 2026-11-01 |\n| 010 | e | f | |\n\n## Standing\n\n| Row | x | y | z |\n|---|---|---|---|\n| 011 | g | h | ☐ |\n' > "$ROOT/specs/PHASE-DEBT.md"
+FULL=$(CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER=alex bash "$STATUS" --root "$ROOT" 2>/dev/null)
+check "11a cleared rows are not counted" "$FULL" "Phase debt open: 2 line(s)" present
+
 # 6. No register at all → silent, exit 0.
 ROOT=$(mktemp -d); mkdir -p "$ROOT/.git"
 OUT=$(CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER=alex bash "$HOOK" 2>/dev/null); RC=$?
