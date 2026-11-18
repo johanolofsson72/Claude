@@ -1569,3 +1569,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## 108 — settings-guard-false-positives
 
 - [x] 108 — settings-guard-false-positives — spec-only — read-only pipes, sed -n, scratch paths and quoted patterns derived as settings writes. F193 F221 F229 F232
+
+## 109 — mutation-tooling
+
+- [x] 109 — mutation-tooling — spec-only — kill the 2026-10/11 survivors; per-site markers, marked lines skipped, BSD find, a gate for the Python guards. F171 F179 F194 F195 F216 F226 F227 F230 F231
