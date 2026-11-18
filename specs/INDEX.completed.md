@@ -1577,3 +1577,7 @@ Fixed 2026-09-30: docs/security.md § Secrets. 1Password holds every real value 
 ## H8 — integration-hardening
 
 - [x] H8 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 105–109.
+
+## 110 — register-lane-tooling
+
+- [x] 110 — register-lane-tooling — spec-only — collision-free finding ids, checkpoint-cadence by H number, lane owner tag, row-id archiving, SC-id uniqueness. F197–F199 F210 F213–F215 F217–F219 F237

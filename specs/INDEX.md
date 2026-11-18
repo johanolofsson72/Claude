@@ -127,7 +127,7 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 108 — settings-guard-false-positives — spec-only — read-only pipes, sed -n, scratch paths and quoted patterns derived as settings writes. F193 F221 F229 F232
 - [x] 109 — mutation-tooling — spec-only — kill the 2026-10/11 survivors; per-site markers, marked lines skipped, BSD find, a gate for the Python guards. F171 F179 F194 F195 F216 F226 F227 F230 F231
 - [x] H8 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 105–109.
-- [/] 110 — register-lane-tooling — spec-only — collision-free finding ids, checkpoint-cadence by H number, lane owner tag, row-id archiving, SC-id uniqueness. F197–F199 F210 F213–F215 F217–F219 F237
+- [x] 110 — register-lane-tooling — spec-only — collision-free finding ids, checkpoint-cadence by H number, lane owner tag, row-id archiving, SC-id uniqueness. F197–F199 F210 F213–F215 F217–F219 F237
 
 ## Register history (newest first)
 
