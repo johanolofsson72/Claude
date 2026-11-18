@@ -91,9 +91,9 @@ TRUFFLEHOG_BIN="${FRESHNESS_TRUFFLEHOG:-trufflehog}"
 # the caller — the secret-scan block falls back to a skip + install hint on failure.
 ensure_trufflehog() {
   command -v "$TRUFFLEHOG_BIN" >/dev/null 2>&1 && return 0
-  [ "$NO_INSTALL" -eq 1 ] && return 1
+  [ "$NO_INSTALL" -eq 1 ] && return 1  # mutant-equivalent[return 1]: ensure_trufflehog's one caller ignores its status and re-asks command -v; the test and && sites are armed (K30, spec 109)
   # A seam-named binary that is missing stays missing: never install over a test stub.
-  [ -n "${FRESHNESS_TRUFFLEHOG:-}" ] && return 1
+  [ -n "${FRESHNESS_TRUFFLEHOG:-}" ] && return 1  # mutant-equivalent[return 1]: ensure_trufflehog's one caller ignores its status and re-asks command -v; the test and && sites are armed (K30, spec 109)
   echo "[INSTALL] trufflehog not found — attempting install (local only; never a CI/scheduled Action)…"
 
   if command -v brew >/dev/null 2>&1; then
@@ -404,7 +404,7 @@ load_key_allow() {
     scripts/project-freshness.sh "built in: the scanner's own shape patterns name the key headers it finds" \
     scripts/test-project-freshness.sh "built in: printf fixtures build throwaway keys at runtime; the template ships this file" \
     > "$KS_TMP/allow"
-  [ -f "$ROOT/.secret-shapes-allow" ] || return 0
+  [ -f "$ROOT/.secret-shapes-allow" ] || return 0  # mutant-equivalent[return 0]: load_key_allow's status is read nowhere: its one call (section 2) is a bare statement and there is no set -e (spec 109)
   ka_n=0
   while IFS= read -r ka_line || [ -n "$ka_line" ]; do
     ka_n=$((ka_n + 1))
@@ -931,10 +931,10 @@ if [ "$DO_DEPS" -eq 1 ]; then
     lf_dir=$1; shift
     while :; do
       for lf_name in "$@"; do
-        [ -f "$lf_dir/$lf_name" ] && { lf_path="$lf_dir/$lf_name"; printf '%s' "${lf_path#"$ROOT"/}"; return 0; }
+        [ -f "$lf_dir/$lf_name" ] && { lf_path="$lf_dir/$lf_name"; printf '%s' "${lf_path#"$ROOT"/}"; return 0; }  # mutant-equivalent[return 0]: every lock_for call is lock=$(lock_for ...): only stdout is read (spec 109)
       done
-      [ "$lf_dir" = "$ROOT" ] && return 1
-      case "$lf_dir" in "$ROOT"/*) lf_dir=$(dirname "$lf_dir") ;; *) return 1 ;; esac
+      [ "$lf_dir" = "$ROOT" ] && return 1  # mutant-equivalent[return 1]: status unread, as on the return 0 above; stdout is empty either way (spec 109)
+      case "$lf_dir" in "$ROOT"/*) lf_dir=$(dirname "$lf_dir") ;; *) return 1 ;; esac  # mutant-equivalent[return 1]: status unread, as above (spec 109)
     done
   }
   COV_TOTAL=0; COV_OK=0; COV_UNCHECKED=""

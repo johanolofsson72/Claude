@@ -375,6 +375,15 @@ NOPRE="$WORK/noprecheck"; mkdir -p "$NOPRE"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.p
 run "$NOPRE/spec-interview-guard-hook.sh" "$(edit_payload "$P/src/App.cs")"
 case "$VERDICT:$(reason)" in deny:*interview*) ok "[100] spec-interview-guard-hook.sh:68 — no guard-precheck.sh: the source edit is still denied" ;;
   *) bad "[100] spec-interview-guard-hook.sh:68 — no guard-precheck.sh: $VERDICT"; info "$OUT" ;; esac
+# Spec 109: the same exit-0 contract on two more paths the 2026-11-17 sample found unwatched.
+cp "$SELF_DIR/destructive-command-guard-hook.sh" "$LONE/"
+run "$LONE/destructive-command-guard-hook.sh" '{"tool_name":"Bash","tool_input":{"command":"rm -rf build"}}'
+case "$VERDICT:$(reason)" in deny:*"cannot load"*) ok "[109] destructive-command-guard-hook.sh:72 — no guard-lib.sh: deny, exit 0" ;;
+  *) bad "[109] destructive-command-guard-hook.sh:72 — no guard-lib.sh: $VERDICT"; info "$OUT" ;; esac
+NOREG="$WORK/noreg-109"; mkdir -p "$NOREG/src"; git -C "$NOREG" init -q; echo '{"name":"x"}' > "$NOREG/package.json"
+run "$INTERVIEW" "$(edit_payload "$NOREG/src/App.cs")"
+[ "$VERDICT" = none ] && [ -z "$OUT" ] && ok "[109] spec-interview-guard-hook.sh:121 — a code project with no register: silent, exit 0" \
+  || { bad "[109] spec-interview-guard-hook.sh:121 — no register: $VERDICT"; info "$OUT"; }
 
 printf '\n[sabotage] the arms above bite\n'
 SAB="$WORK/sab"; mkdir -p "$SAB"; cp "$SELF_DIR"/*.sh "$SELF_DIR"/*.py "$SAB"/ 2>/dev/null

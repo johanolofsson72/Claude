@@ -957,6 +957,57 @@ if command -v trufflehog >/dev/null 2>&1; then
 fi
 TH_UNDER_TEST="$NO_BIN/trufflehog"
 
+# Spec 109 (F230): survivors of the 2026-11-16 and 2026-11-17 mutation samples.
+printf '\n  -- K30 spec 109: the self-installer runs only when it may, and the scan reasons are its own\n'
+# The installers are stubs that record and fail, first on PATH, so no case can reach the network; a
+# real trufflehog is filtered off PATH so "not found" is true on every machine.
+INST="$TMP/stubs/k30inst"; mkdir -p "$INST"
+for b in brew scoop curl go; do printf '#!/bin/sh\necho "%s $*" >> "%s/calls"\nexit 1\n' "$b" "$INST" > "$INST/$b"; chmod +x "$INST/$b"; done
+K30PATH="$INST"; _ifs=$IFS; IFS=:
+for _d in $PATH; do [ -x "$_d/trufflehog" ] || K30PATH="$K30PATH:$_d"; done; IFS=$_ifs
+P=$(mkrepo k30); printf 'x\n' > "$P/README"; commit_all "$P"
+k30() { rm -f "$INST/calls"; OUT=$( cd "$P" && env PATH="$K30PATH" HOME="$TMP/k30home" "$@" bash "$FRESH" --secrets $K30ARGS 2>&1 ); }
+K30ARGS=""; k30 env
+expect_contains "109 control: no seam, installs allowed — the installer runs" "[INSTALL] trufflehog not found" "$OUT"
+expect_contains "109 control: …and reaches a stubbed installer"               "brew install" "$(cat "$INST/calls" 2>/dev/null)"
+K30ARGS="--no-install"; k30 env
+expect_absent   "109 :94 --no-install: no install attempt"                   "[INSTALL]" "$OUT"
+expect_absent   "109 :94 …no installer was called"                           "install" "$(cat "$INST/calls" 2>/dev/null)"
+expect_contains "109 :94 …and the scan is said to be skipped"                "Secrets: skipped (trufflehog unavailable)" "$OUT"
+K30ARGS=""; k30 env FRESHNESS_TRUFFLEHOG="$NO_BIN/trufflehog"
+expect_absent   "109 :96 a missing seam-named binary is never installed over" "[INSTALL]" "$OUT"
+expect_absent   "109 :96 …no installer was called"                           "install" "$(cat "$INST/calls" 2>/dev/null)"
+expect_contains "109 :96 …and the scan is said to be skipped"                "Secrets: skipped (trufflehog unavailable)" "$OUT"
+# :213 trufflehog's structured log carries the reason in its JSON tail; the report quotes the reason,
+# not the whole log line. A plain line (SC-038-03 above) is quoted as it came.
+TH_UNDER_TEST="$TMP/stubs/k30th/trufflehog"
+mkdir -p "$(dirname "$TH_UNDER_TEST")"
+cat > "$TH_UNDER_TEST" <<'STUB'
+#!/bin/sh
+printf '%s\n' '2026-11-17T00:00:00Z	error	trufflehog	error running scan	{"error": "the k30 reason"}' >&2
+exit 1
+STUB
+chmod +x "$TH_UNDER_TEST"
+keyscan "$P"
+expect_contains "109 :213 the JSON error's reason is quoted on its own" "trufflehog said: the k30 reason" "$OUT"
+TH_UNDER_TEST="$NO_BIN/trufflehog"
+# :758 the npm SUMMARY carries npm's own count line, or says advisories were found when npm gave none.
+P=$(mkrepo k30npm); mkpkg "$P/package.json" app
+printf '{ "name": "app", "lockfileVersion": 3, "packages": {} }\n' > "$P/package-lock.json"
+mkstub "$TMP/stubs/k30npm/npm" '3 vulnerabilities (1 low, 2 high)' 1
+OUT=$(PATH="$TMP/stubs/k30npm:$PATH" run "$P")
+expect_contains "109 :758 the SUMMARY quotes npm's count" "advisories — ./: 3 vulnerabilities (1 low, 2 high);" "$OUT"
+mkstub "$TMP/stubs/k30npm2/npm" 'audit failed with no count' 1
+OUT=$(PATH="$TMP/stubs/k30npm2:$PATH" run "$P")
+expect_contains "109 :758 no count from npm: the SUMMARY says advisories found" "advisories — ./: advisories found;" "$OUT"
+# :129 a root that cannot be entered is exit 2, never a scan of somewhere else.
+NOCD="$TMP/k30nocd"; mkdir -p "$NOCD"
+OUT=$( cd "$NOCD" && chmod 000 "$NOCD" && bash "$FRESH" --deps --no-install 2>&1; echo "EXIT=$?" ); chmod 755 "$NOCD"
+case "$OUT" in
+  *"Permission denied"*"EXIT="*|*"cannot cd"*) expect_contains "109 :129 an unreachable root exits 2" "EXIT=2" "$OUT" ;;
+  *) ok "109 :129 skipped: this platform enters a mode-000 cwd (root?)" ;;
+esac
+
 printf '\n  -- K17 FR-06: no byte of any fixture key reaches any output\n'
 expect_absent "the sentinel never appears" "$SENT" "$ALL_KEY_OUT"
 expect_absent "…nor a 64-character body line" "$LINE64" "$ALL_KEY_OUT"

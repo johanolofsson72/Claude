@@ -1749,5 +1749,21 @@ expect_contains "[107] R5a --dir is passed"                            "--dir " 
 expect_contains "[107] R5a …and it is this project, open-only"        "/c107n --open-only " "$SIM_ARGS"
 expect_contains "[107] R5a a scan that ran is stamped"                 "similarity" "$(cat "$D/stamped" 2>/dev/null)"
 
+# Spec 109 (F171 class): survivors of the 2026-11-17 mutation sample.
+# Section 3a: the quality-gate bench runs only when --bench-quality-gates asks for it.
+D=$(mkfix c109q); : > "$D/scripts/quality_gates.py"
+printf '#!/bin/bash\n: > "%s/.benched"\necho "x nightly y"\nexit 0\n' "$D" > "$D/scripts/quality-gate-bench.sh"
+run "$D" >/dev/null
+expect_rc "[109] section 3a: no --bench-quality-gates, no bench"       1 "$( [ -f "$D/.benched" ]; echo $?)"
+( cd "$D" && bash "$MAINT" --bench-quality-gates >/dev/null 2>&1 )
+expect_rc "[109] section 3a: --bench-quality-gates runs the bench"     0 "$( [ -f "$D/.benched" ]; echo $?)"
+# Section 4: attempt state older than a day is swept; today's stays.
+D=$(mkfix c109a); mkdir -p "$D/.claude/state/attempts"
+: > "$D/.claude/state/attempts/old"; touch -t 200001010000 "$D/.claude/state/attempts/old"
+: > "$D/.claude/state/attempts/fresh"
+run "$D" >/dev/null
+expect_rc "[109] section 4: a day-old attempt file is swept"           1 "$( [ -f "$D/.claude/state/attempts/old" ]; echo $?)"
+expect_rc "[109] section 4: …and today's is kept"                       0 "$( [ -f "$D/.claude/state/attempts/fresh" ]; echo $?)"
+
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -48,8 +48,18 @@
 #   M47-M49  L3929  [reverted] gate: `-eq 1`, `-n STAGED_NUMSTAT`, `-n REVERT_RANGE`
 #   M50-M51  L3983  [reverted] path lines: `[ -n "$_line" ] && tell`
 #
-# L3929 carries `# mutant-equivalent:` for its two `&&`->`||` sites, so the gate skips the whole line;
-# M47-M49 are the record that its other three sites are killed.
+# Spec 109 (R5) armed the survivors of the 2026-11-16/17 samples, named by today's line:
+#
+#   M52      L192   --help: `exit 0`
+#   M53      L473   _exempt: a TEMPLATE_ONLY script `return 0`
+#   M54-M55  L712   report_unlisted on empty input: `[ -n "$1" ] || return 0`
+#   M56      L1832  report_tracked: `[ -n "$GITIGNORE_NOTE" ]`
+#   M57      L1977  a symlinked template tree under --accept-local: `exit 1`
+#   M58      L2757  the one self-update re-exec: `-eq 0`
+#   M59      L2945  the local-LLM merge: `[ $? -eq 0 ] && python3 -m json.tool`
+#
+# L3929 carries `# mutant-equivalent[&&]:` for its two `&&`->`||` sites only (spec 109, F227), so the
+# gate still samples its other three sites; M47-M49 are the arms that kill them.
 #
 # M14 (`[ -n "$_cands" ] || exit 0` in unlisted_core_shaped's project mode) has no arm: it is the
 # exit status of a subshell whose stdout is empty either way, and every caller reads only the
@@ -134,7 +144,31 @@ M47@@if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ]@@if [ "$RECONCILED" 
 M48@@if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ]@@if [ "$RECONCILED" -eq 1 ] && [ -z "$STAGED_NUMSTAT" ]@@arm_l3929_reverted
 M49@@[ -n "$STAGED_NUMSTAT" ] && [ -n "$REVERT_RANGE" ]; then@@[ -n "$STAGED_NUMSTAT" ] && [ -z "$REVERT_RANGE" ]; then@@arm_l3929_reverted
 M50@@      [ -n "$_line" ] && tell "           $_line"@@      [ -z "$_line" ] && tell "           $_line"@@arm_l3929_reverted
-M51@@      [ -n "$_line" ] && tell "           $_line"@@      [ -n "$_line" ] || tell "           $_line"@@arm_l3929_reverted'
+M51@@      [ -n "$_line" ] && tell "           $_line"@@      [ -n "$_line" ] || tell "           $_line"@@arm_l3929_reverted
+M52@@; exit 0 ;;
+    *) echo "unknown flag: $1" >&2; exit 1 ;;@@; exit 1 ;;
+    *) echo "unknown flag: $1" >&2; exit 1 ;;@@arm_109_help
+M53@@$1
+"*) return 0 ;; esac
+    return 1@@$1
+"*) return 1 ;; esac
+    return 1@@arm_l453_exempt_families
+M54@@report_unlisted() {
+  [ -n "$1" ] || return 0@@report_unlisted() {
+  [ -z "$1" ] || return 0@@arm_109_quiet_sync
+M55@@report_unlisted() {
+  [ -n "$1" ] || return 0@@report_unlisted() {
+  [ -n "$1" ] && return 0@@arm_109_quiet_sync
+M56@@  if [ -n "$GITIGNORE_NOTE" ]; then
+    tell "[gitignore]@@  if [ -z "$GITIGNORE_NOTE" ]; then
+    tell "[gitignore]@@arm_109_quiet_sync
+M57@@Remove it from the template."
+  [ "$MODE_ACCEPT" -eq 1 ] && exit 1@@Remove it from the template."
+  [ "$MODE_ACCEPT" -eq 1 ] && exit 0@@arm_109_symlinked_template
+M58@@if [ "${AUTOSYNC_REEXEC:-0}" -eq 0 ]; then@@if [ "${AUTOSYNC_REEXEC:-0}" -ne 0 ]; then@@arm_109_self_update
+M59@@    if [ $? -eq 0 ] && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
+      if ! cmp@@    if [ $? -eq 0 ] || python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
+      if ! cmp@@arm_109_llm_rollback'
 
 if [ "${1:-}" = "--sabotage" ]; then
   RED=0; STILL_GREEN=""; STALE_ANCHOR=""
@@ -619,6 +653,10 @@ arm_l453_exempt_families() {
   has   "[100] L453 control: an ordinary unlisted script is named" "$OUT" "scripts/demo-not-in-core.sh	absent from CORE_SCRIPTS"
   hasnt "[100] L453 a local-llm-* script is not named"             "$OUT" "local-llm-demo-hook.sh"
   hasnt "[100] L453 a graphify-* script is not named"              "$OUT" "graphify-demo.sh"
+  : > "$R/repo/scripts/run-mutation-gate.sh"
+  OUT=$(DRIVE_SYNC_SCRIPT="$R/bin/template-autosync.sh" drive_sync "$R/repo" "$TMP" --unlisted 2>/dev/null)
+  hasnt "[109] L473 a TEMPLATE_ONLY script is not named"           "$OUT" "run-mutation-gate.sh"
+  has   "[109] L473 control: the ordinary one still is"            "$OUT" "scripts/demo-not-in-core.sh	absent from CORE_SCRIPTS"
 }
 
 # ---------------------------------------------------------------------------- 100 L886
@@ -760,6 +798,62 @@ arm_l3929_reverted() {
   same "[100] L3929 the sync did restore the template's bytes" "$(cat "$P/.claude/rules/spec-register.md")" "core v1"
 }
 
+# ---------------------------------------------------------------------------- 109
+arm_109_help() {
+  echo "== 109 L192 — --help prints the header and exits 0"
+  R="$TMP/l192"; rm -rf "$R"; mkdir -p "$R/.claude"; git -C "$R" init -q -b main
+  OUT=$(DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync "$R" "$TMP" --help 2>/dev/null); RC=$?
+  same "[109] L192 --help exits 0"          "$RC" "0"
+  has  "[109] L192 --help prints the usage" "$OUT" "template-autosync"
+}
+
+# A plain sync with nothing to say about unlisted scripts or the .gitignore block says nothing about
+# them: these blocks are forwarded into every session start (report_unlisted's own comment).
+arm_109_quiet_sync() {
+  echo "== 109 L712/L1832 — a clean sync prints no empty [unlisted] or [gitignore] block"
+  build l712
+  commit_both
+  OUT=$(sync 2>&1)
+  has   "[109] control: the sync ran"                    "$OUT" "template"
+  hasnt "[109] L712 no [unlisted] header without names"  "$OUT" "[unlisted]"
+  hasnt "[109] L1832 no [gitignore] note without a note" "$OUT" "[gitignore] the harness block"
+}
+
+arm_109_symlinked_template() {
+  echo "== 109 L1977 — a symlink in the template tree: refused, and --accept-local exits 1"
+  build l1977
+  printf 'mine\n' > "$P/.claude/rules/demo-rule.md"
+  ln -s demo-rule.md "$T/.claude/rules/linked.md"
+  commit_both
+  OUT=$(sync --accept-local .claude/rules/demo-rule.md 2>&1); RC=$?
+  has  "[109] L1977 the symlink is named"          "$OUT" "has symlinks in the synced tree"
+  same "[109] L1977 --accept-local exits 1"        "$RC" "1"
+  OUT=$(sync 2>&1); RC=$?
+  same "[109] L1977 control: a plain run exits 0"  "$RC" "0"
+}
+
+arm_109_self_update() {
+  echo "== 109 L2757 — a sync that rewrites template-autosync.sh re-runs once with the new version"
+  build l2757
+  printf '\n# an older copy\n' >> "$P/scripts/template-autosync.sh"
+  commit_both
+  OUT=$(sync 2>&1)
+  has  "[109] L2757 the self-update re-exec is announced" "$OUT" "[self-update] template-autosync.sh changed"
+  same "[109] L2757 and the project holds the template's copy" \
+       "$(cmp -s "$P/scripts/template-autosync.sh" "$T/scripts/template-autosync.sh" && echo same)" "same"
+}
+
+arm_109_llm_rollback() {
+  echo "== 109 L2945 — a local-LLM helper that fails is rolled back, even when settings.json still parses"
+  build l2945
+  printf '{"hooks":{}}\n' > "$T/.claude/settings.json"
+  printf '{"hooks":{}}\n' > "$P/.claude/settings.json"
+  printf 'import sys\nsys.exit(1)\n' > "$P/scripts/sync-local-llm-hooks.py"
+  commit_both
+  OUT=$(sync 2>&1)
+  has "[109] L2945 the failed helper is reported as rolled back" "$OUT" "local-LLM rewiring FAILED (rolled back)"
+}
+
 want arm_unlisted_glob          && arm_unlisted_glob
 want arm_no_record_is_not_stale && arm_no_record_is_not_stale
 want arm_accept_core            && arm_accept_core
@@ -786,6 +880,11 @@ want arm_l2951_prune_hooks      && arm_l2951_prune_hooks
 want arm_l2991_policy_skill_recorded && arm_l2991_policy_skill_recorded
 want arm_l3790_verify_candidates && arm_l3790_verify_candidates
 want arm_l3929_reverted         && arm_l3929_reverted
+want arm_109_help               && arm_109_help
+want arm_109_quiet_sync         && arm_109_quiet_sync
+want arm_109_symlinked_template && arm_109_symlinked_template
+want arm_109_self_update        && arm_109_self_update
+want arm_109_llm_rollback       && arm_109_llm_rollback
 
 echo
 echo "test-template-autosync-arms.sh: $PASS passed, $FAIL failed"

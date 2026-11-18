@@ -355,5 +355,14 @@ V=$(PATH="$FAKEGIT:$PATH" bash -c '. "$0"; GUARD_ANCHOR=$1; GUARD_ANCHOR_FOLD=0;
   guard_git_boundary "$1/sub"; echo "rc=$? u=[$GUARD_GIT_UNSURE]"' "$LIB" "$JG")
 [ "$V" = "rc=1 u=[]" ] && ok "[100] guard-lib.sh:447 a junk .git below the anchor is no boundary, and git is never asked" || bad "[100] junk .git boundary read as [$V]"
 
+# Spec 109 (F195 class): guard_name_exempt is what lets the pipeline guards pass CLAUDE.md, README and
+# friends. Every name group answers 0, and a source file answers 1.
+V=""
+for n in /p/CLAUDE.md /p/CLAUDE.local.md /p/README /p/LICENSE /p/CHANGELOG /p/.gitignore /p/.env /p/Dockerfile /p/src/App.cs /p/README.sh; do
+  V="$V $(bash -c '. "$0"; guard_name_exempt "$1"; echo $?' "$LIB" "$n")"
+done
+[ "$V" = " 0 0 0 0 0 0 0 0 1 1" ] && ok "[109] guard_name_exempt: the named files are exempt, App.cs and README.sh are not" \
+  || bad "[109] guard_name_exempt answered [$V]"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

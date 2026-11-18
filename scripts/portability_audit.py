@@ -37,6 +37,11 @@ CHECKS = [
     ("xargs -r",     re.compile(r"\bxargs\b[^|;]*\s-r\b"),          None, "GNU xargs only; BSD xargs already skips an empty list."),
     ("head -n -N",   re.compile(r"\bhead\s+-n\s+-[0-9]"),           None, "GNU head only. Use sed."),
     ("sort -V",      re.compile(r"\bsort\b[^|;]*\s-V\b"),           None, "GNU sort only on older macOS."),
+    # Spec 109 (F216): agentcrm's mutation gate passed `-newermt "@$started_at"` and on macOS found no
+    # report on every live run. BSD find reads a date string, never an @epoch. A relative date
+    # ("-24 hours") is read by both and is not flagged.
+    ("find -newerXt @epoch", re.compile(r"-newer[aBcm]t\s+[\"']?@"), None,
+     "GNU find only; BSD find stops with \"Can't parse date/time\". Use a reference file: touch -t <stamp> ref; find ... -newer ref."),
     # Spec 093 (F087): not a platform split but a machine split. Run by hand as `bash scripts/x.sh`,
     # dirname is the relative `scripts`, so cd searches CDPATH first, can land in another clone, and
     # prints the directory into the $(...) that captured it. A file that sources self-test-env.sh is

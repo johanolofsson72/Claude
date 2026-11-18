@@ -34,7 +34,17 @@ S3@@    rm -rf "$RUN"
   fi@@    :
   fi@@arm_leaves_nothing
 S4@@            elif c == "#" and@@            elif False and@@arm_only_live_code
-S5@@        if "# mutant-equivalent:" in line:@@        if False:@@arm_only_live_code
+S5@@    if not m:
+        return cands@@    if True:
+        return cands@@arm_only_live_code
+S16@@        if cands and not keep:
+            marked.add(no)@@        if cands and not keep:
+            pass@@arm_lines_marked
+S17@@        drop.update(hits)@@        drop.update(range(len(cands)))@@arm_per_site_marker
+S18@@        if not sel or not hits:@@        if False:@@arm_per_site_marker
+S19@@    if module.endswith(".py"):@@    if False:@@arm_python_sites
+S20@@            elif s == "in" and fors:@@            elif False:@@arm_python_sites
+S21@@    if not rows:  # every requested line was marked@@    if False:  # every requested line was marked@@arm_lines_marked
 S6@@  export GIT_INDEX_FILE="$RUN/index" GIT_OBJECT_DIRECTORY="$RUN/objects" GIT_ALTERNATE_OBJECT_DIRECTORIES="$OBJ"@@  export GIT_INDEX_FILE="$RUN/index"@@arm_leaves_nothing
 S7@@    sys.exit(0 if score >= brk else 1)@@    sys.exit(0)@@arm_score_and_report
 S8@@safe_path() { case "$1" in /*|*..*|@@safe_path() { case "$1" in *.never-a-path|@@arm_arguments
@@ -42,9 +52,9 @@ S9@@    [ -L "$1/$_p" ] && return 1@@    false && return 1@@arm_hostile_paths
 S10@@  //|"$HOME_P/"|"$ROOT"/*) die@@  //) die@@arm_hostile_paths
 S12@@  //|"$HOME_P/"|"$ROOT"/*) die@@  "$HOME_P/"|"$ROOT"/*) die@@arm_hostile_paths
 S11@@  [ -d "$1" ] && [ -f "$1/$3" ] || { echo "0 0 2"; return; }@@  :@@arm_infra_is_not_a_kill
-S13@@-u GIT_CONFIG_GLOBAL HOME="$1.home"@@-u GIT_CONFIG_GLOBAL@@arm_sandbox_home
+S13@@TMPDIR="$1.tmp" HOME="$1.home" GIT_CONFIG_NOSYSTEM=1@@TMPDIR="$1.tmp" HOME="$HOME" GIT_CONFIG_NOSYSTEM=1@@arm_sandbox_home
 S14@@'"'"'[protocol "https"]'"'"'@@'"'"'[protocol "x-https"]'"'"'@@arm_sandbox_home
-S15@@      -u CLAUDE_TEMPLATE_DIR -u XDG_CONFIG_HOME@@      -u XDG_CONFIG_HOME@@arm_sandbox_home'
+S15@@      ${USER:+USER="$USER"} ${LOGNAME@@      ${CLAUDE_TEMPLATE_DIR:+CLAUDE_TEMPLATE_DIR="$CLAUDE_TEMPLATE_DIR"} ${USER:+USER="$USER"} ${LOGNAME@@arm_sandbox_home'
 
 if [ "${1:-}" = "--sabotage" ]; then
   RED=0; STILL=""; STALE=""
@@ -91,6 +101,25 @@ cat <<'DOC'
 DOC
 echo "quoted -eq text"
 [ -n "$1" ] || exit 3  # mutant-equivalent: fixture marker
+[ -n "$1" ] && [ "$1" -eq 0 ] && echo a  # mutant-equivalent[&&#2]: fixture per-site marker
+EOF
+cat > scripts/stale.sh <<'EOF'
+#!/bin/bash
+[ -n "$1" ] || exit 0  # mutant-equivalent[-eq]: a selector that names no site on this line
+EOF
+cat > scripts/calc.py <<'EOF'
+import sys
+def sign(n):
+    if n == 0:  # "n == 0" in a comment is not a site
+        return "zero"
+    return "pos" if n > 0 else "neg"
+s = "a == b and c in d"
+print(sign(int(sys.argv[1])))
+flag = True and False  # mutant-equivalent[and]: fixture per-site marker
+print([c for c in "ab" if c in "a"]) if len(sys.argv) > 2 else None
+EOF
+cat > scripts/test-calc-py.sh <<'EOF'
+[ "$(python3 scripts/calc.py 0)" = zero ]
 EOF
 cat > scripts/slow.sh <<'EOF'
 #!/bin/bash
@@ -114,8 +143,11 @@ cat > targets <<'EOF'
 scripts/calc.sh scripts/test-calc.sh
 scripts/slow.sh scripts/test-slow.sh
 scripts/red.sh scripts/test-red.sh
+scripts/stale.sh scripts/test-slow.sh
+scripts/calc.py scripts/test-calc-py.sh
 EOF
-git add scripts/calc.sh scripts/slow.sh scripts/red.sh scripts/test-slow.sh scripts/test-red.sh scripts/test-hang.sh targets
+git add scripts/calc.sh scripts/slow.sh scripts/red.sh scripts/test-slow.sh scripts/test-red.sh scripts/test-hang.sh targets \
+  scripts/stale.sh scripts/calc.py scripts/test-calc-py.sh
 git commit -qm fixture
 # The killing test is untracked on purpose: the snapshot must carry it (Q17).
 cat > scripts/test-calc.sh <<'EOF'
@@ -191,11 +223,54 @@ arm_leaves_nothing() {
 
 arm_only_live_code() {
   echo "-- R1: comments, heredocs, quoted text and marked lines are not mutated"
-  for l in 2 6 8 9; do
+  for l in 2 6 8; do
     out=$(run --lines scripts/calc.sh:$l 2>&1); rc=$?
     same "line $l has no mutable site (exit 2)" "$rc" 2
     has  "and says so" "$out" "no mutable site on line(s) $l"
   done
+  out=$(run --lines scripts/calc.sh:9 2>&1); rc=$?
+  same "a marked line alone is exit 2" "$rc" 2
+  has  "and is said to be marked, not mutated" "$out" "scripts/calc.sh:9: marked, skipped"
+}
+
+arm_lines_marked() {
+  echo "-- 109 R2 (F226): --lines passes over a marked line and says so"
+  out=$(run --lines scripts/calc.sh:3,9 2>&1); rc=$?
+  has  "the marked line is named as skipped" "$out" "scripts/calc.sh:9: marked, skipped"
+  has  "the other line is still measured" "$out" "scripts/calc.sh: 1/1 killed"
+  same "and the run scores (exit 0)" "$rc" 0
+  out=$(run --lines scripts/calc.sh:9 2>&1); rc=$?
+  same "only marked lines is exit 2" "$rc" 2
+  has  "nothing to measure is said" "$out" "nothing to measure"
+  hasnt "no score for an empty run" "$out" "mutation score"
+}
+
+arm_per_site_marker() {
+  echo "-- 109 R1 (F227): a per-site marker skips only the sites it names"
+  out=$(run --lines scripts/calc.sh:10 2>&1)
+  has  "three of four sites stay in the gate" "$out" "scripts/calc.sh: 0/3 killed"
+  has  "the first && is still a site" "$out" "calc.sh:10 boolean '&&' -> '||'"
+  has  "the -eq is still a site" "$out" "calc.sh:10 arith_compare '-eq' -> '-ne'"
+  out=$(run --module scripts/stale.sh 2>&1); rc=$?
+  same "a selector naming no site is exit 2" "$rc" 2
+  has  "and names the line and the selector" "$out" "scripts/stale.sh:2: marker selector '-eq' names no site"
+}
+
+arm_python_sites() {
+  echo "-- 109 R3 (F231): a Python module is mutated through tokenize"
+  out=$(run --lines scripts/calc.py:3,5 2>&1)
+  has  "a Python compare is killed and one survives" "$out" "scripts/calc.py: 1/2 killed"
+  has  "the survivor is named with its class" "$out" "survived scripts/calc.py:5 py_compare '>' -> '<='"
+  out=$(run --lines scripts/calc.py:3 2>&1)
+  has  "a == in a comment is not a site" "$out" "scripts/calc.py: 1/1 killed"
+  out=$(run --lines scripts/calc.py:6 2>&1); rc=$?
+  same "operators inside a string are not sites (exit 2)" "$rc" 2
+  out=$(run --lines scripts/calc.py:8 2>&1)
+  has  "a Python per-site marker leaves True and False" "$out" "scripts/calc.py: 0/2 killed"
+  hasnt "and drops the and" "$out" "py_boolean"
+  out=$(run --lines scripts/calc.py:9 2>&1)
+  has  "the in of a for is not a site; the comparison in and the > are" "$out" "scripts/calc.py: 1/2 killed"
+  has  "  the comparison in" "$out" "calc.py:9 py_compare 'in' -> 'not in'"
 }
 
 arm_arguments() {
@@ -352,7 +427,7 @@ EOF
 }
 
 for a in arm_score_and_report arm_timeout_is_not_a_kill arm_red_baseline_is_unmeasured arm_leaves_nothing \
-         arm_only_live_code arm_arguments arm_hostile_paths arm_infra_is_not_a_kill arm_maintenance_stamps arm_seed_reproduces \
+         arm_only_live_code arm_lines_marked arm_per_site_marker arm_python_sites arm_arguments arm_hostile_paths arm_infra_is_not_a_kill arm_maintenance_stamps arm_seed_reproduces \
          arm_sandbox_home arm_sandbox_env; do
   want "$a" && "$a"
 done

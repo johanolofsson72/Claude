@@ -139,6 +139,33 @@ E=$(notice_once PostToolUse "" "k1" "text")
                            || bad "missing session id suppressed a reminder"
 rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID" 2>/dev/null
 
+# Spec 109 (F194): survivors of the H6 mutation sample in hook-notice.sh.
+SID="test-$$-109"
+notice_once PostToolUse "$SID" "k1" "text" >/dev/null; R1=$?
+notice_once PostToolUse "$SID" "k1" "text" >/dev/null; R2=$?
+[ "$R1" -eq 0 ] && [ "$R2" -eq 0 ] && ok "109 notice_once exits 0 when it fires and when it is silent (a hook's last command is its exit)" \
+  || bad "109 notice_once exit codes first=$R1 repeat=$R2 (a non-zero exit is a hook error)"
+rm -rf "${TMPDIR:-/tmp}/claude-hook-notices/$SID" 2>/dev/null
+[ "$(notice_session "orientation banner")" = "orientation banner" ] && ok "109 notice_session prints a non-empty banner" \
+  || bad "109 notice_session swallowed a non-empty banner"
+[ -z "$(notice_session "")" ] && notice_session "" && ok "109 notice_session prints nothing for an empty banner and exits 0" \
+  || bad "109 notice_session printed or failed on an empty banner"
+# No hasher on PATH: every call is "first", never "already said" (a lost reminder is the worse failure).
+NOHASH=$(mktemp -d) || exit 1
+for c in tr cut mkdir find rm; do ln -s "$(command -v "$c")" "$NOHASH/$c"; done
+NH=$(PATH="$NOHASH" "$(command -v bash)" -c '. "$1"; hn_first_time s109 k; a=$?; hn_first_time s109 k; echo "$a $?"' _ "$ROOT/scripts/hook-notice.sh")
+[ "$NH" = "0 0" ] && ok "109 no sha256sum/shasum: every call is first" || bad "109 no hasher read as already said ($NH)"
+# A hasher that prints nothing: an empty stamp is no stamp, so every call is first.
+printf '#!/bin/sh\ncat >/dev/null\n' > "$NOHASH/sha256sum"; chmod +x "$NOHASH/sha256sum"
+NH=$(PATH="$NOHASH" "$(command -v bash)" -c '. "$1"; hn_first_time s109e k; a=$?; hn_first_time s109e k; echo "$a $?"' _ "$ROOT/scripts/hook-notice.sh")
+[ "$NH" = "0 0" ] && ok "109 a hasher that prints nothing: every call is first" || bad "109 an empty stamp read as already said ($NH)"
+rm -rf "$NOHASH" "${TMPDIR:-/tmp}/claude-hook-notices/s109" "${TMPDIR:-/tmp}/claude-hook-notices/s109e" 2>/dev/null
+# A state dir that cannot be made (its base is a file): every call is first, never "already said".
+NOREC=$(mktemp) || exit 1
+NR=$(bash -c '. "$1"; hn_first_time s109 k "$2"; a=$?; hn_first_time s109 k "$2"; echo "$a $?"' _ "$ROOT/scripts/hook-notice.sh" "$NOREC")
+[ "$NR" = "0 0" ] && ok "109 a state dir that cannot be made: every call is first" || bad "109 an unrecordable stamp read as already said ($NR)"
+rm -f "$NOREC"
+
 echo "== 8. the spec-coverage reminder does not fire on the register =="
 # specs/INDEX.md contains the word "spec" in its path like every file under
 # specs/, and the register's rows mention forms, search and upload. It matched,

@@ -709,7 +709,7 @@ scripts/$_b"
 # It names paths and their referrers and stops. The referrer is not decoration: it is what lets a
 # reader dismiss a false positive in one look instead of going and reading the script.
 report_unlisted() {
-  [ -n "$1" ] || return 0
+  [ -n "$1" ] || return 0  # mutant-equivalent[return 0]: all four callers run it bare, followed by more statements or exit 0; the -n and || sites are armed (M54-M55, spec 109)
   tell "[unlisted] script(s) under scripts/ that the list which ships them does not name:"
   printf '%s\n' "$1" | while IFS="$(printf '\t')" read -r _p _r; do
     [ -n "$_p" ] && tell "$(printf '             %-44s %s' "$_p" "$_r")"
@@ -894,7 +894,7 @@ PUSHURLS
 # can put somewhere other than the clone, so both are judged.
 _clone_inside_sandbox() {  # <clone>
   _inside_sandbox "$1" || return 1
-  _cis_g=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null </dev/null) || return 0   # not a repo: nothing to refresh
+  _cis_g=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null </dev/null) || return 0   # not a repo: nothing to refresh  # mutant-equivalent[return 0]: unreachable — refresh_local_template returns before this when the clone is not a repo (rev-parse --git-dir), and a repo answers --git-common-dir (spec 109)
   _inside_sandbox "$_cis_g" "$1"
 }
 
@@ -3991,7 +3991,7 @@ if [ -n "$SYNC_COMMIT" ]; then
   fi
 fi
 
-if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ] && [ -n "$REVERT_RANGE" ]; then  # mutant-equivalent: either &&->|| only differs when STAGED_NUMSTAT is empty (it is set non-empty only in recount_staged, which also sets RECONCILED=1), and an empty STAGED_NUMSTAT yields no candidate, so REVERTED stays empty and nothing is said; the -eq/-z sites are killed by arms M47-M49 (spec 100)
+if [ "$RECONCILED" -eq 1 ] && [ -n "$STAGED_NUMSTAT" ] && [ -n "$REVERT_RANGE" ]; then  # mutant-equivalent[&&]: either &&->|| only differs when STAGED_NUMSTAT is empty (it is set non-empty only in recount_staged, which also sets RECONCILED=1), and an empty STAGED_NUMSTAT yields no candidate, so REVERTED stays empty and nothing is said; the -eq/-n sites stay in the gate and arms M47-M49 kill them (spec 100, 109)
   REVERTED=""
   # Stage 1. Field 3 is the path; a rename renders `old => new` there and is dropped by the
   # basename split below rather than being asked about, which is correct — the sync does not

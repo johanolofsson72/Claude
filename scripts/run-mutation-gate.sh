@@ -12,8 +12,15 @@
 # Operators, one class each: arithmetic comparison (-eq/-ne, -lt/-ge, -gt/-le), string test
 # (-z/-n right after `[`, `[[` or `test`), boolean (&& / ||), exit/return code (0 -> 1, n -> 0)
 # and file-test negation (`[ -f X` -> `[ ! -f X`, also -d -e -s -x). Only shell code is mutated:
-# comments, quoted text, awk/python programs in quotes and heredoc bodies are not. A line that
-# carries `# mutant-equivalent: <reason>` is skipped, and the reason is the record.
+# comments, quoted text, awk/python programs in quotes and heredoc bodies are not. A `.py` module
+# is read with tokenize (spec 109, F231): py_compare (== != < >= > <=, in / not in, is / is not),
+# py_boolean (and / or), py_const (True / False); strings and comments are never sites.
+#
+# A line that carries `# mutant-equivalent: <reason>` is skipped, and the reason is the record.
+# `# mutant-equivalent[<sel>,...]: <reason>` skips only the named sites (spec 109, F227): a
+# selector is the site's text as the report prints it (`&&`, `-z`, `exit 1`) or its class, and
+# `&&#2` is the second `&&` on the line. A selector that names no site is exit 2. --lines passes
+# over a line whose every site is marked and says so (F226).
 #
 # The sample is stratified round-robin across operator classes from a seeded RNG. The default seed
 # is today's UTC date, so every day draws a fresh sample (F071: a fixed sample gets armed and the
@@ -99,7 +106,8 @@ cd "$ROOT" || die "cannot enter $ROOT"
 IFS= read -r -d '' PY <<'PYEOF'
 import json, os, random, re, sys
 
-CLASSES = ["arith_compare", "string_test", "boolean", "exit_code", "file_test"]
+# Python classes go last: shuffling an empty list draws nothing, so a bash seed still reproduces.
+CLASSES = ["arith_compare", "string_test", "boolean", "exit_code", "file_test", "py_compare", "py_boolean", "py_const"]
 ARITH = {"-eq": "-ne", "-ne": "-eq", "-lt": "-ge", "-ge": "-lt", "-gt": "-le", "-le": "-gt"}
 HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 
@@ -195,16 +203,88 @@ def candidates(line, mask):
             out.append(("file_test", m.start(1), m.group(1), "! " + m.group(1)))
     return out
 
-def sites(module):
+PY_COMPARE = {"==": "!=", "!=": "==", "<": ">=", ">=": "<", ">": "<=", "<=": ">"}
+PY_NAMES = {"and": ("py_boolean", "or"), "or": ("py_boolean", "and"),
+            "True": ("py_const", "False"), "False": ("py_const", "True")}
+
+def py_candidates(text):
+    """Per line number, the (cls, col, before, after) sites of a Python module. tokenize, so text
+    in strings, f-strings, docstrings and comments is never a site. The `in` that belongs to a
+    `for` (loop or comprehension) is not a comparison and is passed over."""
+    import io, tokenize
+    out, fors, prev = {}, 0, None
+    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+        kind, s, (row, col), line = tok.type, tok.string, tok.start, tok.line
+        site = None
+        if kind == tokenize.OP and s in PY_COMPARE:
+            site = ("py_compare", col, s, PY_COMPARE[s])
+        elif kind == tokenize.NAME:
+            if s == "for":
+                fors += 1
+            elif s == "in" and prev is not None and prev.string == "not" and prev.start[0] == row:
+                pass                                    # taken with its `not` below
+            elif s == "in" and fors:
+                fors -= 1
+            elif s == "in":
+                site = ("py_compare", col, "in", "not in")
+            elif s == "not" and line[col:col + 6] == "not in":
+                site = ("py_compare", col, "not in", "in")
+            elif s == "is":
+                site = ("py_compare", col, "is not", "is") if line[col:col + 6] == "is not" else ("py_compare", col, "is", "is not")
+            elif s in PY_NAMES:
+                cls, new = PY_NAMES[s]
+                site = (cls, col, s, new)
+        elif kind == tokenize.NEWLINE:
+            fors = 0
+        if site:
+            out.setdefault(row, []).append(site)
+        if kind not in (tokenize.NL, tokenize.COMMENT):
+            prev = tok
+    return out
+
+MARKER = re.compile(r"#\s*mutant-equivalent(?:\[([^\]]*)\])?:")
+
+class StaleMarker(Exception):
+    pass
+
+def unmarked(module, no, line, cands):
+    """The candidates a `# mutant-equivalent` marker on this line leaves mutable. Bare: none.
+    `[sel,...]`: all but the sites a selector names (site text or class, `#n` = n-th of that text)."""
+    m = MARKER.search(line)
+    if not m:
+        return cands
+    if m.group(1) is None:
+        return []
+    cands = sorted(cands, key=lambda c: c[1])
+    drop = set()
+    for sel in (x.strip() for x in m.group(1).split(",")):
+        name, _, nth = sel.partition("#")
+        hits = [i for i, c in enumerate(cands) if c[2] == name or c[0] == name]
+        if nth:
+            hits = hits[int(nth) - 1:int(nth)] if nth.isdigit() and int(nth) > 0 else []
+        if not sel or not hits:
+            raise StaleMarker("%s:%d: marker selector '%s' names no site" % (module, no, sel))
+        drop.update(hits)
+    return [c for i, c in enumerate(cands) if i not in drop]
+
+def sites(module, rel=None):
+    """(found, marked): every mutable site, and the lines whose sites are all marked equivalent."""
+    rel = rel or module
     text = open(module, encoding="utf-8", errors="surrogateescape", newline="").read()
     lines = text.split("\n")
-    found = []
-    for no, (line, mask) in enumerate(zip(lines, code_mask(lines)), 1):
-        if "# mutant-equivalent:" in line:
-            continue
-        for cls, col, before, after in candidates(line, mask):
+    if module.endswith(".py"):
+        by_line = py_candidates(text)
+        per_line = [by_line.get(no, []) for no in range(1, len(lines) + 1)]
+    else:
+        per_line = [candidates(line, mask) for line, mask in zip(lines, code_mask(lines))]
+    found, marked = [], set()
+    for no, (line, cands) in enumerate(zip(lines, per_line), 1):
+        keep = unmarked(rel, no, line, cands)
+        if cands and not keep:
+            marked.add(no)
+        for cls, col, before, after in keep:
             found.append((no, col, cls, before, after))
-    return found
+    return found, marked
 
 def cmd_sites(args):
     # sites <out.tsv> <base dir> <seed> <sample> <index>:<module>[:<lines>] ...
@@ -212,11 +292,18 @@ def cmd_sites(args):
     rows, notes = [], []
     for spec in specs:
         idx, module, *rest = spec.split(":")
-        found = sites(os.path.join(base, module))
+        try:
+            found, marked = sites(os.path.join(base, module), module)
+        except StaleMarker as e:
+            print("run-mutation-gate: %s" % e, file=sys.stderr)
+            sys.exit(2)
         if rest and rest[0]:
             wanted = set(int(x) for x in rest[0].split(","))
             picked = [s for s in found if s[0] in wanted]
             bare = sorted(wanted - set(s[0] for s in picked))
+            for no in [b for b in bare if b in marked]:
+                print("run-mutation-gate: %s:%d: marked, skipped" % (module, no), file=sys.stderr)
+            bare = [b for b in bare if b not in marked]
             if bare:
                 print("run-mutation-gate: %s: no mutable site on line(s) %s" % (module, ",".join(map(str, bare))), file=sys.stderr)
                 sys.exit(2)
@@ -240,6 +327,9 @@ def cmd_sites(args):
                 notes.append("%s: %d requested, %d sites" % (module, sample, len(picked)))
         for no, col, cls, before, after in picked:
             rows.append((idx, module, no, col, cls, before, after))
+    if not rows:  # every requested line was marked: an empty run is not a pass (Trap 4)
+        print("run-mutation-gate: nothing to measure", file=sys.stderr)
+        sys.exit(2)
     with open(out, "w", encoding="utf-8") as f:
         for i, r in enumerate(rows, 1):
             f.write("m%03d\t%s\t%s\t%d\t%d\t%s\t%s\t%s\n" % ((i,) + r))
@@ -341,7 +431,13 @@ scripts/settings-edit-guard-hook.sh scripts/test-settings-edit-guard.sh
 scripts/guard-lib.sh scripts/test-guard-canonical-paths.sh scripts/test-guard-root-anchor.sh scripts/test-guard-lib.sh scripts/test-guard-fail-closed.sh
 scripts/guard-precheck.sh scripts/test-guard-canonical-paths.sh
 scripts/spec-interview-guard-hook.sh scripts/test-guard-canonical-paths.sh scripts/test-guard-root-anchor.sh scripts/test-guard-fail-closed.sh
-scripts/destructive-command-guard-hook.sh scripts/test-destructive-command-guard.sh'
+scripts/destructive-command-guard-hook.sh scripts/test-destructive-command-guard.sh scripts/test-guard-fail-closed.sh
+scripts/hook-notice.sh scripts/test-hook-channels.sh scripts/test-guard-lib.sh
+scripts/trust-anchor-guard-hook.sh scripts/test-trust-anchor-guard.sh scripts/test-guard-fail-closed.sh
+scripts/settings_guard.py scripts/test-settings-edit-guard.sh
+scripts/sensitive_paths.py scripts/test-sensitive-file-guard.sh
+scripts/shell_glob.py scripts/test-trust-anchor-guard.sh scripts/test-settings-edit-guard.sh
+scripts/bash_write_targets.py scripts/test-bash-write-guard.sh'
 if [ -n "${MUTATION_TARGETS:-}" ]; then
   [ -f "$MUTATION_TARGETS" ] || die "MUTATION_TARGETS names no file: $MUTATION_TARGETS"
   TARGETS=$(grep -v '^[[:space:]]*#' "$MUTATION_TARGETS" | grep .)

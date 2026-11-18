@@ -34,7 +34,7 @@ bad() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n         expected: %s\n         a
 # it tests (C6 runs the gate over scripts/*.sh, this file included); the real
 # word is substituted only in the copy the audit reads.
 audit_of() {
-  sed 's/ST@T/stat/g' > "$TMP/$1.sh"
+  sed 's/ST@T/stat/g; s/N3WER/newer/g' > "$TMP/$1.sh"
   OUT=$(PORT_ROOT="$TMP" python3 "$ENGINE" "$TMP/$1.sh" 2>&1); RC=$?
 }
 expect_flag() {  # $1 label · $2 needle expected in the output
@@ -159,6 +159,29 @@ audit_of cd_selftest <<'EOF'
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 EOF
 expect_clean "093-SC-E a file that sources self-test-env.sh is exempt (CDPATH already unset)"
+
+# ------------------------------------------------ C8 — an @epoch for find (spec 109, F216)
+printf '\n  -- C8  find with an @epoch date is GNU only\n'
+audit_of newer_epoch <<'EOF'
+report=$(find "$root" -name r.json -N3WERmt "@$started_at" 2>/dev/null | head -1)
+EOF
+expect_flag "109-R4 -newermt \"@\$epoch\" is flagged" '[find -newerXt @epoch]'
+case "$OUT" in *'-newer ref'*) ok "  and the advice names a reference file" ;; *) bad "  and the advice names a reference file" "-newer ref" "$OUT" ;; esac
+audit_of newer_epoch_bare <<'EOF'
+find . -N3WERct @1700000000 -print
+EOF
+expect_flag "109-R4 a bare @epoch on -newerct is flagged" '[find -newerXt @epoch]'
+audit_of newer_relative <<'EOF'
+find .claude/worktrees -maxdepth 0 -N3WERmt "-876000 hours" -print
+touch -t 202611170000 "$ref"; find . -newer "$ref" -print
+EOF
+expect_clean "109-R4 a relative date and a reference file are clean"
+# The advised form, run for real on this platform: a reference file and -newer find a newer file.
+touch -t 200001010000 "$TMP/ref"; : > "$TMP/fresh"
+case "$(find "$TMP" -name fresh -newer "$TMP/ref" 2>/dev/null)" in
+  *fresh) ok "109-R4 touch -t + -newer works on this platform" ;;
+  *) bad "109-R4 touch -t + -newer works on this platform" "fresh" "nothing" ;;
+esac
 
 # ------------------------------------------------ C6 — the repo passes its own gate
 printf '\n  -- C6  every scripts/*.sh passes\n'

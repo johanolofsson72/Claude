@@ -234,7 +234,7 @@ _guard_stored_name() {
   local n="$1" pat="" i c m
   GUARD_STORED="$n"
   [ "$GUARD_ANCHOR_FOLD" -eq 1 ] || return 0
-  { [ -e "$n" ] || [ -L "$n" ]; } || return 0
+  { [ -e "$n" ] || [ -L "$n" ]; } || return 0  # mutant-equivalent[return 0]: the status is read nowhere; the one caller (guard_canon's walk) runs this bare and reads GUARD_STORED, already set (spec 109)
   for ((i = 0; i < ${#n}; i++)); do
     c=${n:i:1}
     case "$c" in [[:alpha:]]) pat="$pat[$c]" ;; *) pat="$pat\\$c" ;; esac
