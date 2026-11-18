@@ -489,7 +489,7 @@ case "$ROOT/" in "$WORKDIR"/*) die "MUTATION_WORKDIR may not contain the reposit
 # A run killed with SIGKILL leaves its dir. Collect only dirs this runner made (the marker) whose
 # owner is gone; a live run of any age is left alone.
 for d in "$WORKDIR"/run.??????; do
-  [ -f "$d/.mutation-gate-run" ] || continue
+  [ -s "$d/.mutation-gate-run" ] || continue   # H8: -s, not -f; a live run creates the marker empty, then writes its pid
   kill -0 "$(cat "$d/.mutation-gate-run" 2>/dev/null)" 2>/dev/null && continue
   rm -rf "$d"
 done
@@ -608,7 +608,7 @@ run_test() { # run_test <copy> <limit> <test> -> echoes "<rc> <seconds> <0 ran |
   _s=$SECONDS
   # Spec 098 R5 (F143): an allowlist, not a denylist. The old list of nine let GIT_SSH_COMMAND,
   # GIT_CONFIG_* and cloud tokens through. GIT_CONFIG_NOSYSTEM: macOS keeps credential.helper there.
-  ( cd "$1" && env -i PATH="$SAFE_PATH" TMPDIR="$1.tmp" HOME="$1.home" GIT_CONFIG_NOSYSTEM=1 \
+  ( cd "$1" && env -i PATH="$SAFE_PATH" TMPDIR="$1.tmp" HOME="$1.home" GIT_CONFIG_NOSYSTEM=1 PYTHONDONTWRITEBYTECODE=1 \
       ${LANG:+LANG="$LANG"} ${LC_ALL:+LC_ALL="$LC_ALL"} ${LC_CTYPE:+LC_CTYPE="$LC_CTYPE"} ${TERM:+TERM="$TERM"} \
       ${USER:+USER="$USER"} ${LOGNAME:+LOGNAME="$LOGNAME"} ${SHELL:+SHELL="$SHELL"} \
       "$TO" -k 5 "$2" bash -- "$3" </dev/null >/dev/null 2>&1 )

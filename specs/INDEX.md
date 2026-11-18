@@ -126,12 +126,13 @@ Order of execution. Tick when done. Append new rows to the end.
 - [x] 107 — maintenance-report-honesty — spec-only — the pass quotes every FAIL, emits per section, bounds mutation and ratchets, scans the right register. F180 F181 F191 F200–F202 F204 F224 F225
 - [x] 108 — settings-guard-false-positives — spec-only — read-only pipes, sed -n, scratch paths and quoted patterns derived as settings writes. F193 F221 F229 F232
 - [x] 109 — mutation-tooling — spec-only — kill the 2026-10/11 survivors; per-site markers, marked lines skipped, BSD find, a gate for the Python guards. F171 F179 F194 F195 F216 F226 F227 F230 F231
+- [x] H8 — integration-hardening — checkpoint — full regression + security sweep + mutation spot-check over 105–109.
 - [ ] 110 — register-lane-tooling — spec-only — collision-free finding ids, checkpoint-cadence by H number, lane owner tag, row-id archiving, SC-id uniqueness. F197–F199 F210 F213–F215 F217–F219 F237
 
 ## Register history (newest first)
 
+- 2026-11-18 — H8 ticked: suite 97 green, 3 one-line fixes in place, F286–F297 recorded (sweep, mutation, runner self-target), no row carved.
 - 2026-11-18 — 109 ticked: R1–R6 built, every cited survivor killed or marked per site, suite green, F284–F285 recorded (fresh sample), no row carved.
 - 2026-11-17 — 108 ticked: R1–R8 built, review's 7 bypasses and an older quoted-$( ) hole fixed in place, suite 97/97 stamped, F283 recorded, no row carved.
 - 2026-11-17 — 107 ticked: R1–R7 built, suite 97/97 stamped after one in-place SIGPIPE fix, F278–F281 recorded, no row carved; mod +x is the developer's.
 - 2026-11-17 — 105 ticked: R1–R13 built, F258 fixed in place, F259–F270 recorded (F264 resolved), no row carved.
-- 2026-11-17 — H7 ticked: suite 97/97 stamped; F247–F257 recorded (sweep + mutation), one test fail-open fixed in place, no row carved.

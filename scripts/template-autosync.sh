@@ -1449,7 +1449,7 @@ resolve_remote_template() {
     warn "[pin] cannot show CLAUDE_TEMPLATE_PIN $TEMPLATE_SHA is on the template's main ($PIN_WHY) — not synced"
     return 4
   fi
-  TEMPLATE_TMP=$(mktemp -d 2>/dev/null || mktemp -d -t claude-template)
+  TEMPLATE_TMP=$(mktemp -d 2>/dev/null || mktemp -d -t claude-template) || return 1   # H8: an empty value made the target /template.tar.gz
   # Spec 082 (H2 adversarial finding 16). To a file first, never piped into tar: the bytes are checked
   # before anything is extracted. --proto keeps a redirect from downgrading to http.
   _tgz="$TEMPLATE_TMP/template.tar.gz"

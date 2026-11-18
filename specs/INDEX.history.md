@@ -3,6 +3,8 @@
 Old history entries moved out of INDEX.md to keep per-spec context cheap.
 This file is NOT read during the pipeline. Newest archived batch first.
 
+- 2026-11-17 — H7 ticked: suite 97/97 stamped; F247–F257 recorded (sweep + mutation), one test fail-open fixed in place, no row carved.
+
 - 2026-11-17 — finding review (77 open): H7 + 105–110 added; 11 duplicate finding ids renumbered F236–F246; 6 resolved as fixed, 17 dropped; F235 open until the developer applies its settings twins.
 
 - 2026-11-16 — H6 ticked: suite 96/96 stamped after two in-place test fixes; F184–F195, F224, F225 recorded, no row carved.
