@@ -737,6 +737,32 @@ guard_walk_exempt() {
   return 1
 }
 
+# guard_merge_exempt <canonical-file>: 0 while MERGE_HEAD exists AND either side of the merge changed
+# this file since the merge base. Finishing a merge is reconciling two authors' committed work, not
+# writing the active spec's code — and the merge that closes a spec runs AFTER its row is ticked, by
+# which time "the active spec" is the next row, which has no artifacts at all.
+#
+# Scoped to that set on purpose: "any edit while a merge is open" would make `git merge --no-commit` a
+# way past the pipeline guards. A file neither side touched is judged as usual, and any git failure
+# falls through to the guard's own verdict — never to allow.
+#
+# Written twice before it was shared. pipeline-state-guard got it at row 059 (agentcrm F094);
+# spec-interview-guard did not, and agentcrm F1728 found the half: with row 228 ticked and pushed,
+# every one of the fifteen files its merge of origin/main needed — four conflicts and eleven carrying
+# ids that collided with the other lane's — was denied to Edit, Write and sed alike, so a finished
+# spec could not be landed on main at all. The other lane escaped it only by merging main into the
+# branch BEFORE ticking.
+guard_merge_exempt() {
+  [ -n "${GUARD_GIT_ROOT:-}" ] || return 1
+  git -C "$GUARD_GIT_ROOT" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 || return 1
+  _GME_REL=${1#"$GUARD_GIT_ROOT"/}
+  [ "$_GME_REL" != "$1" ] || return 1
+  {
+    git -C "$GUARD_GIT_ROOT" diff --name-only HEAD...MERGE_HEAD 2>/dev/null
+    git -C "$GUARD_GIT_ROOT" diff --name-only MERGE_HEAD...HEAD 2>/dev/null
+  } | grep -qxF -- "$_GME_REL"
+}
+
 # ------------------------------------------------------------------ root-anchored exemptions
 # guard_root_exempt <relative-path>: 0 when the path is under one of the four tooling directories AT
 # THE ROOT it is relative to (spec 083 R5, F041). The pipeline guards never block their own repair

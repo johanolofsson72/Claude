@@ -123,6 +123,13 @@ GIT_ROOT=$GUARD_GIT_ROOT; LANG_MARKER=$GUARD_LANG_MARKER; REGISTER=$GUARD_REGIST
 # 3c) Directory allowlist, anchored to the git root and the register root (spec 083, R5, F041).
 guard_walk_exempt "$FILE" && exit 0
 
+# 3d) MID-MERGE: a file either side of an open merge changed since the base. Finishing a merge is
+#     reconciling two authors' committed work, not writing the active spec's code — and the merge
+#     that closes a spec runs after its row is ticked, when the active spec is the next row with no
+#     artifacts (row 059 / F094 gave pipeline-state-guard this; agentcrm F1728 found that this guard
+#     never got it, and a ticked, pushed spec could not be merged to main at all).
+guard_merge_exempt "$FILE" && exit 0
+
 # 4) Parse register + count answered interview questions in Python.
 MIN_QUESTIONS="${SPEC_INTERVIEW_MIN:-15}"
 INTERVIEW_MODE="${SPEC_INTERVIEW_MODE:-auto}"
