@@ -1122,12 +1122,12 @@ expect_rc       "C91 the pass did not wait for it" 0 "$( [ $((T1 - T0)) -lt 5 ];
 expect_rc       "C91 verdict is red" 1 "$RC"
 
 # --- C92: a reasoned skip marker keeps it from running and says why (AC4) ---------------------------
-D=$(mkfix c92); mkratchet "$D" check-env.sh '# maintenance: skip needs the production .env
+D=$(mkfix c92); mkratchet "$D" check-fixture-env.sh '# maintenance: skip needs the production .env
 echo ran > .ratchet-ran; exit 1'
 OUT=$(run "$D"); RC=$?
 expect_absent   "C92 skipped — no finding"                       "[RATCHET]" "$OUT"
 expect_rc       "C92 skipped — never executed" 1 "$( [ -f "$D/.ratchet-ran" ]; echo $?)"
-expect_contains "C92 the note names the ratchet and the reason"  "scripts/check-env.sh — needs the production .env" "$OUT"
+expect_contains "C92 the note names the ratchet and the reason"  "scripts/check-fixture-env.sh — needs the production .env" "$OUT"
 expect_rc       "C92 verdict is green" 0 "$RC"
 
 # --- C93: a skip marker with no reason is ignored, and the note says so (AC5) -----------------------
